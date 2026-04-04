@@ -1,0 +1,497 @@
+<!-- 연차 관리 탭 — 출퇴근기록부에서 분리된 독립 페이지 -->
+<div x-init="loadLeaveSummary()">
+<style>
+  .leave-wrap { max-width:1200px; margin:0 auto; }
+  .leave-card { background:#fff; border:1px solid #e2e6ee; border-radius:10px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+  .leave-card-hdr { padding:8px 14px; background:linear-gradient(135deg,#fffbeb,#fef3c7); border-bottom:1px solid #fde68a; display:flex; align-items:center; gap:8px; }
+  .leave-tbl { width:100%; border-collapse:collapse; font-size:11px; }
+  .leave-tbl thead th { padding:6px 8px; text-align:center; font-weight:700; color:#6b7280; font-size:10px; background:#f8f9fb; border-bottom:1.5px solid #e0e4eb; position:sticky; top:0; z-index:2; white-space:nowrap; }
+  .leave-tbl tbody td { padding:5px 6px; text-align:center; border-bottom:1px solid #f3f4f6; }
+  .leave-tbl tbody tr:hover { background:#fffbeb; }
+  .leave-tbl .name-cell { text-align:left; font-weight:600; color:#1e293b; cursor:pointer; }
+  .leave-tbl .name-cell:hover { color:#d97706; text-decoration:underline; }
+  .leave-num { font-variant-numeric:tabular-nums; }
+  .leave-badge { font-size:9px; font-weight:700; padding:1px 6px; border-radius:8px; display:inline-block; }
+  .leave-badge-good { background:#dcfce7; color:#16a34a; }
+  .leave-badge-warn { background:#fef9c3; color:#92400e; }
+  .leave-badge-danger { background:#fee2e2; color:#dc2626; }
+  .leave-sub-btn { font-size:10px; font-weight:600; padding:4px 12px; border-radius:6px; border:1px solid #e5e7eb; background:#fff; color:#6b7280; cursor:pointer; transition:all .15s; }
+  .leave-sub-btn.active { background:#d97706; color:#fff; border-color:#d97706; }
+  .leave-sub-btn:hover:not(.active) { background:#f9fafb; }
+  .leave-month { min-width:32px; font-size:10px; }
+  .leave-month-has { background:#fffbeb; font-weight:700; color:#b45309; }
+  /* 상세 모달 */
+  .leave-modal-overlay { position:fixed; inset:0; z-index:1000; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.4); }
+  .leave-modal { background:#fff; border-radius:12px; padding:20px; width:520px; max-width:92vw; max-height:85vh; overflow-y:auto; box-shadow:0 8px 30px rgba(0,0,0,.15); }
+  .leave-detail-tbl { width:100%; border-collapse:collapse; font-size:10.5px; margin-top:8px; }
+  .leave-detail-tbl th { padding:4px 6px; background:#f8f9fb; font-weight:600; font-size:9px; color:#6b7280; text-align:center; border-bottom:1px solid #e0e4eb; }
+  .leave-detail-tbl td { padding:4px 6px; text-align:center; border-bottom:1px solid #f3f4f6; font-size:10px; }
+  @media print {
+    .leave-no-print { display:none !important; }
+    .leave-tbl { font-size:9px; }
+    .leave-tbl thead th { font-size:8px; padding:3px 4px; }
+    .leave-tbl tbody td { padding:3px 4px; }
+  }
+</style>
+
+<div class="leave-wrap space-y-4 fade-in">
+
+  <!-- 헤더 카드 -->
+  <div class="leave-card">
+    <div class="leave-card-hdr">
+      <span class="material-symbols-outlined" style="font-size:16px;color:#d97706;">event_available</span>
+      <h3 class="text-[13px] font-bold text-gray-800 m-0">연차 관리</h3>
+    </div>
+    <div style="padding:10px 14px;" class="leave-no-print">
+      <div class="flex flex-wrap items-center gap-3">
+        <!-- 연도 선택 -->
+        <div>
+          <label class="label-base">연도</label>
+          <select x-model="attendance.leaveYear" @change="loadLeaveSummary()" class="input-base" style="width:90px;font-size:11px;padding:4px 8px;">
+            <template x-for="y in [2024,2025,2026,2027]"><option :value="y" x-text="y+'년'"></option></template>
+          </select>
+        </div>
+        <!-- 퇴사자 토글 -->
+        <label style="font-size:10px;color:#6b7280;display:flex;align-items:center;gap:4px;cursor:pointer;margin-top:16px;">
+          <input type="checkbox" x-model="attendance.showResigned" @change="loadLeaveSummary()">
+          퇴사자 포함
+        </label>
+        <!-- 서브탭 -->
+        <div class="ml-auto flex gap-1">
+          <button class="leave-sub-btn" :class="attendance.leaveSubTab==='summary'?'active':''" @click="attendance.leaveSubTab='summary'">현황</button>
+          <button class="leave-sub-btn" :class="attendance.leaveSubTab==='records'?'active':''" @click="attendance.leaveSubTab='records'; loadLeaveRecordsList()">사용내역</button>
+          <button class="leave-sub-btn" :class="attendance.leaveSubTab==='adjustments'?'active':''" @click="attendance.leaveSubTab='adjustments'; loadAdjustments()" x-show="auth.role==='admin'">추가/공제</button>
+        </div>
+        <!-- 액션 버튼 -->
+        <div class="flex gap-1" style="margin-top:16px;">
+          <button x-show="auth.role==='admin'" @click="syncLeaveFromAttendance()" :disabled="attendance._syncing"
+            class="btn-primary" style="height:28px;padding:0 10px;font-size:10px;background:#d97706;">
+            <span class="material-symbols-outlined" style="font-size:12px;" x-text="attendance._syncing?'hourglass_empty':'sync'"></span>
+            동기화
+          </button>
+          <button @click="printLeavePdf()" class="btn-primary" style="height:28px;padding:0 10px;font-size:10px;background:#374151;">
+            <span class="material-symbols-outlined" style="font-size:12px;">picture_as_pdf</span>
+            PDF
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 로딩 -->
+  <div x-show="attendance.leaveLoading" style="text-align:center;padding:40px;color:#9ca3af;">
+    <span class="material-symbols-outlined" style="font-size:32px;animation:spin 1s linear infinite;">progress_activity</span>
+    <div style="margin-top:8px;font-size:12px;">데이터 로드 중...</div>
+  </div>
+
+  <!-- ===== 서브탭: 현황 ===== -->
+  <template x-if="!attendance.leaveLoading && attendance.leaveSubTab==='summary'">
+    <div class="leave-card" id="leave-print-area">
+      <div style="padding:10px 14px;">
+        <!-- 인쇄용 헤더 (화면에선 숨김) -->
+        <div style="display:none;" class="leave-print-header">
+          <h2 style="text-align:center;font-size:16px;font-weight:700;margin:0 0 4px;">연차 현황표</h2>
+          <p style="text-align:center;font-size:11px;color:#6b7280;margin:0 0 12px;" x-text="attendance.leaveYear + '년'"></p>
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="leave-tbl">
+            <thead>
+              <tr>
+                <th style="width:30px;">No</th>
+                <th style="min-width:60px;">성명</th>
+                <th>부서</th>
+                <th>직위</th>
+                <th>입사일</th>
+                <th style="color:#2563eb;">발생</th>
+                <th style="color:#16a34a;">추가</th>
+                <th style="color:#dc2626;">공제</th>
+                <th style="color:#4f6ef7;font-weight:800;">총연차</th>
+                <th style="color:#b45309;">사용</th>
+                <th style="color:#7c3aed;">수당</th>
+                <th style="color:#059669;font-weight:800;">잔여</th>
+                <template x-for="m in [1,2,3,4,5,6,7,8,9,10,11,12]">
+                  <th class="leave-month" x-text="m+'월'"></th>
+                </template>
+                <th class="leave-no-print" x-show="auth.role==='admin'" style="width:36px;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(emp, idx) in attendance.leaveSummary" :key="emp.name">
+                <tr>
+                  <td class="leave-num" x-text="idx+1" style="color:#9ca3af;font-size:9px;"></td>
+                  <td class="name-cell" @click="openLeaveDetail(emp)" x-text="emp.name"></td>
+                  <td style="font-size:10px;color:#6b7280;" x-text="emp.department||''"></td>
+                  <td style="font-size:10px;color:#6b7280;" x-text="emp.position||''"></td>
+                  <td style="font-size:9px;color:#9ca3af;" x-text="emp.hireDate?emp.hireDate.substring(0,10):''"></td>
+                  <td class="leave-num" style="color:#2563eb;" x-text="emp.annualLeave||0"></td>
+                  <td class="leave-num" style="color:#16a34a;" x-text="emp.additionalDays||0"></td>
+                  <td class="leave-num" style="color:#dc2626;" x-text="emp.deductedDays||0"></td>
+                  <td class="leave-num" style="color:#4f6ef7;font-weight:700;" x-text="emp.totalLeave||0"></td>
+                  <td class="leave-num" style="color:#b45309;font-weight:600;" x-text="emp.usedDays||0"></td>
+                  <td class="leave-num" style="color:#7c3aed;" x-text="emp.paidDays||0"></td>
+                  <td>
+                    <span class="leave-badge" :class="emp.remainingDays>5?'leave-badge-good':emp.remainingDays>0?'leave-badge-warn':'leave-badge-danger'" x-text="emp.remainingDays??0"></span>
+                  </td>
+                  <template x-for="m in [1,2,3,4,5,6,7,8,9,10,11,12]">
+                    <td class="leave-month leave-num" :class="(emp.monthly&&emp.monthly[m])?'leave-month-has':''" x-text="(emp.monthly&&emp.monthly[m])||''"></td>
+                  </template>
+                  <td class="leave-no-print" x-show="auth.role==='admin'">
+                    <button @click="openLeaveAdd(emp.name)" style="background:none;border:none;cursor:pointer;color:#d97706;font-size:14px;padding:0;" title="휴가 등록">
+                      <span class="material-symbols-outlined" style="font-size:14px;">add_circle</span>
+                    </button>
+                  </td>
+                </tr>
+              </template>
+              <!-- 합계 행 -->
+              <tr style="background:#f8f9fb;font-weight:700;border-top:2px solid #e0e4eb;">
+                <td colspan="5" style="text-align:right;color:#374151;padding-right:10px;">합계</td>
+                <td class="leave-num" style="color:#2563eb;" x-text="attendance.leaveSummary.reduce((s,e)=>s+(e.annualLeave||0),0)"></td>
+                <td class="leave-num" style="color:#16a34a;" x-text="attendance.leaveSummary.reduce((s,e)=>s+(e.additionalDays||0),0)"></td>
+                <td class="leave-num" style="color:#dc2626;" x-text="attendance.leaveSummary.reduce((s,e)=>s+(e.deductedDays||0),0)"></td>
+                <td class="leave-num" style="color:#4f6ef7;" x-text="attendance.leaveSummary.reduce((s,e)=>s+(e.totalLeave||0),0)"></td>
+                <td class="leave-num" style="color:#b45309;" x-text="attendance.leaveSummary.reduce((s,e)=>s+(e.usedDays||0),0)"></td>
+                <td class="leave-num" style="color:#7c3aed;" x-text="attendance.leaveSummary.reduce((s,e)=>s+(e.paidDays||0),0)"></td>
+                <td class="leave-num" style="color:#059669;" x-text="attendance.leaveSummary.reduce((s,e)=>s+(e.remainingDays||0),0)"></td>
+                <template x-for="m in [1,2,3,4,5,6,7,8,9,10,11,12]">
+                  <td class="leave-month leave-num" x-text="attendance.leaveSummary.reduce((s,e)=>s+((e.monthly&&e.monthly[m])||0),0)||''"></td>
+                </template>
+                <td class="leave-no-print" x-show="auth.role==='admin'"></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- ===== 서브탭: 사용내역 ===== -->
+  <template x-if="!attendance.leaveLoading && attendance.leaveSubTab==='records'">
+    <div class="leave-card">
+      <div style="padding:10px 14px;">
+        <!-- 필터 -->
+        <div class="flex flex-wrap gap-2 mb-3 leave-no-print" style="font-size:10px;">
+          <select x-model="attendance.recordsFilter.name" class="input-base" style="width:100px;font-size:10px;padding:3px 6px;">
+            <option value="">전체 직원</option>
+            <template x-for="emp in attendance.leaveSummary"><option :value="emp.name" x-text="emp.name"></option></template>
+          </select>
+          <select x-model="attendance.recordsFilter.type" class="input-base" style="width:80px;font-size:10px;padding:3px 6px;">
+            <option value="">전체 유형</option>
+            <option value="연차">연차</option>
+            <option value="오전반차">오전반차</option>
+            <option value="오후반차">오후반차</option>
+            <option value="경조휴가">경조휴가</option>
+            <option value="예비군">예비군</option>
+          </select>
+          <select x-model="attendance.recordsFilter.month" class="input-base" style="width:70px;font-size:10px;padding:3px 6px;">
+            <option value="">전체 월</option>
+            <template x-for="m in [1,2,3,4,5,6,7,8,9,10,11,12]"><option :value="m" x-text="m+'월'"></option></template>
+          </select>
+          <span style="margin-left:auto;color:#9ca3af;font-size:9px;margin-top:4px;" x-text="'총 '+filteredLeaveRecords().length+'건'"></span>
+        </div>
+        <div style="overflow-x:auto;max-height:500px;overflow-y:auto;">
+          <table class="leave-tbl">
+            <thead>
+              <tr>
+                <th style="width:30px;">No</th>
+                <th>성명</th>
+                <th>부서</th>
+                <th>날짜</th>
+                <th>유형</th>
+                <th>연차차감</th>
+                <th>사유</th>
+                <th class="leave-no-print" x-show="auth.role==='admin'" style="width:36px;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(rec, idx) in filteredLeaveRecords()" :key="rec.id">
+                <tr>
+                  <td class="leave-num" style="color:#9ca3af;font-size:9px;" x-text="idx+1"></td>
+                  <td style="font-weight:600;" x-text="rec.employeeName"></td>
+                  <td style="color:#6b7280;font-size:10px;" x-text="rec._dept||''"></td>
+                  <td class="leave-num" x-text="rec.date||''"></td>
+                  <td>
+                    <span class="leave-badge" :class="rec.leaveType==='연차'?'leave-badge-warn':rec.leaveType.includes('반차')?'leave-badge-good':''" x-text="rec.leaveType"></span>
+                  </td>
+                  <td class="leave-num" x-text="rec.annualDays||0"></td>
+                  <td style="color:#6b7280;font-size:10px;text-align:left;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" x-text="rec.reason||''"></td>
+                  <td class="leave-no-print" x-show="auth.role==='admin'">
+                    <button @click="deleteLeaveRecord(rec.id)" style="background:none;border:none;cursor:pointer;color:#dc2626;font-size:13px;padding:0;" title="삭제">
+                      <span class="material-symbols-outlined" style="font-size:13px;">delete</span>
+                    </button>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+        <div x-show="filteredLeaveRecords().length===0" style="text-align:center;padding:30px;color:#9ca3af;font-size:12px;">사용 내역이 없습니다</div>
+      </div>
+    </div>
+  </template>
+
+  <!-- ===== 서브탭: 추가/공제 (admin only) ===== -->
+  <template x-if="!attendance.leaveLoading && attendance.leaveSubTab==='adjustments' && auth.role==='admin'">
+    <div class="leave-card">
+      <div style="padding:10px 14px;">
+        <div class="flex flex-wrap gap-2 mb-3 leave-no-print">
+          <select x-model="attendance.adjustmentsFilter.name" class="input-base" style="width:100px;font-size:10px;padding:3px 6px;">
+            <option value="">전체 직원</option>
+            <template x-for="emp in attendance.leaveSummary"><option :value="emp.name" x-text="emp.name"></option></template>
+          </select>
+          <select x-model="attendance.adjustmentsFilter.type" class="input-base" style="width:80px;font-size:10px;padding:3px 6px;">
+            <option value="">전체 유형</option>
+            <option value="추가">추가</option>
+            <option value="공제">공제</option>
+            <option value="수당지급">수당지급</option>
+          </select>
+          <button @click="attendance.adjustmentAddModal.open=true; attendance.adjustmentAddModal.year=attendance.leaveYear;"
+            class="btn-primary ml-auto" style="height:26px;padding:0 10px;font-size:10px;background:#d97706;">
+            <span class="material-symbols-outlined" style="font-size:12px;">add</span> 등록
+          </button>
+        </div>
+        <div style="overflow-x:auto;max-height:400px;overflow-y:auto;">
+          <table class="leave-tbl">
+            <thead>
+              <tr>
+                <th>성명</th><th>유형</th><th>일수</th><th>사유</th><th>등록일</th><th style="width:36px;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="adj in filteredAdjustments()" :key="adj.id">
+                <tr>
+                  <td style="font-weight:600;" x-text="adj.employeeName"></td>
+                  <td>
+                    <span class="leave-badge" :class="adj.type==='추가'?'leave-badge-good':adj.type==='공제'?'leave-badge-danger':'leave-badge-warn'" x-text="adj.type"></span>
+                  </td>
+                  <td class="leave-num" x-text="adj.days"></td>
+                  <td style="color:#6b7280;font-size:10px;text-align:left;" x-text="adj.reason||''"></td>
+                  <td style="color:#9ca3af;font-size:9px;" x-text="adj.createdAt||''"></td>
+                  <td>
+                    <button @click="deleteAdjustment(adj.id)" style="background:none;border:none;cursor:pointer;color:#dc2626;font-size:13px;padding:0;">
+                      <span class="material-symbols-outlined" style="font-size:13px;">delete</span>
+                    </button>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+        <div x-show="filteredAdjustments().length===0" style="text-align:center;padding:30px;color:#9ca3af;font-size:12px;">추가/공제 내역이 없습니다</div>
+      </div>
+    </div>
+  </template>
+
+  <!-- 데이터 없음 -->
+  <div x-show="!attendance.leaveLoading && attendance.leaveSummary.length===0" style="text-align:center;padding:60px;color:#9ca3af;font-size:13px;">
+    <span class="material-symbols-outlined" style="font-size:36px;">event_busy</span>
+    <div style="margin-top:8px;">등록된 직원이 없습니다</div>
+  </div>
+
+</div>
+
+<!-- ===== 직원 상세 모달 ===== -->
+<div x-show="attendance.leaveDetailModal.open" class="leave-modal-overlay" @click.self="attendance.leaveDetailModal.open=false">
+  <div class="leave-modal">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <h3 style="font-size:14px;font-weight:700;color:#1e293b;margin:0;">
+        <span x-text="attendance.leaveDetailModal.emp?.name||''"></span>
+        <span style="font-weight:400;color:#6b7280;font-size:11px;margin-left:6px;" x-text="(attendance.leaveDetailModal.emp?.department||'')+' '+(attendance.leaveDetailModal.emp?.position||'')"></span>
+      </h3>
+      <button @click="attendance.leaveDetailModal.open=false" style="background:none;border:none;cursor:pointer;color:#9ca3af;font-size:20px;">&times;</button>
+    </div>
+    <!-- 요약 카드 -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;">
+      <div style="background:#eff6ff;border-radius:8px;padding:8px;text-align:center;">
+        <div style="font-size:9px;color:#6b7280;">총연차</div>
+        <div style="font-size:16px;font-weight:800;color:#2563eb;" x-text="attendance.leaveDetailModal.emp?.totalLeave||0"></div>
+      </div>
+      <div style="background:#fffbeb;border-radius:8px;padding:8px;text-align:center;">
+        <div style="font-size:9px;color:#6b7280;">사용</div>
+        <div style="font-size:16px;font-weight:800;color:#b45309;" x-text="attendance.leaveDetailModal.emp?.usedDays||0"></div>
+      </div>
+      <div style="background:#f3e8ff;border-radius:8px;padding:8px;text-align:center;">
+        <div style="font-size:9px;color:#6b7280;">수당</div>
+        <div style="font-size:16px;font-weight:800;color:#7c3aed;" x-text="attendance.leaveDetailModal.emp?.paidDays||0"></div>
+      </div>
+      <div style="background:#dcfce7;border-radius:8px;padding:8px;text-align:center;">
+        <div style="font-size:9px;color:#6b7280;">잔여</div>
+        <div style="font-size:16px;font-weight:800;color:#059669;" x-text="attendance.leaveDetailModal.emp?.remainingDays||0"></div>
+      </div>
+    </div>
+    <!-- 사용 내역 테이블 -->
+    <div style="font-size:11px;font-weight:600;color:#374151;margin-bottom:4px;">사용 내역</div>
+    <div style="max-height:250px;overflow-y:auto;">
+      <table class="leave-detail-tbl">
+        <thead><tr><th>날짜</th><th>유형</th><th>차감일수</th><th>사유</th><th x-show="auth.role==='admin'" style="width:30px;"></th></tr></thead>
+        <tbody>
+          <template x-for="rec in attendance.leaveDetailModal.records" :key="rec.id">
+            <tr>
+              <td x-text="rec.date||''"></td>
+              <td><span class="leave-badge leave-badge-warn" x-text="rec.leaveType||''"></span></td>
+              <td class="leave-num" x-text="rec.annualDays||0"></td>
+              <td style="color:#6b7280;text-align:left;" x-text="rec.reason||''"></td>
+              <td x-show="auth.role==='admin'">
+                <button @click="deleteLeaveRecord(rec.id); attendance.leaveDetailModal.records=attendance.leaveDetailModal.records.filter(r=>r.id!==rec.id);"
+                  style="background:none;border:none;cursor:pointer;color:#dc2626;">
+                  <span class="material-symbols-outlined" style="font-size:12px;">delete</span>
+                </button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+    <div x-show="(attendance.leaveDetailModal.records||[]).length===0" style="text-align:center;padding:20px;color:#d1d5db;font-size:11px;">사용 내역 없음</div>
+    <!-- 관리자: 인라인 수정 -->
+    <template x-if="auth.role==='admin' && attendance.leaveDetailModal.emp">
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb;">
+        <div style="font-size:10px;font-weight:600;color:#374151;margin-bottom:6px;">연차 수정</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:10px;">
+          <div>
+            <label style="font-size:9px;color:#6b7280;">발생연차 (수동)</label>
+            <input type="number" :value="attendance.leaveDetailModal.emp.annualLeaveOverride??attendance.leaveDetailModal.emp.annualLeave"
+              @change="updateLeaveEmpField(attendance.leaveDetailModal.emp.name,'annualLeaveOverride',parseFloat($event.target.value),true)"
+              class="input-base" style="width:100%;font-size:11px;padding:4px 8px;">
+          </div>
+          <div>
+            <label style="font-size:9px;color:#6b7280;">자동계산값</label>
+            <div style="font-size:12px;font-weight:600;color:#9ca3af;padding:4px 8px;" x-text="attendance.leaveDetailModal.emp.autoAnnualLeave+'일'"></div>
+          </div>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:6px;">
+          <button @click="openLeaveAdd(attendance.leaveDetailModal.emp.name)" class="btn-primary" style="font-size:10px;padding:4px 12px;background:#d97706;">
+            <span class="material-symbols-outlined" style="font-size:12px;">add</span> 휴가 등록
+          </button>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
+<!-- ===== 휴가 등록 모달 ===== -->
+<div x-show="attendance.leaveAddModal.open" class="leave-modal-overlay" @click.self="attendance.leaveAddModal.open=false">
+  <div class="leave-modal" style="width:400px;">
+    <h3 style="font-size:14px;font-weight:700;margin:0 0 12px;color:#1e293b;">휴가 등록</h3>
+    <div class="space-y-3" style="font-size:11px;">
+      <div>
+        <label class="label-base">직원</label>
+        <select x-model="attendance.leaveAddModal.employeeName" class="input-base" style="width:100%;padding:6px 10px;">
+          <option value="">선택</option>
+          <template x-for="emp in attendance.leaveSummary"><option :value="emp.name" x-text="emp.name+' ('+emp.department+')'"></option></template>
+        </select>
+      </div>
+      <div>
+        <label class="label-base">
+          날짜
+          <span style="font-size:9px;color:#9ca3af;font-weight:400;margin-left:4px;">1번 클릭: 하루 / 2번 클릭: 기간 선택</span>
+        </label>
+        <!-- 커스텀 달력 -->
+        <div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;user-select:none;">
+          <!-- 월 이동 헤더 -->
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;background:#f9fafb;border-bottom:1px solid #e5e7eb;">
+            <button type="button" @click="leaveCalPrev()" style="background:none;border:none;cursor:pointer;color:#6b7280;font-size:18px;line-height:1;padding:0 4px;">‹</button>
+            <span style="font-size:12px;font-weight:600;color:#374151;" x-text="leaveCalLabel()"></span>
+            <button type="button" @click="leaveCalNext()" style="background:none;border:none;cursor:pointer;color:#6b7280;font-size:18px;line-height:1;padding:0 4px;">›</button>
+          </div>
+          <!-- 요일 헤더 -->
+          <div style="display:grid;grid-template-columns:repeat(7,1fr);text-align:center;padding:5px 4px 2px;background:#fafafa;gap:2px;">
+            <template x-for="(dow,di) in ['일','월','화','수','목','금','토']">
+              <div :style="di===0?'font-size:9px;font-weight:700;color:#ef4444;':(di===6?'font-size:9px;font-weight:700;color:#3b82f6;':'font-size:9px;font-weight:600;color:#9ca3af;')" x-text="dow"></div>
+            </template>
+          </div>
+          <!-- 날짜 셀 -->
+          <div style="display:grid;grid-template-columns:repeat(7,1fr);padding:4px;gap:2px;"
+               @mouseleave="attendance.leaveAddModal.hoverDate=''">
+            <template x-for="cell in leaveCalCells()" :key="cell.key">
+              <div
+                @click="cell.date && leaveCalClick(cell.date)"
+                @mouseenter="cell.date && (attendance.leaveAddModal.hoverDate=cell.date)"
+                :style="leaveCalCellStyle(cell)"
+                style="text-align:center;padding:5px 2px;font-size:11px;border-radius:5px;transition:all .1s;min-height:26px;display:flex;align-items:center;justify-content:center;"
+                x-text="cell.day||''"
+              ></div>
+            </template>
+          </div>
+        </div>
+        <!-- 선택 결과 표시 -->
+        <div style="margin-top:5px;font-size:10px;text-align:center;min-height:18px;">
+          <template x-if="attendance.leaveAddModal.startDate">
+            <span style="color:#374151;">
+              <span style="font-weight:700;color:#d97706;" x-text="attendance.leaveAddModal.startDate"></span>
+              <template x-if="attendance.leaveAddModal.endDate && attendance.leaveAddModal.endDate !== attendance.leaveAddModal.startDate">
+                <span>
+                  <span style="color:#9ca3af;"> ~ </span>
+                  <span style="font-weight:700;color:#d97706;" x-text="attendance.leaveAddModal.endDate"></span>
+                  <span style="color:#9ca3af;" x-text="' (평일 ' + leaveCalCountDays() + '일)'"></span>
+                </span>
+              </template>
+              <template x-if="!attendance.leaveAddModal.endDate || attendance.leaveAddModal.endDate === attendance.leaveAddModal.startDate">
+                <span style="color:#9ca3af;"> (1일 선택됨)</span>
+              </template>
+            </span>
+          </template>
+          <template x-if="!attendance.leaveAddModal.startDate">
+            <span style="color:#d1d5db;">날짜를 선택하세요</span>
+          </template>
+        </div>
+      </div>
+      <div>
+        <label class="label-base">유형</label>
+        <select x-model="attendance.leaveAddModal.leaveType" class="input-base" style="width:100%;padding:6px 10px;">
+          <option value="연차">연차 (1일)</option>
+          <option value="오전반차">오전반차 (0.5일)</option>
+          <option value="오후반차">오후반차 (0.5일)</option>
+          <option value="경조휴가">경조휴가</option>
+          <option value="예비군">예비군</option>
+        </select>
+      </div>
+      <div>
+        <label class="label-base">사유</label>
+        <input x-model="attendance.leaveAddModal.reason" class="input-base" style="width:100%;padding:6px 10px;" placeholder="선택 입력">
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button @click="attendance.leaveAddModal.open=false" style="background:#f3f4f6;color:#6b7280;border:none;border-radius:6px;padding:6px 16px;font-size:11px;font-weight:600;cursor:pointer;">취소</button>
+      <button @click="addLeaveRecord()" style="background:#d97706;color:#fff;border:none;border-radius:6px;padding:6px 16px;font-size:11px;font-weight:600;cursor:pointer;">등록</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 추가/공제 등록 모달 ===== -->
+<div x-show="attendance.adjustmentAddModal.open" class="leave-modal-overlay" @click.self="attendance.adjustmentAddModal.open=false">
+  <div class="leave-modal" style="width:360px;">
+    <h3 style="font-size:14px;font-weight:700;margin:0 0 12px;color:#1e293b;">추가/공제 등록</h3>
+    <div class="space-y-3" style="font-size:11px;">
+      <div>
+        <label class="label-base">직원</label>
+        <select x-model="attendance.adjustmentAddModal.employeeName" class="input-base" style="width:100%;padding:6px 10px;">
+          <option value="">선택</option>
+          <template x-for="emp in attendance.leaveSummary"><option :value="emp.name" x-text="emp.name"></option></template>
+        </select>
+      </div>
+      <div>
+        <label class="label-base">유형</label>
+        <select x-model="attendance.adjustmentAddModal.type" class="input-base" style="width:100%;padding:6px 10px;">
+          <option value="추가">추가</option>
+          <option value="공제">공제</option>
+          <option value="수당지급">수당지급</option>
+        </select>
+      </div>
+      <div>
+        <label class="label-base">일수</label>
+        <input type="number" step="0.5" x-model.number="attendance.adjustmentAddModal.days" class="input-base" style="width:100%;padding:6px 10px;">
+      </div>
+      <div>
+        <label class="label-base">사유</label>
+        <input x-model="attendance.adjustmentAddModal.reason" class="input-base" style="width:100%;padding:6px 10px;" placeholder="선택 입력">
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button @click="attendance.adjustmentAddModal.open=false" style="background:#f3f4f6;color:#6b7280;border:none;border-radius:6px;padding:6px 16px;font-size:11px;font-weight:600;cursor:pointer;">취소</button>
+      <button @click="addAdjustment()" style="background:#d97706;color:#fff;border:none;border-radius:6px;padding:6px 16px;font-size:11px;font-weight:600;cursor:pointer;">등록</button>
+    </div>
+  </div>
+</div>
+
+</div>
+ 

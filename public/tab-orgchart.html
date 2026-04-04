@@ -1,0 +1,400 @@
+        <div x-data="orgChartApp()" x-init="init()" class="fade-in">
+          <style>
+            /* =====================================================
+               🎨 조직도 디자인 커스터마이즈 변수
+               여기서 색상/스타일을 자유롭게 수정하세요
+            ===================================================== */
+            :root {
+              --org-ceo-bg1: #0f172a;         /* CEO 카드 그라디언트 시작색 */
+              --org-ceo-bg2: #1e3a5f;         /* CEO 카드 그라디언트 끝색 */
+              --org-ceo-accent: #38bdf8;      /* CEO 카드 강조색 */
+
+              --org-dir-bg: #ffffff;           /* 이사급 카드 배경 */
+              --org-dir-border: #818cf8;       /* 이사급 카드 테두리 */
+              --org-dir-accent: #6d28d9;       /* 이사급 색상 */
+
+              --org-dept-colors: #2563eb, #0891b2, #059669, #d97706, #dc2626, #7c3aed, #db2777, #0284c7;
+              /* 부서 색상 (부서 순서대로 적용) */
+
+              --org-card-bg: #ffffff;           /* 직원 카드 배경 */
+              --org-card-border: #e2e8f0;       /* 직원 카드 테두리 */
+              --org-card-hover-border: #93c5fd; /* 직원 카드 호버 테두리 */
+
+              --org-leader-bg1: #fffbeb;        /* 팀장 영역 그라디언트 시작 */
+              --org-leader-bg2: #fef3c7;        /* 팀장 영역 그라디언트 끝 */
+              --org-leader-border: #fcd34d;     /* 팀장 영역 테두리 */
+              --org-leader-color: #92400e;      /* 팀장 텍스트 색상 */
+
+              --org-font: 'Noto Sans KR', 'Segoe UI', sans-serif;
+              --org-radius-card: 14px;
+              --org-radius-person: 12px;
+              --org-shadow-card: 0 4px 20px rgba(0,0,0,.07);
+              --org-shadow-hover: 0 8px 28px rgba(0,0,0,.12);
+            }
+            /* =====================================================
+               여기서부터는 레이아웃/구조 코드입니다
+            ===================================================== */
+
+            .org-wrap { font-family: var(--org-font); }
+
+            /* ── CEO / 임원 트리 ── */
+            .org-tree { display:flex; flex-direction:column; align-items:center; padding:8px 0 24px; }
+            .org-line-v { width:2px; background:linear-gradient(#cbd5e1,#e2e8f0); }
+            .org-line-h { height:2px; background:#cbd5e1; border-radius:1px; }
+
+            .org-ceo-card {
+              background: linear-gradient(135deg, var(--org-ceo-bg1), var(--org-ceo-bg2));
+              color:#fff; border-radius:18px; padding:16px 32px; text-align:center;
+              box-shadow: 0 8px 32px rgba(15,23,42,.25);
+              min-width:160px; position:relative; overflow:hidden;
+            }
+            .org-ceo-card::before {
+              content:''; position:absolute; top:-20px; right:-20px;
+              width:80px; height:80px; border-radius:50%;
+              background:rgba(255,255,255,.05);
+            }
+            .org-ceo-label {
+              font-size:10px; font-weight:700; letter-spacing:2px; text-transform:uppercase;
+              color:var(--org-ceo-accent); margin-bottom:4px;
+            }
+            .org-ceo-name { font-size:20px; font-weight:800; line-height:1.2; }
+            .org-ceo-pos  { font-size:11px; opacity:.6; margin-top:2px; }
+
+            .org-dir-card {
+              background:var(--org-dir-bg); border:2px solid var(--org-dir-border);
+              border-radius:var(--org-radius-card); padding:10px 18px; text-align:center;
+              min-width:110px; box-shadow:0 2px 12px rgba(99,102,241,.1);
+              transition:all .2s;
+            }
+            .org-dir-card:hover { transform:translateY(-2px); box-shadow:0 6px 20px rgba(99,102,241,.18); }
+            .org-dir-badge {
+              font-size:9px; font-weight:700; color:var(--org-dir-accent);
+              background:#ede9fe; border-radius:8px; padding:1px 8px;
+              display:inline-block; margin-bottom:4px; letter-spacing:.5px;
+            }
+            .org-dir-name { font-size:14px; font-weight:700; color:#1e293b; }
+
+            /* ── 부서 카드 ── */
+            .org-dept-wrap {
+              display:flex; gap:16px; overflow-x:auto; padding:4px 2px 16px;
+              scrollbar-width:thin; scrollbar-color:#cbd5e1 transparent;
+            }
+            .org-dept-wrap::-webkit-scrollbar { height:5px; }
+            .org-dept-wrap::-webkit-scrollbar-track { background:transparent; }
+            .org-dept-wrap::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:10px; }
+
+            .org-dept-col {
+              border-radius:var(--org-radius-card); border:1.5px solid #e2e8f0;
+              background:#f8fafc; min-width:210px; width:220px; flex-shrink:0;
+              box-shadow:var(--org-shadow-card); transition:all .2s;
+            }
+            .org-dept-col.drag-over { border-color:#3b82f6; background:#eff6ff; box-shadow:0 0 0 3px rgba(59,130,246,.15); }
+
+            .org-dept-header {
+              padding:13px 14px 11px; border-radius:var(--org-radius-card) var(--org-radius-card) 0 0;
+              border-bottom:1.5px solid rgba(255,255,255,.4);
+            }
+            .org-dept-title {
+              font-size:13px; font-weight:800; color:#fff;
+              display:flex; align-items:center; gap:6px;
+            }
+            .org-dept-count {
+              font-size:10px; font-weight:700; background:rgba(255,255,255,.25);
+              color:#fff; border-radius:12px; padding:1px 9px;
+            }
+
+            /* ── 팀장 영역 ── */
+            .org-leader-section {
+              margin:10px 10px 0; padding:8px 8px 10px;
+              border-radius:10px;
+              background:linear-gradient(135deg, var(--org-leader-bg1), var(--org-leader-bg2));
+              border:1.5px solid var(--org-leader-border);
+              min-height:44px; transition:all .2s;
+            }
+            .org-leader-section.leader-drag-over {
+              border-color:#d97706; background:#fef3c7; box-shadow:0 0 0 3px rgba(217,119,6,.15);
+            }
+            .org-leader-label {
+              font-size:9px; font-weight:800; color:var(--org-leader-color);
+              text-transform:uppercase; letter-spacing:1px;
+              margin-bottom:6px; display:flex; align-items:center; gap:3px;
+            }
+            .org-leader-empty {
+              font-size:10px; color:#b45309; text-align:center;
+              padding:7px; border:1.5px dashed #fbbf24; border-radius:8px;
+              background:#fffef5;
+            }
+            .org-leader-empty.leader-drag-over { border-color:#d97706; background:#fef3c7; }
+
+            /* ── 팀원 영역 ── */
+            .org-member-section { margin:6px 10px 10px; display:flex; flex-direction:column; gap:5px; }
+            .org-member-label {
+              font-size:9px; font-weight:700; color:#94a3b8; letter-spacing:.5px;
+              text-transform:uppercase; margin-bottom:2px;
+              display:flex; align-items:center; gap:3px;
+            }
+
+            /* ── 직원 카드 ── */
+            .org-person {
+              display:flex; align-items:center; gap:9px;
+              padding:8px 10px; border-radius:var(--org-radius-person);
+              background:var(--org-card-bg); border:1.5px solid var(--org-card-border);
+              cursor:grab; transition:all .15s; user-select:none;
+            }
+            .org-person:hover {
+              background:#f0f9ff; border-color:var(--org-card-hover-border);
+              box-shadow:0 2px 10px rgba(59,130,246,.1); transform:translateY(-1px);
+            }
+            .org-person:active { cursor:grabbing; opacity:.7; }
+
+            .org-leader-section .org-person {
+              background:linear-gradient(135deg,#fffef5,#fff);
+              border-color:#fcd34d;
+            }
+            .org-leader-section .org-person:hover { background:#fef9e7; border-color:#f59e0b; }
+
+            .org-avatar {
+              width:34px; height:34px; border-radius:50%;
+              display:flex; align-items:center; justify-content:center;
+              color:#fff; font-size:14px; font-weight:800; flex-shrink:0;
+              box-shadow:0 2px 8px rgba(0,0,0,.15);
+            }
+            .org-person-name { font-size:12px; font-weight:700; color:#1e293b; line-height:1.2; }
+            .org-person-pos  { font-size:10px; color:#94a3b8; margin-top:1px; }
+
+            .org-leader-badge {
+              font-size:9px; font-weight:700; color:#d97706;
+              background:#fef3c7; border-radius:6px; padding:1px 6px;
+              border:1px solid #fcd34d; white-space:nowrap;
+            }
+
+            .org-empty-drop {
+              border:2px dashed #d1d5db; border-radius:10px; padding:14px;
+              text-align:center; color:#9ca3af; font-size:11px; transition:all .2s;
+            }
+            .drag-over .org-empty-drop { border-color:#3b82f6; background:#dbeafe; color:#2563eb; }
+
+            /* ── 미배정 컬럼 ── */
+            .org-unassigned {
+              border-style:dashed; background:#fafafa;
+              border-color:#d1d5db;
+            }
+            .org-unassigned .org-dept-header {
+              background:linear-gradient(135deg,#f1f5f9,#e2e8f0) !important;
+            }
+
+            /* ── 검색바 ── */
+            .org-search {
+              display:flex; align-items:center; gap:8px;
+              background:#fff; border:1.5px solid #e2e8f0; border-radius:10px;
+              padding:7px 12px; margin-bottom:16px;
+              box-shadow:0 1px 4px rgba(0,0,0,.04);
+              transition:border-color .15s;
+            }
+            .org-search:focus-within { border-color:#93c5fd; }
+            .org-search input {
+              border:none; outline:none; font-size:13px; color:#1e293b; flex:1;
+              background:transparent; font-family:var(--org-font);
+            }
+            .org-search input::placeholder { color:#cbd5e1; }
+
+            /* ── 하이라이트 검색 ── */
+            .org-person.search-highlight { border-color:#3b82f6 !important; background:#eff6ff !important; }
+            .org-person.search-dim { opacity:.3; }
+
+            /* ── 팀장 제거 버튼 ── */
+            .org-leader-remove {
+              font-size:14px !important; color:#b45309; cursor:pointer;
+              opacity:0; transition:opacity .15s; flex-shrink:0;
+            }
+            .org-leader-section .org-person:hover .org-leader-remove { opacity:1; }
+            .org-leader-remove:hover { color:#dc2626 !important; }
+
+            @keyframes org-fadein { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+            .org-dept-col { animation:org-fadein .25s ease both; }
+          </style>
+
+          <!-- 로딩 -->
+          <div x-show="loading" style="padding:60px;text-align:center;color:#94a3b8;">
+            <span class="material-symbols-outlined" style="font-size:36px;animation:spin 1s linear infinite;display:block;margin:0 auto 10px;">progress_activity</span>
+            <div style="font-size:13px;">조직도 불러오는 중...</div>
+          </div>
+
+          <div x-show="!loading" class="org-wrap">
+
+            <!-- 검색바 -->
+            <div class="org-search">
+              <span class="material-symbols-outlined" style="font-size:18px;color:#94a3b8;">search</span>
+              <input type="text" x-model="searchQ" placeholder="이름 또는 직위로 검색...">
+              <template x-if="searchQ">
+                <span class="material-symbols-outlined" style="font-size:16px;color:#94a3b8;cursor:pointer;" @click="searchQ=''">close</span>
+              </template>
+            </div>
+
+            <!-- ═══ 경영진 트리 ═══ -->
+            <div class="org-tree">
+              <!-- 대표이사 -->
+              <div class="org-ceo-card">
+                <template x-if="ceo">
+                  <div>
+                    <div class="org-ceo-label">대표이사 · CEO</div>
+                    <div class="org-ceo-name" x-text="ceo.name"></div>
+                    <div class="org-ceo-pos" x-text="ceo.position || ''"></div>
+                  </div>
+                </template>
+                <template x-if="!ceo">
+                  <div>
+                    <div class="org-ceo-label">대표이사 · CEO</div>
+                    <div class="org-ceo-name" style="opacity:.4;font-size:14px;">미지정</div>
+                  </div>
+                </template>
+              </div>
+
+              <div class="org-line-v" style="height:20px;"></div>
+
+              <!-- 이사급 -->
+              <template x-if="directors.length > 0">
+                <div style="position:relative;display:flex;gap:24px;align-items:flex-start;">
+                  <div x-show="directors.length > 1" class="org-line-h"
+                    :style="'position:absolute;top:0;left:'+(100/(directors.length*2))+'%;right:'+(100/(directors.length*2))+'%;'"></div>
+                  <template x-for="dir in directors" :key="dir.userId">
+                    <div style="display:flex;flex-direction:column;align-items:center;">
+                      <div class="org-line-v" style="height:14px;"></div>
+                      <div class="org-dir-card">
+                        <div class="org-dir-badge" x-text="dir.position"></div>
+                        <div class="org-dir-name" x-text="dir.name"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </template>
+
+              <!-- 부서로 연결 -->
+              <div class="org-line-v" style="height:24px;"></div>
+              <div class="org-line-h" style="width:55%;"></div>
+              <div class="org-line-v" style="height:16px;"></div>
+            </div>
+
+            <!-- ═══ 부서 카드 ═══ -->
+            <div class="org-dept-wrap">
+              <template x-for="(dept, di) in sortedDepts" :key="dept.id">
+                <div class="org-dept-col" :class="dropTarget === dept.id ? 'drag-over' : ''">
+
+                  <!-- 부서 헤더 (색상 자동 순환) -->
+                  <div class="org-dept-header" :style="'background:linear-gradient(135deg,'+deptColor(di)+','+deptColorDark(di)+')'">
+                    <div class="org-dept-title">
+                      <span class="material-symbols-outlined" style="font-size:16px;opacity:.9;">groups</span>
+                      <span x-text="dept.name + ' 팀'"></span>
+                    </div>
+                    <div style="margin-top:4px;">
+                      <span class="org-dept-count" x-text="deptMembers(dept.id).length + '명'"></span>
+                    </div>
+                  </div>
+
+                  <!-- 팀장 영역 -->
+                  <div class="org-leader-section" :class="leaderDropTarget === dept.id ? 'leader-drag-over' : ''"
+                    @dragover.prevent="onLeaderDragOver($event, dept.id)"
+                    @dragleave="onLeaderDragLeave($event, dept.id)"
+                    @drop="onLeaderDrop($event, dept.id)">
+                    <div class="org-leader-label">
+                      <span class="material-symbols-outlined" style="font-size:11px;">star</span>
+                      팀장
+                    </div>
+                    <template x-if="getDeptLeader(dept)">
+                      <div class="org-person" :class="personClass(getDeptLeader(dept))"
+                        draggable="true"
+                        @dragstart="onDragStart($event, getDeptLeader(dept).userId)"
+                        @dragend="onDragEnd($event)">
+                        <div class="org-avatar" :style="'background:'+avatarColor(getDeptLeader(dept).name)" x-text="initial(getDeptLeader(dept).name)"></div>
+                        <div style="flex:1;min-width:0;">
+                          <div class="org-person-name" x-text="getDeptLeader(dept).name"></div>
+                          <div class="org-person-pos" x-text="getDeptLeader(dept).position || '-'"></div>
+                        </div>
+                        <span class="org-leader-badge">팀장</span>
+                        <template x-if="isAdmin">
+                          <span class="material-symbols-outlined org-leader-remove"
+                            title="팀장 해제" @click.stop="removeDeptLeader(dept.id)">close</span>
+                        </template>
+                      </div>
+                    </template>
+                    <template x-if="!getDeptLeader(dept)">
+                      <div class="org-leader-empty" :class="leaderDropTarget === dept.id ? 'leader-drag-over' : ''">
+                        <template x-if="isAdmin">
+                          <span>팀원을 여기로 드래그 → 팀장 지정</span>
+                        </template>
+                        <template x-if="!isAdmin">
+                          <span>팀장 미지정</span>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+
+                  <!-- 팀원 영역 -->
+                  <div class="org-member-section"
+                    @dragover.prevent="onDragOver($event, dept.id)"
+                    @dragleave="onDragLeave($event, dept.id)"
+                    @drop="onDrop($event, dept.id)">
+                    <div class="org-member-label">
+                      <span class="material-symbols-outlined" style="font-size:11px;">people</span>
+                      팀원
+                    </div>
+                    <template x-for="u in sortedTeamMembers(dept.id)" :key="u.userId">
+                      <div class="org-person" :class="personClass(u)"
+                        draggable="true"
+                        @dragstart="onDragStart($event, u.userId)"
+                        @dragend="onDragEnd($event)">
+                        <div class="org-avatar" :style="'background:'+avatarColor(u.name)" x-text="initial(u.name)"></div>
+                        <div style="flex:1;min-width:0;">
+                          <div class="org-person-name" x-text="u.name"></div>
+                          <div class="org-person-pos" x-text="u.position || '-'"></div>
+                        </div>
+                      </div>
+                    </template>
+                    <div x-show="deptTeamMembers(dept.id).length === 0" class="org-empty-drop" style="padding:10px;">
+                      <template x-if="isAdmin"><span>팀원을 여기로 드래그</span></template>
+                      <template x-if="!isAdmin"><span style="font-size:10px;">팀원 없음</span></template>
+                    </div>
+                  </div>
+                </div>
+              </template>
+
+              <!-- 미배정 컬럼 -->
+              <div class="org-dept-col org-unassigned" :class="dropTarget === '' ? 'drag-over' : ''"
+                @dragover.prevent="onDragOver($event, '')"
+                @dragleave="onDragLeave($event, '')"
+                @drop="onDrop($event, '')">
+                <div class="org-dept-header">
+                  <div class="org-dept-title" style="color:#94a3b8;">
+                    <span class="material-symbols-outlined" style="font-size:16px;">person_off</span>
+                    <span>미배정</span>
+                  </div>
+                  <div style="margin-top:4px;">
+                    <span style="font-size:10px;color:#94a3b8;background:#e2e8f0;border-radius:12px;padding:1px 9px;font-weight:700;" x-text="unassigned.length + '명'"></span>
+                  </div>
+                </div>
+                <div style="padding:10px;display:flex;flex-direction:column;gap:5px;min-height:60px;">
+                  <template x-for="u in unassigned" :key="u.userId">
+                    <div class="org-person" :class="personClass(u)"
+                      draggable="true"
+                      @dragstart="onDragStart($event, u.userId)"
+                      @dragend="onDragEnd($event)">
+                      <div class="org-avatar" :style="'background:'+avatarColor(u.name)" x-text="initial(u.name)"></div>
+                      <div style="flex:1;min-width:0;">
+                        <div class="org-person-name" x-text="u.name"></div>
+                        <div class="org-person-pos" x-text="u.position || '-'"></div>
+                      </div>
+                    </div>
+                  </template>
+                  <div x-show="unassigned.length === 0" class="org-empty-drop">부서 미배정 없음</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 하단 안내 -->
+            <div x-show="isAdmin" style="text-align:center;padding:6px 0;font-size:10px;color:#cbd5e1;display:flex;align-items:center;justify-content:center;gap:4px;">
+              <span class="material-symbols-outlined" style="font-size:12px;">drag_indicator</span>
+              카드 드래그 → 부서 이동 &nbsp;|&nbsp; 팀장 영역에 드롭 → 팀장 지정 &nbsp;|&nbsp; 부서 추가/삭제는 사용자 관리 탭
+            </div>
+
+          </div>
+        </div>

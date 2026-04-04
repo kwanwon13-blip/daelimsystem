@@ -1,0 +1,13 @@
+node_modules/
+data/
+*.log
+*.csv
+*.xlsx
+*.docx
+*.png
+*.jpg
+*.bat
+*.vbs
+*.zip
+package-lock.json
+*.bak

@@ -1,0 +1,620 @@
+<div>
+<style>
+  /* ── 결재 공통 ── */
+  .ap-wrap { font-family: 'Noto Sans KR', sans-serif; }
+  /* 목록 테이블 */
+  .ap-table { width:100%; border-collapse:collapse; font-size:12px; }
+  .ap-table thead th { padding:9px 12px; background:#f8fafc; color:#64748b; font-size:10px; font-weight:700; text-align:left; border-bottom:2px solid #e2e8f0; white-space:nowrap; }
+  .ap-table tbody tr { border-bottom:1px solid #f1f5f9; cursor:pointer; transition:background .1s; }
+  .ap-table tbody tr:hover { background:#f0f9ff; }
+  .ap-table tbody td { padding:10px 12px; vertical-align:middle; }
+  .ap-type-chip { display:inline-flex; align-items:center; gap:4px; padding:3px 9px; border-radius:6px; font-size:10px; font-weight:700; white-space:nowrap; }
+  .ap-type-expense { background:#fef3c7; color:#b45309; }
+  .ap-type-leave { background:#dbeafe; color:#1d4ed8; }
+  .ap-status { display:inline-block; padding:3px 10px; border-radius:20px; font-size:10px; font-weight:700; white-space:nowrap; }
+  .ap-status-pending { background:#fef3c7; color:#b45309; }
+  .ap-status-approved { background:#dcfce7; color:#15803d; }
+  .ap-status-rejected { background:#fee2e2; color:#dc2626; }
+  .ap-status-deleted { background:#f3f4f6; color:#9ca3af; }
+  /* 상세 뷰 */
+  .ap-detail-wrap { background:#fff; border-radius:12px; overflow:hidden; border:1px solid #e2e8f0; box-shadow:0 1px 4px rgba(0,0,0,.05); }
+  .ap-detail-topbar { padding:12px 20px; background:#f8fafc; border-bottom:1px solid #e2e8f0; display:flex; align-items:center; justify-content:space-between; }
+  .ap-detail-header { padding:20px 24px 16px; border-bottom:1px solid #f1f5f9; }
+  .ap-detail-title { font-size:18px; font-weight:800; color:#0f172a; margin:10px 0 14px; line-height:1.4; }
+  .ap-meta-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:0; border:1px solid #e2e8f0; border-radius:8px; overflow:hidden; }
+  .ap-meta-cell { padding:8px 14px; border-right:1px solid #e2e8f0; }
+  .ap-meta-cell:last-child { border-right:none; }
+  .ap-meta-label { font-size:9px; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:.5px; margin-bottom:3px; }
+  .ap-meta-value { font-size:12px; font-weight:600; color:#1e293b; }
+  /* 결재 흐름 스텝 */
+  .ap-flow { display:flex; align-items:center; gap:0; padding:14px 24px; background:#fafbfc; border-bottom:1px solid #f1f5f9; }
+  .ap-flow-step { display:flex; flex-direction:column; align-items:center; gap:4px; flex:1; position:relative; }
+  .ap-flow-step::after { content:''; position:absolute; top:14px; left:calc(50% + 20px); width:calc(100% - 40px); height:2px; background:#e2e8f0; }
+  .ap-flow-step:last-child::after { display:none; }
+  .ap-flow-dot { width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:14px; z-index:1; }
+  .ap-flow-dot-done { background:#2563eb; color:#fff; }
+  .ap-flow-dot-active { background:#f59e0b; color:#fff; box-shadow:0 0 0 4px #fef3c7; }
+  .ap-flow-dot-ok { background:#16a34a; color:#fff; }
+  .ap-flow-dot-no { background:#dc2626; color:#fff; }
+  .ap-flow-dot-idle { background:#e2e8f0; color:#9ca3af; }
+  .ap-flow-label { font-size:10px; font-weight:600; color:#64748b; }
+  .ap-flow-sub { font-size:9px; color:#94a3b8; }
+  /* 문서 내용 */
+  .ap-doc-body { padding:20px 24px; }
+  .ap-doc-card { border-radius:10px; padding:16px 20px; margin-bottom:16px; }
+  .ap-doc-card-expense { background:#fffbeb; border:1px solid #fde68a; }
+  .ap-doc-card-leave { background:#eff6ff; border:1px solid #bfdbfe; }
+  .ap-field-row { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:14px; }
+  .ap-field-row-2 { grid-template-columns:repeat(2,1fr); }
+  .ap-field-label { font-size:10px; font-weight:700; color:#94a3b8; margin-bottom:3px; }
+  .ap-field-value { font-size:13px; font-weight:600; color:#1e293b; }
+  /* 결재 처리 영역 */
+  .ap-action-area { padding:16px 24px; background:#f8fafc; border-top:1px solid #e2e8f0; }
+  .ap-btn-approve { background:#16a34a; color:#fff; border:none; border-radius:10px; padding:10px 28px; font-size:13px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:6px; transition:all .15s; }
+  .ap-btn-approve:hover { background:#15803d; }
+  .ap-btn-reject { background:#fff; color:#dc2626; border:2px solid #dc2626; border-radius:10px; padding:10px 28px; font-size:13px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:6px; transition:all .15s; }
+  .ap-btn-reject:hover { background:#fef2f2; }
+</style>
+
+        <div x-data="approvalApp()" x-init="init()" class="ap-wrap space-y-3 fade-in" :data-user-id="myUserId">
+
+          <!-- 토스트 -->
+          <div x-show="_toast3.show" x-transition
+            style="position:fixed;top:20px;right:20px;z-index:9999;padding:10px 18px;border-radius:10px;font-size:12px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,.15);"
+            :style="_toast3.type==='success'?'background:#dcfce7;color:#15803d;':'background:#fee2e2;color:#dc2626;'"
+            x-text="_toast3.msg"></div>
+
+          <!-- ===== 목록 뷰 ===== -->
+          <template x-if="currentView === 'list'">
+            <div class="card" style="padding:0;overflow:hidden;">
+
+              <!-- 헤더 -->
+              <div style="padding:14px 20px;background:linear-gradient(135deg,#1e40af,#2563eb);display:flex;align-items:center;justify-content:space-between;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <span class="material-symbols-outlined" style="font-size:18px;color:#93c5fd;">approval</span>
+                  <span style="font-size:14px;font-weight:700;color:#fff;">결재함</span>
+                  <span x-show="activeDeptFolder" style="font-size:11px;font-weight:500;color:#fff;background:rgba(255,255,255,.2);padding:2px 10px;border-radius:8px;" x-text="'📁 ' + activeDeptFolder"></span>
+                  <span style="font-size:11px;color:#93c5fd;background:rgba(0,0,0,.2);padding:2px 8px;border-radius:6px;" x-text="approvals.length + '건'"></span>
+                </div>
+                <div style="display:flex;gap:8px;">
+                  <button @click="startWrite('leave')"
+                    style="background:rgba(255,255,255,.15);color:#fff;border:1.5px solid rgba(255,255,255,.4);border-radius:8px;padding:7px 14px;font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .15s;"
+                    onmouseover="this.style.background='rgba(255,255,255,.25)'" onmouseout="this.style.background='rgba(255,255,255,.15)'">
+                    <span class="material-symbols-outlined" style="font-size:14px;">event_available</span> 휴가계획서
+                  </button>
+                  <button @click="startWrite('expense')"
+                    style="background:#fff;color:#2563eb;border:none;border-radius:8px;padding:7px 14px;font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .15s;"
+                    onmouseover="this.style.background='#eff6ff'" onmouseout="this.style.background='#fff'">
+                    <span class="material-symbols-outlined" style="font-size:14px;">receipt_long</span> 지출결의서
+                  </button>
+                </div>
+              </div>
+
+              <!-- 필터 + 부서 -->
+              <div style="padding:8px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+                <template x-for="f in [{id:'all',label:'전체'},{id:'mine',label:'내가 기안'},{id:'pending',label:'승인 대기'}]" :key="f.id">
+                  <button @click="setFilter(f.id)"
+                    style="padding:4px 14px;border-radius:20px;font-size:11px;font-weight:600;border:none;cursor:pointer;transition:all .15s;"
+                    :style="activeFilter===f.id?'background:#2563eb;color:#fff;':'background:#e2e8f0;color:#64748b;'"
+                    x-text="f.label"></button>
+                </template>
+                <template x-if="myRole==='admin'">
+                  <button @click="setFilter('deleted')"
+                    style="padding:4px 14px;border-radius:20px;font-size:11px;font-weight:600;border:1px dashed #d1d5db;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:3px;"
+                    :style="activeFilter==='deleted'?'background:#6b7280;color:#fff;border-color:#6b7280;':'background:#f9fafb;color:#9ca3af;'">
+                    <span class="material-symbols-outlined" style="font-size:12px;">delete</span> 휴지통
+                  </button>
+                </template>
+                <!-- 부서 폴더 -->
+                <template x-if="myRole === 'admin' && deptFolders.length > 0">
+                  <div style="display:flex;gap:4px;align-items:center;margin-left:8px;padding-left:8px;border-left:1px solid #e2e8f0;">
+                    <span style="font-size:9px;font-weight:700;color:#94a3b8;">부서:</span>
+                    <button @click="setDeptFolder('')"
+                      style="font-size:10px;padding:3px 10px;border-radius:6px;border:1px solid;cursor:pointer;"
+                      :style="activeDeptFolder===''?'background:#0369a1;color:#fff;border-color:#0369a1;':'background:#fff;color:#64748b;border-color:#cbd5e1;'">
+                      전체
+                    </button>
+                    <template x-for="folder in deptFolders" :key="folder.name">
+                      <button @click="setDeptFolder(folder.name === '(부서 미배정)' ? '__none__' : folder.name)"
+                        style="font-size:10px;padding:3px 10px;border-radius:6px;border:1px solid;cursor:pointer;"
+                        :style="activeDeptFolder===(folder.name === '(부서 미배정)' ? '__none__' : folder.name)?'background:#0369a1;color:#fff;border-color:#0369a1;':'background:#fff;color:#64748b;border-color:#cbd5e1;'"
+                        x-text="folder.name + ' (' + folder.count + ')'"></button>
+                    </template>
+                  </div>
+                </template>
+              </div>
+
+              <!-- 문서 목록 테이블 -->
+              <div x-show="loading" style="padding:40px;text-align:center;color:#94a3b8;font-size:12px;">
+                <span class="material-symbols-outlined" style="font-size:28px;animation:spin 1s linear infinite;display:block;margin-bottom:6px;">progress_activity</span>
+                불러오는 중...
+              </div>
+              <div x-show="!loading && approvals.length === 0" style="padding:50px;text-align:center;color:#94a3b8;">
+                <span class="material-symbols-outlined" style="font-size:40px;display:block;margin-bottom:8px;color:#cbd5e1;">folder_open</span>
+                <div style="font-size:13px;font-weight:600;">결재 문서가 없습니다</div>
+              </div>
+
+              <template x-if="!loading && approvals.length > 0">
+                <table class="ap-table">
+                  <thead>
+                    <tr>
+                      <th style="width:80px;">유형</th>
+                      <th>제목</th>
+                      <th style="width:90px;">기안자</th>
+                      <th style="width:110px;">기안일</th>
+                      <th style="width:90px;">승인자</th>
+                      <th style="width:72px;text-align:center;">상태</th>
+                      <template x-if="activeFilter==='deleted' && myRole==='admin'">
+                        <th style="width:60px;"></th>
+                      </template>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="doc in approvals" :key="doc.id">
+                      <tr @click="doc.status!=='deleted'&&viewDoc(doc)"
+                        :style="doc.status==='deleted'?'cursor:default;opacity:.7;background:#fafafa;':''"
+                        :class="doc.status==='pending'&&doc.approverId===myUserId?'':''"
+                        style="">
+                        <!-- 유형 -->
+                        <td>
+                          <span class="ap-type-chip" :class="doc.type==='expense'?'ap-type-expense':'ap-type-leave'">
+                            <span class="material-symbols-outlined" style="font-size:12px;" x-text="doc.type==='expense'?'receipt_long':'event_available'"></span>
+                            <span x-text="doc.type==='expense'?'지출':'휴가'"></span>
+                          </span>
+                        </td>
+                        <!-- 제목 -->
+                        <td>
+                          <div style="font-size:12px;font-weight:600;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:320px;" x-text="doc.title"></div>
+                          <template x-if="doc.status==='deleted'">
+                            <div style="font-size:10px;color:#ef4444;margin-top:2px;">
+                              삭제: <span x-text="doc.deletedBy"></span> · <span x-text="fmtDate(doc.deletedAt)"></span>
+                            </div>
+                          </template>
+                        </td>
+                        <!-- 기안자 -->
+                        <td>
+                          <div style="font-size:12px;font-weight:600;color:#374151;" x-text="doc.authorName"></div>
+                          <div x-show="doc.authorDept" style="font-size:10px;color:#94a3b8;" x-text="doc.authorDept"></div>
+                        </td>
+                        <!-- 기안일 -->
+                        <td style="font-size:11px;color:#64748b;" x-text="fmtDate(doc.createdAt)"></td>
+                        <!-- 승인자 -->
+                        <td style="font-size:11px;color:#64748b;" x-text="doc.approverName"></td>
+                        <!-- 상태 -->
+                        <td style="text-align:center;">
+                          <span class="ap-status"
+                            :class="{'ap-status-pending':doc.status==='pending','ap-status-approved':doc.status==='approved','ap-status-rejected':doc.status==='rejected','ap-status-deleted':doc.status==='deleted'}"
+                            x-text="statusLabel(doc.status)"></span>
+                        </td>
+                        <!-- 복구 버튼 (휴지통) -->
+                        <template x-if="doc.status==='deleted' && myRole==='admin'">
+                          <td>
+                            <button @click.stop="restoreDoc(doc.id)"
+                              style="font-size:10px;padding:4px 12px;border-radius:7px;border:1px solid #16a34a;background:#dcfce7;color:#15803d;font-weight:600;cursor:pointer;white-space:nowrap;">
+                              복구
+                            </button>
+                          </td>
+                        </template>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </template>
+            </div>
+          </template>
+
+          <!-- ===== 작성 뷰 ===== -->
+          <template x-if="currentView === 'write'">
+            <div class="card" style="padding:0;overflow:hidden;">
+              <div style="padding:14px 20px;background:linear-gradient(135deg,#1e40af,#2563eb);display:flex;align-items:center;justify-content:space-between;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <span class="material-symbols-outlined" style="font-size:18px;color:#93c5fd;">edit_document</span>
+                  <span style="font-size:14px;font-weight:700;color:#fff;" x-text="typeLabel(docType)+' 작성'"></span>
+                </div>
+                <button @click="currentView='list'" style="background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:7px;padding:5px 12px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+                  <span class="material-symbols-outlined" style="font-size:14px;">arrow_back</span> 목록
+                </button>
+              </div>
+
+              <div style="padding:20px 24px;">
+                <!-- 문서 종류 선택 -->
+                <div style="display:flex;gap:8px;margin-bottom:20px;">
+                  <button @click="docType='expense'"
+                    style="flex:1;padding:12px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all .15s;"
+                    :style="docType==='expense'?'background:#fef3c7;color:#b45309;border:2px solid #fcd34d;':'background:#f8fafc;color:#94a3b8;border:2px solid #e2e8f0;'">
+                    <span class="material-symbols-outlined" style="font-size:20px;">receipt_long</span> 지출결의서
+                  </button>
+                  <button @click="docType='leave'"
+                    style="flex:1;padding:12px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all .15s;"
+                    :style="docType==='leave'?'background:#dbeafe;color:#1d4ed8;border:2px solid #93c5fd;':'background:#f8fafc;color:#94a3b8;border:2px solid #e2e8f0;'">
+                    <span class="material-symbols-outlined" style="font-size:20px;">event_available</span> 휴가계획서
+                  </button>
+                </div>
+
+                <!-- 제목 + 승인자 -->
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;">
+                  <div>
+                    <label class="label-base">제목 <span style="color:#94a3b8;font-weight:400;font-size:10px;">(비워두면 자동생성)</span></label>
+                    <input x-model="docTitle" class="input-base" placeholder="제목 입력...">
+                  </div>
+                  <div>
+                    <label class="label-base">
+                      승인자 <span style="color:#dc2626;">*</span>
+                      <span x-show="docApproverId" style="font-size:9px;color:#16a34a;font-weight:600;margin-left:4px;">✓ 자동선택됨</span>
+                    </label>
+                    <select x-model="docApproverId" class="input-base">
+                      <option value="">승인자 선택</option>
+                      <template x-for="u in approverList" :key="u.userId">
+                        <option :value="u.userId" x-text="u.name + (u.position ? ' ('+u.position+')' : '') + (getDeptName(u.department) ? ' · '+getDeptName(u.department) : '')"></option>
+                      </template>
+                    </select>
+                  </div>
+                </div>
+
+                <!-- ── 지출결의서 폼 ── -->
+                <template x-if="docType === 'expense'">
+                  <div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:16px 18px;">
+                    <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:12px;display:flex;align-items:center;gap:6px;">
+                      <span class="material-symbols-outlined" style="font-size:16px;">receipt_long</span> 지출결의서
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px;">
+                      <div>
+                        <label class="label-base">지출일</label>
+                        <input type="date" x-model="expenseForm.date" class="input-base text-xs">
+                      </div>
+                      <div>
+                        <label class="label-base">결제수단</label>
+                        <select x-model="expenseForm.paymentMethod" class="input-base text-xs">
+                          <option value="card">법인카드</option>
+                          <option value="cash">현금</option>
+                          <option value="transfer">계좌이체</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label class="label-base">지출 목적</label>
+                        <input x-model="expenseForm.purpose" class="input-base text-xs" placeholder="예: 현장 자재 구매">
+                      </div>
+                    </div>
+                    <div style="font-size:11px;font-weight:700;color:#92400e;margin-bottom:8px;display:flex;align-items:center;gap:4px;">
+                      <span class="material-symbols-outlined" style="font-size:14px;">list</span> 지출 항목
+                    </div>
+                    <div style="background:#fff;border-radius:8px;overflow:hidden;border:1px solid #fde68a;">
+                      <div style="display:grid;grid-template-columns:1fr 130px 100px 30px;gap:0;padding:6px 10px;background:#fef3c7;font-size:10px;font-weight:700;color:#92400e;">
+                        <div>내역</div><div style="text-align:right;">금액(원)</div><div>비고</div><div></div>
+                      </div>
+                      <template x-for="(item, i) in expenseForm.items" :key="i">
+                        <div style="display:grid;grid-template-columns:1fr 130px 100px 30px;gap:6px;padding:6px 8px;border-top:1px solid #fef3c7;align-items:center;">
+                          <input x-model="item.description" class="input-base text-xs" placeholder="내역">
+                          <input type="number" x-model.number="item.amount" class="input-base text-xs text-right" placeholder="0">
+                          <input x-model="item.note" class="input-base text-xs" placeholder="비고">
+                          <button @click="removeExpenseItem(i)" x-show="expenseForm.items.length > 1"
+                            style="background:none;border:none;cursor:pointer;color:#fca5a5;font-size:18px;line-height:1;">&times;</button>
+                        </div>
+                      </template>
+                    </div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;">
+                      <button @click="addExpenseItem()" style="background:none;border:none;cursor:pointer;color:#b45309;font-size:11px;font-weight:700;display:flex;align-items:center;gap:3px;">
+                        <span class="material-symbols-outlined" style="font-size:14px;">add_circle</span> 항목 추가
+                      </button>
+                      <div style="font-size:15px;font-weight:800;color:#b45309;">
+                        합계 <span x-text="expenseTotal.toLocaleString()"></span>원
+                      </div>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- ── 휴가계획서 폼 ── -->
+                <template x-if="docType === 'leave'">
+                  <div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:12px;padding:16px 18px;">
+                    <div style="font-size:12px;font-weight:700;color:#1d4ed8;margin-bottom:12px;display:flex;align-items:center;gap:6px;">
+                      <span class="material-symbols-outlined" style="font-size:16px;">event_available</span> 휴가계획서
+                    </div>
+                    <div style="margin-bottom:12px;">
+                      <label class="label-base">휴가 종류</label>
+                      <select x-model="leaveForm.leaveType" @change="onLeaveTypeChange()" class="input-base" style="width:100%;">
+                        <template x-for="(types, cat) in leaveTypeGroups" :key="cat">
+                          <optgroup :label="cat">
+                            <template x-for="t in types" :key="t.name">
+                              <option :value="t.name" x-text="t.name + (t.days ? ' (' + t.days + '일)' : '') + (t.deductsAnnual ? ' [연차차감]' : '') + (t.description ? ' - ' + t.description : '')"></option>
+                            </template>
+                          </optgroup>
+                        </template>
+                      </select>
+                    </div>
+                    <!-- 유형 배지 -->
+                    <template x-if="selectedLeaveType">
+                      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
+                        <span style="display:inline-flex;align-items:center;gap:3px;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;"
+                          :style="selectedLeaveType.deductsAnnual ? 'background:#fef3c7;color:#b45309;' : 'background:#dcfce7;color:#15803d;'">
+                          <span class="material-symbols-outlined" style="font-size:13px;" x-text="selectedLeaveType.deductsAnnual ? 'remove_circle' : 'check_circle'"></span>
+                          <span x-text="selectedLeaveType.deductsAnnual ? '연차 차감' : '연차 미차감'"></span>
+                        </span>
+                        <template x-if="isVariableDaysLeave">
+                          <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;background:#dbeafe;color:#1d4ed8;">
+                            <span class="material-symbols-outlined" style="font-size:13px;">calendar_month</span>
+                            시작~종료 직접 선택
+                            <template x-if="estimatedLeaveDays !== null">
+                              <span style="background:#2563eb;color:#fff;border-radius:8px;padding:1px 7px;font-size:10px;" x-text="'예상 '+estimatedLeaveDays+'일'"></span>
+                            </template>
+                          </span>
+                        </template>
+                        <template x-if="!isVariableDaysLeave">
+                          <span style="display:inline-flex;align-items:center;gap:3px;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;background:#ede9fe;color:#6d28d9;">
+                            <span class="material-symbols-outlined" style="font-size:13px;">schedule</span>
+                            <span x-text="selectedLeaveType.days + '일'"></span>
+                          </span>
+                        </template>
+                      </div>
+                    </template>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+                      <div>
+                        <label class="label-base">시작일</label>
+                        <div style="cursor:pointer;" @click="$el.querySelector('input').showPicker()">
+                          <input type="date" x-model="leaveForm.startDate" @change="onLeaveStartChange()" class="input-base" style="cursor:pointer;width:100%;box-sizing:border-box;">
+                        </div>
+                      </div>
+                      <div>
+                        <label class="label-base">
+                          종료일
+                          <span x-show="isVariableDaysLeave" style="font-size:10px;color:#2563eb;font-weight:700;"> ← 직접 선택</span>
+                          <span x-show="!isVariableDaysLeave && selectedLeaveType && selectedLeaveType.days >= 1" style="font-size:10px;color:#9ca3af;">(자동)</span>
+                        </label>
+                        <div :style="(!isVariableDaysLeave && selectedLeaveType && selectedLeaveType.days > 1)?'cursor:default;':'cursor:pointer;'"
+                          @click="(!isVariableDaysLeave && selectedLeaveType && selectedLeaveType.days > 1)||$el.querySelector('input').showPicker()">
+                          <input type="date" x-model="leaveForm.endDate" class="input-base" style="width:100%;box-sizing:border-box;"
+                            :style="!isVariableDaysLeave && selectedLeaveType && selectedLeaveType.days >= 1 ? 'background:#f1f5f9;cursor:default;color:#9ca3af;' : 'border-color:#93c5fd;cursor:pointer;'"
+                            :readonly="!isVariableDaysLeave && selectedLeaveType && selectedLeaveType.days > 1">
+                        </div>
+                      </div>
+                      <div>
+                        <label class="label-base">비상연락처</label>
+                        <input x-model="leaveForm.emergency_contact" class="input-base" placeholder="010-0000-0000">
+                      </div>
+                    </div>
+                    <div>
+                      <label class="label-base">사유</label>
+                      <textarea x-model="leaveForm.reason" class="input-base" rows="3" placeholder="휴가 사유를 입력해주세요..."></textarea>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- 제출 버튼 -->
+                <div style="display:flex;align-items:center;gap:10px;margin-top:20px;padding-top:16px;border-top:1px solid #f1f5f9;">
+                  <button @click="submitDoc()"
+                    style="background:#2563eb;color:#fff;border:none;border-radius:10px;padding:11px 28px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;">
+                    <span class="material-symbols-outlined" style="font-size:16px;">send</span> 결재 요청
+                  </button>
+                  <button @click="currentView='list'"
+                    style="background:#f1f5f9;color:#64748b;border:none;border-radius:10px;padding:11px 20px;font-size:13px;font-weight:600;cursor:pointer;">
+                    취소
+                  </button>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- ===== 상세 뷰 ===== -->
+          <template x-if="currentView === 'detail' && selectedDoc">
+            <div class="ap-detail-wrap">
+
+              <!-- 탑바 -->
+              <div class="ap-detail-topbar">
+                <button @click="currentView='list'"
+                  style="background:none;border:none;cursor:pointer;color:#64748b;font-size:12px;font-weight:600;display:flex;align-items:center;gap:4px;padding:4px 8px;border-radius:7px;transition:all .1s;"
+                  onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='none'">
+                  <span class="material-symbols-outlined" style="font-size:16px;">arrow_back</span> 목록으로
+                </button>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <span class="ap-type-chip" :class="selectedDoc.type==='expense'?'ap-type-expense':'ap-type-leave'">
+                    <span class="material-symbols-outlined" style="font-size:12px;" x-text="selectedDoc.type==='expense'?'receipt_long':'event_available'"></span>
+                    <span x-text="selectedDoc.type==='expense'?'지출결의서':'휴가계획서'"></span>
+                  </span>
+                  <span class="ap-status"
+                    :class="{'ap-status-pending':selectedDoc.status==='pending','ap-status-approved':selectedDoc.status==='approved','ap-status-rejected':selectedDoc.status==='rejected','ap-status-deleted':selectedDoc.status==='deleted'}"
+                    x-text="statusLabel(selectedDoc.status)"></span>
+                </div>
+              </div>
+
+              <!-- 문서 헤더 -->
+              <div class="ap-detail-header">
+                <div class="ap-detail-title" x-text="selectedDoc.title"></div>
+                <div class="ap-meta-grid">
+                  <div class="ap-meta-cell">
+                    <div class="ap-meta-label">기안자</div>
+                    <div class="ap-meta-value" x-text="selectedDoc.authorName"></div>
+                  </div>
+                  <div class="ap-meta-cell">
+                    <div class="ap-meta-label">부서</div>
+                    <div class="ap-meta-value" x-text="selectedDoc.authorDept || '-'"></div>
+                  </div>
+                  <div class="ap-meta-cell">
+                    <div class="ap-meta-label">기안일</div>
+                    <div class="ap-meta-value" style="font-size:11px;" x-text="fmtDateTime(selectedDoc.createdAt)"></div>
+                  </div>
+                  <div class="ap-meta-cell">
+                    <div class="ap-meta-label">승인자</div>
+                    <div class="ap-meta-value" x-text="selectedDoc.approverName"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 결재 흐름 -->
+              <div class="ap-flow">
+                <!-- Step 1: 기안 -->
+                <div class="ap-flow-step">
+                  <div class="ap-flow-dot ap-flow-dot-done">
+                    <span class="material-symbols-outlined" style="font-size:16px;">edit</span>
+                  </div>
+                  <div class="ap-flow-label">기안</div>
+                  <div class="ap-flow-sub" x-text="selectedDoc.authorName"></div>
+                </div>
+                <!-- Step 2: 심사 -->
+                <div class="ap-flow-step">
+                  <div class="ap-flow-dot" :class="selectedDoc.status==='pending'?'ap-flow-dot-active':'ap-flow-dot-done'">
+                    <span class="material-symbols-outlined" style="font-size:16px;" x-text="selectedDoc.status==='pending'?'hourglass_empty':'check'"></span>
+                  </div>
+                  <div class="ap-flow-label">심사 중</div>
+                  <div class="ap-flow-sub" x-text="selectedDoc.approverName"></div>
+                </div>
+                <!-- Step 3: 결과 -->
+                <div class="ap-flow-step">
+                  <div class="ap-flow-dot"
+                    :class="selectedDoc.status==='approved'?'ap-flow-dot-ok':selectedDoc.status==='rejected'?'ap-flow-dot-no':'ap-flow-dot-idle'">
+                    <span class="material-symbols-outlined" style="font-size:16px;"
+                      x-text="selectedDoc.status==='approved'?'check_circle':selectedDoc.status==='rejected'?'cancel':'pending'"></span>
+                  </div>
+                  <div class="ap-flow-label"
+                    x-text="selectedDoc.status==='approved'?'승인됨':selectedDoc.status==='rejected'?'반려됨':'결과 대기'"></div>
+                  <div class="ap-flow-sub" x-text="selectedDoc.processedAt ? fmtDate(selectedDoc.processedAt) : ''"></div>
+                </div>
+              </div>
+
+              <!-- 문서 내용 -->
+              <div class="ap-doc-body">
+
+                <!-- 지출결의서 -->
+                <template x-if="selectedDoc.type === 'expense'">
+                  <div class="ap-doc-card ap-doc-card-expense">
+                    <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:12px;display:flex;align-items:center;gap:5px;">
+                      <span class="material-symbols-outlined" style="font-size:16px;">receipt_long</span> 지출 내역
+                    </div>
+                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px;">
+                      <div>
+                        <div class="ap-field-label">지출일</div>
+                        <div class="ap-field-value" x-text="selectedDoc.formData.date || '-'"></div>
+                      </div>
+                      <div>
+                        <div class="ap-field-label">결제수단</div>
+                        <div class="ap-field-value" x-text="payMethodLabel(selectedDoc.formData.paymentMethod)"></div>
+                      </div>
+                      <div>
+                        <div class="ap-field-label">목적</div>
+                        <div class="ap-field-value" x-text="selectedDoc.formData.purpose || '-'"></div>
+                      </div>
+                    </div>
+                    <table style="width:100%;border-collapse:collapse;font-size:12px;border-radius:8px;overflow:hidden;">
+                      <thead>
+                        <tr style="background:#fef3c7;">
+                          <th style="padding:8px 12px;text-align:left;color:#92400e;font-size:10px;font-weight:700;border-bottom:1.5px solid #fde68a;">내역</th>
+                          <th style="padding:8px 12px;text-align:right;color:#92400e;font-size:10px;font-weight:700;border-bottom:1.5px solid #fde68a;width:130px;">금액</th>
+                          <th style="padding:8px 12px;text-align:left;color:#92400e;font-size:10px;font-weight:700;border-bottom:1.5px solid #fde68a;">비고</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <template x-for="(item, i) in (selectedDoc.formData.items || [])" :key="i">
+                          <tr style="border-bottom:1px solid #fef3c7;">
+                            <td style="padding:8px 12px;" x-text="item.description || '-'"></td>
+                            <td style="padding:8px 12px;text-align:right;font-weight:700;color:#b45309;" x-text="Number(item.amount||0).toLocaleString()+'원'"></td>
+                            <td style="padding:8px 12px;color:#78716c;" x-text="item.note || '-'"></td>
+                          </tr>
+                        </template>
+                      </tbody>
+                      <tfoot>
+                        <tr style="background:#fef9c3;border-top:2px solid #fcd34d;">
+                          <td style="padding:10px 12px;font-weight:800;color:#92400e;font-size:13px;">합 계</td>
+                          <td style="padding:10px 12px;text-align:right;font-weight:800;font-size:16px;color:#b45309;"
+                            x-text="(selectedDoc.formData.items||[]).reduce((s,i)=>s+(Number(i.amount)||0),0).toLocaleString()+'원'"></td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </template>
+
+                <!-- 휴가계획서 -->
+                <template x-if="selectedDoc.type === 'leave'">
+                  <div class="ap-doc-card ap-doc-card-leave">
+                    <div style="font-size:12px;font-weight:700;color:#1d4ed8;margin-bottom:12px;display:flex;align-items:center;gap:5px;">
+                      <span class="material-symbols-outlined" style="font-size:16px;">event_available</span> 휴가 내용
+                    </div>
+                    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:12px;">
+                      <div>
+                        <div class="ap-field-label">휴가 종류</div>
+                        <div class="ap-field-value" style="font-size:14px;" x-text="leaveTypeLabel(selectedDoc.formData.leaveType)"></div>
+                        <template x-if="leaveTypes.find(t => t.name === selectedDoc.formData.leaveType)">
+                          <span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;margin-top:4px;"
+                            :style="leaveTypes.find(t => t.name === selectedDoc.formData.leaveType)?.deductsAnnual ? 'background:#fef3c7;color:#b45309;' : 'background:#dcfce7;color:#15803d;'"
+                            x-text="leaveTypes.find(t => t.name === selectedDoc.formData.leaveType)?.deductsAnnual ? '연차 차감' : '연차 미차감'"></span>
+                        </template>
+                      </div>
+                      <div>
+                        <div class="ap-field-label">비상연락처</div>
+                        <div class="ap-field-value" x-text="selectedDoc.formData.emergency_contact || '-'"></div>
+                      </div>
+                      <div>
+                        <div class="ap-field-label">시작일</div>
+                        <div class="ap-field-value" style="font-size:15px;color:#1d4ed8;" x-text="selectedDoc.formData.startDate || '-'"></div>
+                      </div>
+                      <div>
+                        <div class="ap-field-label">종료일</div>
+                        <div class="ap-field-value" style="font-size:15px;color:#1d4ed8;" x-text="selectedDoc.formData.endDate || '-'"></div>
+                      </div>
+                    </div>
+                    <div x-show="selectedDoc.formData.reason" style="padding-top:10px;border-top:1px solid #bfdbfe;">
+                      <div class="ap-field-label">사유</div>
+                      <p style="margin:4px 0 0;color:#1e3a5f;font-size:13px;line-height:1.6;white-space:pre-wrap;" x-text="selectedDoc.formData.reason"></p>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- 처리 결과 메시지 -->
+                <template x-if="selectedDoc.status !== 'pending' && selectedDoc.status !== 'deleted'">
+                  <div style="margin-top:14px;padding:14px 16px;border-radius:10px;display:flex;align-items:flex-start;gap:10px;"
+                    :style="selectedDoc.status==='approved'?'background:#f0fdf4;border:1.5px solid #86efac;':'background:#fef2f2;border:1.5px solid #fca5a5;'">
+                    <span class="material-symbols-outlined" style="font-size:22px;margin-top:1px;"
+                      :style="selectedDoc.status==='approved'?'color:#16a34a;':'color:#dc2626;'"
+                      x-text="selectedDoc.status==='approved'?'check_circle':'cancel'"></span>
+                    <div>
+                      <div style="font-size:13px;font-weight:700;"
+                        :style="selectedDoc.status==='approved'?'color:#15803d;':'color:#dc2626;'"
+                        x-text="selectedDoc.status==='approved'?'승인 완료':'반려됨'"></div>
+                      <div style="font-size:11px;color:#6b7280;margin-top:2px;">
+                        처리일시: <span x-text="fmtDateTime(selectedDoc.processedAt)"></span>
+                      </div>
+                      <div x-show="selectedDoc.comment" style="font-size:12px;color:#374151;margin-top:6px;background:#fff;padding:8px 12px;border-radius:7px;border:1px solid rgba(0,0,0,.08);">
+                        <span style="font-weight:600;">💬 의견:</span> <span x-text="selectedDoc.comment"></span>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+
+              </div>
+
+              <!-- 결재 처리 액션 영역 -->
+              <template x-if="selectedDoc.status === 'pending' && (selectedDoc.approverId === myUserId || myRole === 'admin')">
+                <div class="ap-action-area">
+                  <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:10px;display:flex;align-items:center;gap:4px;">
+                    <span class="material-symbols-outlined" style="font-size:16px;color:#2563eb;">gavel</span> 결재 처리
+                  </div>
+                  <textarea x-model="processComment" class="input-base" rows="2" style="margin-bottom:12px;" placeholder="의견을 입력하세요 (선택사항)"></textarea>
+                  <div style="display:flex;gap:10px;">
+                    <button @click="processDoc('approved')" class="ap-btn-approve">
+                      <span class="material-symbols-outlined" style="font-size:18px;">check_circle</span> 승인
+                    </button>
+                    <button @click="processDoc('rejected')" class="ap-btn-reject">
+                      <span class="material-symbols-outlined" style="font-size:18px;">cancel</span> 반려
+                    </button>
+                  </div>
+                </div>
+              </template>
+
+              <!-- 하단 관리 버튼 -->
+              <div style="padding:12px 20px;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;gap:8px;background:#fafbfc;">
+                <template x-if="selectedDoc.status === 'pending' && (selectedDoc.authorId === myUserId || myRole === 'admin')">
+                  <button @click="deleteDoc(selectedDoc.id, false)"
+                    style="background:none;border:1px solid #fca5a5;border-radius:7px;padding:6px 14px;font-size:11px;font-weight:600;cursor:pointer;color:#ef4444;display:flex;align-items:center;gap:4px;">
+                    <span class="material-symbols-outlined" style="font-size:14px;">undo</span> 결재 회수
+                  </button>
+                </template>
+                <template x-if="(selectedDoc.status === 'approved' || selectedDoc.status === 'rejected') && myRole === 'admin'">
+                  <button @click="deleteDoc(selectedDoc.id, true)"
+                    style="background:none;border:1px solid #e2e8f0;border-radius:7px;padding:6px 14px;font-size:11px;font-weight:600;cursor:pointer;color:#9ca3af;display:flex;align-items:center;gap:4px;">
+                    <span class="material-symbols-outlined" style="font-size:14px;">delete</span> 삭제
+                  </button>
+                </template>
+              </div>
+
+            </div>
+          </template>
+        </div>
+</div>

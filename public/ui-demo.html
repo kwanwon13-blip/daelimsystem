@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>단가 UI 3가지 비교</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<style>
+  [x-cloak]{display:none!important}
+  input[type=number]::-webkit-inner-spin-button{opacity:1}
+  .cell-input{width:90px;text-align:right;border:1px solid #d1d5db;border-radius:4px;padding:2px 6px;font-size:13px}
+  .cell-input:focus{outline:2px solid #6366f1;border-color:transparent}
+  .badge{font-size:11px;padding:2px 8px;border-radius:9999px;font-weight:600}
+</style>
+</head>
+<body class="bg-gray-100 min-h-screen p-6" x-data="demo()" x-cloak>
+
+<div class="max-w-6xl mx-auto">
+  <h1 class="text-2xl font-bold text-gray-800 mb-2">업체별 단가 입력 UI — 3가지 비교</h1>
+  <p class="text-sm text-gray-500 mb-6">직접 클릭/입력해보고 가장 편한 방식을 선택하세요</p>
+
+  <!-- 탭 선택 -->
+  <div class="flex gap-2 mb-6">
+    <template x-for="(tab, i) in tabs" :key="i">
+      <button @click="activeTab=i"
+        :class="activeTab===i ? 'bg-indigo-600 text-white shadow' : 'bg-white text-gray-600 hover:bg-gray-50'"
+        class="px-5 py-2.5 rounded-xl text-sm font-semibold border transition-all">
+        <span x-text="tab"></span>
+      </button>
+    </template>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       방식 1: 가로 매트릭스 표
+  ══════════════════════════════════════ -->
+  <div x-show="activeTab===0" class="bg-white rounded-2xl shadow p-6">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h2 class="text-lg font-bold text-gray-800">① 가로 매트릭스 표</h2>
+        <p class="text-sm text-gray-500 mt-0.5">행=품목, 열=업체 — 엑셀처럼 한눈에 모든 업체 단가 비교·입력</p>
+      </div>
+      <span class="badge bg-indigo-100 text-indigo-700">추천</span>
+    </div>
+
+    <!-- 카테고리 필터 -->
+    <div class="flex gap-2 mb-4 flex-wrap">
+      <button @click="m1.cat=''" :class="m1.cat==='' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600'"
+        class="text-xs px-3 py-1 rounded-full font-medium">전체</button>
+      <template x-for="cat in cats" :key="cat">
+        <button @click="m1.cat=cat" :class="m1.cat===cat ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600'"
+          class="text-xs px-3 py-1 rounded-full font-medium" x-text="cat"></button>
+      </template>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm border-collapse">
+        <thead>
+          <tr class="bg-gray-50">
+            <th class="text-left px-3 py-2.5 font-semibold text-gray-600 border-b-2 border-gray-200 whitespace-nowrap w-40">품목명</th>
+            <th class="text-left px-3 py-2.5 font-semibold text-gray-600 border-b-2 border-gray-200 whitespace-nowrap w-28">규격</th>
+            <th class="text-center px-3 py-2.5 font-semibold text-gray-600 border-b-2 border-gray-200 whitespace-nowrap w-16">단위</th>
+            <template x-for="v in vendors" :key="v">
+              <th class="text-center px-2 py-2.5 font-semibold text-indigo-600 border-b-2 border-gray-200 whitespace-nowrap min-w-[100px]" x-text="v"></th>
+            </template>
+            <th class="px-3 py-2.5 border-b-2 border-gray-200 w-20 text-center text-xs text-gray-400">최저가</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="(item, ri) in filteredM1" :key="item.name">
+            <tr :class="ri%2===0 ? 'bg-white' : 'bg-gray-50'" class="hover:bg-indigo-50 transition-colors group">
+              <td class="px-3 py-2 font-medium text-gray-800 border-b border-gray-100" x-text="item.name"></td>
+              <td class="px-3 py-2 text-gray-500 border-b border-gray-100 text-xs" x-text="item.spec"></td>
+              <td class="px-3 py-2 text-center text-gray-500 border-b border-gray-100 text-xs" x-text="item.unit"></td>
+              <template x-for="(v, vi) in vendors" :key="v">
+                <td class="px-2 py-1.5 border-b border-gray-100 text-center">
+                  <input type="number" class="cell-input"
+                    :value="item.prices[vi]||''"
+                    @change="item.prices[vi]=+$event.target.value; calcMin(item)"
+                    placeholder="—"
+                    :class="item.prices[vi] && item.prices[vi]===item.minPrice ? 'border-green-400 bg-green-50 text-green-700 font-semibold' : ''">
+                </td>
+              </template>
+              <td class="px-3 py-2 border-b border-gray-100 text-center">
+                <span x-show="item.minPrice" class="text-green-700 font-bold text-xs" x-text="item.minPrice?.toLocaleString()+'원'"></span>
+                <span x-show="!item.minPrice" class="text-gray-300 text-xs">—</span>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="mt-4 flex items-center justify-between">
+      <p class="text-xs text-gray-400">💡 숫자 입력 후 Tab으로 이동 | 초록색 = 해당 품목 최저가 업체</p>
+      <button class="bg-indigo-600 text-white text-sm px-5 py-2 rounded-lg hover:bg-indigo-700 font-semibold">💾 저장</button>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       방식 2: 품목 클릭 → 업체별 단가 모달
+  ══════════════════════════════════════ -->
+  <div x-show="activeTab===1" class="bg-white rounded-2xl shadow p-6">
+    <div class="mb-4">
+      <h2 class="text-lg font-bold text-gray-800">② 품목 클릭 → 업체별 단가 모달</h2>
+      <p class="text-sm text-gray-500 mt-0.5">품목을 클릭하면 팝업에서 업체별 단가를 한번에 입력</p>
+    </div>
+
+    <div class="grid grid-cols-1 gap-2">
+      <template x-for="(item, ri) in products" :key="item.name">
+        <div @click="m2.sel=ri; m2.show=true"
+          class="flex items-center gap-4 px-4 py-3 border rounded-xl cursor-pointer hover:border-indigo-400 hover:bg-indigo-50 transition-all group">
+          <div class="flex-1">
+            <span class="font-medium text-gray-800 group-hover:text-indigo-700" x-text="item.name"></span>
+            <span class="text-xs text-gray-400 ml-2" x-text="item.spec"></span>
+          </div>
+          <div class="flex gap-2 items-center">
+            <template x-for="(v, vi) in vendors" :key="v">
+              <div class="text-center">
+                <div class="text-xs text-gray-400 mb-0.5" x-text="v.slice(0,4)"></div>
+                <div class="text-xs font-semibold"
+                  :class="item.prices[vi] ? 'text-indigo-600' : 'text-gray-300'"
+                  x-text="item.prices[vi] ? item.prices[vi].toLocaleString() : '—'"></div>
+              </div>
+            </template>
+          </div>
+          <span class="text-gray-300 group-hover:text-indigo-400 text-lg">›</span>
+        </div>
+      </template>
+    </div>
+
+    <!-- 모달 -->
+    <div x-show="m2.show" x-transition.opacity class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div @click.stop class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+        <template x-if="m2.sel !== null">
+          <div>
+            <h3 class="text-lg font-bold text-gray-800 mb-1" x-text="products[m2.sel].name"></h3>
+            <p class="text-xs text-gray-400 mb-5" x-text="products[m2.sel].spec + ' · ' + products[m2.sel].unit"></p>
+            <div class="space-y-3">
+              <template x-for="(v, vi) in vendors" :key="v">
+                <div class="flex items-center gap-3">
+                  <label class="w-24 text-sm font-medium text-gray-700 flex-shrink-0" x-text="v"></label>
+                  <div class="relative flex-1">
+                    <input type="number" class="w-full border rounded-lg px-3 py-2 text-sm text-right pr-8"
+                      :value="products[m2.sel].prices[vi]||''"
+                      @change="products[m2.sel].prices[vi]=+$event.target.value; calcMin(products[m2.sel])"
+                      placeholder="미입력">
+                    <span class="absolute right-3 top-2.5 text-xs text-gray-400">원</span>
+                  </div>
+                </div>
+              </template>
+            </div>
+            <div class="mt-6 flex gap-2">
+              <button @click="m2.show=false" class="flex-1 border text-sm px-4 py-2 rounded-lg hover:bg-gray-50">닫기</button>
+              <button @click="m2.show=false" class="flex-1 bg-indigo-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-indigo-700 font-semibold">저장</button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       방식 3: 업체 탭 전환
+  ══════════════════════════════════════ -->
+  <div x-show="activeTab===2" class="bg-white rounded-2xl shadow p-6">
+    <div class="mb-4">
+      <h2 class="text-lg font-bold text-gray-800">③ 업체 탭 전환</h2>
+      <p class="text-sm text-gray-500 mt-0.5">업체 탭을 클릭하면 해당 업체의 단가 목록으로 전환</p>
+    </div>
+
+    <!-- 업체 탭 -->
+    <div class="flex gap-1 mb-4 overflow-x-auto pb-1">
+      <template x-for="(v, vi) in vendors" :key="v">
+        <button @click="m3.vendor=vi"
+          :class="m3.vendor===vi ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+          class="px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors" x-text="v"></button>
+      </template>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="bg-gray-50 border-b-2 border-gray-200">
+            <th class="text-left px-3 py-2.5 font-semibold text-gray-600 w-40">품목명</th>
+            <th class="text-left px-3 py-2.5 font-semibold text-gray-600 w-28">규격</th>
+            <th class="text-center px-3 py-2.5 font-semibold text-gray-600 w-16">단위</th>
+            <th class="text-right px-3 py-2.5 font-semibold text-indigo-600">단가 (원)</th>
+            <th class="w-16"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="(item, ri) in products" :key="item.name">
+            <tr :class="ri%2===0?'bg-white':'bg-gray-50'" class="hover:bg-indigo-50 border-b border-gray-100">
+              <td class="px-3 py-2 font-medium text-gray-800" x-text="item.name"></td>
+              <td class="px-3 py-2 text-gray-500 text-xs" x-text="item.spec"></td>
+              <td class="px-3 py-2 text-center text-gray-500 text-xs" x-text="item.unit"></td>
+              <td class="px-3 py-2 text-right">
+                <template x-if="!m3.editing[ri]">
+                  <span @click="m3.editing[ri]=true; $nextTick(()=>$refs['inp'+ri]?.focus())"
+                    :class="item.prices[m3.vendor] ? 'text-indigo-700 font-semibold cursor-text' : 'text-gray-300 cursor-text'"
+                    x-text="item.prices[m3.vendor] ? item.prices[m3.vendor].toLocaleString()+'원' : '클릭하여 입력'"></span>
+                </template>
+                <template x-if="m3.editing[ri]">
+                  <input type="number" :x-ref="'inp'+ri"
+                    :value="item.prices[m3.vendor]||''"
+                    @change="item.prices[m3.vendor]=+$event.target.value; calcMin(item)"
+                    @blur="m3.editing[ri]=false"
+                    @keydown.enter="m3.editing[ri]=false"
+                    class="cell-input w-28" autofocus>
+                </template>
+              </td>
+              <td class="px-3 py-2 text-center">
+                <button @click="m3.editing[ri]=!m3.editing[ri]" class="text-gray-400 hover:text-indigo-600 text-xs">✏️</button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+    <div class="mt-4 flex justify-end">
+      <button class="bg-indigo-600 text-white text-sm px-5 py-2 rounded-lg hover:bg-indigo-700 font-semibold">💾 저장</button>
+    </div>
+  </div>
+
+  <!-- 방식별 장단점 -->
+  <div class="mt-6 grid grid-cols-3 gap-4 text-sm">
+    <div class="bg-white rounded-xl p-4 border-2" :class="activeTab===0?'border-indigo-400':'border-transparent'">
+      <div class="font-bold text-gray-700 mb-2">① 매트릭스 표</div>
+      <div class="text-green-600 text-xs mb-1">✅ 한눈에 전체 비교 가능</div>
+      <div class="text-green-600 text-xs mb-1">✅ 최저가 업체 자동 하이라이트</div>
+      <div class="text-green-600 text-xs mb-1">✅ 빠른 Tab 이동 입력</div>
+      <div class="text-red-400 text-xs">❌ 업체 많으면 가로 스크롤</div>
+    </div>
+    <div class="bg-white rounded-xl p-4 border-2" :class="activeTab===1?'border-indigo-400':'border-transparent'">
+      <div class="font-bold text-gray-700 mb-2">② 품목 클릭 모달</div>
+      <div class="text-green-600 text-xs mb-1">✅ 화면이 깔끔함</div>
+      <div class="text-green-600 text-xs mb-1">✅ 품목별 집중 입력</div>
+      <div class="text-red-400 text-xs">❌ 품목이 많으면 클릭 많음</div>
+      <div class="text-red-400 text-xs">❌ 전체 비교 어려움</div>
+    </div>
+    <div class="bg-white rounded-xl p-4 border-2" :class="activeTab===2?'border-indigo-400':'border-transparent'">
+      <div class="font-bold text-gray-700 mb-2">③ 업체 탭 전환</div>
+      <div class="text-green-600 text-xs mb-1">✅ 업체별 집중 입력</div>
+      <div class="text-green-600 text-xs mb-1">✅ 화면 단순함</div>
+      <div class="text-red-400 text-xs">❌ 업체 간 단가 비교 불가</div>
+      <div class="text-red-400 text-xs">❌ 탭 많아지면 불편</div>
+    </div>
+  </div>
+</div>
+
+<script>
+function demo() {
+  const vendors = ['이상테크윈', '광고나라', '안전용품사', '씨엔에스'];
+  const cats = ['현수막', '표지판', '안전용품'];
+  const products = [
+    { name:'현수막', spec:'1m×1m', unit:'㎡', cat:'현수막', prices:[8000,7500,0,9000] },
+    { name:'현수막', spec:'2m×1m', unit:'㎡', cat:'현수막', prices:[7500,7000,0,8500] },
+    { name:'포맥스', spec:'3mm', unit:'㎡', cat:'표지판', prices:[25000,0,23000,0] },
+    { name:'스티커', spec:'일반', unit:'㎡', cat:'표지판', prices:[12000,11000,13000,0] },
+    { name:'안전모', spec:'일반형', unit:'개', cat:'안전용품', prices:[15000,13000,14500,0] },
+    { name:'안전조끼', spec:'M사이즈', unit:'개', cat:'안전용품', prices:[5500,0,6000,5800] },
+    { name:'안전화', spec:'240mm', unit:'켤레', cat:'안전용품', prices:[0,32000,35000,0] },
+    { name:'윈드배너', spec:'600×1800', unit:'개', cat:'현수막', prices:[18000,17000,0,20000] },
+  ];
+
+  products.forEach(p => {
+    const filled = p.prices.filter(x => x > 0);
+    p.minPrice = filled.length ? Math.min(...filled) : 0;
+  });
+
+  return {
+    tabs: ['① 매트릭스 표', '② 품목 클릭 모달', '③ 업체 탭 전환'],
+    activeTab: 0,
+    vendors, cats, products,
+    m1: { cat: '' },
+    m2: { show: false, sel: null },
+    m3: { vendor: 0, editing: {} },
+    get filteredM1() {
+      return this.m1.cat ? this.products.filter(p => p.cat === this.m1.cat) : this.products;
+    },
+    calcMin(item) {
+      const filled = item.prices.filter(x => x > 0);
+      item.minPrice = filled.length ? Math.min(...filled) : 0;
+    }
+  };
+}
+</script>
+</body>
+</html>
