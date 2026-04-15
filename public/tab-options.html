@@ -1,0 +1,123 @@
+        <div class="space-y-3 fade-in">
+
+          <!-- ── 업체 선택 (품목관리와 동일 방식) ── -->
+          <div class="card" style="padding:0;overflow:hidden;">
+            <div style="padding:10px 14px;background:linear-gradient(135deg,#fff7ed,#ffedd5);border-bottom:1px solid #fed7aa;">
+              <h3 class="font-work text-[13px] font-bold text-gray-800 flex items-center gap-2 m-0">
+                <span class="material-symbols-outlined" style="font-size:16px;color:#ea580c;">storefront</span> 조회 업체
+              </h3>
+            </div>
+            <div style="padding:10px 14px;">
+              <div class="flex items-center gap-4 flex-wrap">
+                <div style="min-width:200px;">
+                  <label class="label-base">업체 선택</label>
+                  <select x-model="optionsVendorId" class="input-base">
+                    <option value="">기본 단가</option>
+                    <template x-for="v in vendors" :key="v.id">
+                      <option :value="v.id" x-text="v.name"></option>
+                    </template>
+                  </select>
+                </div>
+                <template x-if="optionsVendorId">
+                  <div style="padding:8px 12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;font-size:11px;color:#9a3412;display:flex;align-items:center;gap:6px;">
+                    <span class="material-symbols-outlined" style="font-size:14px;color:#ea580c;">info</span>
+                    단가 입력 후 Enter 또는 포커스 이동 시 자동 저장됩니다. 빈칸 저장 시 해당 업체 단가가 삭제됩니다.
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <!-- 옵션 추가 버튼 → 팝업으로 연결 -->
+          <div class="card" style="padding:0;overflow:hidden;">
+            <div style="padding:10px 14px;background:linear-gradient(135deg,#fff7ed,#ffedd5);border-bottom:1px solid #fed7aa;">
+              <div class="flex items-center justify-between">
+                <h3 class="font-work text-[13px] font-bold text-gray-800 flex items-center gap-2 m-0">
+                  <span class="material-symbols-outlined" style="font-size:16px;color:#ea580c;">tune</span> 옵션 추가
+                  <span class="text-xs font-normal text-gray-400">— 버튼을 클릭하면 팝업이 열립니다</span>
+                </h3>
+                <button @click="openOptionsPopup(null)" class="btn-primary text-xs py-1.5 px-3 flex items-center gap-1">
+                  <span class="material-symbols-outlined" style="font-size:16px;">add</span>
+                  <span>새 옵션</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="padding:0;overflow:hidden;">
+            <div style="padding:10px 14px;background:linear-gradient(135deg,#fff7ed,#ffedd5);border-bottom:1px solid #fed7aa;">
+              <h3 class="font-work text-[13px] font-bold text-gray-800 flex items-center gap-2 m-0">
+                <span class="material-symbols-outlined" style="font-size:16px;color:#ea580c;">checklist</span> 옵션 목록
+                <span class="text-xs font-medium px-2.5 py-1 rounded-full" style="background:rgba(234,88,12,.1);color:#ea580c;" x-text="options.length + '개'"></span>
+              </h3>
+            </div>
+            <div class="overflow-x-auto">
+            <table class="w-full text-xs" style="border-collapse:collapse;">
+              <thead>
+                <tr style="background:#f8fafb;">
+                  <th style="padding:6px 6px;width:20px;border-bottom:1px solid #e5e7eb;"></th>
+                  <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">코드</th>
+                  <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">이름</th>
+                  <th style="padding:6px 10px;text-align:center;font-size:10px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">단가방식</th>
+                  <th style="padding:6px 10px;text-align:right;font-size:10px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">기본단가</th>
+                  <th :style="optionsVendorId ? 'padding:6px 10px;text-align:right;font-size:10px;font-weight:600;color:#ea580c;border-bottom:1px solid #e5e7eb;background:#fff7ed;' : 'display:none;'">업체단가</th>
+                  <th style="padding:6px 10px;text-align:center;font-size:10px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">업체견적</th>
+                  <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">단위</th>
+                  <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">카테고리</th>
+                  <th style="padding:6px 10px;text-align:center;font-size:10px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">삭제</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="opt in options" :key="opt.id">
+                  <tr style="border-bottom:1px solid #f0f1f3;cursor:pointer;" class="hover:bg-orange-50/40"
+                    :style="getOptVendorQuote(opt.id) ? 'background:#fff7ed;' : ''"
+                    @click="openOptionsPopup(opt)">
+                    <td style="padding:5px 6px;text-align:center;color:#94a3b8;">
+                      <span class="material-symbols-outlined" style="font-size:13px;color:#d1d5db;">open_in_new</span>
+                    </td>
+                    <td style="padding:5px 10px;font-weight:600;color:#374151;" x-text="opt.code"></td>
+                    <td style="padding:5px 10px;color:#374151;" x-text="opt.name"></td>
+                    <td style="padding:5px 10px;text-align:center;">
+                      <span x-show="(opt.pricingType||'fixed')==='fixed'" class="inline-block px-1.5 py-0.5 rounded-full" style="font-size:10px;background:#f3f4f6;color:#6b7280;">고정</span>
+                      <span x-show="opt.pricingType==='perSqm'" class="inline-block px-1.5 py-0.5 rounded-full" style="font-size:10px;background:#dbeafe;color:#1d4ed8;">㎡당</span>
+                      <span x-show="opt.pricingType==='variants'" class="inline-block px-1.5 py-0.5 rounded-full" style="font-size:10px;background:#fef3c7;color:#b45309;">규격별</span>
+                    </td>
+                    <td style="padding:5px 10px;text-align:right;color:#6b7280;">
+                      <span x-show="opt.pricingType!=='variants'" x-text="(opt.price||0).toLocaleString()+'원'"></span>
+                      <span x-show="opt.pricingType==='variants'" x-text="(opt.variants||[]).length+'종'"></span>
+                    </td>
+                    <!-- 업체단가 컬럼: 업체 선택 시에만 표시, 인라인 편집 -->
+                    <td :style="optionsVendorId ? 'padding:4px 8px;text-align:right;background:#fff7ed;' : 'display:none;'" @click.stop>
+                      <template x-if="opt.pricingType !== 'variants'">
+                        <input
+                          type="number"
+                          :value="getOptVendorQuote(opt.id)?.price ?? ''"
+                          @change="saveOptVendorPrice(opt.id, $el.value)"
+                          @keydown.enter="$el.blur()"
+                          class="text-right text-xs border border-orange-200 rounded px-2 py-1 focus:border-orange-400 focus:ring-1 focus:ring-orange-200 outline-none"
+                          style="width:90px;background:white;"
+                          placeholder="미입력">
+                      </template>
+                      <template x-if="opt.pricingType === 'variants'">
+                        <span style="font-size:10px;color:#9ca3af;">규격별</span>
+                      </template>
+                    </td>
+                    <td style="padding:5px 10px;text-align:center;">
+                      <span x-text="(opt.quotes||[]).length+'건'" :style="(opt.quotes||[]).length>0?'color:#ea580c;font-weight:600;':'color:#9ca3af;'"></span>
+                    </td>
+                    <td style="padding:5px 10px;color:#6b7280;" x-text="opt.unit"></td>
+                    <td style="padding:5px 10px;color:#6b7280;">
+                      <span :style="(!opt.categoryIds||opt.categoryIds.length===0)?'color:#ef4444;font-weight:600;':''"
+                        x-text="(!opt.categoryIds||opt.categoryIds.length===0)?'미지정':opt.categoryIds.map(id=>categories.find(c=>c.id===id)?.name||'').join(', ')"></span>
+                    </td>
+                    <td style="padding:5px 10px;text-align:center;white-space:nowrap;" @click.stop>
+                      <button @click.stop="openOptionsPopup(opt)" style="font-size:10px;color:#7c3aed;font-weight:600;background:rgba(124,58,237,.08);border:none;cursor:pointer;border-radius:4px;padding:2px 7px;margin-right:3px;">수정</button>
+                      <button @click.stop="deleteOption(opt.id)" class="text-red-400 hover:text-red-600" style="font-size:14px;line-height:1;">×</button>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            </div>
+          </div>
+        </div>

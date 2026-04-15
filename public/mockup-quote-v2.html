@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>견적 + 매입 UX v2</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', -apple-system, sans-serif; background: #f0f2f5; color: #1e2b3c; font-size: 14px; }
+
+/* ── 탑바 ── */
+.topbar { background: #1e2b3c; color: #fff; height: 48px; display: flex; align-items: center; padding: 0 20px; gap: 24px; }
+.topbar .logo { font-weight: 700; font-size: 15px; color: #7fb3f5; }
+.topbar .nav { font-size: 13px; color: #aab; cursor: pointer; padding: 4px 2px; }
+.topbar .nav.active { color: #fff; border-bottom: 2px solid #5b9cf6; }
+
+/* ── 메인 레이아웃 ── */
+.layout { display: flex; height: calc(100vh - 48px); }
+
+/* ── 좌측: 견적 작성 영역 ── */
+.quote-area { flex: 1; overflow-y: auto; padding: 20px 24px; transition: margin-right .25s; }
+.quote-area.drawer-open { margin-right: 360px; }
+
+/* ── 카드 ── */
+.card { background: #fff; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.07); margin-bottom: 14px; }
+.card-head { padding: 13px 18px; border-bottom: 1px solid #f2f2f2; display: flex; align-items: center; justify-content: space-between; }
+.card-head h3 { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.card-body { padding: 16px 18px; }
+
+/* ── 견적 헤더 그리드 ── */
+.hdr-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.fg { display: flex; flex-direction: column; gap: 4px; }
+.fg label { font-size: 11px; color: #999; font-weight: 600; letter-spacing: .3px; }
+.fg input, .fg select { border: 1px solid #e5e5e5; border-radius: 6px; padding: 7px 10px; font-size: 13px; outline: none; transition: border-color .15s; }
+.fg input:focus, .fg select:focus { border-color: #5b9cf6; }
+
+/* ── 품목 테이블 ── */
+.item-table { width: 100%; border-collapse: collapse; }
+.item-table thead th { padding: 8px 12px; background: #f8f9fa; font-size: 11px; color: #888; font-weight: 600; text-align: left; border-bottom: 1px solid #eee; white-space: nowrap; }
+.item-table tbody tr { border-bottom: 1px solid #f2f2f2; transition: background .1s; cursor: pointer; }
+.item-table tbody tr:last-child { border-bottom: none; }
+.item-table tbody tr:hover { background: #fafbff; }
+.item-table tbody tr.selected { background: #f0f5ff; }
+.item-table td { padding: 9px 12px; vertical-align: middle; }
+
+/* 인라인 편집 인풋 */
+.item-table td input, .item-table td select {
+  border: 1px solid transparent; border-radius: 5px; padding: 4px 7px;
+  font-size: 13px; width: 100%; background: transparent; outline: none;
+  font-family: inherit;
+}
+.item-table td input:hover, .item-table td select:hover { border-color: #ddd; background: #fafafa; }
+.item-table td input:focus, .item-table td select:focus { border-color: #5b9cf6; background: #fff; }
+
+/* 마진 표시 */
+.margin-cell { font-size: 12px; font-weight: 600; }
+.margin-good { color: #2eaf6f; }
+.margin-warn { color: #e87c2e; }
+.margin-bad  { color: #e84040; }
+
+/* 매입 상태 배지 */
+.purchase-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 600;
+  cursor: pointer; white-space: nowrap; transition: all .15s;
+  border: 1.5px solid;
+}
+.purchase-badge.empty {
+  background: #fafafa; color: #bbb; border-color: #e5e5e5;
+}
+.purchase-badge.empty:hover { background: #f0f5ff; color: #5b9cf6; border-color: #c0d6f8; }
+.purchase-badge.filled {
+  background: #e8f5ee; color: #2eaf6f; border-color: #b8e0cb;
+}
+.purchase-badge.filled:hover { background: #d4eddf; }
+
+/* 행 번호 */
+.row-num { width: 28px; text-align: center; color: #ccc; font-size: 12px; }
+
+/* 삭제 버튼 */
+.del-btn { width: 26px; text-align: center; color: #e0e0e0; cursor: pointer; font-size: 16px; }
+.del-btn:hover { color: #ff6b6b; }
+
+/* 행 추가 */
+.add-row { padding: 10px 14px; display: flex; align-items: center; gap: 6px; color: #5b9cf6; font-size: 13px; cursor: pointer; border-top: 1px dashed #e8e8e8; }
+.add-row:hover { background: #f8faff; }
+
+/* 합계 */
+.totals { padding: 14px 18px; border-top: 2px solid #f0f0f0; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+.total-row { display: flex; gap: 20px; align-items: center; font-size: 13px; }
+.total-row .lbl { color: #999; }
+.total-row .val { font-weight: 600; min-width: 110px; text-align: right; }
+.total-row.grand .lbl { color: #1e2b3c; font-size: 14px; font-weight: 600; }
+.total-row.grand .val { font-size: 17px; color: #1e2b3c; }
+
+/* 하단 액션 */
+.actions { padding: 14px 18px; border-top: 1px solid #f0f0f0; display: flex; justify-content: flex-end; gap: 8px; }
+.btn { padding: 8px 18px; border-radius: 7px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; transition: all .15s; }
+.btn-primary { background: #5b9cf6; color: #fff; }
+.btn-primary:hover { background: #3a7ce8; }
+.btn-outline { background: #fff; color: #555; border: 1px solid #ddd; }
+.btn-outline:hover { background: #f5f5f5; }
+.btn-ghost { background: transparent; color: #aaa; }
+
+/* ══════════════════════════════════════
+   우측 드로어: 매입 정보
+══════════════════════════════════════ */
+.purchase-drawer {
+  position: fixed; top: 48px; right: -370px; width: 360px;
+  height: calc(100vh - 48px); background: #fff;
+  box-shadow: -4px 0 20px rgba(0,0,0,.1);
+  transition: right .25s cubic-bezier(.4,0,.2,1);
+  display: flex; flex-direction: column; z-index: 50;
+  border-left: 1px solid #e5e5e5;
+}
+.purchase-drawer.open { right: 0; }
+
+.drawer-head {
+  padding: 14px 16px; border-bottom: 1px solid #eee;
+  display: flex; align-items: flex-start; justify-content: space-between;
+  flex-shrink: 0;
+}
+.drawer-head .dh-title { font-size: 14px; font-weight: 700; }
+.drawer-head .dh-sub { font-size: 11px; color: #888; margin-top: 2px; }
+.drawer-close { width: 28px; height: 28px; border-radius: 6px; border: 1px solid #eee; background: #f8f8f8; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; }
+.drawer-close:hover { background: #eee; }
+
+.drawer-body { flex: 1; overflow-y: auto; padding: 16px; }
+
+/* 드로어 내 필드 */
+.drawer-section { margin-bottom: 16px; }
+.drawer-section-title { font-size: 11px; color: #aaa; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; margin-bottom: 8px; }
+.drawer-fields { display: flex; flex-direction: column; gap: 10px; }
+.drawer-fields .fg input, .drawer-fields .fg select {
+  font-size: 13px; padding: 8px 10px;
+}
+.drawer-fields-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+/* 이미지 첨부 */
+.img-attach {
+  border: 1.5px dashed #d5e3f7; border-radius: 8px; padding: 12px;
+  display: flex; align-items: center; gap: 10px; cursor: pointer;
+  background: #f8faff; transition: border-color .15s;
+}
+.img-attach:hover { border-color: #5b9cf6; }
+.img-attach-icon { width: 48px; height: 48px; border-radius: 6px; background: #e8eeff; display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
+.img-attach-text { font-size: 12px; color: #888; }
+.img-attach-text strong { color: #5b9cf6; font-size: 12px; }
+
+/* 이력 목록 */
+.history-list { display: flex; flex-direction: column; gap: 6px; }
+.history-item {
+  border: 1px solid #eee; border-radius: 7px; padding: 9px 11px;
+  cursor: pointer; transition: all .15s; display: flex; align-items: center; gap: 8px;
+}
+.history-item:hover { border-color: #5b9cf6; background: #f8faff; }
+.history-item .rank { width: 20px; height: 20px; border-radius: 50%; background: #f0f0f0; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #888; flex-shrink: 0; }
+.history-item .rank.r1 { background: #2eaf6f; color: #fff; }
+.history-item .rank.r2 { background: #d4eddf; color: #2eaf6f; }
+.history-item .hi-info { flex: 1; }
+.history-item .hi-vendor { font-size: 12px; font-weight: 600; color: #333; }
+.history-item .hi-spec { font-size: 11px; color: #aaa; margin-top: 1px; }
+.history-item .hi-price { font-size: 13px; font-weight: 700; color: #2eaf6f; flex-shrink: 0; }
+.history-item .hi-date { font-size: 11px; color: #ccc; flex-shrink: 0; }
+
+.use-history-btn {
+  font-size: 11px; padding: 3px 9px; border-radius: 4px;
+  background: #e8f5ee; color: #2eaf6f; border: none; cursor: pointer; font-weight: 600; flex-shrink: 0;
+}
+.use-history-btn:hover { background: #c8e8d5; }
+
+/* 더보기 링크 */
+.more-history { font-size: 12px; color: #5b9cf6; cursor: pointer; text-align: center; padding: 6px; }
+.more-history:hover { text-decoration: underline; }
+
+/* 드로어 하단 저장 */
+.drawer-foot {
+  padding: 12px 16px; border-top: 1px solid #eee; flex-shrink: 0;
+  display: flex; gap: 8px;
+}
+.drawer-foot .btn { flex: 1; text-align: center; padding: 9px; }
+
+/* ── 스크롤바 ── */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-thumb { background: #ddd; border-radius: 3px; }
+
+/* ── 메모 텍스트에리어 ── */
+textarea {
+  border: 1px solid #e5e5e5; border-radius: 6px; padding: 8px 10px;
+  font-size: 12px; resize: none; outline: none; width: 100%; font-family: inherit; line-height: 1.5;
+}
+textarea:focus { border-color: #5b9cf6; }
+
+/* ── 선택 품목 하이라이트 ── */
+.selected-indicator {
+  width: 3px; position: absolute; left: 0; top: 0; bottom: 0; background: #5b9cf6; border-radius: 0 2px 2px 0;
+}
+
+/* ── 토스트 알림 ── */
+.toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  background: #1e2b3c; color: #fff; padding: 10px 20px; border-radius: 8px;
+  font-size: 13px; font-weight: 500; box-shadow: 0 4px 16px rgba(0,0,0,.2);
+  opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 200;
+}
+.toast.show { opacity: 1; }
+
+/* ── 설명 배너 ── */
+.tip-banner {
+  background: #eef3ff; border: 1px solid #d0e0fa; border-radius: 8px;
+  padding: 10px 14px; font-size: 12px; color: #4a7cd6; margin-bottom: 12px;
+  display: flex; align-items: center; gap: 8px;
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="logo">🎨 대림SM</span>
+  <span class="nav">대시보드</span>
+  <span class="nav active">견적 작성</span>
+  <span class="nav">견적 목록</span>
+  <span class="nav">품목 관리</span>
+  <span class="nav">제작 이력</span>
+</div>
+
+<div class="layout">
+
+  <!-- ═══════════════ 좌측: 견적 작성 ═══════════════ -->
+  <div class="quote-area" id="quoteArea">
+
+    <div class="tip-banner">
+      💡 <span>매입가는 선택 입력입니다. 품목 우측 <strong>매입가 입력</strong> 버튼을 클릭하면 오른쪽에 패널이 열립니다.</span>
+    </div>
+
+    <!-- 견적 기본 정보 -->
+    <div class="card">
+      <div class="card-head">
+        <h3>📋 견적 기본 정보</h3>
+      </div>
+      <div class="card-body">
+        <div class="hdr-grid">
+          <div class="fg">
+            <label>거래처</label>
+            <input type="text" value="삼성전자 수원사업장" />
+          </div>
+          <div class="fg">
+            <label>담당자</label>
+            <input type="text" value="김마케팅 과장" />
+          </div>
+          <div class="fg">
+            <label>견적일</label>
+            <input type="date" value="2026-04-09" />
+          </div>
+          <div class="fg">
+            <label>프로젝트명</label>
+            <input type="text" value="2026 상반기 홍보물 제작" />
+          </div>
+          <div class="fg">
+            <label>납기일</label>
+            <input type="date" value="2026-04-18" />
+          </div>
+          <div class="fg">
+            <label>담당자</label>
+            <select><option>남관원</option></select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 품목 테이블 -->
+    <div class="card">
+      <div class="card-head">
+        <h3>📦 품목 목록</h3>
+        <span style="font-size:12px;color:#bbb;">매입가 입력은 선택사항</span>
+      </div>
+
+      <table class="item-table">
+        <thead>
+          <tr>
+            <th class="row-num">#</th>
+            <th style="min-width:140px;">품목명</th>
+            <th style="min-width:180px;">사양</th>
+            <th style="width:60px;text-align:right;">수량</th>
+            <th style="width:90px;text-align:right;">판매 단가</th>
+            <th style="width:90px;text-align:right;">공급가</th>
+            <th style="width:60px;text-align:right;">마진</th>
+            <th style="width:110px;text-align:center;">매입</th>
+            <th style="width:28px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+
+          <!-- 행 1 -->
+          <tr id="row-1" onclick="selectRow(1)" class="selected">
+            <td class="row-num">1</td>
+            <td><input type="text" value="게시판 (알루미늄)" /></td>
+            <td><input type="text" value="A1 / 알루미늄 샌드형" /></td>
+            <td style="text-align:right;"><input type="number" value="5" style="text-align:right;width:60px;" /></td>
+            <td style="text-align:right;"><input type="text" value="125,000" style="text-align:right;" /></td>
+            <td style="text-align:right;font-weight:600;">625,000</td>
+            <td><span class="margin-cell margin-good">41%</span></td>
+            <td style="text-align:center;">
+              <span class="purchase-badge filled" onclick="event.stopPropagation();selectRow(1)">
+                ✓ 73,500원
+              </span>
+            </td>
+            <td class="del-btn">×</td>
+          </tr>
+
+          <!-- 행 2 -->
+          <tr id="row-2" onclick="selectRow(2)">
+            <td class="row-num">2</td>
+            <td><input type="text" value="현수막 (디지털)" /></td>
+            <td><input type="text" value="1000×3000mm" /></td>
+            <td style="text-align:right;"><input type="number" value="3" style="text-align:right;width:60px;" /></td>
+            <td style="text-align:right;"><input type="text" value="35,000" style="text-align:right;" /></td>
+            <td style="text-align:right;font-weight:600;">105,000</td>
+            <td><span class="margin-cell margin-good">38%</span></td>
+            <td style="text-align:center;">
+              <span class="purchase-badge empty" onclick="event.stopPropagation();selectRow(2)">
+                + 매입 입력
+              </span>
+            </td>
+            <td class="del-btn">×</td>
+          </tr>
+
+          <!-- 행 3 -->
+          <tr id="row-3" onclick="selectRow(3)">
+            <td class="row-num">3</td>
+            <td><input type="text" value="포스터 인쇄" /></td>
+            <td><input type="text" value="A2 / 150g 코팅지" /></td>
+            <td style="text-align:right;"><input type="number" value="100" style="text-align:right;width:60px;" /></td>
+            <td style="text-align:right;"><input type="text" value="2,200" style="text-align:right;" /></td>
+            <td style="text-align:right;font-weight:600;">220,000</td>
+            <td><span class="margin-cell margin-warn">22%</span></td>
+            <td style="text-align:center;">
+              <span class="purchase-badge empty" onclick="event.stopPropagation();selectRow(3)">
+                + 매입 입력
+              </span>
+            </td>
+            <td class="del-btn">×</td>
+          </tr>
+
+          <!-- 행 4 -->
+          <tr id="row-4" onclick="selectRow(4)">
+            <td class="row-num">4</td>
+            <td><input type="text" value="롤업 배너" /></td>
+            <td><input type="text" value="600×1600mm / 실버 프레임" /></td>
+            <td style="text-align:right;"><input type="number" value="2" style="text-align:right;width:60px;" /></td>
+            <td style="text-align:right;"><input type="text" value="55,000" style="text-align:right;" /></td>
+            <td style="text-align:right;font-weight:600;">110,000</td>
+            <td><span class="margin-cell margin-good">48%</span></td>
+            <td style="text-align:center;">
+              <span class="purchase-badge empty" onclick="event.stopPropagation();selectRow(4)">
+                + 매입 입력
+              </span>
+            </td>
+            <td class="del-btn">×</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+      <div class="add-row">
+        <span style="font-size:18px;line-height:1;font-weight:300;">+</span> 품목 추가
+      </div>
+
+      <!-- 합계 -->
+      <div class="totals">
+        <div class="total-row">
+          <span class="lbl">공급가 합계</span>
+          <span class="val">1,060,000원</span>
+        </div>
+        <div class="total-row" style="color:#888;">
+          <span class="lbl">매입가 합계</span>
+          <span class="val" style="font-size:12px;">367,500원 <span style="color:#ddd;">· 3건 미입력</span></span>
+        </div>
+        <div class="total-row" style="color:#2eaf6f;font-size:12px;">
+          <span class="lbl">예상 마진 (입력분 기준)</span>
+          <span class="val">257,500원 (41%)</span>
+        </div>
+        <div class="total-row grand" style="margin-top:4px;padding-top:10px;border-top:1px solid #f0f0f0;">
+          <span class="lbl">최종 합계 (VAT 포함)</span>
+          <span class="val">1,166,000원</span>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-ghost">취소</button>
+        <button class="btn btn-outline">임시 저장</button>
+        <button class="btn btn-outline">미리보기</button>
+        <button class="btn btn-primary" onclick="showToast('견적서가 저장되고 매입 이력이 기록되었습니다.')">저장 + 이력 기록</button>
+      </div>
+    </div>
+
+  </div><!-- /quote-area -->
+
+
+  <!-- ═══════════════ 우측 드로어: 매입 정보 ═══════════════ -->
+  <div class="purchase-drawer open" id="drawer">
+
+    <!-- 드로어 헤더 -->
+    <div class="drawer-head">
+      <div>
+        <div class="dh-title" id="drawerTitle">📋 게시판 (알루미늄) — 매입 정보</div>
+        <div class="dh-sub" id="drawerSub">A1 / 알루미늄 샌드형</div>
+      </div>
+      <button class="drawer-close" onclick="closeDrawer()">✕</button>
+    </div>
+
+    <div class="drawer-body">
+
+      <!-- 업체 + 매입가 -->
+      <div class="drawer-section">
+        <div class="drawer-section-title">매입 정보</div>
+        <div class="drawer-fields">
+          <div class="fg">
+            <label>매입처 업체</label>
+            <select>
+              <option>-- 선택 --</option>
+              <option selected>대성인쇄</option>
+              <option>우리프린팅</option>
+              <option>한국인쇄</option>
+            </select>
+          </div>
+          <div class="drawer-fields-row">
+            <div class="fg">
+              <label>매입 단가</label>
+              <input type="text" value="73,500" placeholder="0" />
+            </div>
+            <div class="fg">
+              <label>매입 합계</label>
+              <input type="text" value="367,500" readonly style="background:#f7f8fa;color:#888;" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 사양 메모 -->
+      <div class="drawer-section">
+        <div class="drawer-section-title">사양 메모 <span style="font-weight:400;color:#ccc;">(재주문 참고)</span></div>
+        <textarea rows="3" placeholder="원단, 마감, 특이사항 등 재주문 시 필요한 내용">알루미늄 샌드형 / 판면 실사출력 UV코팅 / 뒷면 행잉홀 2개 / 180g 보드지</textarea>
+      </div>
+
+      <!-- 이미지 첨부 -->
+      <div class="drawer-section">
+        <div class="drawer-section-title">시안 / 완성품 이미지</div>
+        <div class="img-attach">
+          <div class="img-attach-icon">📋</div>
+          <div class="img-attach-text">
+            <div>게시판_삼성수원_2025.jpg</div>
+            <div style="margin-top:2px;"><strong>변경</strong> · <strong>삭제</strong></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 과거 이력 -->
+      <div class="drawer-section">
+        <div class="drawer-section-title" style="display:flex;justify-content:space-between;">
+          <span>과거 유사 이력</span>
+          <span style="color:#5b9cf6;font-size:11px;cursor:pointer;font-weight:400;">전체 보기</span>
+        </div>
+        <div class="history-list">
+
+          <div class="history-item" onclick="applyHistory('대성인쇄','73,500')">
+            <div class="rank r1">1</div>
+            <div class="hi-info">
+              <div class="hi-vendor">대성인쇄</div>
+              <div class="hi-spec">A1 샌드형 · 삼성전자 2025.12</div>
+            </div>
+            <div class="hi-price">73,500</div>
+            <div class="hi-date">25.12</div>
+            <button class="use-history-btn" onclick="event.stopPropagation();applyHistory('대성인쇄','73,500')">적용</button>
+          </div>
+
+          <div class="history-item" onclick="applyHistory('우리프린팅','78,000')">
+            <div class="rank r2">2</div>
+            <div class="hi-info">
+              <div class="hi-vendor">우리프린팅</div>
+              <div class="hi-spec">A1 샌드형 · LG전자 2025.10</div>
+            </div>
+            <div class="hi-price">78,000</div>
+            <div class="hi-date">25.10</div>
+            <button class="use-history-btn" onclick="event.stopPropagation();applyHistory('우리프린팅','78,000')">적용</button>
+          </div>
+
+          <div class="history-item" onclick="applyHistory('한국인쇄','81,000')">
+            <div class="rank">3</div>
+            <div class="hi-info">
+              <div class="hi-vendor">한국인쇄</div>
+              <div class="hi-spec">A1 샌드형 · SK 2025.08</div>
+            </div>
+            <div class="hi-price">81,000</div>
+            <div class="hi-date">25.08</div>
+            <button class="use-history-btn" onclick="event.stopPropagation();applyHistory('한국인쇄','81,000')">적용</button>
+          </div>
+
+        </div>
+      </div>
+
+    </div><!-- /drawer-body -->
+
+    <!-- 드로어 하단 -->
+    <div class="drawer-foot">
+      <button class="btn btn-outline" onclick="closeDrawer()">닫기</button>
+      <button class="btn btn-primary" onclick="showToast('매입 정보가 저장되었습니다.')">저장</button>
+    </div>
+
+  </div><!-- /drawer -->
+
+</div><!-- /layout -->
+
+<!-- 토스트 -->
+<div class="toast" id="toast"></div>
+
+<script>
+/* ── 행 선택 ── */
+const drawerData = {
+  1: {
+    title: '📋 게시판 (알루미늄) — 매입 정보',
+    sub: 'A1 / 알루미늄 샌드형',
+    vendor: '대성인쇄',
+    price: '73,500',
+    total: '367,500',
+    memo: '알루미늄 샌드형 / 판면 실사출력 UV코팅 / 뒷면 행잉홀 2개 / 180g 보드지',
+    history: [
+      { rank: 1, vendor: '대성인쇄', spec: 'A1 샌드형 · 삼성전자', price: '73,500', date: '25.12' },
+      { rank: 2, vendor: '우리프린팅', spec: 'A1 샌드형 · LG전자', price: '78,000', date: '25.10' },
+      { rank: 3, vendor: '한국인쇄', spec: 'A1 샌드형 · SK', price: '81,000', date: '25.08' },
+    ]
+  },
+  2: {
+    title: '🎌 현수막 (디지털) — 매입 정보',
+    sub: '1000×3000mm',
+    vendor: '',
+    price: '',
+    total: '',
+    memo: '',
+    history: [
+      { rank: 1, vendor: '우리프린팅', spec: '1000×3000 · 롯데 2026.01', price: '21,500', date: '26.01' },
+      { rank: 2, vendor: '대성인쇄', spec: '1000×3000 · 현대 2025.11', price: '24,000', date: '25.11' },
+    ]
+  },
+  3: {
+    title: '📄 포스터 인쇄 — 매입 정보',
+    sub: 'A2 / 150g 코팅지',
+    vendor: '',
+    price: '',
+    total: '',
+    memo: '',
+    history: [
+      { rank: 1, vendor: '한국인쇄', spec: 'A2 유광 100매 · SK 2025.11', price: '1,720', date: '25.11' },
+    ]
+  },
+  4: {
+    title: '📦 롤업 배너 — 매입 정보',
+    sub: '600×1600mm / 실버 프레임',
+    vendor: '',
+    price: '',
+    total: '',
+    memo: '',
+    history: [
+      { rank: 1, vendor: '대성인쇄', spec: '600×1600 실버 · 삼성 2025.12', price: '28,500', date: '25.12' },
+    ]
+  }
+};
+
+let currentRow = 1;
+
+function selectRow(n) {
+  // 선택 표시
+  document.querySelectorAll('.item-table tbody tr').forEach(tr => tr.classList.remove('selected'));
+  document.getElementById('row-' + n).classList.add('selected');
+  currentRow = n;
+
+  // 드로어 내용 업데이트
+  const d = drawerData[n];
+  document.getElementById('drawerTitle').textContent = d.title;
+  document.getElementById('drawerSub').textContent = d.sub;
+
+  // 필드 채우기
+  const body = document.querySelector('.drawer-body');
+  const selects = body.querySelectorAll('select');
+  const inputs = body.querySelectorAll('input');
+  const textareas = body.querySelectorAll('textarea');
+
+  if (selects[0]) {
+    selects[0].value = d.vendor || '-- 선택 --';
+  }
+  if (inputs[0]) inputs[0].value = d.price;
+  if (inputs[1]) inputs[1].value = d.total;
+  if (textareas[0]) textareas[0].value = d.memo;
+
+  // 이력 목록 갱신
+  const histList = body.querySelector('.history-list');
+  histList.innerHTML = d.history.map(h => `
+    <div class="history-item" onclick="applyHistory('${h.vendor}','${h.price}')">
+      <div class="rank ${h.rank===1?'r1':h.rank===2?'r2':''}">${h.rank}</div>
+      <div class="hi-info">
+        <div class="hi-vendor">${h.vendor}</div>
+        <div class="hi-spec">${h.spec}</div>
+      </div>
+      <div class="hi-price">${h.price}</div>
+      <div class="hi-date">${h.date}</div>
+      <button class="use-history-btn" onclick="event.stopPropagation();applyHistory('${h.vendor}','${h.price}')">적용</button>
+    </div>
+  `).join('');
+
+  // 드로어 열기
+  openDrawer();
+}
+
+function openDrawer() {
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('quoteArea').classList.add('drawer-open');
+}
+
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('quoteArea').classList.remove('drawer-open');
+  document.querySelectorAll('.item-table tbody tr').forEach(tr => tr.classList.remove('selected'));
+}
+
+function applyHistory(vendor, price) {
+  const body = document.querySelector('.drawer-body');
+  const selects = body.querySelectorAll('select');
+  const inputs = body.querySelectorAll('input');
+  if (selects[0]) selects[0].value = vendor;
+  if (inputs[0]) {
+    inputs[0].value = price;
+    inputs[0].style.background = '#e8f5ee';
+    setTimeout(() => inputs[0].style.background = '', 800);
+  }
+  showToast(`${vendor} · ${price}원 적용됨`);
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,1732 @@
+<!-- ===== 급여 관리 탭 ===== -->
+<template x-if="currentTab === 'salary'">
+<div x-data="salaryApp()" x-init="init()" style="height:100%;display:flex;flex-direction:column;">
+
+<style>
+  /* 급여 탭 전용 반응형/스크롤바 */
+  #salary-scope table::-webkit-scrollbar { height:10px; width:10px; }
+  #salary-scope table::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:6px; }
+  #salary-scope .salary-sub-actions { display:flex; gap:6px; flex-wrap:wrap; }
+  @media (max-width: 900px) {
+    #salary-scope .salary-header-label { font-size:15px !important; }
+    #salary-scope table { font-size:11px !important; }
+    #salary-scope .salary-action-btn { padding:5px 9px !important; font-size:11px !important; }
+  }
+  @media (max-width: 640px) {
+    #salary-scope .summary-card-value { font-size:15px !important; }
+  }
+</style>
+
+<!-- ── PIN 재인증 화면 ──────────────────────────────────────── -->
+<div x-show="!pinOk" style="display:flex;align-items:center;justify-content:center;height:100%;background:#f9fafb;">
+  <div style="background:#fff;border-radius:16px;padding:40px 48px;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,.1);min-width:320px;">
+    <div style="font-size:40px;margin-bottom:12px;">🔐</div>
+    <div style="font-size:18px;font-weight:700;color:#1f2937;margin-bottom:4px;">급여 보안 PIN</div>
+    <div style="font-size:13px;color:#6b7280;margin-bottom:24px;">급여 데이터에 접근하려면 PIN을 입력하세요</div>
+    <input x-model="pinInput" @keydown.enter="submitPin()" type="password" maxlength="6"
+      placeholder="PIN 6자리" style="width:100%;padding:12px;border:1px solid #d1d5db;border-radius:8px;font-size:18px;text-align:center;letter-spacing:8px;margin-bottom:12px;">
+    <div x-show="pinError" x-text="pinError" style="color:#ef4444;font-size:12px;margin-bottom:8px;"></div>
+    <button @click="submitPin()" style="width:100%;padding:12px;background:#4f6ef7;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">확인</button>
+  </div>
+</div>
+
+<!-- ── 메인 UI (PIN 인증 후) ──────────────────────────────── -->
+<div x-show="pinOk" id="salary-scope" style="display:flex;flex-direction:column;height:100%;">
+
+  <!-- 상단 헤더 -->
+  <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:#fff;border-bottom:1px solid #e5e7eb;flex-shrink:0;flex-wrap:wrap;">
+    <span style="font-size:18px;font-weight:700;color:#1f2937;">💰 급여 관리</span>
+    <!-- 회사 선택 -->
+    <div style="display:flex;gap:4px;background:#f3f4f6;border-radius:8px;padding:3px;">
+      <button @click="company='dalim-sm';loadAll()" :style="company==='dalim-sm'?'background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1);':''"
+        style="padding:5px 14px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600;transition:all .15s;">대림에스엠</button>
+      <button @click="company='dalim-company';loadAll()" :style="company==='dalim-company'?'background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1);':''"
+        style="padding:5px 14px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600;transition:all .15s;">대림컴퍼니</button>
+    </div>
+    <!-- 귀속월 -->
+    <input type="month" x-model="yearMonth" @change="loadAll()" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;">
+    <!-- 서브탭 -->
+    <div style="display:flex;gap:2px;margin-left:8px;">
+      <template x-for="tab in subTabs" :key="tab.id">
+        <button @click="switchSubTab(tab.id)" :style="subTab===tab.id?'background:#4f6ef7;color:#fff;':'background:#f3f4f6;color:#374151;'"
+          style="padding:6px 14px;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600;transition:all .15s;" x-text="tab.label"></button>
+      </template>
+    </div>
+    <span style="flex:1"></span>
+    <!-- 액션 버튼 -->
+    <button x-show="subTab==='ledger'" @click="openLabelModal()" style="padding:6px 12px;background:#f3f4f6;border:none;border-radius:6px;font-size:12px;cursor:pointer;">📝 항목명 설정</button>
+    <button x-show="subTab==='ledger'" @click="importAttendance()" style="padding:6px 12px;background:#8b5cf6;color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600;" title="출퇴근 탭의 근무일수/연장시간을 급여 레코드에 자동 반영">🔗 출퇴근 연동</button>
+    <button x-show="subTab==='ledger'" @click="calcAll()" style="padding:6px 14px;background:#10b981;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600;">⚡ 전체 자동계산</button>
+    <!-- 선택 출력 버튼 (선택된 직원 있을 때만 강조) -->
+    <button x-show="subTab==='ledger'"
+      @click="printSelected()"
+      :style="selectedIds.size>0?'background:#4f6ef7;color:#fff;':'background:#f3f4f6;color:#374151;'"
+      style="padding:6px 12px;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600;transition:all .15s;">
+      🖨️ 명세서 출력 <span x-show="selectedIds.size>0" x-text="'('+selectedIds.size+'명)'"></span>
+    </button>
+    <button x-show="subTab==='ledger'" @click="exportCsv()" style="padding:6px 12px;background:#f3f4f6;border:none;border-radius:6px;font-size:12px;cursor:pointer;">📥 CSV</button>
+    <button x-show="subTab==='ledger'" @click="emailBulk()" style="padding:6px 12px;background:#f3f4f6;border:none;border-radius:6px;font-size:12px;cursor:pointer;">📧 일괄발송</button>
+  </div>
+
+  <!-- ── 서브탭 콘텐츠 ────────────────────────────────────── -->
+  <div style="flex:1;overflow:auto;padding:16px;">
+
+    <!-- ★ 급여대장 탭 -->
+    <div x-show="subTab==='ledger'">
+      <div x-show="loading" style="text-align:center;padding:40px;color:#9ca3af;">불러오는 중...</div>
+      <div x-show="!loading">
+        <!-- 요약 카드 -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:16px;">
+          <div style="background:#fff;border-radius:10px;padding:14px;border:1px solid #e5e7eb;">
+            <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">대상 인원</div>
+            <div style="font-size:20px;font-weight:700;color:#1f2937;" x-text="records.length + '명'"></div>
+          </div>
+          <div style="background:#fff;border-radius:10px;padding:14px;border:1px solid #e5e7eb;">
+            <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">지급합계</div>
+            <div style="font-size:18px;font-weight:700;color:#1f2937;" x-text="fmtW(sumField('grossPay'))"></div>
+          </div>
+          <div style="background:#fff;border-radius:10px;padding:14px;border:1px solid #e5e7eb;">
+            <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">공제합계</div>
+            <div style="font-size:18px;font-weight:700;color:#ef4444;" x-text="fmtW(sumField('totalDeductions'))"></div>
+          </div>
+          <div style="background:#3b82f6;border-radius:10px;padding:14px;">
+            <div style="font-size:11px;color:#bfdbfe;margin-bottom:4px;">실지급합계</div>
+            <div style="font-size:18px;font-weight:700;color:#fff;" x-text="fmtW(sumField('netPay'))"></div>
+          </div>
+        </div>
+
+        <!-- 급여대장 테이블 -->
+        <div style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;overflow:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:1200px;">
+            <thead>
+              <tr style="background:#f8fafc;border-bottom:2px solid #e5e7eb;">
+                <th style="padding:10px 8px;text-align:center;white-space:nowrap;position:sticky;left:0;background:#f8fafc;z-index:2;width:36px;">
+                  <input type="checkbox" @change="toggleSelectAll($event)" :checked="selectedIds.size>0&&selectedIds.size===records.length" :indeterminate="selectedIds.size>0&&selectedIds.size<records.length" title="전체 선택/해제">
+                </th>
+                <th style="padding:10px 8px;text-align:left;font-weight:600;white-space:nowrap;position:sticky;left:36px;background:#f8fafc;z-index:2;">이름</th>
+                <th style="padding:10px 6px;text-align:right;white-space:nowrap;" title="기본급">기본급</th>
+                <th style="padding:10px 6px;text-align:right;white-space:nowrap;" title="고정연장">고정연장</th>
+                <th style="padding:10px 6px;text-align:right;white-space:nowrap;" title="식대">식대</th>
+                <th style="padding:10px 6px;text-align:right;white-space:nowrap;" title="연장수당">연장</th>
+                <th style="padding:10px 6px;text-align:right;white-space:nowrap;" title="상여">상여</th>
+                <th style="padding:10px 6px;text-align:right;white-space:nowrap;" title="기타지급합계">기타</th>
+                <th style="padding:10px 6px;text-align:right;white-space:nowrap;background:#f0fdf4;" title="과세합계">과세</th>
+                <th style="padding:10px 6px;text-align:right;white-space:nowrap;background:#f0fdf4;" title="지급합계">지급합계</th>
+                <th style="padding:10px 6px;text-align:right;white-space:nowrap;background:#fef2f2;" title="4대보험합계">4대보험</th>
+                <th style="padding:10px 6px;text-align:right;white-space:nowrap;background:#fef2f2;" title="소득세+지방세">소득세</th>
+                <th style="padding:10px 6px;text-align:right;white-space:nowrap;background:#fef2f2;" title="공제합계">공제합계</th>
+                <th style="padding:10px 6px;text-align:right;white-space:nowrap;background:#eff6ff;font-weight:700;" title="실지급액">실지급액</th>
+                <th style="padding:10px 6px;text-align:center;white-space:nowrap;">상태</th>
+                <th style="padding:10px 6px;text-align:center;white-space:nowrap;">액션</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="r in records" :key="r.id||r.userId">
+                <tr style="border-bottom:1px solid #f3f4f6;cursor:pointer;" @click="openDetail(r)" :style="selectedIds.has(r.userId)?'background:#eff6ff;':''">
+                  <td style="padding:9px 8px;text-align:center;position:sticky;left:0;z-index:1;" :style="selectedIds.has(r.userId)?'background:#eff6ff;':'background:#fff;'" @click.stop>
+                    <input type="checkbox" :checked="selectedIds.has(r.userId)" @change="toggleSelect(r.userId,$event)">
+                  </td>
+                  <td style="padding:9px 8px;font-weight:600;white-space:nowrap;position:sticky;left:36px;z-index:1;" :style="selectedIds.has(r.userId)?'background:#eff6ff;':'background:#fff;'" x-text="nameOf(r.userId)"></td>
+                  <td style="padding:9px 6px;text-align:right;" x-text="fmt(r.baseSalary)"></td>
+                  <td style="padding:9px 6px;text-align:right;color:#6b7280;" x-text="r.fixedOvertimePay?fmt(r.fixedOvertimePay):''"></td>
+                  <td style="padding:9px 6px;text-align:right;color:#6b7280;" x-text="r.mealAllowance?fmt(r.mealAllowance):''"></td>
+                  <td style="padding:9px 6px;text-align:right;color:#6b7280;" x-text="r.overtimePay?fmt(r.overtimePay):''"></td>
+                  <td style="padding:9px 6px;text-align:right;color:#6b7280;" x-text="r.bonusPay?fmt(r.bonusPay):''"></td>
+                  <td style="padding:9px 6px;text-align:right;color:#6b7280;" x-text="extraPay(r)?fmt(extraPay(r)):''"></td>
+                  <td style="padding:9px 6px;text-align:right;background:#f0fdf4;" x-text="fmt(r.taxableTotal)"></td>
+                  <td style="padding:9px 6px;text-align:right;background:#f0fdf4;font-weight:600;" x-text="fmt(r.grossPay)"></td>
+                  <td style="padding:9px 6px;text-align:right;background:#fef2f2;" x-text="fmt((r.nationalPension||0)+(r.healthInsurance||0)+(r.longTermCare||0)+(r.employmentInsurance||0))"></td>
+                  <td style="padding:9px 6px;text-align:right;background:#fef2f2;" x-text="fmt((r.incomeTax||0)+(r.localTax||0))"></td>
+                  <td style="padding:9px 6px;text-align:right;background:#fef2f2;font-weight:600;" x-text="fmt(r.totalDeductions)"></td>
+                  <td style="padding:9px 6px;text-align:right;background:#eff6ff;font-weight:700;color:#1d4ed8;" x-text="fmt(r.netPay)"></td>
+                  <td style="padding:9px 6px;text-align:center;">
+                    <span :style="statusStyle(r.status)" style="padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;" x-text="statusLabel(r.status)"></span>
+                  </td>
+                  <td style="padding:9px 6px;text-align:center;" @click.stop>
+                    <button @click="openSlip(r)" title="명세서" style="padding:3px 8px;background:#f3f4f6;border:none;border-radius:4px;font-size:11px;cursor:pointer;margin-right:2px;">📄</button>
+                    <template x-if="r.status==='draft'">
+                      <button @click="confirmOne(r)" title="확정" style="padding:3px 8px;background:#10b981;color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;">✓확정</button>
+                    </template>
+                    <template x-if="r.status==='confirmed'">
+                      <button @click="paidOne(r)" title="지급처리" style="padding:3px 8px;background:#3b82f6;color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;">💸지급</button>
+                    </template>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="records.length===0">
+                <td colspan="15" style="padding:32px;text-align:center;color:#9ca3af;">
+                  급여 데이터가 없습니다. [전체 자동계산] 버튼을 눌러 계산하세요.
+                </td>
+              </tr>
+            </tbody>
+            <!-- 합계 행 -->
+            <tfoot x-show="records.length>0">
+              <tr style="background:#f8fafc;border-top:2px solid #e5e7eb;font-weight:700;">
+                <td style="padding:9px 8px;position:sticky;left:0;background:#f8fafc;"></td>
+                <td style="padding:9px 8px;position:sticky;left:36px;background:#f8fafc;">합계</td>
+                <td style="padding:9px 6px;text-align:right;" x-text="fmt(sumField('baseSalary'))"></td>
+                <td style="padding:9px 6px;text-align:right;" x-text="fmt(sumField('fixedOvertimePay'))"></td>
+                <td style="padding:9px 6px;text-align:right;" x-text="fmt(sumField('mealAllowance'))"></td>
+                <td style="padding:9px 6px;text-align:right;" x-text="fmt(sumField('overtimePay'))"></td>
+                <td style="padding:9px 6px;text-align:right;" x-text="fmt(sumField('bonusPay'))"></td>
+                <td style="padding:9px 6px;text-align:right;"></td>
+                <td style="padding:9px 6px;text-align:right;background:#f0fdf4;" x-text="fmt(sumField('taxableTotal'))"></td>
+                <td style="padding:9px 6px;text-align:right;background:#f0fdf4;" x-text="fmt(sumField('grossPay'))"></td>
+                <td style="padding:9px 6px;text-align:right;background:#fef2f2;" x-text="fmt(sumField('nationalPension')+sumField('healthInsurance')+sumField('longTermCare')+sumField('employmentInsurance'))"></td>
+                <td style="padding:9px 6px;text-align:right;background:#fef2f2;" x-text="fmt(sumField('incomeTax')+sumField('localTax'))"></td>
+                <td style="padding:9px 6px;text-align:right;background:#fef2f2;" x-text="fmt(sumField('totalDeductions'))"></td>
+                <td style="padding:9px 6px;text-align:right;background:#eff6ff;color:#1d4ed8;" x-text="fmt(sumField('netPay'))"></td>
+                <td colspan="2"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <!-- 발급대장 간략 표시 -->
+        <div x-show="issuances.length>0" style="margin-top:12px;background:#fff;border-radius:8px;border:1px solid #e5e7eb;padding:12px;">
+          <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:8px;">📋 발급 내역</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            <template x-for="is in issuances.slice(0,10)" :key="is.id">
+              <span style="font-size:11px;background:#f3f4f6;padding:3px 8px;border-radius:4px;" x-text="is.issuedAt?.slice(0,16)+' '+nameOf(is.userId)+' '+is.issuedType"></span>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ★ 직원 설정 탭 -->
+    <div x-show="subTab==='config'">
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px;">
+        <span style="font-size:14px;font-weight:600;color:#374151;">직원별 급여 기초 설정</span>
+        <button @click="openConfigModal(null)" style="padding:6px 14px;background:#4f6ef7;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;">+ 직원 추가</button>
+      </div>
+      <div style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;overflow:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:900px;">
+          <thead>
+            <tr style="background:#f8fafc;border-bottom:2px solid #e5e7eb;">
+              <th style="padding:10px 8px;text-align:left;">이름</th>
+              <th style="padding:10px 8px;text-align:right;">기본급</th>
+              <th style="padding:10px 8px;text-align:right;">고정연장</th>
+              <th style="padding:10px 8px;text-align:right;">고정휴일</th>
+              <th style="padding:10px 8px;text-align:right;">식대</th>
+              <th style="padding:10px 8px;text-align:right;">차량유지비</th>
+              <th style="padding:10px 8px;text-align:right;">팀장수당</th>
+              <th style="padding:10px 8px;text-align:right;">통상임금</th>
+              <th style="padding:10px 8px;text-align:right;">소정근로</th>
+              <th style="padding:10px 8px;text-align:right;">통상시급</th>
+              <th style="padding:10px 8px;text-align:center;">세금유형</th>
+              <th style="padding:10px 8px;text-align:center;">부양가족</th>
+              <th style="padding:10px 8px;text-align:center;">4대보험</th>
+              <th style="padding:10px 8px;text-align:center;"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="c in configs" :key="c.userId">
+              <tr style="border-bottom:1px solid #f3f4f6;" @dblclick="openConfigModal(c)">
+                <td style="padding:9px 8px;font-weight:600;" x-text="nameOf(c.userId)"></td>
+                <td style="padding:9px 8px;text-align:right;" x-text="fmt(c.baseSalary)"></td>
+                <td style="padding:9px 8px;text-align:right;color:#6b7280;" x-text="c.fixedOvertimePay?fmt(c.fixedOvertimePay):''"></td>
+                <td style="padding:9px 8px;text-align:right;color:#6b7280;" x-text="c.fixedHolidayPay?fmt(c.fixedHolidayPay):''"></td>
+                <td style="padding:9px 8px;text-align:right;color:#6b7280;" x-text="c.mealAllowance?fmt(c.mealAllowance):''"></td>
+                <td style="padding:9px 8px;text-align:right;color:#6b7280;" x-text="c.transportAllowance?fmt(c.transportAllowance):''"></td>
+                <td style="padding:9px 8px;text-align:right;color:#6b7280;" x-text="c.teamLeaderAllowance?fmt(c.teamLeaderAllowance):''"></td>
+                <td style="padding:9px 8px;text-align:right;font-weight:600;" x-text="fmt(c.normalWage)"></td>
+                <td style="padding:9px 8px;text-align:right;" x-text="c.workingHours+'h'"></td>
+                <td style="padding:9px 8px;text-align:right;" x-text="fmt(Math.round(c.hourlyRate))+'원'"></td>
+                <td style="padding:9px 8px;text-align:center;font-size:11px;" x-text="c.incomeTaxType"></td>
+                <td style="padding:9px 8px;text-align:center;" x-text="(c.dependents||1)+'명'+(c.childrenCount?' / 자녀'+c.childrenCount:'')"></td>
+                <td style="padding:9px 8px;text-align:center;font-size:11px;color:#6b7280;">
+                  <span :style="c.pensionOpt==='O'?'':'opacity:.3'">연</span>
+                  <span :style="c.healthOpt==='O'?'':'opacity:.3'">건</span>
+                  <span :style="c.ltcOpt==='O'?'':'opacity:.3'">장</span>
+                  <span :style="c.employmentOpt==='O'?'':'opacity:.3'">고</span>
+                </td>
+                <td style="padding:9px 8px;text-align:center;" @click.stop>
+                  <button @click="openConfigModal(c)" style="padding:3px 10px;background:#f3f4f6;border:none;border-radius:4px;font-size:11px;cursor:pointer;">수정</button>
+                </td>
+              </tr>
+            </template>
+            <tr x-show="configs.length===0">
+              <td colspan="14" style="padding:32px;text-align:center;color:#9ca3af;">설정된 직원이 없습니다.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ★ 연간현황 탭 -->
+    <div x-show="subTab==='annual'">
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px;">
+        <span style="font-size:14px;font-weight:600;">연간 급여현황</span>
+        <select x-model="annualUserId" @change="loadAnnual()" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+          <option value="">-- 직원 선택 --</option>
+          <template x-for="c in configs" :key="c.userId">
+            <option :value="c.userId" x-text="nameOf(c.userId)"></option>
+          </template>
+        </select>
+        <input type="number" x-model="annualYear" @change="loadAnnual()" min="2020" max="2030" style="width:80px;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+      </div>
+      <div x-show="annualData" style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;overflow:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead>
+            <tr style="background:#f8fafc;border-bottom:2px solid #e5e7eb;">
+              <th style="padding:10px 8px;text-align:left;">항목</th>
+              <template x-for="m in annualMonths" :key="m"><th style="padding:10px 6px;text-align:right;" x-text="m.slice(5)+'월'"></th></template>
+              <th style="padding:10px 8px;text-align:right;background:#eff6ff;">연계</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="row in annualRows" :key="row.key">
+              <tr :style="row.bold?'font-weight:700;background:#f8fafc;':''" style="border-bottom:1px solid #f3f4f6;">
+                <td style="padding:8px 8px;white-space:nowrap;" x-text="row.label"></td>
+                <template x-for="m in annualMonths" :key="m">
+                  <td style="padding:8px 6px;text-align:right;" x-text="annualData.monthly[m]?fmt(annualData.monthly[m][row.key]||0):''"></td>
+                </template>
+                <td style="padding:8px 8px;text-align:right;background:#eff6ff;font-weight:700;" x-text="fmt(annualData.totals[row.key]||0)"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+      <div x-show="!annualData" style="text-align:center;padding:40px;color:#9ca3af;">직원을 선택하세요</div>
+    </div>
+
+    <!-- ★ 연장근무 탭 ──────────────────────────────────────────── -->
+    <div x-show="subTab==='overtime'" x-init="subTab==='overtime'&&loadOvertime()">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
+        <span style="font-size:14px;font-weight:600;">⏰ 연장근무 입력</span>
+        <span style="font-size:12px;color:#6b7280;" x-text="yearMonth+' 귀속'"></span>
+        <button @click="loadOvertime()" style="padding:6px 12px;background:#f3f4f6;border:none;border-radius:6px;font-size:12px;cursor:pointer;">🔄 새로고침</button>
+        <button @click="importOvertimeFromCaps()" style="padding:6px 14px;background:#8b5cf6;color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600;" title="출퇴근 탭의 CAPS 데이터에서 평일 연장시간을 자동 가져옵니다">📥 CAPS에서 가져오기</button>
+        <span style="flex:1"></span>
+        <button @click="calcOvertimePay()" style="padding:8px 16px;background:#10b981;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-weight:700;box-shadow:0 2px 6px rgba(16,185,129,.35);">⚡ 연장수당 반영 후 급여계산</button>
+      </div>
+      <div style="background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#78350f;line-height:1.6;">
+        <strong>사용 순서</strong> ① 각 직원의 연장/야간/휴일 시간을 입력 → ② 행별 <b>저장</b> 버튼 → ③ 상단 <b>[⚡ 연장수당 반영 후 급여계산]</b> 클릭<br>
+        ※ 예상 연장수당은 설정 탭의 <b>할증률</b>과 직원별 <b>시급(통상임금/근로시간)</b>을 기준으로 계산됩니다.
+      </div>
+      <div style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;overflow:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:700px;">
+          <thead>
+            <tr style="background:#f8fafc;border-bottom:2px solid #e5e7eb;">
+              <th style="padding:10px 12px;text-align:left;white-space:nowrap;">성명</th>
+              <th style="padding:10px 10px;text-align:right;white-space:nowrap;background:#fef3c7;">연장근무 (h)</th>
+              <th style="padding:10px 10px;text-align:right;white-space:nowrap;background:#fef3c7;">야간근무 (h)</th>
+              <th style="padding:10px 10px;text-align:right;white-space:nowrap;background:#fef3c7;">휴일근무 (h)</th>
+              <th style="padding:10px 10px;text-align:right;white-space:nowrap;background:#fef3c7;">휴일연장 (h)</th>
+              <th style="padding:10px 10px;text-align:right;white-space:nowrap;background:#f0fdf4;">예상 연장수당</th>
+              <th style="padding:10px 10px;text-align:left;white-space:nowrap;">메모</th>
+              <th style="padding:10px 10px;text-align:center;white-space:nowrap;">저장</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="(row, idx) in overtimeRows" :key="row.userId">
+              <tr style="border-bottom:1px solid #f3f4f6;" :style="(row.overtimeH||row.nightH||row.holidayH||row.holidayOtH)?'background:#fffbeb;':''">
+                <td style="padding:9px 12px;font-weight:600;" x-text="row.name||nameOf(row.userId)"></td>
+                <td style="padding:6px 8px;background:#fffbeb;">
+                  <input type="number" x-model="overtimeRows[idx].overtimeH" min="0" step="0.5"
+                    style="width:70px;padding:5px;border:1px solid #d1d5db;border-radius:4px;text-align:right;font-size:13px;">
+                </td>
+                <td style="padding:6px 8px;background:#fffbeb;">
+                  <input type="number" x-model="overtimeRows[idx].nightH" min="0" step="0.5"
+                    style="width:70px;padding:5px;border:1px solid #d1d5db;border-radius:4px;text-align:right;font-size:13px;">
+                </td>
+                <td style="padding:6px 8px;background:#fffbeb;">
+                  <input type="number" x-model="overtimeRows[idx].holidayH" min="0" step="0.5"
+                    style="width:70px;padding:5px;border:1px solid #d1d5db;border-radius:4px;text-align:right;font-size:13px;">
+                </td>
+                <td style="padding:6px 8px;background:#fffbeb;">
+                  <input type="number" x-model="overtimeRows[idx].holidayOtH" min="0" step="0.5"
+                    style="width:70px;padding:5px;border:1px solid #d1d5db;border-radius:4px;text-align:right;font-size:13px;">
+                </td>
+                <td style="padding:9px 8px;text-align:right;background:#f0fdf4;font-weight:600;" x-text="fmt(calcOtPay(row, idx))"></td>
+                <td style="padding:6px 8px;">
+                  <input type="text" x-model="overtimeRows[idx].memo" placeholder="메모"
+                    style="width:100%;padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;">
+                </td>
+                <td style="padding:6px 8px;text-align:center;">
+                  <button @click="saveOvertime(idx)"
+                    :style="overtimeRows[idx]._saved?'background:#10b981;':'background:#4f6ef7;'"
+                    style="padding:4px 12px;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer;min-width:52px;transition:background .2s;"
+                    x-text="overtimeRows[idx]._saved?'✓ 저장':'저장'"></button>
+                </td>
+              </tr>
+            </template>
+            <tr x-show="overtimeRows.length===0">
+              <td colspan="8" style="padding:32px;text-align:center;color:#9ca3af;">직원 설정 탭에서 직원을 먼저 추가하세요</td>
+            </tr>
+          </tbody>
+          <!-- 합계 행 -->
+          <tfoot x-show="overtimeRows.length>0">
+            <tr style="background:#f8fafc;border-top:2px solid #e5e7eb;font-weight:700;">
+              <td style="padding:9px 12px;">합계</td>
+              <td style="padding:9px 8px;text-align:right;background:#fef3c7;" x-text="fmtH(overtimeRows.reduce((s,r)=>s+(+r.overtimeH||0),0))"></td>
+              <td style="padding:9px 8px;text-align:right;background:#fef3c7;" x-text="fmtH(overtimeRows.reduce((s,r)=>s+(+r.nightH||0),0))"></td>
+              <td style="padding:9px 8px;text-align:right;background:#fef3c7;" x-text="fmtH(overtimeRows.reduce((s,r)=>s+(+r.holidayH||0),0))"></td>
+              <td style="padding:9px 8px;text-align:right;background:#fef3c7;" x-text="fmtH(overtimeRows.reduce((s,r)=>s+(+r.holidayOtH||0),0))"></td>
+              <td style="padding:9px 8px;text-align:right;background:#f0fdf4;" x-text="fmt(overtimeRows.reduce((s,r,i)=>s+calcOtPay(r,i),0))"></td>
+              <td colspan="2"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
+    <!-- ★ 지급현황 탭 ─────────────────────────────────────────── -->
+    <div x-show="subTab==='paystatus'" x-init="subTab==='paystatus'&&loadPayStatus()">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;">
+        <span style="font-size:14px;font-weight:600;">📋 지급현황</span>
+        <input type="number" x-model="payStatusYear" @change="loadPayStatus()" min="2020" max="2030"
+          style="width:80px;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+        <span style="font-size:12px;color:#6b7280;">년</span>
+        <button @click="loadPayStatus()" style="padding:6px 12px;background:#f3f4f6;border:none;border-radius:6px;font-size:12px;cursor:pointer;">🔄 새로고침</button>
+        <span style="font-size:11px;color:#9ca3af;">※ 엑셀 지급현황 시트와 동일 — 직원별 연간 지급/공제/실지급 내역</span>
+      </div>
+      <div x-show="payStatusData" style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;overflow:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:1400px;">
+          <thead>
+            <tr style="background:#1e3a5f;color:#fff;">
+              <th style="padding:10px 10px;text-align:left;white-space:nowrap;position:sticky;left:0;background:#1e3a5f;z-index:3;">성명</th>
+              <th style="padding:10px 6px;text-align:center;white-space:nowrap;position:sticky;left:80px;background:#1e3a5f;z-index:3;">항목</th>
+              <template x-for="m in (payStatusData?.months||[])" :key="m">
+                <th style="padding:10px 6px;text-align:right;white-space:nowrap;" x-text="m.slice(5)+'월'"></th>
+              </template>
+              <th style="padding:10px 8px;text-align:right;white-space:nowrap;background:#eff6ff;">연계</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="emp in (payStatusData?.employees||[])" :key="emp.userId">
+              <template x-for="(rowDef, ri) in payStatusRowDefs" :key="rowDef.key">
+                <tr :style="rowDef.bold?'background:#f8fafc;font-weight:700;':''" style="border-bottom:1px solid #f3f4f6;">
+                  <!-- 이름: 첫 행만 표시 -->
+                  <td style="padding:7px 10px;position:sticky;left:0;z-index:1;width:80px;min-width:80px;"
+                    :style="(rowDef.bold?'background:#f8fafc;':'background:#fff;')+(ri===0?'border-top:2px solid #e5e7eb;':'')"
+                    x-text="ri===0 ? (emp.name||nameOf(emp.userId)) : ''"></td>
+                  <td style="padding:7px 6px;color:#6b7280;white-space:nowrap;position:sticky;left:80px;z-index:1;"
+                    :style="(rowDef.bold?'background:#f8fafc;font-weight:700;color:#374151;':'background:#fff;')"
+                    x-text="rowDef.label"></td>
+                  <template x-for="m in (payStatusData?.months||[])" :key="m">
+                    <td style="padding:7px 6px;text-align:right;"
+                      :style="rowDef.key==='netPay'?'color:#1d4ed8;font-weight:700;':(rowDef.key==='totalDeductions'?'color:#ef4444;':'')"
+                      x-text="emp.months[m] ? fmt(emp.months[m][rowDef.key]||0) : ''"></td>
+                  </template>
+                  <td style="padding:7px 8px;text-align:right;background:#eff6ff;font-weight:700;"
+                    :style="rowDef.key==='netPay'?'color:#1d4ed8;':''"
+                    x-text="fmt(Object.values(emp.months||{}).reduce((s,mv)=>s+(mv[rowDef.key]||0),0))"></td>
+                </tr>
+              </template>
+            </template>
+            <tr x-show="!payStatusData?.employees?.length">
+              <td colspan="20" style="padding:32px;text-align:center;color:#9ca3af;">데이터가 없습니다. 귀속 월별 급여를 먼저 계산하세요.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div x-show="!payStatusData" style="text-align:center;padding:40px;color:#9ca3af;">불러오는 중...</div>
+    </div>
+
+    <!-- ★ EDI 비교 탭 -->
+    <div x-show="subTab==='edi'">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;">
+        <span style="font-size:14px;font-weight:600;">EDI 보험료 비교</span>
+        <button @click="openEdiUpload()" style="padding:6px 14px;background:#4f6ef7;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;">📤 EDI 파일 업로드</button>
+        <button @click="openEdiManual()" style="padding:6px 12px;background:#f3f4f6;border:none;border-radius:6px;font-size:13px;cursor:pointer;">✏️ 수동 입력</button>
+        <button @click="loadEdiCompare()" style="padding:6px 12px;background:#f3f4f6;border:none;border-radius:6px;font-size:13px;cursor:pointer;">🔄 새로고침</button>
+      </div>
+      <div style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;overflow:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:1000px;">
+          <thead>
+            <tr style="background:#f8fafc;border-bottom:2px solid #e5e7eb;">
+              <th style="padding:10px 8px;text-align:left;">이름</th>
+              <th colspan="2" style="padding:10px 8px;text-align:center;background:#f0fdf4;border-left:1px solid #e5e7eb;">건강보험</th>
+              <th colspan="2" style="padding:10px 8px;text-align:center;background:#f0fdf4;border-left:1px solid #e5e7eb;">장기요양</th>
+              <th colspan="2" style="padding:10px 8px;text-align:center;background:#fef3c7;border-left:1px solid #e5e7eb;">국민연금</th>
+              <th colspan="2" style="padding:10px 8px;text-align:center;background:#fef3c7;border-left:1px solid #e5e7eb;">고용보험</th>
+              <th style="padding:10px 8px;text-align:center;border-left:1px solid #e5e7eb;">보수월액(EDI)</th>
+              <th style="padding:10px 8px;text-align:center;">일치</th>
+            </tr>
+            <tr style="background:#f8fafc;border-bottom:1px solid #e5e7eb;font-size:11px;color:#6b7280;">
+              <th style="padding:6px 8px;"></th>
+              <th style="padding:6px 6px;text-align:right;background:#f0fdf4;">시스템</th>
+              <th style="padding:6px 6px;text-align:right;background:#f0fdf4;">EDI</th>
+              <th style="padding:6px 6px;text-align:right;background:#f0fdf4;border-left:1px solid #e5e7eb;">시스템</th>
+              <th style="padding:6px 6px;text-align:right;background:#f0fdf4;">EDI</th>
+              <th style="padding:6px 6px;text-align:right;background:#fef3c7;border-left:1px solid #e5e7eb;">시스템</th>
+              <th style="padding:6px 6px;text-align:right;background:#fef3c7;">EDI</th>
+              <th style="padding:6px 6px;text-align:right;background:#fef3c7;border-left:1px solid #e5e7eb;">시스템</th>
+              <th style="padding:6px 6px;text-align:right;background:#fef3c7;">EDI</th>
+              <th style="padding:6px 6px;text-align:right;border-left:1px solid #e5e7eb;"></th>
+              <th style="padding:6px 6px;text-align:center;"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="row in ediCompare" :key="row.userId">
+              <tr style="border-bottom:1px solid #f3f4f6;" :style="row.hasDiscrepancy?'background:#fff7ed;':''">
+                <td style="padding:9px 8px;font-weight:600;" x-text="row.name"></td>
+                <td style="padding:9px 6px;text-align:right;background:#f0fdf4;" x-text="fmt(row.calc?.healthInsurance||0)"></td>
+                <td style="padding:9px 6px;text-align:right;background:#f0fdf4;" :style="row.diff&&Math.abs(row.diff.health)>10?'color:#ef4444;font-weight:700;':''" x-text="row.edi?fmt(row.edi.healthBilled||0):'—'"></td>
+                <td style="padding:9px 6px;text-align:right;background:#f0fdf4;border-left:1px solid #e5e7eb;" x-text="fmt(row.calc?.longTermCare||0)"></td>
+                <td style="padding:9px 6px;text-align:right;background:#f0fdf4;" :style="row.diff&&Math.abs(row.diff.ltc)>10?'color:#ef4444;font-weight:700;':''" x-text="row.edi?fmt(row.edi.ltcBilled||0):'—'"></td>
+                <td style="padding:9px 6px;text-align:right;background:#fef3c7;border-left:1px solid #e5e7eb;" x-text="fmt(row.calc?.nationalPension||0)"></td>
+                <td style="padding:9px 6px;text-align:right;background:#fef3c7;" :style="row.diff&&Math.abs(row.diff.pension)>10?'color:#ef4444;font-weight:700;':''" x-text="row.edi?fmt(row.edi.pensionBilled||0):'—'"></td>
+                <td style="padding:9px 6px;text-align:right;background:#fef3c7;border-left:1px solid #e5e7eb;" x-text="fmt(row.calc?.employmentInsurance||0)"></td>
+                <td style="padding:9px 6px;text-align:right;background:#fef3c7;" :style="row.diff&&Math.abs(row.diff.employment)>10?'color:#ef4444;font-weight:700;':''" x-text="row.edi?fmt(row.edi.employmentBilled||0):'—'"></td>
+                <td style="padding:9px 6px;text-align:right;border-left:1px solid #e5e7eb;" x-text="row.edi?fmt(row.edi.healthBasis||0):'—'"></td>
+                <td style="padding:9px 6px;text-align:center;">
+                  <span x-show="!row.edi" style="color:#9ca3af;font-size:11px;">미등록</span>
+                  <span x-show="row.edi&&!row.hasDiscrepancy" style="color:#10b981;font-weight:700;">✓</span>
+                  <span x-show="row.edi&&row.hasDiscrepancy" style="color:#ef4444;font-weight:700;">⚠</span>
+                </td>
+              </tr>
+            </template>
+            <tr x-show="ediCompare.length===0">
+              <td colspan="11" style="padding:32px;text-align:center;color:#9ca3af;">급여 데이터 또는 EDI 데이터가 없습니다</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ★ 시스템 설정 탭 -->
+    <div x-show="subTab==='settings'">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <!-- 4대보험 요율 -->
+        <div style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;padding:20px;">
+          <div style="font-size:14px;font-weight:700;margin-bottom:16px;">⚙️ 4대보험 요율 설정</div>
+          <div style="display:grid;gap:10px;">
+            <label style="display:flex;align-items:center;gap:10px;font-size:13px;">
+              <span style="width:120px;color:#374151;">적용 시작일</span>
+              <input type="date" x-model="settingsForm.effectiveFrom" style="flex:1;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+            </label>
+            <label style="display:flex;align-items:center;gap:10px;font-size:13px;">
+              <span style="width:120px;color:#374151;">국민연금 (%)</span>
+              <input type="number" x-model="settingsForm.pensionRate" step="0.01" style="flex:1;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+            </label>
+            <label style="display:flex;align-items:center;gap:10px;font-size:13px;">
+              <span style="width:120px;color:#374151;">국민연금 상한(원)</span>
+              <input type="number" x-model="settingsForm.pensionMax" style="flex:1;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+            </label>
+            <label style="display:flex;align-items:center;gap:10px;font-size:13px;">
+              <span style="width:120px;color:#374151;">건강보험 (%)</span>
+              <input type="number" x-model="settingsForm.healthRate" step="0.001" style="flex:1;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+              <span style="font-size:11px;color:#10b981;">※ 2026년: 3.595</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:10px;font-size:13px;">
+              <span style="width:120px;color:#374151;">장기요양 (%)</span>
+              <input type="number" x-model="settingsForm.ltcRate" step="0.01" style="flex:1;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+              <span style="font-size:11px;color:#10b981;">※ 건보료 대비 2026년: 13.14</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:10px;font-size:13px;">
+              <span style="width:120px;color:#374151;">고용보험 (%)</span>
+              <input type="number" x-model="settingsForm.employmentRate" step="0.01" style="flex:1;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+            </label>
+            <div style="border-top:1px solid #e5e7eb;padding-top:10px;margin-top:4px;font-size:12px;font-weight:600;color:#374151;">시간외수당 배수</div>
+            <label style="display:flex;align-items:center;gap:10px;font-size:13px;">
+              <span style="width:120px;color:#374151;">연장수당 배수</span>
+              <input type="number" x-model="settingsForm.overtimeMultiple" step="0.1" style="flex:1;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+            </label>
+            <label style="display:flex;align-items:center;gap:10px;font-size:13px;">
+              <span style="width:120px;color:#374151;">야간수당 배수</span>
+              <input type="number" x-model="settingsForm.nightMultiple" step="0.1" style="flex:1;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+            </label>
+            <label style="display:flex;align-items:center;gap:10px;font-size:13px;">
+              <span style="width:120px;color:#374151;">절사 단위</span>
+              <select x-model="settingsForm.roundingUnit" style="flex:1;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                <option>원단위</option><option>십단위</option><option>백단위</option><option>천단위</option>
+              </select>
+            </label>
+            <button @click="saveSettings()" style="width:100%;padding:10px;background:#4f6ef7;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600;margin-top:4px;">저장</button>
+          </div>
+        </div>
+        <!-- 간이세액표 -->
+        <div style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;padding:20px;">
+          <div style="font-size:14px;font-weight:700;margin-bottom:8px;">📊 근로소득 간이세액표</div>
+          <div style="font-size:12px;color:#6b7280;margin-bottom:14px;">등록된 연도: <strong x-text="taxYears.join(', ')||'없음'"></strong></div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div>
+              <div style="font-size:12px;font-weight:600;margin-bottom:6px;">CSV 파일 업로드</div>
+              <div style="font-size:11px;color:#6b7280;margin-bottom:8px;">컬럼: year, salaryFrom, salaryTo, dep1~dep11 (단위: 원)</div>
+              <input type="number" x-model="taxUploadYear" placeholder="연도 (예: 2025)" style="width:120px;padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin-right:8px;">
+              <input type="file" @change="taxFileSelected($event)" accept=".csv" style="font-size:12px;">
+              <button @click="uploadTaxTable()" style="padding:7px 14px;background:#4f6ef7;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;margin-top:8px;width:100%;">업로드</button>
+            </div>
+            <div style="border-top:1px solid #e5e7eb;padding-top:10px;">
+              <div style="font-size:12px;font-weight:600;margin-bottom:6px;">현재 등록된 세액표 조회</div>
+              <div style="display:flex;gap:8px;margin-bottom:8px;">
+                <select x-model="taxViewYear" @change="loadTaxTable()" style="padding:7px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                  <template x-for="y in taxYears" :key="y"><option :value="y" x-text="y+'년'"></option></template>
+                </select>
+              </div>
+              <div x-show="taxRows.length>0" style="overflow:auto;max-height:300px;border:1px solid #e5e7eb;border-radius:6px;">
+                <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                  <thead>
+                    <tr style="background:#f8fafc;position:sticky;top:0;">
+                      <th style="padding:6px;text-align:right;">시작</th>
+                      <th style="padding:6px;text-align:right;">끝</th>
+                      <th style="padding:6px;text-align:right;">1인</th>
+                      <th style="padding:6px;text-align:right;">2인</th>
+                      <th style="padding:6px;text-align:right;">3인</th>
+                      <th style="padding:6px;text-align:right;">4인</th>
+                      <th style="padding:6px;text-align:right;">5인+</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="t in taxRows.slice(0,30)" :key="t.id">
+                      <tr style="border-bottom:1px solid #f3f4f6;">
+                        <td style="padding:5px;text-align:right;" x-text="fmt(t.salaryFrom)"></td>
+                        <td style="padding:5px;text-align:right;" x-text="fmt(t.salaryTo)"></td>
+                        <td style="padding:5px;text-align:right;" x-text="fmt(t.dep1)"></td>
+                        <td style="padding:5px;text-align:right;" x-text="fmt(t.dep2)"></td>
+                        <td style="padding:5px;text-align:right;" x-text="fmt(t.dep3)"></td>
+                        <td style="padding:5px;text-align:right;" x-text="fmt(t.dep4)"></td>
+                        <td style="padding:5px;text-align:right;" x-text="fmt(t.dep5)"></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+                <div x-show="taxRows.length>30" style="text-align:center;padding:6px;font-size:11px;color:#6b7280;" x-text="'+ '+(taxRows.length-30)+'행 더 있음'"></div>
+              </div>
+              <div x-show="taxRows.length===0" style="color:#9ca3af;font-size:12px;padding:12px 0;">등록된 세액표가 없습니다</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /서브탭 콘텐츠 -->
+</div><!-- /pinOk -->
+
+<!-- ══════════════════════════════════════════════════════
+     모달들
+══════════════════════════════════════════════════════ -->
+
+<!-- 개인 급여 상세/수정 모달 -->
+<div x-show="detailModal.open" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:center;justify-content:center;" @click.self="detailModal.open=false">
+  <div style="background:#fff;border-radius:14px;width:900px;max-width:95vw;max-height:90vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+    <div style="padding:20px 24px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;z-index:1;">
+      <div>
+        <span style="font-size:16px;font-weight:700;" x-text="nameOf(detailModal.rec?.userId)+' — '+detailModal.rec?.yearMonth+' 급여명세'"></span>
+        <span :style="statusStyle(detailModal.rec?.status)" style="margin-left:8px;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;" x-text="statusLabel(detailModal.rec?.status)"></span>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button @click="openSlip(detailModal.rec)" style="padding:7px 14px;background:#f3f4f6;border:none;border-radius:6px;font-size:13px;cursor:pointer;">📄 명세서</button>
+        <button @click="saveDetail()" x-show="detailModal.rec?.status==='draft'" style="padding:7px 16px;background:#4f6ef7;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600;">저장</button>
+        <button @click="recalcOne()" x-show="detailModal.rec?.status==='draft'" style="padding:7px 14px;background:#10b981;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;">⚡ 재계산</button>
+        <button @click="detailModal.open=false" style="padding:7px 12px;background:#f3f4f6;border:none;border-radius:6px;font-size:13px;cursor:pointer;">✕</button>
+      </div>
+    </div>
+    <div style="padding:20px 24px;" x-show="detailModal.rec">
+      <!-- 2단 레이아웃 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+        <!-- 지급 -->
+        <div>
+          <div style="font-size:13px;font-weight:700;color:#374151;background:#f0fdf4;padding:8px 12px;border-radius:6px;margin-bottom:10px;">💰 지급 내역</div>
+          <div style="display:grid;gap:6px;">
+            <template x-for="f in payFields" :key="f.key">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="width:130px;font-size:12px;color:#374151;" x-text="f.label"></span>
+                <template x-if="f.hours">
+                  <input type="number" :value="detailModal.rec[f.hoursKey]" @input="detailModal.rec[f.hoursKey]=+$event.target.value" step="0.5" style="width:60px;padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;" :disabled="detailModal.rec?.status!=='draft'" placeholder="시간">
+                </template>
+                <input type="number" :value="detailModal.rec[f.key]" @input="detailModal.rec[f.key]=+$event.target.value" style="flex:1;padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;text-align:right;" :disabled="detailModal.rec?.status!=='draft'">
+              </div>
+            </template>
+            <!-- 합계 -->
+            <div style="border-top:1px solid #e5e7eb;padding-top:8px;margin-top:4px;">
+              <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+                <span style="color:#374151;">과세합계</span><strong x-text="fmt(calcTaxable())"></strong>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;color:#6b7280;">
+                <span>비과세합계</span><span x-text="fmt(calcNonTaxable())"></span>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;background:#f0fdf4;padding:6px 8px;border-radius:4px;">
+                <span>지급합계</span><span x-text="fmt(calcGross())"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- 공제 -->
+        <div>
+          <div style="font-size:13px;font-weight:700;color:#374151;background:#fef2f2;padding:8px 12px;border-radius:6px;margin-bottom:10px;">➖ 공제 내역</div>
+          <div style="display:grid;gap:6px;">
+            <template x-for="f in dedFields" :key="f.key">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span style="width:150px;font-size:12px;color:#374151;" x-text="f.label"></span>
+                <input type="number" :value="detailModal.rec[f.key]" @input="detailModal.rec[f.key]=+$event.target.value" style="flex:1;padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;text-align:right;" :disabled="detailModal.rec?.status!=='draft'">
+              </div>
+            </template>
+            <!-- 공제합계/실지급 -->
+            <div style="border-top:1px solid #e5e7eb;padding-top:8px;margin-top:4px;">
+              <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;background:#fef2f2;padding:6px 8px;border-radius:4px;margin-bottom:6px;">
+                <span>공제합계</span><span x-text="fmt(calcTotalDed())"></span>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:800;background:#1e3a5f;color:#fff;padding:10px 12px;border-radius:6px;">
+                <span>실지급액</span><span x-text="fmt(calcGross()-calcTotalDed())"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- 기타 정보 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:16px;">
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;">
+          <span style="color:#6b7280;">급여지급일</span>
+          <input type="date" x-model="detailModal.rec.payDate" style="padding:7px;border:1px solid #d1d5db;border-radius:6px;" :disabled="detailModal.rec?.status!=='draft'">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;">
+          <span style="color:#6b7280;">근무일수</span>
+          <input type="number" x-model="detailModal.rec.workDays" style="padding:7px;border:1px solid #d1d5db;border-radius:6px;" :disabled="detailModal.rec?.status!=='draft'">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;">
+          <span style="color:#6b7280;">메모</span>
+          <input type="text" x-model="detailModal.rec.note" style="padding:7px;border:1px solid #d1d5db;border-radius:6px;" :disabled="detailModal.rec?.status!=='draft'">
+        </label>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 직원 설정 모달 -->
+<div x-show="configModal.open" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:center;justify-content:center;" @click.self="configModal.open=false">
+  <div style="background:#fff;border-radius:14px;width:700px;max-width:95vw;max-height:90vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+    <div style="padding:18px 22px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;z-index:1;">
+      <span style="font-size:15px;font-weight:700;">직원 급여 기초 설정</span>
+      <button @click="configModal.open=false" style="padding:6px 12px;background:#f3f4f6;border:none;border-radius:6px;cursor:pointer;">✕</button>
+    </div>
+    <div style="padding:20px 22px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <!-- 직원 선택 -->
+        <!-- 직원 선택 (ERP 등록 직원 선택 또는 직접 입력) -->
+        <div style="grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;">
+            <span style="color:#6b7280;font-weight:600;">직원 이름 *</span>
+            <div style="display:flex;gap:6px;">
+              <input type="text" x-model="configModal.form.name" placeholder="이름 직접 입력"
+                style="flex:1;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+              <select @change="e=>{ const u=allUsers.find(x=>x.id===e.target.value); if(u){ configModal.form.userId=u.id; configModal.form.name=u.name; } e.target.value=''; }"
+                style="width:110px;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;">
+                <option value="">ERP선택</option>
+                <template x-for="u in allUsers" :key="u.id">
+                  <option :value="u.id" x-text="u.name||u.id"></option>
+                </template>
+              </select>
+            </div>
+            <span style="font-size:11px;color:#9ca3af;">ERP 미등록(대림컴퍼니 등)은 이름 직접 입력</span>
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;">
+            <span style="color:#6b7280;font-weight:600;">직원 ID * <span style="font-weight:400;color:#9ca3af;">(ERP 선택 시 자동)</span></span>
+            <input type="text" x-model="configModal.form.userId" placeholder="예: comp-001"
+              style="padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+          </label>
+        </div>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;">
+          <span style="color:#6b7280;">적용 시작일</span>
+          <input type="date" x-model="configModal.form.effectiveFrom" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;">
+          <span style="color:#6b7280;">월 소정근로시간</span>
+          <select x-model="configModal.form.workingHours" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+            <option value="209">209 (사무직)</option>
+            <option value="216.875">216.875 (5일 주44h)</option>
+            <option value="224.75">224.75 (5일 주46h)</option>
+            <option value="241.55">241.55 (6일 주44h)</option>
+          </select>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;">
+          <span style="color:#6b7280;">기본급 *</span>
+          <input type="number" x-model="configModal.form.baseSalary" @input="updateNormal()" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;">
+          <span style="color:#6b7280;">고정연장수당</span>
+          <input type="number" x-model="configModal.form.fixedOvertimePay" @input="updateNormal()" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;">
+          <span style="color:#6b7280;">고정휴일수당</span>
+          <input type="number" x-model="configModal.form.fixedHolidayPay" @input="updateNormal()" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;">
+          <span style="color:#6b7280;">식대</span>
+          <input type="number" x-model="configModal.form.mealAllowance" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;">
+          <span style="color:#6b7280;">차량유지비</span>
+          <input type="number" x-model="configModal.form.transportAllowance" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;">
+          <span style="color:#6b7280;">팀장수당</span>
+          <input type="number" x-model="configModal.form.teamLeaderAllowance" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+        </label>
+        <!-- 자동계산 표시 -->
+        <div style="background:#f0fdf4;border-radius:6px;padding:10px;font-size:12px;display:grid;gap:4px;">
+          <div style="display:flex;justify-content:space-between;"><span>통상임금</span><strong x-text="fmt(configModal.form.normalWage||0)"></strong></div>
+          <div style="display:flex;justify-content:space-between;color:#6b7280;"><span>통상시급</span><span x-text="fmt(Math.round((configModal.form.normalWage||0)/(configModal.form.workingHours||209)))+'원'"></span></div>
+        </div>
+        <!-- 세금 설정 -->
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;">
+          <span style="color:#6b7280;">소득세 유형</span>
+          <select x-model="configModal.form.incomeTaxType" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;">
+            <option>근로소득 100%</option>
+            <option>근로소득 80%</option>
+            <option>근로소득 120%</option>
+            <option>10%감면</option><option>20%감면</option><option>30%감면</option>
+            <option>50%감면</option><option>70%감면</option><option>90%감면</option>
+            <option>사업소득 3.3%</option>
+            <option>기타소득 8.8%</option>
+          </select>
+        </label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;">
+          <label style="display:flex;flex-direction:column;gap:4px;">
+            <span style="color:#6b7280;">부양가족(본인포함)</span>
+            <input type="number" x-model="configModal.form.dependents" min="1" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;">
+            <span style="color:#6b7280;">자녀수(7~20세)</span>
+            <input type="number" x-model="configModal.form.childrenCount" min="0" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+          </label>
+        </div>
+        <!-- 4대보험 가입 여부 -->
+        <div style="grid-column:1/-1;font-size:12px;">
+          <div style="font-weight:600;color:#374151;margin-bottom:8px;">4대보험 가입 여부</div>
+          <div style="display:flex;gap:16px;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input type="checkbox" :checked="configModal.form.pensionOpt==='O'" @change="configModal.form.pensionOpt=$event.target.checked?'O':'X'"> 국민연금
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input type="checkbox" :checked="configModal.form.healthOpt==='O'" @change="configModal.form.healthOpt=$event.target.checked?'O':'X'"> 건강보험
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input type="checkbox" :checked="configModal.form.ltcOpt==='O'" @change="configModal.form.ltcOpt=$event.target.checked?'O':'X'"> 장기요양
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input type="checkbox" :checked="configModal.form.employmentOpt==='O'" @change="configModal.form.employmentOpt=$event.target.checked?'O':'X'"> 고용보험
+            </label>
+          </div>
+        </div>
+        <!-- 보수월액 수동입력 -->
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;">
+          <span style="color:#6b7280;">건강보험 보수월액 수동입력 (○이면 자동)</span>
+          <input type="number" x-model="configModal.form.healthBasisManual" placeholder="비워두면 과세합계 자동 적용" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;">
+          <span style="color:#6b7280;">국민연금 기준소득월액 수동입력</span>
+          <input type="number" x-model="configModal.form.pensionBasisManual" placeholder="비워두면 과세합계 자동 적용" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+        </label>
+        <!-- 계좌 -->
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;">
+          <span style="color:#6b7280;">금융기관</span>
+          <input type="text" x-model="configModal.form.bankName" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;">
+          <span style="color:#6b7280;">계좌번호 (암호화 저장)</span>
+          <input type="text" x-model="configModal.form.bankAccount" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;grid-column:1/-1;">
+          <span style="color:#6b7280;">급여명세서 수신 이메일</span>
+          <input type="email" x-model="configModal.form.email" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+        </label>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;">
+        <button @click="saveConfig()" style="flex:1;padding:11px;background:#4f6ef7;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600;">저장</button>
+        <button @click="configModal.open=false" style="padding:11px 20px;background:#f3f4f6;border:none;border-radius:8px;font-size:14px;cursor:pointer;">취소</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 항목명 설정 모달 -->
+<div x-show="labelModal.open" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:center;justify-content:center;" @click.self="labelModal.open=false">
+  <div style="background:#fff;border-radius:12px;width:420px;max-width:95vw;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+    <div style="font-size:15px;font-weight:700;margin-bottom:16px;">📝 자유 항목명 설정 — <span x-text="yearMonth"></span></div>
+    <div style="display:grid;gap:10px;font-size:13px;">
+      <div style="font-weight:600;color:#374151;font-size:12px;margin-bottom:4px;">지급 항목명</div>
+      <label style="display:flex;align-items:center;gap:8px;">
+        <span style="width:80px;color:#6b7280;">추가 지급 1</span>
+        <input type="text" x-model="labelModal.form.extraPay1Name" placeholder="예: 명절상여" style="flex:1;padding:7px;border:1px solid #d1d5db;border-radius:6px;">
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;">
+        <span style="width:80px;color:#6b7280;">추가 지급 2</span>
+        <input type="text" x-model="labelModal.form.extraPay2Name" placeholder="예: 하계휴가비" style="flex:1;padding:7px;border:1px solid #d1d5db;border-radius:6px;">
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;">
+        <span style="width:80px;color:#6b7280;">추가 지급 3</span>
+        <input type="text" x-model="labelModal.form.extraPay3Name" style="flex:1;padding:7px;border:1px solid #d1d5db;border-radius:6px;">
+      </label>
+      <div style="font-weight:600;color:#374151;font-size:12px;margin-top:8px;margin-bottom:4px;">공제 항목명</div>
+      <label style="display:flex;align-items:center;gap:8px;">
+        <span style="width:80px;color:#6b7280;">추가 공제 1</span>
+        <input type="text" x-model="labelModal.form.extraDeduction1Name" placeholder="예: 과태료" style="flex:1;padding:7px;border:1px solid #d1d5db;border-radius:6px;">
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;">
+        <span style="width:80px;color:#6b7280;">추가 공제 2</span>
+        <input type="text" x-model="labelModal.form.extraDeduction2Name" placeholder="예: 주차비" style="flex:1;padding:7px;border:1px solid #d1d5db;border-radius:6px;">
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;">
+        <span style="width:80px;color:#6b7280;">추가 공제 3</span>
+        <input type="text" x-model="labelModal.form.extraDeduction3Name" style="flex:1;padding:7px;border:1px solid #d1d5db;border-radius:6px;">
+      </label>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button @click="saveLabels()" style="flex:1;padding:10px;background:#4f6ef7;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600;">저장</button>
+      <button @click="labelModal.open=false" style="padding:10px 20px;background:#f3f4f6;border:none;border-radius:8px;font-size:14px;cursor:pointer;">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- EDI 업로드 모달 -->
+<div x-show="ediUploadModal.open" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:center;justify-content:center;" @click.self="ediUploadModal.open=false">
+  <div style="background:#fff;border-radius:12px;width:440px;max-width:95vw;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+    <div style="font-size:15px;font-weight:700;margin-bottom:16px;">📤 EDI 파일 업로드</div>
+    <div style="font-size:12px;color:#6b7280;margin-bottom:14px;background:#f0fdf4;padding:10px;border-radius:6px;line-height:1.6;">
+      <strong>건강보험공단 EDI 파일</strong> (.xls)<br>
+      공단 사이트 → 건강보험료 고지(산출)내역서 다운로드<br>
+      성명 기준으로 직원 자동 매핑됩니다.
+    </div>
+    <div style="display:grid;gap:10px;font-size:13px;">
+      <label style="display:flex;flex-direction:column;gap:4px;">
+        <span style="color:#6b7280;">귀속연월</span>
+        <input type="month" x-model="ediUploadModal.yearMonth" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+      </label>
+      <label style="display:flex;flex-direction:column;gap:4px;">
+        <span style="color:#6b7280;">EDI 파일 선택 (.xls / .csv)</span>
+        <input type="file" accept=".xls,.csv" @change="ediUploadModal.file=$event.target.files[0]" style="font-size:12px;">
+      </label>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button @click="uploadEdi()" style="flex:1;padding:10px;background:#4f6ef7;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600;">업로드</button>
+      <button @click="ediUploadModal.open=false" style="padding:10px 20px;background:#f3f4f6;border:none;border-radius:8px;font-size:14px;cursor:pointer;">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- EDI 수동 입력 모달 -->
+<div x-show="ediManualModal.open" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:center;justify-content:center;" @click.self="ediManualModal.open=false">
+  <div style="background:#fff;border-radius:12px;width:500px;max-width:95vw;max-height:90vh;overflow:auto;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+    <div style="font-size:15px;font-weight:700;margin-bottom:16px;">✏️ EDI 수동 입력</div>
+    <div style="display:grid;gap:10px;font-size:13px;">
+      <label style="display:flex;flex-direction:column;gap:4px;">
+        <span style="color:#6b7280;">직원</span>
+        <select x-model="ediManualModal.form.userId" style="padding:8px;border:1px solid #d1d5db;border-radius:6px;">
+          <option value="">-- 선택 --</option>
+          <template x-for="c in configs" :key="c.userId">
+            <option :value="c.userId" x-text="nameOf(c.userId)"></option>
+          </template>
+        </select>
+      </label>
+      <template x-for="f in ediFields" :key="f.key">
+        <label style="display:flex;align-items:center;gap:8px;">
+          <span style="width:160px;color:#374151;" x-text="f.label"></span>
+          <input type="number" x-model="ediManualModal.form[f.key]" style="flex:1;padding:7px;border:1px solid #d1d5db;border-radius:6px;text-align:right;">
+        </label>
+      </template>
+      <label style="display:flex;flex-direction:column;gap:4px;">
+        <span style="color:#6b7280;">메모</span>
+        <input type="text" x-model="ediManualModal.form.memo" style="padding:7px;border:1px solid #d1d5db;border-radius:6px;">
+      </label>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button @click="saveEdiManual()" style="flex:1;padding:10px;background:#4f6ef7;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600;">저장</button>
+      <button @click="ediManualModal.open=false" style="padding:10px 20px;background:#f3f4f6;border:none;border-radius:8px;font-size:14px;cursor:pointer;">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- 출퇴근 연동 모달 -->
+<div x-show="attendanceModal.open" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:center;justify-content:center;" @click.self="attendanceModal.open=false">
+  <div style="background:#fff;border-radius:14px;width:680px;max-width:95vw;max-height:90vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+    <div style="padding:18px 22px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:10px;position:sticky;top:0;background:#fff;z-index:1;">
+      <span style="font-size:15px;font-weight:700;">🔗 출퇴근 연동 — <span x-text="yearMonth"></span></span>
+      <span style="font-size:12px;color:#6b7280;">출퇴근 모듈의 근무일수를 급여 레코드에 반영합니다</span>
+      <span style="flex:1"></span>
+      <button @click="attendanceModal.open=false" style="padding:5px 12px;background:#f3f4f6;border:none;border-radius:6px;cursor:pointer;">✕</button>
+    </div>
+    <div style="padding:16px 22px;">
+      <!-- 경고 -->
+      <div x-show="attendanceModal.warn" x-text="attendanceModal.warn"
+        style="background:#fef3c7;border:1px solid #fbbf24;border-radius:6px;padding:10px 14px;font-size:12px;margin-bottom:14px;"></div>
+
+      <div x-show="attendanceModal.employees.length>0">
+        <div style="font-size:12px;color:#6b7280;margin-bottom:10px;">
+          아래 데이터를 급여 레코드에 반영합니다. draft 상태인 직원만 반영됩니다.
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead>
+            <tr style="background:#f8fafc;border-bottom:2px solid #e5e7eb;">
+              <th style="padding:8px 10px;text-align:left;">성명</th>
+              <th style="padding:8px 8px;text-align:right;">근무일수</th>
+              <th style="padding:8px 8px;text-align:right;">연차사용</th>
+              <th style="padding:8px 8px;text-align:right;">결근</th>
+              <th style="padding:8px 8px;text-align:right;">지각</th>
+              <th style="padding:8px 8px;text-align:right;color:#f59e0b;">CAPS연장(h)</th>
+              <th style="padding:8px 8px;text-align:center;">반영</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="emp in attendanceModal.employees" :key="emp.userId">
+              <tr style="border-bottom:1px solid #f3f4f6;" :style="emp.absentDays>0?'background:#fff7ed;':''">
+                <td style="padding:7px 10px;font-weight:600;" x-text="emp.name||nameOf(emp.userId)"></td>
+                <td style="padding:7px 8px;text-align:right;font-weight:700;color:#1d4ed8;" x-text="emp.workDays+'일'"></td>
+                <td style="padding:7px 8px;text-align:right;color:#6b7280;" x-text="emp.annualDays?emp.annualDays+'일':''"></td>
+                <td style="padding:7px 8px;text-align:right;" :style="emp.absentDays?'color:#ef4444;font-weight:700;':'color:#6b7280;'" x-text="emp.absentDays?emp.absentDays+'일':''"></td>
+                <td style="padding:7px 8px;text-align:right;color:#f59e0b;" x-text="emp.lateCount?emp.lateCount+'회':''"></td>
+                <td style="padding:7px 8px;text-align:right;color:#f59e0b;" x-text="emp.totalOvertimeH?emp.totalOvertimeH+'h':''"></td>
+                <td style="padding:7px 8px;text-align:center;">
+                  <input type="checkbox" :checked="attendanceModal.selected.has(emp.userId)"
+                    @change="e=>{ const s=new Set(attendanceModal.selected); e.target.checked?s.add(emp.userId):s.delete(emp.userId); attendanceModal.selected=s; }">
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <!-- 대림컴퍼니 자동계산 안내 -->
+        <div x-show="attendanceModal.employees.length>0&&attendanceModal.employees[0]?._autoCalc"
+          style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:10px 14px;font-size:12px;margin-top:10px;color:#1e40af;">
+          📅 <strong>대림컴퍼니 — 월 평일 수 자동 적용</strong><br>
+          CAPS 미연동이므로 해당 월의 평일(월~금) 수를 근무일수로 자동 계산했습니다.<br>
+          연차/지각/결근이 있으면 반영 후 수동으로 수정하세요.<br>
+          <span style="color:#6b7280;">추후 자체 ERP 출퇴근 시스템 연동 시 실제 데이터로 자동 교체됩니다.</span>
+        </div>
+        <div x-show="attendanceModal.employees.length>0&&!attendanceModal.employees[0]?._autoCalc"
+          style="font-size:11px;color:#9ca3af;margin-top:8px;">
+          ※ CAPS 연장시간은 참고용입니다. 실제 연장수당은 ⏰ 연장근무 탭에서 직접 입력하세요.
+        </div>
+      </div>
+
+      <div x-show="attendanceModal.employees.length===0&&!attendanceModal.warn" style="text-align:center;padding:30px;color:#9ca3af;">
+        불러오는 중...
+      </div>
+    </div>
+    <div style="padding:14px 22px;border-top:1px solid #e5e7eb;display:flex;gap:8px;justify-content:flex-end;">
+      <span style="flex:1;font-size:12px;color:#6b7280;align-self:center;" x-text="attendanceModal.selected.size+'명 선택'"></span>
+      <button @click="attendanceModal.open=false" style="padding:9px 20px;background:#f3f4f6;border:none;border-radius:8px;font-size:13px;cursor:pointer;">취소</button>
+      <button @click="applyAttendance()" :disabled="attendanceModal.selected.size===0"
+        style="padding:9px 22px;background:#8b5cf6;color:#fff;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:600;"
+        :style="attendanceModal.selected.size===0?'opacity:.4;cursor:not-allowed;':''">
+        ✅ 선택 직원 반영
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- 연장근무 CAPS 가져오기 모달 -->
+<div x-show="overtimeImportModal.open" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:center;justify-content:center;" @click.self="overtimeImportModal.open=false">
+  <div style="background:#fff;border-radius:14px;width:min(900px,94vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;" @click.stop>
+    <div style="padding:16px 22px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:10px;">
+      <span style="font-size:15px;font-weight:700;">📥 CAPS에서 연장시간 가져오기 — <span x-text="yearMonth"></span></span>
+      <span style="flex:1"></span>
+      <button @click="overtimeImportModal.open=false" style="padding:5px 12px;background:#f3f4f6;border:none;border-radius:6px;cursor:pointer;">✕</button>
+    </div>
+    <div style="padding:16px 22px;overflow:auto;flex:1;">
+      <div x-show="overtimeImportModal.warn" x-text="overtimeImportModal.warn" style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:12px;border-radius:8px;font-size:13px;margin-bottom:12px;"></div>
+      <div x-show="overtimeImportModal.employees.length>0" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 14px;font-size:12px;color:#1e40af;margin-bottom:14px;line-height:1.6;">
+        <strong>자동 반영 규칙</strong> — 평일 19:15 이후 퇴근분만 집계. 주말/공휴일은 제외.<br>
+        ⚠️ <b>퇴근 타각이 23:30 이후인 날짜</b>는 CAPS 오탐(다음날 새벽 출근이 전날로 찍힘) 가능성이 있어 <b>체크한 경우에만</b> 합산됩니다.
+      </div>
+      <div x-show="overtimeImportModal.employees.length>0">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead>
+            <tr style="background:#f8fafc;border-bottom:2px solid #e5e7eb;">
+              <th style="padding:9px 8px;text-align:left;">성명</th>
+              <th style="padding:9px 8px;text-align:right;">확정 연장(h)</th>
+              <th style="padding:9px 8px;text-align:left;">⚠️ 오탐 의심 (체크 시 합산)</th>
+              <th style="padding:9px 8px;text-align:right;background:#f0fdf4;">최종 연장(h)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="emp in overtimeImportModal.employees" :key="emp.userId">
+              <tr style="border-bottom:1px solid #f3f4f6;">
+                <td style="padding:8px;font-weight:600;" x-text="emp.name"></td>
+                <td style="padding:8px;text-align:right;" x-text="emp.confirmedH.toFixed(2)"></td>
+                <td style="padding:8px;">
+                  <div x-show="emp.suspicious.length===0" style="color:#9ca3af;font-size:11px;">없음</div>
+                  <template x-for="(s, si) in emp.suspicious" :key="s.date">
+                    <label style="display:flex;align-items:center;gap:6px;font-size:11px;padding:2px 0;cursor:pointer;">
+                      <input type="checkbox" :checked="s._checked" @change="e=>{emp.suspicious[si]._checked=e.target.checked;}">
+                      <span x-text="s.date+' 퇴근 '+s.outTime+' ('+s.hours.toFixed(2)+'h)'"></span>
+                    </label>
+                  </template>
+                </td>
+                <td style="padding:8px;text-align:right;background:#f0fdf4;font-weight:700;color:#065f46;"
+                    x-text="(emp.confirmedH + emp.suspicious.filter(s=>s._checked).reduce((a,s)=>a+s.hours,0)).toFixed(2)"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+      <div x-show="overtimeImportModal.employees.length===0&&!overtimeImportModal.warn" style="text-align:center;padding:30px;color:#9ca3af;">불러오는 중...</div>
+    </div>
+    <div style="padding:14px 22px;border-top:1px solid #e5e7eb;display:flex;gap:8px;justify-content:flex-end;">
+      <span style="flex:1;font-size:11px;color:#6b7280;align-self:center;">※ 기존 야간/휴일 입력값은 보존됩니다</span>
+      <button @click="overtimeImportModal.open=false" style="padding:9px 20px;background:#f3f4f6;border:none;border-radius:8px;font-size:13px;cursor:pointer;">취소</button>
+      <button @click="applyOvertimeImport()"
+        style="padding:9px 22px;background:#8b5cf6;color:#fff;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:600;">
+        ✅ 연장근무 탭에 반영
+      </button>
+    </div>
+  </div>
+</div>
+
+</div><!-- /x-data -->
+</template>
+
+<script>
+function salaryApp() {
+  return {
+    // ── 인증 ──────────────────────────────────────────────────
+    pinOk: false, pinInput: '', pinError: '',
+    async submitPin() {
+      this.pinError = '';
+      try {
+        const r = await fetch('/api/auth/salary-pin', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          credentials: 'include', body: JSON.stringify({ pin: this.pinInput })
+        });
+        if (r.ok) { this.pinOk = true; this.init(); }
+        else { const d = await r.json(); this.pinError = d.error || '잘못된 PIN입니다'; this.pinInput = ''; }
+      } catch(e) { this.pinError = '서버 오류'; }
+    },
+
+    // ── 상태 ───────────────────────────────────────────────────
+    company: 'dalim-sm',
+    yearMonth: new Date().toISOString().slice(0,7),
+    subTab: 'ledger',
+    loading: false,
+    selectedIds: new Set(),
+    subTabs: [
+      { id: 'ledger',    label: '📊 급여대장' },
+      { id: 'overtime',  label: '⏰ 연장근무' },
+      { id: 'paystatus', label: '📋 지급현황' },
+      { id: 'config',    label: '👤 직원 설정' },
+      { id: 'annual',    label: '📈 연간현황' },
+      { id: 'edi',       label: '🏥 EDI 비교' },
+      { id: 'settings',  label: '⚙️ 설정' },
+    ],
+    records: [], configs: [], labels: {}, issuances: [],
+    settingsForm: {},
+    taxYears: [], taxRows: [], taxViewYear: '', taxUploadYear: '', taxFile: null,
+    annualUserId: '', annualYear: new Date().getFullYear(), annualData: null,
+    annualMonths: [],
+    ediCompare: [],
+    allUsers: [],
+    userMap: {},     // ERP userId → name
+    configNameMap: {}, // salary_configs userId → name (대림컴퍼니 등 ERP 미등록 직원)
+    // 연장근무
+    overtimeRows: [],
+    // 지급현황
+    payStatusData: null,
+    payStatusYear: new Date().getFullYear(),
+
+    // ── 지급현황 행 정의 ─────────────────────────────────────
+    payStatusRowDefs: [
+      { key: 'grossPay',        label: '지급합계', bold: true },
+      { key: 'totalDeductions', label: '공제합계', bold: true },
+      { key: 'netPay',          label: '실지급액', bold: true },
+    ],
+
+    // ── 연간현황 행 정의 ──────────────────────────────────────
+    annualRows: [
+      { key: 'grossPay', label: '지급합계', bold: true },
+      { key: 'baseSalary', label: '기본급' },
+      { key: 'fixedOvertimePay', label: '고정연장수당' },
+      { key: 'mealAllowance', label: '식대' },
+      { key: 'overtimePay', label: '연장수당' },
+      { key: 'bonusPay', label: '상여' },
+      { key: 'retroPay', label: '소급' },
+      { key: 'leavePay', label: '연차수당' },
+      { key: 'totalDeductions', label: '공제합계', bold: true },
+      { key: 'nationalPension', label: '국민연금' },
+      { key: 'healthInsurance', label: '건강보험' },
+      { key: 'longTermCare', label: '장기요양' },
+      { key: 'employmentInsurance', label: '고용보험' },
+      { key: 'incomeTax', label: '소득세' },
+      { key: 'localTax', label: '지방소득세' },
+      { key: 'netPay', label: '실지급액', bold: true },
+    ],
+
+    // ── 지급 필드 정의 ────────────────────────────────────────
+    get payFields() {
+      const l = this.labels;
+      return [
+        { key: 'baseSalary', label: '기본급' },
+        { key: 'fixedOvertimePay', label: '고정연장수당' },
+        { key: 'fixedHolidayPay', label: '고정휴일수당' },
+        { key: 'mealAllowance', label: '식대' },
+        { key: 'transportAllowance', label: '차량유지비' },
+        { key: 'teamLeaderAllowance', label: '팀장수당' },
+        { key: 'overtimePay', label: '연장수당', hours: true, hoursKey: 'overtimeHours' },
+        { key: 'nightPay', label: '야간수당', hours: true, hoursKey: 'nightHours' },
+        { key: 'holidayPay', label: '휴일기본수당', hours: true, hoursKey: 'holidayHours' },
+        { key: 'holidayOtPay', label: '휴일연장수당', hours: true, hoursKey: 'holidayOtHours' },
+        { key: 'bonusPay', label: '상여' },
+        { key: 'retroPay', label: '소급' },
+        { key: 'leavePay', label: '연차수당' },
+        { key: 'extraPay1', label: l.extraPay1Name||'추가 지급 1' },
+        { key: 'extraPay2', label: l.extraPay2Name||'추가 지급 2' },
+        { key: 'extraPay3', label: l.extraPay3Name||'추가 지급 3' },
+      ];
+    },
+    get dedFields() {
+      const l = this.labels;
+      return [
+        { key: 'nationalPension', label: '국민연금' },
+        { key: 'healthInsurance', label: '건강보험' },
+        { key: 'longTermCare', label: '장기요양보험' },
+        { key: 'employmentInsurance', label: '고용보험' },
+        { key: 'incomeTax', label: '소득세' },
+        { key: 'localTax', label: '지방소득세' },
+        { key: 'incomeTaxAdj', label: '정산소득세' },
+        { key: 'localTaxAdj', label: '정산지방소득세' },
+        { key: 'healthAnnual', label: '건강보험 연말정산' },
+        { key: 'ltcAnnual', label: '장기요양 연말정산' },
+        { key: 'healthInstallment', label: '건강보험 분할납부' },
+        { key: 'ltcInstallment', label: '장기요양 분할납부' },
+        { key: 'healthAprExtra', label: '건강보험 4월추가분' },
+        { key: 'ltcAprExtra', label: '장기요양 4월추가분' },
+        { key: 'healthRefundInterest', label: '건강보험 환급금이자' },
+        { key: 'ltcRefundInterest', label: '요양보험 환급금이자' },
+        { key: 'miscDeduction1', label: '과태료 및 주차비' },
+        { key: 'miscDeduction2', label: '기타 공제' },
+        { key: 'extraDeduction1', label: l.extraDeduction1Name||'추가 공제 1' },
+        { key: 'extraDeduction2', label: l.extraDeduction2Name||'추가 공제 2' },
+        { key: 'extraDeduction3', label: l.extraDeduction3Name||'추가 공제 3' },
+      ];
+    },
+    ediFields: [
+      { key: 'healthBasis', label: '건강보험 보수월액' },
+      { key: 'healthCalc', label: '건강보험 산출보험료' },
+      { key: 'healthBilled', label: '건강보험 고지금액' },
+      { key: 'healthAnnual', label: '건강보험 연말정산' },
+      { key: 'ltcCalc', label: '장기요양 산출보험료' },
+      { key: 'ltcBilled', label: '장기요양 고지금액' },
+      { key: 'healthRefundInterest', label: '건강환급금이자' },
+      { key: 'ltcRefundInterest', label: '요양환급금이자' },
+      { key: 'totalBilled', label: '총납부할보험료' },
+      { key: 'pensionBilled', label: '국민연금 고지액' },
+      { key: 'employmentBilled', label: '고용보험 고지액' },
+    ],
+
+    // ── 모달 상태 ─────────────────────────────────────────────
+    detailModal: { open: false, rec: null },
+    configModal: { open: false, form: {} },
+    labelModal: { open: false, form: {} },
+    ediUploadModal: { open: false, yearMonth: '', file: null },
+    ediManualModal: { open: false, form: {} },
+    attendanceModal: { open: false, employees: [], selected: new Set(), warn: '' },
+    overtimeImportModal: { open: false, employees: [], warn: '' },
+
+    // ── 탭 전환 ───────────────────────────────────────────────
+    switchSubTab(id) {
+      this.subTab = id;
+      if (id === 'overtime') this.loadOvertime();
+      else if (id === 'paystatus') this.loadPayStatus();
+      else if (id === 'edi') this.loadEdiCompare();
+    },
+
+    // ── 초기화 ────────────────────────────────────────────────
+    async init() {
+      if (!this.pinOk) return;
+      await this.loadUsers();
+      await this.loadAll();
+      await this.loadSettings();
+      await this.loadTaxYears();
+    },
+
+    async loadUsers() {
+      try {
+        const r = await fetch('/api/admin/users', { credentials: 'include' });
+        if (r.ok) {
+          const d = await r.json();
+          this.allUsers = d.users || [];
+          this.userMap = {};
+          this.allUsers.forEach(u => { this.userMap[u.id] = u.name || u.id; });
+        }
+      } catch(e) {}
+    },
+
+    async loadAll() {
+      this.loading = true;
+      await Promise.all([this.loadRecords(), this.loadConfigs(), this.loadLabels(), this.loadIssuances()]);
+      this.loading = false;
+    },
+
+    async loadRecords() {
+      try {
+        const r = await fetch(`/api/salary/records?company=${this.company}&month=${this.yearMonth}`, { credentials:'include' });
+        if (r.ok) { const d = await r.json(); this.records = d.records || []; this.selectedIds = new Set(); }
+      } catch(e) {}
+    },
+
+    async loadConfigs() {
+      try {
+        const r = await fetch(`/api/salary/config?company=${this.company}`, { credentials:'include' });
+        if (r.ok) {
+          const d = await r.json();
+          this.configs = d.configs || [];
+          // configNameMap 구성 (대림컴퍼니 ERP 미등록 직원 이름 처리)
+          this.configNameMap = {};
+          this.configs.forEach(c => { if (c.name) this.configNameMap[c.userId] = c.name; });
+        }
+      } catch(e) {}
+    },
+
+    async loadOvertime() {
+      try {
+        const r = await fetch(`/api/salary/overtime?company=${this.company}&month=${this.yearMonth}`, { credentials:'include' });
+        if (r.ok) { const d = await r.json(); this.overtimeRows = d.overtime || []; }
+      } catch(e) {}
+    },
+
+    async loadPayStatus() {
+      try {
+        const r = await fetch(`/api/salary/paystatus?company=${this.company}&year=${this.payStatusYear}`, { credentials:'include' });
+        if (r.ok) { this.payStatusData = await r.json(); }
+      } catch(e) {}
+    },
+
+    async loadLabels() {
+      try {
+        const r = await fetch(`/api/salary/labels?company=${this.company}&month=${this.yearMonth}`, { credentials:'include' });
+        if (r.ok) { const d = await r.json(); this.labels = d.labels || {}; }
+      } catch(e) {}
+    },
+
+    async loadIssuances() {
+      try {
+        const r = await fetch(`/api/salary/issuances?company=${this.company}&month=${this.yearMonth}`, { credentials:'include' });
+        if (r.ok) { const d = await r.json(); this.issuances = d.issuances || []; }
+      } catch(e) {}
+    },
+
+    async loadSettings() {
+      try {
+        const r = await fetch(`/api/salary/settings/${this.company}`, { credentials:'include' });
+        if (r.ok) { const d = await r.json(); this.settingsForm = d.current || {}; }
+      } catch(e) {}
+    },
+
+    async loadTaxYears() {
+      try {
+        const r = await fetch(`/api/salary/tax-table/2025`, { credentials:'include' });
+        if (r.ok) { const d = await r.json(); this.taxYears = d.years || []; if (this.taxYears[0]) this.taxViewYear = this.taxYears[0]; }
+      } catch(e) {}
+    },
+
+    async loadTaxTable() {
+      try {
+        const r = await fetch(`/api/salary/tax-table/${this.taxViewYear}`, { credentials:'include' });
+        if (r.ok) { const d = await r.json(); this.taxRows = d.rows || []; }
+      } catch(e) {}
+    },
+
+    async loadEdiCompare() {
+      try {
+        const r = await fetch(`/api/salary/edi/compare?company=${this.company}&month=${this.yearMonth}`, { credentials:'include' });
+        if (r.ok) { const d = await r.json(); this.ediCompare = d.comparison || []; }
+      } catch(e) {}
+    },
+
+    async loadAnnual() {
+      if (!this.annualUserId) return;
+      try {
+        const r = await fetch(`/api/salary/annual/${this.annualUserId}/${this.annualYear}`, { credentials:'include' });
+        if (r.ok) {
+          const d = await r.json();
+          this.annualData = d;
+          this.annualMonths = Array.from({length:12}, (_,i) => `${this.annualYear}-${String(i+1).padStart(2,'0')}`);
+        }
+      } catch(e) {}
+    },
+
+    // ── 급여 계산 ─────────────────────────────────────────────
+    async calcAll() {
+      if (!confirm(`${this.yearMonth} ${this.company} 전체 직원 급여를 자동 계산할까요?\n(기존 draft는 덮어씁니다)`)) return;
+      try {
+        const r = await fetch('/api/salary/calculate', {
+          method: 'POST', headers: {'Content-Type':'application/json'}, credentials:'include',
+          body: JSON.stringify({ companyId: this.company, yearMonth: this.yearMonth, overwrite: true })
+        });
+        if (r.ok) { alert('자동계산 완료'); await this.loadRecords(); }
+        else { const d = await r.json(); alert(d.error); }
+      } catch(e) { alert('오류: ' + e.message); }
+    },
+
+    // ── 확정 ──────────────────────────────────────────────────
+    async confirmOne(r) {
+      if (!confirm(`${this.nameOf(r.userId)} ${r.yearMonth} 급여를 확정할까요?\n(확정 후 수정 불가)`)) return;
+      try {
+        const res = await fetch(`/api/salary/records/${r.id}/confirm`, { method:'PUT', credentials:'include' });
+        if (res.ok) { await this.loadRecords(); if (this.detailModal.open) this.detailModal.rec = (await res.json()).record; }
+        else { const d = await res.json(); alert(d.error); }
+      } catch(e) {}
+    },
+
+    // ── 지급 처리 ─────────────────────────────────────────────
+    async paidOne(r) {
+      const payDate = prompt('지급일 입력 (YYYY-MM-DD)', new Date().toISOString().slice(0,10));
+      if (!payDate) return;
+      try {
+        await fetch(`/api/salary/records/${r.id}/paid`, {
+          method:'PUT', headers:{'Content-Type':'application/json'}, credentials:'include',
+          body: JSON.stringify({ payDate })
+        });
+        await this.loadRecords();
+      } catch(e) {}
+    },
+
+    // ── 설정 저장 ─────────────────────────────────────────────
+    async saveSettings() {
+      try {
+        const r = await fetch(`/api/salary/settings/${this.company}`, {
+          method:'PUT', headers:{'Content-Type':'application/json'}, credentials:'include',
+          body: JSON.stringify(this.settingsForm)
+        });
+        if (r.ok) alert('저장되었습니다');
+        else { const d = await r.json(); alert(d.error); }
+      } catch(e) { alert('오류'); }
+    },
+
+    // ── 직원 설정 ─────────────────────────────────────────────
+    openConfigModal(c) {
+      this.configModal.form = c ? { ...c } : {
+        userId: '', name: '', companyId: this.company, effectiveFrom: new Date().toISOString().slice(0,10),
+        baseSalary: 0, fixedOvertimePay: 0, fixedHolidayPay: 0, mealAllowance: 200000,
+        transportAllowance: 0, teamLeaderAllowance: 0, workingHours: 209,
+        incomeTaxType: '근로소득 100%', dependents: 1, childrenCount: 0,
+        pensionOpt: 'O', healthOpt: 'O', ltcOpt: 'O', employmentOpt: 'O'
+      };
+      this.configModal.form.companyId = this.company;
+      // 이름이 없으면 userMap에서 보완
+      if (!this.configModal.form.name && this.configModal.form.userId) {
+        this.configModal.form.name = this.nameOf(this.configModal.form.userId);
+      }
+      this.configModal.open = true;
+    },
+    updateNormal() {
+      const f = this.configModal.form;
+      f.normalWage = (f.baseSalary||0) + (f.fixedOvertimePay||0) + (f.fixedHolidayPay||0);
+    },
+    async saveConfig() {
+      if (!this.configModal.form.userId) { alert('직원 ID를 입력하거나 ERP에서 선택하세요'); return; }
+      if (!this.configModal.form.name) { alert('직원 이름을 입력하세요'); return; }
+      try {
+        const r = await fetch('/api/salary/config', {
+          method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
+          body: JSON.stringify(this.configModal.form)
+        });
+        if (r.ok) { this.configModal.open = false; await this.loadConfigs(); alert('저장되었습니다'); }
+        else { const d = await r.json(); alert(d.error); }
+      } catch(e) { alert('오류'); }
+    },
+
+    // ── 항목명 설정 ───────────────────────────────────────────
+    openLabelModal() {
+      this.labelModal.form = { ...this.labels };
+      this.labelModal.open = true;
+    },
+    async saveLabels() {
+      try {
+        await fetch('/api/salary/labels', {
+          method:'PUT', headers:{'Content-Type':'application/json'}, credentials:'include',
+          body: JSON.stringify({ companyId: this.company, yearMonth: this.yearMonth, ...this.labelModal.form })
+        });
+        this.labelModal.open = false;
+        await this.loadLabels();
+        await this.loadRecords();
+      } catch(e) {}
+    },
+
+    // ── 급여 상세 모달 ────────────────────────────────────────
+    openDetail(r) {
+      this.detailModal.rec = { ...r };
+      this.detailModal.open = true;
+    },
+    async saveDetail() {
+      try {
+        const r = await fetch(`/api/salary/records/${this.detailModal.rec.id}`, {
+          method:'PUT', headers:{'Content-Type':'application/json'}, credentials:'include',
+          body: JSON.stringify(this.detailModal.rec)
+        });
+        if (r.ok) { this.detailModal.open = false; await this.loadRecords(); }
+        else { const d = await r.json(); alert(d.error); }
+      } catch(e) {}
+    },
+    async recalcOne() {
+      if (!confirm('현재 입력된 값으로 4대보험/소득세를 재계산할까요?')) return;
+      try {
+        const r = await fetch('/api/salary/calculate', {
+          method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
+          body: JSON.stringify({ companyId: this.company, yearMonth: this.yearMonth, userIds: [this.detailModal.rec.userId], overwrite: true })
+        });
+        if (r.ok) {
+          await this.loadRecords();
+          const updated = this.records.find(x => x.userId === this.detailModal.rec.userId);
+          if (updated) this.detailModal.rec = { ...updated };
+        }
+      } catch(e) {}
+    },
+
+    // ── 실시간 합계 계산 (모달) ───────────────────────────────
+    calcTaxable() {
+      const r = this.detailModal.rec || {};
+      const all = (r.baseSalary||0)+(r.fixedOvertimePay||0)+(r.fixedHolidayPay||0)+(r.mealAllowance||0)
+        +(r.transportAllowance||0)+(r.teamLeaderAllowance||0)+(r.overtimePay||0)+(r.nightPay||0)
+        +(r.holidayPay||0)+(r.holidayOtPay||0)+(r.bonusPay||0)+(r.retroPay||0)+(r.leavePay||0)
+        +(r.extraPay1||0)+(r.extraPay2||0)+(r.extraPay3||0);
+      return all - this.calcNonTaxable();
+    },
+    calcNonTaxable() {
+      const r = this.detailModal.rec || {};
+      return Math.min(r.mealAllowance||0, 200000) + (r.transportAllowance||0);
+    },
+    calcGross() { return this.calcTaxable() + this.calcNonTaxable(); },
+    calcTotalDed() {
+      const r = this.detailModal.rec || {};
+      return (r.nationalPension||0)+(r.healthInsurance||0)+(r.longTermCare||0)+(r.employmentInsurance||0)
+        +(r.incomeTax||0)+(r.localTax||0)+(r.incomeTaxAdj||0)+(r.localTaxAdj||0)
+        +(r.healthAnnual||0)+(r.ltcAnnual||0)+(r.healthInstallment||0)+(r.ltcInstallment||0)
+        +(r.healthAprExtra||0)+(r.ltcAprExtra||0)+(r.healthRefundInterest||0)+(r.ltcRefundInterest||0)
+        +(r.miscDeduction1||0)+(r.miscDeduction2||0)+(r.extraDeduction1||0)+(r.extraDeduction2||0)+(r.extraDeduction3||0);
+    },
+
+    // ── 체크박스 선택 ─────────────────────────────────────────
+    toggleSelect(userId, e) {
+      const next = new Set(this.selectedIds);
+      e.target.checked ? next.add(userId) : next.delete(userId);
+      this.selectedIds = next;
+    },
+    toggleSelectAll(e) {
+      this.selectedIds = e.target.checked ? new Set(this.records.map(r => r.userId)) : new Set();
+    },
+
+    // ── 선택 직원 명세서 출력 ──────────────────────────────────
+    printSelected() {
+      const targets = this.selectedIds.size > 0
+        ? this.records.filter(r => this.selectedIds.has(r.userId))
+        : this.records; // 아무것도 선택 안 하면 전체
+      if (targets.length === 0) { alert('출력할 급여 데이터가 없습니다'); return; }
+      if (targets.length > 10) {
+        if (!confirm(`${targets.length}명 명세서를 한꺼번에 열까요?\n(팝업 차단이 켜져 있으면 열리지 않을 수 있습니다)`)) return;
+      }
+      targets.forEach((r, i) => {
+        setTimeout(() => {
+          const url = `/api/salary/slip/${r.userId}/${r.yearMonth}?company=${this.company}`;
+          window.open(url, `slip_${r.userId}`, 'width=750,height=900');
+        }, i * 300); // 팝업 차단 우회 위해 약간씩 딜레이
+      });
+    },
+
+    // ── 급여명세서 팝업 ───────────────────────────────────────
+    openSlip(r) {
+      if (!r) return;
+      const url = `/api/salary/slip/${r.userId}/${r.yearMonth}?company=${this.company}`;
+      window.open(url, `slip_${r.userId}`, 'width=750,height=900');
+      // 발급대장 기록
+      fetch('/api/salary/issuances', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
+        body: JSON.stringify({ yearMonth: r.yearMonth, userId: r.userId, companyId: this.company, issuedType: 'pdf' })
+      }).catch(()=>{});
+    },
+
+    // ── 이메일 일괄발송 ───────────────────────────────────────
+    async emailBulk() {
+      const count = this.records.filter(r => r.status !== 'draft').length;
+      if (!confirm(`확정/지급된 ${count}명에게 급여명세서를 이메일로 발송할까요?`)) return;
+      try {
+        const r = await fetch('/api/salary/slip/email/bulk', {
+          method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
+          body: JSON.stringify({ companyId: this.company, yearMonth: this.yearMonth })
+        });
+        const d = await r.json();
+        const ok = d.results?.filter(x=>x.ok).length || 0;
+        alert(`발송 완료: ${ok}명 성공`);
+      } catch(e) { alert('오류'); }
+    },
+
+    // ── 출퇴근 연동 ──────────────────────────────────────────
+    async importAttendance() {
+      this.attendanceModal = { open: true, employees: [], selected: new Set(), warn: '' };
+      try {
+        const r = await fetch(`/api/salary/attendance-import?company=${this.company}&month=${this.yearMonth}`, { credentials:'include' });
+        const d = await r.json();
+        if (!r.ok) { this.attendanceModal.warn = d.error || '오류'; return; }
+        if (d.warn) this.attendanceModal.warn = d.warn;
+        if (d.note) this.attendanceModal.note = d.note; // 대림컴퍼니 자동계산 안내
+        this.attendanceModal.employees = d.employees || [];
+        // 기본: draft 상태 직원 전체 선택
+        const draftIds = new Set(this.records.filter(r=>r.status==='draft').map(r=>r.userId));
+        this.attendanceModal.selected = new Set(d.employees.filter(e=>draftIds.has(e.userId)).map(e=>e.userId));
+      } catch(e) { this.attendanceModal.warn = '서버 오류: ' + e.message; }
+    },
+    async applyAttendance() {
+      const targets = this.attendanceModal.employees.filter(e => this.attendanceModal.selected.has(e.userId));
+      if (!targets.length) return;
+      try {
+        const r = await fetch('/api/salary/attendance-apply', {
+          method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
+          body: JSON.stringify({ companyId: this.company, yearMonth: this.yearMonth, employees: targets })
+        });
+        const d = await r.json();
+        const ok = d.results?.filter(x=>x.ok).length || 0;
+        const skip = d.results?.filter(x=>x.skipped).length || 0;
+        alert(`출퇴근 연동 완료\n반영: ${ok}명${skip?` / 건너뜀: ${skip}명 (확정/지급됨)`:''}`)
+        this.attendanceModal.open = false;
+        await this.loadRecords();
+      } catch(e) { alert('오류: ' + e.message); }
+    },
+
+    // ── 연장근무 CAPS 자동 가져오기 ────────────────────────────
+    async importOvertimeFromCaps() {
+      this.overtimeImportModal = { open: true, employees: [], warn: '' };
+      try {
+        const r = await fetch(`/api/salary/overtime-import?company=${this.company}&month=${this.yearMonth}`, { credentials:'include' });
+        const d = await r.json();
+        if (!r.ok) { this.overtimeImportModal.warn = d.error || '오류'; return; }
+        if (d.warn) this.overtimeImportModal.warn = d.warn;
+        // 오탐 의심 항목은 기본 unchecked
+        const emps = (d.employees || []).map(e => ({
+          ...e,
+          suspicious: (e.suspicious || []).map(s => ({ ...s, _checked: false })),
+        }));
+        this.overtimeImportModal.employees = emps;
+      } catch(e) { this.overtimeImportModal.warn = '서버 오류: ' + e.message; }
+    },
+    async applyOvertimeImport() {
+      const emps = this.overtimeImportModal.employees;
+      if (!emps.length) { this.overtimeImportModal.open = false; return; }
+      // 각 직원의 최종 연장시간 = confirmedH + 체크된 suspicious.hours 합산
+      const rows = emps.map(e => {
+        const extra = (e.suspicious || []).filter(s => s._checked).reduce((a,s)=>a+s.hours, 0);
+        return { userId: e.userId, overtimeH: +(e.confirmedH + extra).toFixed(2) };
+      });
+      try {
+        const r = await fetch('/api/salary/overtime-apply', {
+          method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
+          body: JSON.stringify({ companyId: this.company, yearMonth: this.yearMonth, rows })
+        });
+        const d = await r.json();
+        if (!r.ok) { alert(d.error || '반영 실패'); return; }
+        alert(`${d.applied?.length || 0}명의 연장시간이 반영되었습니다.\n이제 [⚡ 연장수당 반영 후 급여계산] 버튼을 눌러주세요.`);
+        this.overtimeImportModal.open = false;
+        await this.loadOvertime();
+      } catch(e) { alert('오류: ' + e.message); }
+    },
+
+    // ── 연장근무 ─────────────────────────────────────────────
+    // 통상시급 기반 연장수당 미리보기 계산
+    calcOtPay(row, idx) {
+      const cfg = this.configs.find(c => c.userId === row.userId);
+      if (!cfg) return 0;
+      const hourlyRate = cfg.hourlyRate || 0;
+      const s = this.settingsForm;
+      const otM = +(s.overtimeMultiple || 1.5);
+      const ntM = +(s.nightMultiple || 0.5);
+      const holM = +(s.holidayMultiple || 1.5);
+      const holOtM = +(s.holidayOtMultiple || 2.0);
+      return Math.floor(
+        (+(row.overtimeH||0) * hourlyRate * otM +
+         +(row.nightH||0) * hourlyRate * ntM +
+         +(row.holidayH||0) * hourlyRate * holM +
+         +(row.holidayOtH||0) * hourlyRate * holOtM) / 10) * 10;
+    },
+    async saveOvertime(idx) {
+      const row = this.overtimeRows[idx];
+      try {
+        const r = await fetch('/api/salary/overtime', {
+          method: 'POST', headers: {'Content-Type':'application/json'}, credentials:'include',
+          body: JSON.stringify({ userId: row.userId, companyId: this.company, yearMonth: this.yearMonth,
+            overtimeH: +(row.overtimeH||0), nightH: +(row.nightH||0),
+            holidayH: +(row.holidayH||0), holidayOtH: +(row.holidayOtH||0), memo: row.memo||'' })
+        });
+        if (r.ok) { /* 저장됨 — 시각적 피드백 */ this.overtimeRows[idx]._saved = true; setTimeout(()=>this.overtimeRows[idx]._saved=false, 1500); }
+        else { const d = await r.json(); alert(d.error); }
+      } catch(e) { alert('저장 오류: ' + e.message); }
+    },
+    async calcOvertimePay() {
+      // 연장근무 데이터를 급여 레코드에 반영 후 재계산
+      if (!confirm(`${this.yearMonth} 연장근무 시간을 급여 레코드에 반영 후 전체 자동계산할까요?`)) return;
+      try {
+        // 1. 각 직원 급여 레코드에 연장시간 반영
+        for (const row of this.overtimeRows) {
+          const rec = this.records.find(r => r.userId === row.userId);
+          if (rec && rec.id && rec.status === 'draft') {
+            await fetch(`/api/salary/records/${rec.id}`, {
+              method: 'PUT', headers: {'Content-Type':'application/json'}, credentials:'include',
+              body: JSON.stringify({ overtimeHours: +(row.overtimeH||0), nightHours: +(row.nightH||0),
+                holidayHours: +(row.holidayH||0), holidayOtHours: +(row.holidayOtH||0) })
+            });
+          }
+        }
+        // 2. 전체 재계산
+        const r = await fetch('/api/salary/calculate', {
+          method: 'POST', headers: {'Content-Type':'application/json'}, credentials:'include',
+          body: JSON.stringify({ companyId: this.company, yearMonth: this.yearMonth, overwrite: true })
+        });
+        if (r.ok) { alert('연장수당 반영 및 급여 재계산 완료'); await this.loadRecords(); }
+        else { const d = await r.json(); alert(d.error); }
+      } catch(e) { alert('오류: ' + e.message); }
+    },
+    fmtH(h) { return (+(h||0)).toFixed(1) + 'h'; },
+
+    // ── CSV 다운로드 ──────────────────────────────────────────
+    exportCsv() {
+      window.location.href = `/api/salary/export?company=${this.company}&month=${this.yearMonth}`;
+    },
+
+    // ── EDI ──────────────────────────────────────────────────
+    openEdiUpload() { this.ediUploadModal.yearMonth = this.yearMonth; this.ediUploadModal.open = true; },
+    openEdiManual() {
+      this.ediManualModal.form = { userId:'', companyId: this.company, yearMonth: this.yearMonth };
+      this.ediManualModal.open = true;
+    },
+    async uploadEdi() {
+      if (!this.ediUploadModal.file) { alert('파일을 선택하세요'); return; }
+      const fd = new FormData();
+      fd.append('file', this.ediUploadModal.file);
+      fd.append('companyId', this.company);
+      fd.append('yearMonth', this.ediUploadModal.yearMonth || this.yearMonth);
+      try {
+        const r = await fetch('/api/salary/edi/upload', { method:'POST', credentials:'include', body: fd });
+        const d = await r.json();
+        if (r.ok) { alert(`${d.count}명 업로드 완료`); this.ediUploadModal.open = false; await this.loadEdiCompare(); }
+        else alert(d.error);
+      } catch(e) { alert('업로드 오류: ' + e.message); }
+    },
+    async saveEdiManual() {
+      try {
+        const r = await fetch('/api/salary/edi', {
+          method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
+          body: JSON.stringify({ ...this.ediManualModal.form, companyId: this.company, yearMonth: this.yearMonth })
+        });
+        if (r.ok) { this.ediManualModal.open = false; await this.loadEdiCompare(); }
+        else { const d = await r.json(); alert(d.error); }
+      } catch(e) {}
+    },
+
+    // ── 간이세액표 업로드 ─────────────────────────────────────
+    taxFileSelected(e) { this.taxFile = e.target.files[0]; },
+    async uploadTaxTable() {
+      if (!this.taxFile || !this.taxUploadYear) { alert('연도와 파일을 선택하세요'); return; }
+      const fd = new FormData();
+      fd.append('file', this.taxFile);
+      fd.append('year', this.taxUploadYear);
+      try {
+        const r = await fetch('/api/salary/tax-table/upload', { method:'POST', credentials:'include', body: fd });
+        const d = await r.json();
+        if (r.ok) { alert(`${d.count}행 등록 완료`); await this.loadTaxYears(); }
+        else alert(d.error);
+      } catch(e) { alert('업로드 오류'); }
+    },
+
+    // ── 유틸 ─────────────────────────────────────────────────
+    nameOf(id) { return this.userMap[id] || this.configNameMap[id] || id || ''; },
+    fmt(n) { return (n||0).toLocaleString('ko-KR'); },
+    fmtW(n) { return (n||0).toLocaleString('ko-KR') + '원'; },
+    sumField(key) { return this.records.reduce((s,r) => s + (r[key]||0), 0); },
+    extraPay(r) { return (r.retroPay||0)+(r.leavePay||0)+(r.extraPay1||0)+(r.extraPay2||0)+(r.extraPay3||0)+(r.teamLeaderAllowance||0); },
+    statusLabel(s) { return s==='draft'?'임시':s==='confirmed'?'확정':s==='paid'?'지급완료':'—'; },
+    statusStyle(s) {
+      if (s==='draft') return 'background:#f3f4f6;color:#6b7280;';
+      if (s==='confirmed') return 'background:#fef3c7;color:#92400e;';
+      if (s==='paid') return 'background:#d1fae5;color:#065f46;';
+      return '';
+    },
+  };
+}
+</script>

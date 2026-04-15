@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>대림SM - 견적내역서</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;900&display=swap" rel="stylesheet"/>
+<script>
+  if (new URLSearchParams(location.search).get('embed') === '1') {
+    document.documentElement.classList.add('is-embed');
+  }
+</script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Noto Sans KR',sans-serif; background:#e8ecf0; color:#111827; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  html.is-embed .ctrl { display:none !important; }
+  html.is-embed .page { margin:0 !important; border-radius:0 !important; box-shadow:none !important; }
+
+  @page { size: A4; margin: 0; }
+
+  @media print {
+    html, body { background:#fff !important; width:210mm; }
+    .no-print { display:none !important; }
+    .page {
+      box-shadow:none !important; margin:0 !important; border-radius:0 !important;
+      width:210mm !important; min-height:297mm !important; max-width:210mm !important;
+      page-break-after: avoid;
+    }
+  }
+
+  /* ── 컨트롤바 ── */
+  .ctrl {
+    background:#111827; color:#fff; padding:10px 24px;
+    display:flex; align-items:center; justify-content:space-between;
+    position:sticky; top:0; z-index:50; gap:12px; flex-wrap:wrap;
+  }
+  .ctrl a { color:#9ca3af; text-decoration:none; font-size:12px; }
+  .ctrl a:hover { color:#fff; }
+  .ctrl-opts { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  .ctrl-opt-label { font-size:11px; color:#9ca3af; margin-right:4px; }
+  .ctrl-select {
+    background:#1f2937; border:1px solid #374151; color:#e5e7eb;
+    border-radius:5px; padding:4px 8px; font-size:12px; font-family:'Noto Sans KR',sans-serif;
+    cursor:pointer;
+  }
+  .ctrl-toggle {
+    display:flex; background:#1f2937; border-radius:6px; overflow:hidden;
+    border:1px solid #374151;
+  }
+  .ctrl-toggle button {
+    border:none; padding:5px 12px; font-size:11px; font-weight:600;
+    cursor:pointer; font-family:'Noto Sans KR',sans-serif; color:#9ca3af; background:transparent;
+    transition:all .15s;
+  }
+  .ctrl-toggle button.active { background:#1a56db; color:#fff; }
+  .ctrl-btns { display:flex; gap:8px; }
+  .ctrl-btns button {
+    border:none; padding:7px 18px; font-size:12px; font-weight:700;
+    cursor:pointer; border-radius:6px; font-family:'Noto Sans KR',sans-serif;
+  }
+  .btn-print { background:#1a56db; color:#fff; }
+  .btn-print:hover { background:#1346c0; }
+
+  /* ── A4 페이지 ── */
+  .page {
+    width:210mm; min-height:297mm; margin:24px auto;
+    background:#fff; box-shadow:0 4px 32px rgba(0,0,0,.12);
+    border-radius:4px; overflow:hidden; display:flex; flex-direction:column;
+  }
+
+  /* ── 헤더 ── */
+  .doc-header {
+    background:#fff; padding:22px 32px 18px;
+    display:flex; justify-content:space-between; align-items:flex-start;
+    border-bottom:3px solid #111827;
+  }
+  .doc-header-left .doc-logo { height:40px; margin-bottom:10px; display:block; }
+  .doc-title { font-size:26px; font-weight:900; color:#111827; letter-spacing:-1px; line-height:1; }
+  .doc-subtitle { font-size:9px; color:#9ca3af; letter-spacing:3px; margin-top:5px; text-transform:uppercase; }
+  .doc-header-right { text-align:right; padding-top:4px; }
+  .co-name { font-size:15px; font-weight:800; color:#111827; margin-bottom:6px; letter-spacing:-0.5px; }
+  .co-info { font-size:10px; color:#6b7280; line-height:1.9; }
+  .co-ceo { font-size:11px; font-weight:700; color:#111827; margin-top:8px; }
+
+  /* ── 액센트 바 ── */
+  .accent-bar { height:4px; background:linear-gradient(90deg,#111827 0%,#1a56db 50%,#111827 100%); }
+
+  /* ── 수신처 박스 ── */
+  .recipient-wrap {
+    margin:16px 32px 0;
+    border:1.5px solid #e5e7eb;
+    border-radius:6px;
+    padding:12px 18px;
+    display:flex;
+    align-items:center;
+    gap:24px;
+    background:#fafafa;
+  }
+  .recipient-label { font-size:9px; font-weight:700; color:#9ca3af; letter-spacing:1.5px; text-transform:uppercase; min-width:60px; }
+  .recipient-value { font-size:14px; font-weight:700; color:#111827; }
+  .recipient-value .귀중 { font-size:11px; font-weight:500; color:#6b7280; margin-left:4px; }
+  .quote-no { margin-left:auto; font-size:10px; color:#9ca3af; }
+  .quote-no span { font-weight:600; color:#374151; }
+
+  /* ── 견적 정보 섹션 ── */
+  .info-wrap { display:flex; gap:0; border-bottom:1px solid #e5e7eb; margin-top:12px; }
+  .info-main { flex:1; padding:18px 32px; display:flex; flex-direction:column; gap:12px; }
+  .field-group { display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:12px; }
+  .field { display:flex; flex-direction:column; gap:4px; }
+  .field-label { font-size:8px; font-weight:700; color:#9ca3af; letter-spacing:1.5px; text-transform:uppercase; }
+  .field-value { font-size:14px; font-weight:700; color:#111827; border-bottom:2px solid #111827; padding-bottom:5px; }
+  .field-value-sm { font-size:12px; color:#374151; font-weight:500; border-bottom:1px solid #d1d5db; padding-bottom:5px; }
+
+  /* ── 총금액 박스 ── */
+  .info-total { width:210px; background:#f8fafc; padding:18px 20px; display:flex; flex-direction:column; justify-content:center; border-left:1px solid #e5e7eb; }
+  .total-label { font-size:8px; font-weight:700; color:#9ca3af; letter-spacing:1.5px; text-transform:uppercase; margin-bottom:8px; }
+  .total-amount { font-size:22px; font-weight:900; color:#111827; letter-spacing:-1px; line-height:1; margin-bottom:10px; }
+  .total-sub { font-size:10px; color:#6b7280; line-height:2; border-top:1px solid #e5e7eb; padding-top:8px; }
+  .total-sub span { float:right; font-weight:600; color:#374151; }
+
+  /* ── 품목 테이블 ── */
+  .table-wrap { padding:0 32px; margin-top:14px; flex:1; }
+  .items-table { width:100%; border-collapse:collapse; }
+  .items-table thead tr { background:#111827; }
+  .items-table thead th { padding:9px 10px; font-size:10px; font-weight:700; color:#fff; letter-spacing:.5px; text-align:left; }
+  .items-table thead th:first-child { border-radius:4px 0 0 4px; }
+  .items-table thead th:last-child  { border-radius:0 4px 4px 0; }
+  .items-table thead th.r { text-align:right; }
+  .items-table thead th.c { text-align:center; }
+  .items-table tbody tr { border-bottom:1px solid #f3f4f6; }
+  .items-table tbody tr:nth-child(even) { background:#f9fafb; }
+  .items-table tbody td { padding:9px 10px; font-size:12px; }
+  .items-table tbody td.r { text-align:right; }
+  .items-table tbody td.c { text-align:center; }
+  .items-table tbody td.no { font-size:10px; color:#9ca3af; font-weight:600; }
+  .items-table tbody td.name { font-weight:600; color:#111827; }
+  .items-table tbody td.amt { font-weight:700; color:#111827; }
+  .items-table tbody td.rmk { font-size:11px; color:#9ca3af; }
+
+  /* ── 합계 섹션 ── */
+  .total-section { margin:10px 32px 0; border-top:1px solid #e5e7eb; display:flex; justify-content:flex-end; }
+  .total-box { width:290px; }
+  .total-row { display:flex; justify-content:space-between; align-items:center; padding:7px 12px; font-size:12px; color:#6b7280; border-bottom:1px solid #f3f4f6; }
+  .total-row .val { font-weight:600; color:#374151; }
+  .total-final { display:flex; justify-content:space-between; align-items:center; padding:11px 14px; background:#111827; margin-top:5px; border-radius:4px; }
+  .total-final .lbl { font-size:12px; font-weight:700; color:#9ca3af; letter-spacing:1px; }
+  .total-final .val { font-size:19px; font-weight:900; color:#fff; letter-spacing:-1px; }
+
+  /* ── 푸터 ── */
+  .doc-footer {
+    margin:14px 32px 22px; padding-top:12px; border-top:2px solid #e5e7eb;
+    display:flex; justify-content:space-between; align-items:flex-end; position:relative;
+  }
+  .footer-note { font-size:9px; color:#9ca3af; line-height:2; }
+  .footer-note strong { color:#6b7280; }
+  .footer-sig { text-align:right; }
+  .footer-sig .sig-line { width:130px; height:1.5px; background:#111827; margin:0 0 6px auto; }
+  .footer-sig .sig-name { font-size:12px; font-weight:800; color:#111827; }
+  .footer-sig .sig-title { font-size:10px; color:#6b7280; margin-top:2px; }
+  .footer-stamp { position:absolute; right:0; bottom:20px; width:54px; height:54px; opacity:.75; }
+
+  /* VAT 별도 뱃지 */
+  .vat-badge {
+    display:inline-block; font-size:9px; font-weight:700; padding:2px 7px;
+    border-radius:10px; margin-left:8px; vertical-align:middle;
+  }
+  .vat-badge.included { background:#dcfce7; color:#16a34a; }
+  .vat-badge.excluded { background:#fef9c3; color:#92400e; }
+</style>
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+</head>
+<body x-data="quotePrint()" x-init="init()">
+
+<!-- 컨트롤바 -->
+<div class="ctrl no-print" x-show="!isEmbed">
+  <div style="display:flex;align-items:center;gap:16px;">
+    <a href="/">← 앱으로 돌아가기</a>
+    <span style="color:#374151;">|</span>
+    <span style="color:#6b7280;font-size:12px;" x-text="quoteTitle"></span>
+  </div>
+
+  <!-- 인쇄 옵션 -->
+  <div class="ctrl-opts">
+    <!-- 부가세 -->
+    <div style="display:flex;align-items:center;gap:6px;">
+      <span class="ctrl-opt-label">부가세</span>
+      <div class="ctrl-toggle">
+        <button :class="vatMode==='included'?'active':''" @click="vatMode='included'">포함</button>
+        <button :class="vatMode==='excluded'?'active':''" @click="vatMode='excluded'">별도</button>
+        <button :class="vatMode==='free'?'active':''" @click="vatMode='free'">면세</button>
+      </div>
+    </div>
+    <!-- 유효기간 -->
+    <div style="display:flex;align-items:center;gap:6px;">
+      <span class="ctrl-opt-label">유효기간</span>
+      <select class="ctrl-select" x-model="validityDays">
+        <option value="14">14일</option>
+        <option value="30">30일</option>
+        <option value="60">60일</option>
+        <option value="90">90일</option>
+        <option value="0">무기한</option>
+      </select>
+    </div>
+    <!-- 수신처 표시 -->
+    <div style="display:flex;align-items:center;gap:6px;">
+      <span class="ctrl-opt-label">수신처</span>
+      <input x-model="recipientName" placeholder="거래처명"
+        style="background:#1f2937;border:1px solid #374151;color:#e5e7eb;border-radius:5px;padding:4px 8px;font-size:12px;width:110px;font-family:'Noto Sans KR',sans-serif;">
+    </div>
+  </div>
+
+  <div class="ctrl-btns">
+    <button class="btn-print" @click="window.print()">🖨 인쇄 / PDF 저장</button>
+  </div>
+</div>
+
+<div class="page" :style="isEmbed?'margin:0;border-radius:0;box-shadow:none;':''">
+
+  <!-- 헤더 -->
+  <div class="doc-header">
+    <div class="doc-header-left">
+      <img src="/data/logo.png" alt="DAELIM SM" class="doc-logo">
+      <div class="doc-title">견 적 내 역 서</div>
+      <div class="doc-subtitle">Official Business Quotation</div>
+    </div>
+    <div class="doc-header-right">
+      <div class="co-name">주식회사 대림SM</div>
+      <div class="co-info">
+        서울 구로구 경인로 393-7 (고척동 73-3)<br>
+        일이삼전자타운 2동 4층 4101호<br>
+        TEL 02.2682.8940 &nbsp;|&nbsp; FAX 02.2672.3620
+      </div>
+      <div class="co-ceo">대표이사 이 정 호</div>
+    </div>
+  </div>
+
+  <!-- 액센트 바 -->
+  <div class="accent-bar"></div>
+
+  <!-- 수신처 -->
+  <div class="recipient-wrap" x-show="recipientName">
+    <div class="recipient-label">수신</div>
+    <div class="recipient-value">
+      <span x-text="recipientName"></span>
+      <span class="귀중">&nbsp;귀중</span>
+    </div>
+    <div class="quote-no">
+      견적번호 <span x-text="quoteNo"></span>
+    </div>
+  </div>
+
+  <!-- 견적 정보 + 총금액 -->
+  <div class="info-wrap">
+    <div class="info-main">
+      <div class="field">
+        <div class="field-label">현장명 · Project Name</div>
+        <div class="field-value" x-text="siteName || '-'"></div>
+      </div>
+      <div class="field">
+        <div class="field-label">견적명 · Quotation Name</div>
+        <div class="field-value-sm" style="font-size:13px;font-weight:600;" x-text="quoteName || '-'"></div>
+      </div>
+      <div class="field-group">
+        <div class="field">
+          <div class="field-label">현장 담당자</div>
+          <div class="field-value-sm" x-text="manager || '-'"></div>
+        </div>
+        <div class="field">
+          <div class="field-label">우리측 담당</div>
+          <div class="field-value-sm" x-text="vendorManager || '-'"></div>
+        </div>
+        <div class="field">
+          <div class="field-label">견적일</div>
+          <div class="field-value-sm" x-text="quoteDate"></div>
+        </div>
+        <div class="field">
+          <div class="field-label">견적 유효기간</div>
+          <div class="field-value-sm" x-text="validityText"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="info-total">
+      <div class="total-label">
+        총 견적금액
+        <span class="vat-badge" :class="vatMode==='included'?'included':vatMode==='excluded'?'excluded':''"
+          x-text="vatMode==='included'?'VAT 포함':vatMode==='excluded'?'VAT 별도':'면세'"></span>
+      </div>
+      <div class="total-amount" x-text="'₩ ' + displayGrandTotal.toLocaleString()"></div>
+      <div class="total-sub" x-show="vatMode!=='free'">
+        공급가액<span x-text="'₩ ' + supplyTotal.toLocaleString()"></span><br>
+        <template x-if="vatMode==='included'">
+          <span>부가세 (10%)<span style="float:right;font-weight:600;color:#374151;" x-text="'₩ ' + vatTotal.toLocaleString()"></span></span>
+        </template>
+        <template x-if="vatMode==='excluded'">
+          <span style="color:#92400e;">부가세 별도<span style="float:right;">+10%</span></span>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <!-- 품목 테이블 -->
+  <div class="table-wrap">
+    <table class="items-table">
+      <thead>
+        <tr>
+          <th class="c" style="width:34px;">No</th>
+          <th>품명</th>
+          <th class="c" style="width:44px;">단위</th>
+          <th class="r" style="width:50px;">수량</th>
+          <th class="r" style="width:86px;">단가</th>
+          <th class="r" style="width:90px;">금액</th>
+          <th style="width:90px;">비고</th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="(item, idx) in items" :key="idx">
+          <tr>
+            <td class="no c" x-text="String(idx+1).padStart(2,'0')"></td>
+            <td class="name" x-text="item.name"></td>
+            <td class="c" x-text="item.unit"></td>
+            <td class="r" x-text="(item.qty||0).toLocaleString()"></td>
+            <td class="r" x-text="Number(item.unitPrice||0).toLocaleString()"></td>
+            <td class="amt r" x-text="Number(item.amount||0).toLocaleString()"></td>
+            <td class="rmk" x-text="item.remark||''"></td>
+          </tr>
+        </template>
+        <tr x-show="items.length===0">
+          <td colspan="7" style="text-align:center;padding:40px;color:#d1d5db;font-size:13px;">품목 없음</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 합계 -->
+  <div class="total-section">
+    <div class="total-box">
+      <div class="total-row">
+        <span>공급가액</span>
+        <span class="val" x-text="'₩ ' + supplyTotal.toLocaleString()"></span>
+      </div>
+      <template x-if="vatMode==='included'">
+        <div class="total-row">
+          <span>부가세 (10%)</span>
+          <span class="val" x-text="'₩ ' + vatTotal.toLocaleString()"></span>
+        </div>
+      </template>
+      <template x-if="vatMode==='excluded'">
+        <div class="total-row" style="color:#92400e;">
+          <span>부가세 (별도 청구)</span>
+          <span class="val" style="color:#92400e;">+10%</span>
+        </div>
+      </template>
+      <template x-if="vatMode==='free'">
+        <div class="total-row" style="color:#16a34a;">
+          <span>부가세</span>
+          <span class="val" style="color:#16a34a;">면세</span>
+        </div>
+      </template>
+      <div class="total-final">
+        <span class="lbl">합 &nbsp;&nbsp; 계</span>
+        <span class="val" x-text="'₩ ' + displayGrandTotal.toLocaleString()"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 푸터 -->
+  <div class="doc-footer">
+    <div class="footer-note">
+      <strong>※ 견적 유효기간</strong>&nbsp; <span x-text="validityText"></span><br>
+      품질과 안전을 최우선으로 고객을 위해 항상 최선을 다하겠습니다.<br>
+      <strong>주식회사 대림SM</strong> — Total Safety Group Co., Ltd.
+    </div>
+    <div class="footer-sig">
+      <div class="sig-line"></div>
+      <div class="sig-name">주식회사 대림SM</div>
+      <div class="sig-title">대표이사 이 정 호</div>
+    </div>
+    <img src="/data/stamp.png" alt="직인" class="footer-stamp" onerror="this.style.display='none'">
+  </div>
+
+</div>
+
+<script>
+function quotePrint() {
+  return {
+    siteName:'', quoteName:'', manager:'', vendorManager:'', quoteDate:'',
+    items:[], supplyTotal:0, vatTotal:0,
+    vatMode: 'included',   // 'included' | 'excluded' | 'free'
+    validityDays: '30',    // '14'|'30'|'60'|'90'|'0'
+    recipientName: '',
+    quoteNo: '',
+    isEmbed: new URLSearchParams(window.location.search).get('embed') === '1',
+
+    get quoteTitle() {
+      return (this.siteName||'견적서') + (this.quoteName?' — '+this.quoteName:'');
+    },
+
+    get displayGrandTotal() {
+      if (this.vatMode === 'included') return this.supplyTotal + this.vatTotal;
+      return this.supplyTotal; // 별도/면세: 공급가액만 표시
+    },
+
+    get validityText() {
+      const days = parseInt(this.validityDays);
+      if (!days) return '무기한';
+      const base = this.quoteDate ? new Date(this.quoteDate) : new Date();
+      const exp = new Date(base);
+      exp.setDate(exp.getDate() + days);
+      const yy = exp.getFullYear();
+      const mm = String(exp.getMonth()+1).padStart(2,'0');
+      const dd = String(exp.getDate()).padStart(2,'0');
+      return `견적일로부터 ${days}일 (${yy}.${mm}.${dd} 까지)`;
+    },
+
+    async init() {
+      const params = new URLSearchParams(window.location.search);
+      const quoteId = params.get('id');
+      // URL 파라미터로 초기 옵션 적용
+      if (params.get('vat')) this.vatMode = params.get('vat');
+      if (params.get('validity')) this.validityDays = params.get('validity');
+      if (params.get('recipient')) this.recipientName = decodeURIComponent(params.get('recipient'));
+
+      if (quoteId) {
+        try {
+          const r = await fetch('/api/quotes/' + quoteId);
+          if (r.ok) {
+            const q = await r.json();
+            this.siteName      = q.siteName || '';
+            this.quoteName     = q.quoteName || '';
+            this.manager       = q.manager || '';
+            this.vendorManager = q.vendorManager || '';
+            this.quoteDate     = q.quoteDate || (q.createdAt ? q.createdAt.slice(0,10) : new Date().toISOString().slice(0,10));
+            this.items         = q.items || [];
+            // 수신처: 업체명 자동 설정
+            if (!this.recipientName && q.vendorName) this.recipientName = q.vendorName;
+            // 견적번호
+            this.quoteNo = `Q-${quoteId.slice(-6).toUpperCase()}`;
+          }
+        } catch(e) { console.error(e); }
+      } else {
+        try {
+          const data = JSON.parse(localStorage.getItem('print_quote')||'{}');
+          this.siteName      = data.siteName||'';
+          this.quoteName     = data.quoteName||'';
+          this.manager       = data.manager||'';
+          this.vendorManager = data.vendorManager||'';
+          this.items         = data.items||[];
+          this.quoteDate     = data.quoteDate||new Date().toISOString().slice(0,10);
+          if (!this.recipientName && data.vendorName) this.recipientName = data.vendorName;
+          if (data.id) this.quoteNo = `Q-${data.id.slice(-6).toUpperCase()}`;
+        } catch(e) {}
+      }
+
+      this.supplyTotal = this.items.reduce((s,i) => s+(i.amount||0), 0);
+      this.vatTotal    = Math.round(this.supplyTotal * 0.1);
+    }
+  };
+}
+</script>
+</body>
+</html>
