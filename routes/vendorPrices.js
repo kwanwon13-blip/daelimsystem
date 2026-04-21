@@ -8,8 +8,11 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { getReqUser } = require('../middleware/auth');
+const { getReqUser, requireAuth } = require('../middleware/auth');
 const { savePriceHistory } = require('../middleware/audit');
+
+// ── 업체별 단가 API는 모두 로그인 필수 ──
+router.use(requireAuth);
 
 // 특정 업체의 모든 카테고리 단가 조회
 router.get('/vendor-prices/:vendorId', (req, res) => {

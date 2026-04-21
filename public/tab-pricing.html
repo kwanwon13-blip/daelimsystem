@@ -44,16 +44,16 @@
               </div>
             </div>
             <div class="overflow-x-auto">
-            <table class="w-full text-sm" style="min-width:800px;border-collapse:collapse;">
+            <table class="w-full text-sm" style="min-width:1000px;border-collapse:collapse;">
               <thead>
                 <tr class="table-header">
-                  <th class="px-4 py-3 text-left" style="width:180px;">품목명</th>
-                  <th class="px-4 py-3 text-left" style="width:70px;">코드</th>
-                  <th class="px-4 py-3 text-center" style="min-width:70px;">타입</th>
-                  <th class="px-4 py-3 text-center" style="width:55px;">단위</th>
-                  <th class="px-4 py-3 text-right" style="width:105px;">수량단가</th>
-                  <th class="px-4 py-3 text-right" style="width:105px;">고정금액</th>
-                  <th class="px-4 py-3" style="min-width:240px;">면적별 단가</th>
+                  <th class="px-4 py-3 text-left" style="width:160px;">품목명</th>
+                  <th class="px-4 py-3 text-left" style="width:65px;">코드</th>
+                  <th class="px-4 py-3 text-center" style="width:60px;">타입</th>
+                  <th class="px-4 py-3 text-center" style="width:45px;">단위</th>
+                  <th class="px-4 py-3 text-right" style="width:85px;">수량단가</th>
+                  <th class="px-4 py-3 text-right" style="width:85px;">고정금액</th>
+                  <th class="px-4 py-3" style="min-width:200px;">면적별 단가</th>
                   <th class="px-4 py-3 text-center" style="width:80px;" x-show="canEditPricing">작업</th>
                 </tr>
               </thead>
@@ -68,23 +68,23 @@
                       </button>
                     </td>
                     <td class="px-4 py-2.5 text-xs text-gray-400" x-text="cat.code||'-'"></td>
-                    <td class="px-4 py-3 text-center">
+                    <td class="px-4 py-2.5 text-center">
                       <span class="text-xs px-2 py-0.5 rounded-full whitespace-nowrap" :class="cat.pricingType === 'SIZE' ? 'bg-blue-100 text-blue-700' : cat.pricingType === 'LENGTH' ? 'bg-purple-100 text-purple-700' : cat.pricingType === 'QTY' ? 'bg-green-100 text-green-700' : cat.pricingType === 'VARIANTS' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'" x-text="cat.pricingType === 'SIZE' ? '면적' : cat.pricingType === 'LENGTH' ? '폭별m당' : cat.pricingType === 'QTY' ? '수량' : cat.pricingType === 'VARIANTS' ? '규격선택' : '고정'"></span>
                     </td>
-                    <td class="px-4 py-3 text-center text-gray-500 text-xs" x-text="cat.unit"></td>
-                    <td class="px-4 py-3 text-right">
+                    <td class="px-4 py-2.5 text-center text-gray-500 text-xs" x-text="cat.unit"></td>
+                    <td class="px-4 py-2.5 text-right">
                       <template x-if="cat.pricingType === 'QTY' || cat.pricingType === 'FIXED'">
-                        <input type="number" :value="getDisplayQtyPrice(cat)" @change="saveVendorPrice(cat.id, { qtyPrice: Number($el.value) })" :disabled="!canEditPricing" class="w-24 text-right text-sm border border-gray-200 rounded px-2 py-1 focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none" placeholder="-">
+                        <input type="number" :value="getDisplayQtyPrice(cat)" @change="saveVendorPrice(cat.id, { qtyPrice: Number($el.value) })" :disabled="!canEditPricing" class="w-20 text-right text-sm border border-gray-200 rounded px-2 py-1 focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none" placeholder="-">
                       </template>
                       <span x-show="cat.pricingType === 'SIZE' || cat.pricingType === 'LENGTH' || cat.pricingType === 'VARIANTS'" class="text-gray-300">-</span>
                     </td>
-                    <td class="px-4 py-3 text-right">
+                    <td class="px-4 py-2.5 text-right">
                       <template x-if="cat.pricingType === 'QTY' || cat.pricingType === 'FIXED'">
-                        <input type="number" :value="getDisplayFixedPrice(cat)" @change="saveVendorPrice(cat.id, { fixedPrice: Number($el.value) })" :disabled="!canEditPricing" class="w-24 text-right text-sm border border-gray-200 rounded px-2 py-1 focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none" placeholder="-">
+                        <input type="number" :value="getDisplayFixedPrice(cat)" @change="saveVendorPrice(cat.id, { fixedPrice: Number($el.value) })" :disabled="!canEditPricing" class="w-20 text-right text-sm border border-gray-200 rounded px-2 py-1 focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none" placeholder="-">
                       </template>
                       <span x-show="cat.pricingType === 'SIZE' || cat.pricingType === 'LENGTH' || cat.pricingType === 'VARIANTS'" class="text-gray-300">-</span>
                     </td>
-                    <td class="px-4 py-3">
+                    <td class="px-4 py-2.5">
                       <template x-if="cat.pricingType === 'SIZE'">
                         <div class="flex flex-wrap gap-1">
                           <template x-for="(tier, ti) in getDisplayTiers(cat)" :key="ti">

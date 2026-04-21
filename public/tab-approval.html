@@ -11,6 +11,7 @@
   .ap-type-chip { display:inline-flex; align-items:center; gap:4px; padding:3px 9px; border-radius:6px; font-size:10px; font-weight:700; white-space:nowrap; }
   .ap-type-expense { background:#fef3c7; color:#b45309; }
   .ap-type-leave { background:#dbeafe; color:#1d4ed8; }
+  .ap-type-overtime { background:#ede9fe; color:#6d28d9; }
   .ap-status { display:inline-block; padding:3px 10px; border-radius:20px; font-size:10px; font-weight:700; white-space:nowrap; }
   .ap-status-pending { background:#fef3c7; color:#b45309; }
   .ap-status-approved { background:#dcfce7; color:#15803d; }
@@ -77,6 +78,11 @@
                   <span style="font-size:11px;color:#93c5fd;background:rgba(0,0,0,.2);padding:2px 8px;border-radius:6px;" x-text="approvals.length + '건'"></span>
                 </div>
                 <div style="display:flex;gap:8px;">
+                  <button @click="startWrite('overtime')"
+                    style="background:rgba(255,255,255,.15);color:#fff;border:1.5px solid rgba(255,255,255,.4);border-radius:8px;padding:7px 14px;font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .15s;"
+                    onmouseover="this.style.background='rgba(255,255,255,.25)'" onmouseout="this.style.background='rgba(255,255,255,.15)'">
+                    <span class="material-symbols-outlined" style="font-size:14px;">schedule</span> 시간외근무
+                  </button>
                   <button @click="startWrite('leave')"
                     style="background:rgba(255,255,255,.15);color:#fff;border:1.5px solid rgba(255,255,255,.4);border-radius:8px;padding:7px 14px;font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .15s;"
                     onmouseover="this.style.background='rgba(255,255,255,.25)'" onmouseout="this.style.background='rgba(255,255,255,.15)'">
@@ -157,9 +163,11 @@
                         style="">
                         <!-- 유형 -->
                         <td>
-                          <span class="ap-type-chip" :class="doc.type==='expense'?'ap-type-expense':'ap-type-leave'">
-                            <span class="material-symbols-outlined" style="font-size:12px;" x-text="doc.type==='expense'?'receipt_long':'event_available'"></span>
-                            <span x-text="doc.type==='expense'?'지출':'휴가'"></span>
+                          <span class="ap-type-chip"
+                            :class="doc.type==='expense'?'ap-type-expense':(doc.type==='시간외근무'?'ap-type-overtime':'ap-type-leave')">
+                            <span class="material-symbols-outlined" style="font-size:12px;"
+                              x-text="doc.type==='expense'?'receipt_long':(doc.type==='시간외근무'?'schedule':'event_available')"></span>
+                            <span x-text="doc.type==='expense'?'지출':(doc.type==='시간외근무'?'시간외':'휴가')"></span>
                           </span>
                         </td>
                         <!-- 제목 -->
@@ -228,6 +236,11 @@
                     style="flex:1;padding:12px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all .15s;"
                     :style="docType==='leave'?'background:#dbeafe;color:#1d4ed8;border:2px solid #93c5fd;':'background:#f8fafc;color:#94a3b8;border:2px solid #e2e8f0;'">
                     <span class="material-symbols-outlined" style="font-size:20px;">event_available</span> 휴가계획서
+                  </button>
+                  <button @click="docType='overtime'"
+                    style="flex:1;padding:12px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all .15s;"
+                    :style="docType==='overtime'?'background:#ede9fe;color:#6d28d9;border:2px solid #c4b5fd;':'background:#f8fafc;color:#94a3b8;border:2px solid #e2e8f0;'">
+                    <span class="material-symbols-outlined" style="font-size:20px;">schedule</span> 시간외근무
                   </button>
                 </div>
 
@@ -378,6 +391,41 @@
                   </div>
                 </template>
 
+                <!-- ── 시간외근무 폼 ── -->
+                <template x-if="docType === 'overtime'">
+                  <div style="background:#f5f3ff;border:1.5px solid #c4b5fd;border-radius:12px;padding:16px 18px;">
+                    <div style="font-size:12px;font-weight:700;color:#6d28d9;margin-bottom:12px;display:flex;align-items:center;gap:6px;">
+                      <span class="material-symbols-outlined" style="font-size:16px;">schedule</span> 시간외근무
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+                      <div>
+                        <label class="label-base">근무 날짜 <span style="color:#dc2626;">*</span></label>
+                        <div style="cursor:pointer;" @click="$el.querySelector('input').showPicker()">
+                          <input type="date" x-model="overtimeForm.date" class="input-base" style="cursor:pointer;width:100%;box-sizing:border-box;">
+                        </div>
+                      </div>
+                      <div>
+                        <label class="label-base">시작 시간 <span style="color:#dc2626;">*</span></label>
+                        <input type="time" x-model="overtimeForm.startTime" class="input-base" style="width:100%;box-sizing:border-box;">
+                      </div>
+                      <div>
+                        <label class="label-base">종료 시간 <span style="color:#dc2626;">*</span></label>
+                        <input type="time" x-model="overtimeForm.endTime" class="input-base" style="width:100%;box-sizing:border-box;">
+                      </div>
+                    </div>
+                    <template x-if="overtimeHours !== null">
+                      <div style="display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;background:#ede9fe;color:#6d28d9;margin-bottom:12px;">
+                        <span class="material-symbols-outlined" style="font-size:13px;">timer</span>
+                        <span x-text="'예상 근무시간 ' + overtimeHours + '시간'"></span>
+                      </div>
+                    </template>
+                    <div>
+                      <label class="label-base">사유 <span style="color:#dc2626;">*</span></label>
+                      <textarea x-model="overtimeForm.reason" class="input-base" rows="3" placeholder="예: 월말 마감 작업, 긴급 납품 건 등 (사유를 반드시 입력해주세요)"></textarea>
+                    </div>
+                  </div>
+                </template>
+
                 <!-- 제출 버튼 -->
                 <div style="display:flex;align-items:center;gap:10px;margin-top:20px;padding-top:16px;border-top:1px solid #f1f5f9;">
                   <button @click="submitDoc()"
@@ -405,9 +453,11 @@
                   <span class="material-symbols-outlined" style="font-size:16px;">arrow_back</span> 목록으로
                 </button>
                 <div style="display:flex;align-items:center;gap:8px;">
-                  <span class="ap-type-chip" :class="selectedDoc.type==='expense'?'ap-type-expense':'ap-type-leave'">
-                    <span class="material-symbols-outlined" style="font-size:12px;" x-text="selectedDoc.type==='expense'?'receipt_long':'event_available'"></span>
-                    <span x-text="selectedDoc.type==='expense'?'지출결의서':'휴가계획서'"></span>
+                  <span class="ap-type-chip"
+                    :class="selectedDoc.type==='expense'?'ap-type-expense':(selectedDoc.type==='시간외근무'?'ap-type-overtime':'ap-type-leave')">
+                    <span class="material-symbols-outlined" style="font-size:12px;"
+                      x-text="selectedDoc.type==='expense'?'receipt_long':(selectedDoc.type==='시간외근무'?'schedule':'event_available')"></span>
+                    <span x-text="selectedDoc.type==='expense'?'지출결의서':(selectedDoc.type==='시간외근무'?'시간외근무':'휴가계획서')"></span>
                   </span>
                   <span class="ap-status"
                     :class="{'ap-status-pending':selectedDoc.status==='pending','ap-status-approved':selectedDoc.status==='approved','ap-status-rejected':selectedDoc.status==='rejected','ap-status-deleted':selectedDoc.status==='deleted'}"
@@ -557,6 +607,39 @@
                   </div>
                 </template>
 
+                <!-- 시간외근무 -->
+                <template x-if="selectedDoc.type === '시간외근무'">
+                  <div class="ap-doc-card" style="background:#f5f3ff;border:1px solid #c4b5fd;">
+                    <div style="font-size:12px;font-weight:700;color:#6d28d9;margin-bottom:12px;display:flex;align-items:center;gap:5px;">
+                      <span class="material-symbols-outlined" style="font-size:16px;">schedule</span> 시간외근무 내용
+                    </div>
+                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:12px;">
+                      <div>
+                        <div class="ap-field-label">근무 날짜</div>
+                        <div class="ap-field-value" style="font-size:15px;color:#6d28d9;" x-text="selectedDoc.formData.date || '-'"></div>
+                      </div>
+                      <div>
+                        <div class="ap-field-label">시작 시간</div>
+                        <div class="ap-field-value" style="font-size:15px;color:#6d28d9;" x-text="selectedDoc.formData.startTime || '-'"></div>
+                      </div>
+                      <div>
+                        <div class="ap-field-label">종료 시간</div>
+                        <div class="ap-field-value" style="font-size:15px;color:#6d28d9;" x-text="selectedDoc.formData.endTime || '-'"></div>
+                      </div>
+                    </div>
+                    <template x-if="overtimeHoursOf(selectedDoc) !== null">
+                      <div style="display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;background:#ede9fe;color:#6d28d9;">
+                        <span class="material-symbols-outlined" style="font-size:13px;">timer</span>
+                        <span x-text="'총 ' + overtimeHoursOf(selectedDoc) + '시간'"></span>
+                      </div>
+                    </template>
+                    <div x-show="selectedDoc.formData.reason" style="padding-top:10px;border-top:1px solid #ddd6fe;margin-top:10px;">
+                      <div class="ap-field-label">사유</div>
+                      <p style="margin:4px 0 0;color:#4c1d95;font-size:13px;line-height:1.6;white-space:pre-wrap;" x-text="selectedDoc.formData.reason"></p>
+                    </div>
+                  </div>
+                </template>
+
                 <!-- 처리 결과 메시지 -->
                 <template x-if="selectedDoc.status !== 'pending' && selectedDoc.status !== 'deleted'">
                   <div style="margin-top:14px;padding:14px 16px;border-radius:10px;display:flex;align-items:flex-start;gap:10px;"
@@ -581,7 +664,7 @@
               </div>
 
               <!-- 결재 처리 액션 영역 -->
-              <template x-if="selectedDoc.status === 'pending' && (selectedDoc.approverId === myUserId || myRole === 'admin')">
+              <template x-if="selectedDoc.status === 'pending' && (selectedDoc.approverId === myUserId || myRole === 'admin' || (selectedDoc.type === '시간외근무' && selectedDoc.authorId === myUserId && myRole === 'team_leader'))">
                 <div class="ap-action-area">
                   <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:10px;display:flex;align-items:center;gap:4px;">
                     <span class="material-symbols-outlined" style="font-size:16px;color:#2563eb;">gavel</span> 결재 처리

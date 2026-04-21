@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>워크스페이스 — 대림에스엠</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:'Noto Sans KR','Work Sans',sans-serif; background:#f8f9fb; color:#374151; min-height:100vh; }
+
+    .view-header { background:#fff; border-bottom:1px solid #e5e7eb; padding:14px 24px; display:flex; align-items:center; justify-content:space-between; }
+    .view-logo { font-family:'Work Sans',sans-serif; font-size:14px; font-weight:700; color:#4f6ef7; display:flex; align-items:center; gap:6px; }
+    .view-badge { font-size:10px; background:#eef2ff; color:#4338ca; padding:2px 8px; border-radius:4px; font-weight:600; }
+
+    .view-content { max-width:720px; margin:0 auto; padding:40px 24px 80px; }
+    .view-emoji { font-size:48px; margin-bottom:12px; }
+    .view-title { font-family:'Work Sans',sans-serif; font-size:28px; font-weight:700; color:#1a1d23; line-height:1.3; margin-bottom:6px; }
+    .view-meta { font-size:12px; color:#9ca3af; margin-bottom:28px; }
+    .view-body { font-size:14.5px; line-height:1.85; color:#374151; }
+    .view-body h2 { font-family:'Work Sans',sans-serif; font-size:20px; font-weight:700; margin:28px 0 10px; color:#1a1d23; }
+    .view-body h3 { font-family:'Work Sans',sans-serif; font-size:16px; font-weight:600; margin:20px 0 8px; color:#1a1d23; }
+    .view-body p { margin-bottom:12px; }
+    .view-body ul, .view-body ol { margin:8px 0 12px 20px; }
+    .view-body li { margin-bottom:4px; }
+    .view-body .checklist-item { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+    .view-body .checklist-item.checked { color:#9ca3af; text-decoration:line-through; }
+    .view-body .checklist-box { width:16px; height:16px; border:2px solid #d1d5db; border-radius:4px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:11px; }
+    .view-body .checklist-item.checked .checklist-box { background:#4f6ef7; border-color:#4f6ef7; color:#fff; }
+    .view-body blockquote { border-left:3px solid #4f6ef7; padding:8px 16px; margin:12px 0; background:#f8f9fb; color:#4b5563; font-style:italic; border-radius:0 8px 8px 0; }
+    .view-body hr { border:none; border-top:2px solid #e5e7eb; margin:24px 0; }
+    .view-body .marker { background:linear-gradient(120deg,#fef08a 0%,#fef08a 100%); padding:1px 4px; border-radius:2px; }
+
+    .view-error { text-align:center; padding:80px 24px; color:#9ca3af; }
+    .view-error-icon { font-size:48px; margin-bottom:12px; opacity:.4; }
+    .view-error-msg { font-size:16px; font-weight:600; color:#6b7280; }
+    .view-loading { text-align:center; padding:80px; color:#9ca3af; font-size:14px; }
+
+    @media (max-width:640px) {
+      .view-content { padding:24px 16px 60px; }
+      .view-title { font-size:22px; }
+      .view-emoji { font-size:40px; }
+    }
+  </style>
+  <script src="/lib/purify.min.js"></script>
+</head>
+<body>
+  <div class="view-header">
+    <div class="view-logo">✦ 대림에스엠 워크스페이스</div>
+    <div class="view-badge">읽기 전용</div>
+  </div>
+
+  <div id="app">
+    <div class="view-loading" id="loading">페이지를 불러오는 중...</div>
+    <div class="view-error" id="error" style="display:none;">
+      <div class="view-error-icon">🔒</div>
+      <div class="view-error-msg" id="errorMsg">페이지를 찾을 수 없습니다</div>
+    </div>
+    <div class="view-content" id="content" style="display:none;">
+      <div class="view-emoji" id="pageEmoji"></div>
+      <div class="view-title" id="pageTitle"></div>
+      <div class="view-meta" id="pageMeta"></div>
+      <div class="view-body" id="pageBody"></div>
+    </div>
+  </div>
+
+  <script>
+    (async function() {
+      const token = location.pathname.split('/').pop();
+      if (!token) return showError('잘못된 링크입니다.');
+
+      try {
+        const res = await fetch('/api/workspace/public/' + token);
+        const data = await res.json();
+
+        if (!data.ok) return showError(data.error || '페이지를 찾을 수 없습니다.');
+
+        const page = data.page;
+        document.getElementById('pageEmoji').textContent = page.emoji || '📄';
+        document.getElementById('pageTitle').textContent = page.title || '제목 없음';
+        document.getElementById('pageMeta').textContent =
+          (page.author_name || '') + ' · ' + formatDate(page.updated_at);
+        document.getElementById('pageBody').innerHTML = renderBlocks(page.content);
+        document.title = (page.title || '워크스페이스') + ' — 대림에스엠';
+
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('content').style.display = '';
+      } catch(e) {
+        showError('서버 연결에 실패했습니다.');
+      }
+
+      function showError(msg) {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('error').style.display = '';
+        document.getElementById('errorMsg').textContent = msg;
+      }
+
+      // DOMPurify 설정 — Editor.js 인라인 마크업만 허용
+      const INLINE_CFG = {
+        ALLOWED_TAGS: ['b','strong','i','em','u','s','strike','del','mark','code','br','sub','sup','span','a'],
+        ALLOWED_ATTR: ['href','class'],
+        ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+        FORBID_TAGS: ['style','script','iframe','object','embed','form','input','button','textarea','select','link','meta','svg','math'],
+        FORBID_ATTR: ['style','srcdoc','formaction','xlink:href'],
+        ALLOW_DATA_ATTR: false
+      };
+      function cleanInline(s) {
+        if (!s) return '';
+        // 문자열이 아니거나 DOMPurify 로드 실패 시 엄격한 텍스트 이스케이프로 폴백
+        if (typeof s !== 'string') s = String(s);
+        if (typeof DOMPurify === 'undefined') {
+          return s.replace(/[&<>"']/g, c => ({
+            '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+          }[c]));
+        }
+        return DOMPurify.sanitize(s, INLINE_CFG);
+      }
+      // 이미지 URL 화이트리스트 — http(s), 상대경로(/data/...), data:image/
+      function safeImgUrl(u) {
+        if (!u || typeof u !== 'string') return '';
+        const t = u.trim();
+        if (/^https?:\/\//i.test(t)) return t;
+        if (/^\/[^\/]/.test(t)) return t;             // 앱 내부 상대경로
+        if (/^data:image\/(png|jpe?g|gif|webp|bmp|svg\+xml);base64,[A-Za-z0-9+/=\s]+$/i.test(t)) return t;
+        return '';
+      }
+      // HTML 속성값 이스케이프 (전문)
+      function attrEsc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+          '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+        }[c]));
+      }
+
+      function renderBlocks(content) {
+        if (!content || !Array.isArray(content.blocks)) {
+          return '<p style="color:#9ca3af;">내용이 없습니다.</p>';
+        }
+        const html = content.blocks.map(b => {
+          if (!b || typeof b !== 'object') return '';
+          const data = b.data || {};
+          switch(b.type) {
+            case 'header': {
+              const tag = data.level === 3 ? 'h3' : 'h2';
+              return `<${tag}>${cleanInline(data.text)}</${tag}>`;
+            }
+            case 'paragraph':
+              return `<p>${cleanInline(data.text)}</p>`;
+            case 'checklist':
+              return (Array.isArray(data.items) ? data.items : []).map(i => {
+                const checked = !!(i && i.checked);
+                return `<div class="checklist-item ${checked?'checked':''}">
+                  <div class="checklist-box">${checked?'✓':''}</div>
+                  <span>${cleanInline(i && i.text)}</span>
+                </div>`;
+              }).join('');
+            case 'list': {
+              const items = (Array.isArray(data.items) ? data.items : []).map(i => `<li>${cleanInline(i)}</li>`).join('');
+              return data.style === 'ordered' ? `<ol>${items}</ol>` : `<ul>${items}</ul>`;
+            }
+            case 'quote':
+              return `<blockquote>${cleanInline(data.text)}</blockquote>`;
+            case 'delimiter':
+              return '<hr />';
+            case 'image': {
+              const raw = (data && data.file && data.file.url) || '';
+              const url = safeImgUrl(raw);
+              if (!url) return '';
+              const caption = data.caption
+                ? `<div style="text-align:center;color:#6b7280;font-size:13px;margin-top:4px;">${cleanInline(data.caption)}</div>`
+                : '';
+              const cls = [
+                data.withBorder ? 'border:1px solid #e5e7eb;' : '',
+                data.withBackground ? 'background:#f3f4f6;padding:12px;' : '',
+                data.stretched ? 'width:100%;' : 'max-width:100%;'
+              ].join('');
+              return `<figure style="margin:16px 0;${cls}"><img src="${attrEsc(url)}" alt="" style="max-width:100%;height:auto;display:block;margin:0 auto;border-radius:4px;" />${caption}</figure>`;
+            }
+            default:
+              return '';
+          }
+        }).join('');
+
+        // 최종 방어선 — 조합된 HTML 전체를 DOMPurify 로 한 번 더 세정
+        if (typeof DOMPurify !== 'undefined') {
+          return DOMPurify.sanitize(html, {
+            ADD_TAGS: ['figure'],
+            FORBID_TAGS: ['style','script','iframe','object','embed','form','input','button','textarea','select','link','meta','svg','math'],
+            FORBID_ATTR: ['srcdoc','formaction','xlink:href','onerror','onload','onclick','onmouseover','onmouseout','onkeydown','onkeyup','onfocus','onblur','onchange','onsubmit'],
+            // 이미지 data: URI 허용 (URL 자체는 safeImgUrl 로 사전 검증됨)
+            ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+            ALLOW_DATA_ATTR: false
+          });
+        }
+        return html;
+      }
+
+      function formatDate(d) {
+        if (!d) return '';
+        const date = new Date(d);
+        return date.getFullYear() + '.' + String(date.getMonth()+1).padStart(2,'0') + '.' + String(date.getDate()).padStart(2,'0');
+      }
+    })();
+  </script>
+</body>
+</html>

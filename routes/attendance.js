@@ -12,6 +12,7 @@ const tls = require('tls');
 const db = require('../db');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
+const { safeBody } = require('../middleware/sanitize');
 const { notify, notifyRole } = require('../utils/notify');
 
 // ── 출퇴근 관리 (CAPS Bridge 연동) ───────────────────────
@@ -1437,7 +1438,7 @@ router.post('/attendance/order', requireAdmin, (req, res) => {
 // ══════════════════════════════════════════════
 
 // 연차관리 전체 데이터 조회
-router.get('/leave', (req, res) => {
+router.get('/leave', requireAuth, (req, res) => {
   try {
     const data = db['연차관리'].load();
     res.json(data);
@@ -1546,7 +1547,7 @@ router.get('/leave/employees/search', requireAuth, (req, res) => {
 });
 
 // 직원 목록 조회 (재직자만 or 전체)
-router.get('/leave/employees', (req, res) => {
+router.get('/leave/employees', requireAuth, (req, res) => {
   try {
     const data = db['연차관리'].load();
     const activeOnly = req.query.active !== 'false';
@@ -1556,8 +1557,8 @@ router.get('/leave/employees', (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// 직원 추가
-router.post('/leave/employees', (req, res) => {
+// 직원 추가 (관리자 전용 — 직원 명부 변경)
+router.post('/leave/employees', requireAdmin, (req, res) => {
   try {
     const data = db['연차관리'].load();
     const emp = req.body;
@@ -1568,9 +1569,11 @@ router.post('/leave/employees', (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// 직원 수정 (연도별 필드는 yearlyData에 저장)
-router.put('/leave/employees/:name', (req, res) => {
+// 직원 수정 (연도별 필드는 yearlyData에 저장) — 관리자 전용
+router.put('/leave/employees/:name', requireAdmin, (req, res) => {
   try {
+    // Prototype Pollution 차단 — name은 URL에서만 설정되도록 막음
+    req.body = safeBody(req.body, ['name']);
     const data = db['연차관리'].load();
     const idx = data.employees.findIndex(e => e.name === req.params.name);
     if (idx < 0) return res.status(404).json({ error: '직원 없음' });
@@ -1605,7 +1608,7 @@ router.put('/leave/employees/:name', (req, res) => {
 });
 
 // 휴가 사용 기록 조회 (연도별)
-router.get('/leave/records', (req, res) => {
+router.get('/leave/records', requireAuth, (req, res) => {
   try {
     const data = db['연차관리'].load();
     let records = data.leaveRecords || [];
@@ -1618,7 +1621,7 @@ router.get('/leave/records', (req, res) => {
 });
 
 // 휴가 사용 등록
-router.post('/leave/records', (req, res) => {
+router.post('/leave/records', requireAuth, (req, res) => {
   try {
     const data = db['연차관리'].load();
     const rec = req.body;
@@ -1655,7 +1658,7 @@ router.post('/leave/records', (req, res) => {
 });
 
 // 휴가 사용 삭제
-router.delete('/leave/records/:id', (req, res) => {
+router.delete('/leave/records/:id', requireAuth, (req, res) => {
   try {
     const data = db['연차관리'].load();
     // 숫자 ID(구형)와 문자열 ID(lr_... 신형) 모두 지원

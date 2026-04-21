@@ -1,0 +1,258 @@
+<!-- ═══════════════════════════════════════════════════
+     과거단가조회 (v5 레벨 1)
+     ═══════════════════════════════════════════════════ -->
+<div x-show="currentTab === 'salesLookup'" x-cloak
+     x-data="salesLookupApp()"
+     x-init="loadVendors()"
+     @keydown.window="if(currentTab === 'salesLookup' && $event.key === 'F8') { $event.preventDefault(); doSearch(); }"
+     class="p-6 max-w-5xl mx-auto">
+
+  <div class="mb-6">
+    <h2 class="text-lg font-bold text-gray-800 mb-1">과거단가조회</h2>
+    <p class="text-xs text-gray-400">과거 매출 데이터에서 거래처별 단가를 검색합니다</p>
+  </div>
+
+  <!-- 검색 영역 -->
+  <div class="bg-white rounded-xl border border-gray-200 p-4 mb-5 shadow-sm">
+    <div class="flex flex-wrap gap-3 items-end">
+      <!-- 거래처 검색 -->
+      <div class="flex-1 min-w-[200px] relative">
+        <label class="block text-xs font-medium text-gray-500 mb-1">거래처</label>
+        <input type="text" x-model="vendorQuery" @input="filterVendors()"
+          @focus="showVendorDropdown = true"
+          @keydown.escape="showVendorDropdown = false"
+          @keydown.arrow-down.prevent="if(vendorHighlight < filteredVendors.length - 1) vendorHighlight++; showVendorDropdown = true;"
+          @keydown.arrow-up.prevent="if(vendorHighlight > 0) vendorHighlight--;"
+          @keydown.enter.prevent="
+            if(showVendorDropdown && filteredVendors.length > 0) {
+              const idx = vendorHighlight >= 0 ? vendorHighlight : 0;
+              selectVendor(filteredVendors[idx].vendor);
+              vendorHighlight = -1;
+              $nextTick(() => $refs.keywordInput.focus());
+            }
+          "
+          @keydown.tab="showVendorDropdown = false"
+          placeholder="거래처명 입력 (예: 라코스)"
+          class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+        <!-- 거래처 드롭다운 -->
+        <div x-show="showVendorDropdown && filteredVendors.length > 0"
+          @click.away="showVendorDropdown = false"
+          class="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+          <template x-for="(v, vi) in filteredVendors" :key="v.vendor">
+            <button @click="selectVendor(v.vendor); $nextTick(() => $refs.keywordInput.focus())"
+              @mouseenter="vendorHighlight = vi"
+              class="w-full text-left px-3 py-2 text-sm flex justify-between items-center transition-colors"
+              :class="vendorHighlight === vi ? 'bg-blue-100 text-blue-700 font-semibold' : 'hover:bg-blue-50'">
+              <span x-text="v.vendor"></span>
+              <span class="text-xs" :class="vendorHighlight === vi ? 'text-blue-400' : 'text-gray-400'" x-text="v.cnt + '건'"></span>
+            </button>
+          </template>
+        </div>
+      </div>
+      <!-- 품명 검색 -->
+      <div class="flex-1 min-w-[200px]">
+        <label class="block text-xs font-medium text-gray-500 mb-1">품명</label>
+        <input type="text" x-model="keyword" x-ref="keywordInput"
+          @keydown.enter="doSearch()"
+          placeholder="품명 검색 (예: 포맥스 3t 600)"
+          class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+      </div>
+      <!-- 검색 버튼 -->
+      <div>
+        <button @click="doSearch()"
+          class="px-5 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1.5">
+          <span class="material-symbols-outlined" style="font-size:16px;">search</span>
+          검색
+        </button>
+      </div>
+    </div>
+    <!-- 선택된 거래처 태그 -->
+    <div x-show="selectedVendor" class="mt-2 flex items-center gap-2">
+      <span class="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded-full">
+        <span x-text="selectedVendor"></span>
+        <button @click="clearVendor()" class="hover:text-blue-900">&times;</button>
+      </span>
+    </div>
+  </div>
+
+  <!-- 로딩 -->
+  <div x-show="loading" class="text-center py-8 text-gray-400">
+    <span class="material-symbols-outlined animate-spin" style="font-size:24px;">progress_activity</span>
+    <p class="mt-2 text-sm">검색 중...</p>
+  </div>
+
+  <!-- 결과 없음 -->
+  <div x-show="!loading && searched && vendorResults.length === 0 && otherResults.length === 0"
+    class="text-center py-12 text-gray-400">
+    <span class="material-symbols-outlined" style="font-size:40px;">search_off</span>
+    <p class="mt-2 text-sm">검색 결과가 없습니다</p>
+  </div>
+
+  <!-- 거래처 결과 -->
+  <div x-show="!loading && vendorResults.length > 0" class="mb-5">
+    <h3 class="text-sm font-bold text-gray-700 mb-2 flex items-center gap-1.5">
+      <span class="material-symbols-outlined" style="font-size:16px;color:#3b82f6;">storefront</span>
+      <span x-text="selectedVendor || '전체'"></span>
+      과거 거래
+      <span class="text-xs font-normal text-gray-400" x-text="'(' + vendorResults.length + '건)'"></span>
+    </h3>
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th class="text-left px-3 py-2 text-xs font-semibold text-gray-500 whitespace-nowrap">날짜</th>
+              <th class="text-left px-3 py-2 text-xs font-semibold text-gray-500">품명</th>
+              <th class="text-left px-3 py-2 text-xs font-semibold text-gray-500 whitespace-nowrap">규격</th>
+              <th class="text-right px-3 py-2 text-xs font-semibold text-gray-500 whitespace-nowrap">수량</th>
+              <th class="text-right px-3 py-2 text-xs font-semibold text-gray-500 whitespace-nowrap">단가</th>
+              <th class="text-right px-3 py-2 text-xs font-semibold text-gray-500 whitespace-nowrap">㎡당</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="row in vendorResults" :key="row.id">
+              <tr class="border-b border-gray-100 hover:bg-blue-50/30">
+                <td class="px-3 py-2 text-xs text-gray-500 whitespace-nowrap" x-text="row.sale_date"></td>
+                <td class="px-3 py-2">
+                  <span class="text-sm font-medium text-gray-800" x-text="row.product_name"></span>
+                </td>
+                <td class="px-3 py-2 text-xs text-gray-500 whitespace-nowrap" x-text="row.raw_spec || '-'"></td>
+                <td class="px-3 py-2 text-right text-xs text-gray-500" x-text="(row.qty || 0).toLocaleString()"></td>
+                <td class="px-3 py-2 text-right font-semibold text-gray-800 whitespace-nowrap" x-text="row.unit_price.toLocaleString() + '원'"></td>
+                <td class="px-3 py-2 text-right text-xs whitespace-nowrap"
+                  :class="row.price_per_sqm ? 'text-blue-600 font-medium' : 'text-gray-300'">
+                  <span x-text="row.price_per_sqm ? row.price_per_sqm.toLocaleString() + '원/㎡' : '-'"></span>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 다른 거래처 참고 (접힘) -->
+  <div x-show="!loading && otherResults.length > 0">
+    <button @click="showOthers = !showOthers"
+      class="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1 mb-2">
+      <span class="material-symbols-outlined transition-transform" style="font-size:16px;"
+        :style="showOthers ? '' : 'transform:rotate(-90deg)'">expand_more</span>
+      다른 거래처 참고
+      <span class="text-xs text-gray-400" x-text="'(' + otherResults.length + '건)'"></span>
+    </button>
+    <div x-show="showOthers" x-collapse class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden opacity-75">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th class="text-left px-3 py-2 text-xs font-semibold text-gray-500">거래처</th>
+              <th class="text-left px-3 py-2 text-xs font-semibold text-gray-500 whitespace-nowrap">날짜</th>
+              <th class="text-left px-3 py-2 text-xs font-semibold text-gray-500">품명</th>
+              <th class="text-left px-3 py-2 text-xs font-semibold text-gray-500 whitespace-nowrap">규격</th>
+              <th class="text-right px-3 py-2 text-xs font-semibold text-gray-500 whitespace-nowrap">단가</th>
+              <th class="text-right px-3 py-2 text-xs font-semibold text-gray-500 whitespace-nowrap">㎡당</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="row in otherResults" :key="row.id">
+              <tr class="border-b border-gray-100 hover:bg-gray-50/50">
+                <td class="px-3 py-2 text-xs text-gray-500 whitespace-nowrap" x-text="row.vendor"></td>
+                <td class="px-3 py-2 text-xs text-gray-400 whitespace-nowrap" x-text="row.sale_date"></td>
+                <td class="px-3 py-2 text-sm text-gray-600" x-text="row.product_name"></td>
+                <td class="px-3 py-2 text-xs text-gray-400 whitespace-nowrap" x-text="row.raw_spec || '-'"></td>
+                <td class="px-3 py-2 text-right text-sm text-gray-700 whitespace-nowrap" x-text="row.unit_price.toLocaleString() + '원'"></td>
+                <td class="px-3 py-2 text-right text-xs whitespace-nowrap"
+                  :class="row.price_per_sqm ? 'text-blue-500' : 'text-gray-300'">
+                  <span x-text="row.price_per_sqm ? row.price_per_sqm.toLocaleString() + '원/㎡' : '-'"></span>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 적재 현황 (하단) -->
+  <div x-show="!loading && stats" class="mt-8 text-center">
+    <p class="text-xs text-gray-300">
+      데이터: <span x-text="stats.total?.toLocaleString()"></span>건
+      (<span x-text="stats.vendors?.length"></span>개 거래처)
+    </p>
+  </div>
+</div>
+
+<script>
+function salesLookupApp() {
+  return {
+    vendorQuery: '',
+    keyword: '',
+    selectedVendor: '',
+    showVendorDropdown: false,
+    vendorHighlight: -1,
+    vendorResults: [],
+    otherResults: [],
+    showOthers: false,
+    loading: false,
+    searched: false,
+    stats: null,
+    allVendors: [],
+    filteredVendors: [],
+
+    async loadVendors() {
+      try {
+        const res = await fetch('/api/sales-history/vendors');
+        this.allVendors = await res.json();
+        this.filteredVendors = this.allVendors;
+        const statsRes = await fetch('/api/sales-history/stats');
+        this.stats = await statsRes.json();
+      } catch (e) {
+        console.error('vendor load error:', e);
+      }
+    },
+
+    filterVendors() {
+      const q = this.vendorQuery.toLowerCase();
+      this.filteredVendors = this.allVendors.filter(v =>
+        v.vendor.toLowerCase().includes(q)
+      );
+      this.showVendorDropdown = true;
+      this.vendorHighlight = 0;
+      this.selectedVendor = '';
+    },
+
+    selectVendor(vendor) {
+      this.selectedVendor = vendor;
+      this.vendorQuery = vendor;
+      this.showVendorDropdown = false;
+    },
+
+    clearVendor() {
+      this.selectedVendor = '';
+      this.vendorQuery = '';
+    },
+
+    async doSearch() {
+      if (!this.vendorQuery && !this.keyword) return;
+      this.loading = true;
+      this.searched = true;
+      this.showOthers = false;
+      try {
+        const params = new URLSearchParams();
+        if (this.selectedVendor) params.set('vendor', this.selectedVendor);
+        else if (this.vendorQuery) params.set('vendor', this.vendorQuery);
+        if (this.keyword) params.set('keyword', this.keyword);
+        params.set('limit', '30');
+
+        const res = await fetch('/api/sales-history/search?' + params);
+        const data = await res.json();
+        this.vendorResults = data.vendor_results || [];
+        this.otherResults = data.other_results || [];
+      } catch (e) {
+        console.error('search error:', e);
+      }
+      this.loading = false;
+    }
+  };
+}
+</script>

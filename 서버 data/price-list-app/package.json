@@ -1,0 +1,16 @@
+{
+  "name": "price-list-app",
+  "version": "1.0.0",
+  "description": "업체별 단가표 관리 웹앱",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "exceljs": "^4.4.0",
+    "express": "^4.18.2",
+    "pdfkit": "^0.18.0",
+    "sharp": "^0.34.5"
+  }
+}

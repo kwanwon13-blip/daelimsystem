@@ -1,0 +1,1473 @@
+<!-- 출퇴근 기록부 탭 (CAPS 연동) — 가로 나열 컴팩트 -->
+<div x-init="
+  attendance.year = new Date().getFullYear();
+  attendance.month = new Date().getMonth() + 1;
+  if(auth.role === 'admin') {
+    if(!attendance.bridgeOk) checkCapsbridge().then(()=>{ if(attendance.bridgeOk) loadAttendanceSummary(); });
+    else loadAttendanceSummary();
+  } else {
+    // 일반 직원/팀장: 브릿지 체크 없이 캐시 기반으로 바로 로드
+    attendance.bridgeOk = true;
+    loadAttendanceSummary();
+  }
+">
+<style>
+  .att-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px,1fr)); gap:14px; }
+  .att-grid.single-emp { grid-template-columns:1fr; max-width:420px; }
+  .att-grid.single-emp .att-scroll { }
+  .att-grid.single-emp .att-tbl { font-size:12px; }
+  .att-grid.single-emp .att-tbl thead th { font-size:11px; padding:6px 4px; }
+  .att-grid.single-emp .att-tbl tbody td { padding:4px 5px; }
+  .att-grid.single-emp .att-card-head .emp-name { font-size:15px; }
+  .att-grid.single-emp .bigo-badge { font-size:11px; padding:1px 6px; }
+  .att-card { background:#fff; border:1px solid #e2e6ee; border-radius:10px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.04); display:flex; flex-direction:column; transition:outline .15s,opacity .15s; }
+  .att-card:hover { box-shadow:0 2px 10px rgba(0,0,0,.07); border-color:#d4d9e3; }
+  .att-card.cursor-grab { cursor:grab; }
+  .att-card.cursor-grab:active { cursor:grabbing; }
+  .att-card-head { padding:7px 10px; background:linear-gradient(135deg,#f8faff,#eef2ff); border-bottom:1.5px solid #e0e7ff; display:flex; align-items:center; justify-content:space-between; }
+  .att-card-head .emp-name { font-size:13px; font-weight:700; color:#1e293b; }
+  .att-card-head .emp-sub { font-size:10px; color:#8b95a5; }
+  .att-chips { display:flex; flex-wrap:wrap; gap:3px; }
+  .att-chip { font-size:9px; font-weight:700; padding:1px 6px; border-radius:8px; white-space:nowrap; }
+  .att-tbl { width:100%; border-collapse:collapse; font-size:10.5px; }
+  .att-tbl colgroup col:nth-child(1) { width:10%; }
+  .att-tbl colgroup col:nth-child(2) { width:8%; }
+  .att-tbl colgroup col:nth-child(3) { width:18%; }
+  .att-tbl colgroup col:nth-child(4) { width:18%; }
+  .att-tbl colgroup col:nth-child(5) { width:14%; }
+  .att-tbl colgroup col:nth-child(6) { width:32%; }
+  .att-status { font-size:8px; font-weight:700; padding:1px 3px; border-radius:3px; display:inline-block; line-height:1.4; }
+  .att-status-late { background:#fee2e2; color:#dc2626; }
+  .att-status-early { background:#fff7ed; color:#ea580c; }
+  .att-status-ok { color:#d1d5db; font-size:9px; }
+  .att-time-edit { background:none; border:none; font-size:10.5px; width:44px; text-align:center; padding:0; color:#4f6ef7; font-weight:600; cursor:pointer; }
+  .att-time-edit:focus { outline:1px solid #4f6ef7; border-radius:2px; }
+  .att-time-modified { color:#4f6ef7 !important; font-style:italic; }
+  .att-tbl thead th { padding:2px 2px; text-align:center; font-weight:700; color:#6b7280; font-size:9px; background:#f8f9fb; border-bottom:1.5px solid #e0e4eb; position:sticky; top:0; z-index:2; }
+  .att-tbl tbody td { padding:1px 2px; text-align:center; border-bottom:1px solid #f3f4f6; font-size:10px; line-height:1.15; }
+  .att-tbl tbody tr:hover { background:#f8faff; cursor:pointer; }
+  .att-tbl tr.row-sun { background:#fef2f2; }
+  .att-tbl tr.row-sun td { color:#ef4444; }
+  .att-tbl tr.row-sun:hover { background:#fef2f2; }
+  .att-tbl tr.row-sat { background:#eff6ff; }
+  .att-tbl tr.row-sat td { color:#3b82f6; }
+  .att-tbl tr.row-sat:hover { background:#eff6ff; }
+  .att-tbl tr.row-holiday { background:#fef2f2; }
+  .att-tbl tr.row-holiday td { color:#ef4444; }
+  .att-tbl tr.row-holiday:hover { background:#fef2f2; }
+  .att-tbl tr.row-holiday td:first-child { position:relative; }
+  .att-holiday-dot { display:inline-block;width:5px;height:5px;border-radius:50%;background:#ef4444;margin-left:1px;vertical-align:super; }
+  .att-tbl tr.row-nodata { background:#fffbeb; }
+  .att-tbl .t-late { color:#dc2626; font-weight:700; }
+  .att-tbl .t-early { color:#ea580c; font-weight:700; }
+  .att-tbl .t-normal { color:#374151; }
+  .att-tbl .t-dim { color:#d1d5db; }
+  .att-scroll { flex:1; }
+  .att-footer { padding:5px 8px; border-top:1px solid #e2e6ee; background:#f9fafb; display:flex; flex-wrap:wrap; gap:3px; align-items:center; }
+  .bigo-btn { background:none; border:1px dashed #fbbf24; border-radius:3px; padding:0 4px; font-size:9.5px; color:#d97706; cursor:pointer; font-weight:600; line-height:1.5; white-space:nowrap; }
+  .bigo-btn:hover { background:#fef3c7; border-color:#f59e0b; }
+  .bigo-badge { font-size:9.5px; font-weight:700; padding:0 4px; border-radius:3px; display:inline-block; line-height:1.5; }
+  .bigo-annual { background:#fef3c7; color:#b45309; }
+  .bigo-halfAM { background:#dbeafe; color:#1d4ed8; }
+  .bigo-halfPM { background:#dbeafe; color:#1d4ed8; }
+  .bigo-noswipe { background:#fff7ed; color:#c2410c; }
+  .bigo-absent { background:#fee2e2; color:#b91c1c; }
+  .bigo-edit-wrap { display:flex; flex-direction:column; gap:2px; }
+  .bigo-edit-wrap select { font-size:9px; border:1px solid #c7d2fe; border-radius:3px; padding:1px 2px; }
+  .bigo-edit-wrap .bigo-btns { display:flex; gap:2px; }
+  .bigo-edit-wrap .bigo-btns button { font-size:8px; padding:1px 4px; border:none; border-radius:3px; cursor:pointer; font-weight:600; }
+</style>
+
+<div class="space-y-4 fade-in">
+
+  <!-- 브릿지 상태 배너 (admin에게만 표시) -->
+  <div x-show="auth.role==='admin' && !attendance.bridgeOk"
+    style="background:linear-gradient(135deg,#fef2f2,#fee2e2);border:1px solid #fecaca;border-radius:10px;padding:8px 14px;display:flex;align-items:center;gap:8px;font-size:11px;">
+    <span class="material-symbols-outlined" style="font-size:16px;color:#ef4444;">warning</span>
+    <span style="color:#dc2626;font-weight:600;">CAPS 브릿지 연결 안 됨 (캐시 없음)</span>
+    <span style="color:#ef4444;" x-text="attendance.bridgeError||''"></span>
+    <button @click="checkCapsbridge()" style="margin-left:auto;background:#dc2626;color:#fff;border:none;border-radius:6px;padding:3px 10px;font-size:10px;font-weight:600;cursor:pointer;">재연결</button>
+  </div>
+  <div x-show="auth.role==='admin' && attendance.bridgeOk && !attendance.bridgeConnected"
+    style="background:linear-gradient(135deg,#fefce8,#fef9c3);border:1px solid #fde68a;border-radius:10px;padding:7px 14px;display:flex;align-items:center;gap:8px;font-size:11px;">
+    <span class="material-symbols-outlined" style="font-size:14px;color:#d97706;">cloud_off</span>
+    <span style="color:#92400e;font-weight:600;">CAPS 브릿지 오프라인 — 캐시 데이터 사용 중</span>
+    <button @click="checkCapsbridge()" style="margin-left:auto;background:#d97706;color:#fff;border:none;border-radius:6px;padding:3px 10px;font-size:10px;font-weight:600;cursor:pointer;">재연결</button>
+  </div>
+  <div x-show="auth.role==='admin' && attendance.bridgeOk && attendance.bridgeConnected"
+    style="background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #bbf7d0;border-radius:10px;padding:7px 14px;display:flex;align-items:center;gap:8px;font-size:11px;">
+    <span class="material-symbols-outlined" style="font-size:14px;color:#16a34a;">check_circle</span>
+    <span style="color:#15803d;font-weight:600;">CAPS 브릿지 연결됨 (NamPC 192.168.0.30)</span>
+  </div>
+
+  <!-- 조회 필터 -->
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div style="padding:8px 14px;background:linear-gradient(135deg,#f8faff,#eef2ff);border-bottom:1px solid #e0e7ff;">
+      <h3 class="font-work text-[12px] font-bold text-gray-800 flex items-center gap-2 m-0">
+        <span class="material-symbols-outlined" style="font-size:15px;color:#4f6ef7;">schedule</span>
+        출퇴근 기록 조회
+        <template x-if="auth.role !== 'admin' && canViewAllAttendance && auth.department">
+          <span style="font-size:10px;font-weight:500;color:#6366f1;background:#eef2ff;padding:1px 6px;border-radius:8px;"
+            x-text="'내 부서: ' + getDeptName(auth.department)"></span>
+        </template>
+      </h3>
+    </div>
+    <div style="padding:10px 14px;">
+      <div class="flex flex-wrap items-end gap-3">
+        <div>
+          <label class="label-base">년도</label>
+          <select x-model="attendance.year" @change="loadAttendanceSummary()" class="input-base" style="width:85px;padding:5px 8px;font-size:11px;">
+            <template x-for="y in attendance.yearOptions" :key="y">
+              <option :value="y" x-text="y+'년'"></option>
+            </template>
+          </select>
+        </div>
+        <div>
+          <label class="label-base">월</label>
+          <select x-model.number="attendance.month" @change="loadAttendanceSummary()" class="input-base" style="width:65px;padding:5px 8px;font-size:11px;">
+            <template x-for="m in [1,2,3,4,5,6,7,8,9,10,11,12]" :key="m">
+              <option :value="m" :selected="m==attendance.month" x-text="m+'월'"></option>
+            </template>
+          </select>
+        </div>
+        <div x-show="canViewAllAttendance">
+          <label class="label-base">직원</label>
+          <select x-model="attendance.filterEmpId" class="input-base" style="width:100px;padding:5px 8px;font-size:11px;">
+            <option value="">전체</option>
+            <template x-for="emp in attendance.employees" :key="emp.id">
+              <option :value="emp.id" x-text="emp.name"></option>
+            </template>
+          </select>
+          <label class="label-base">부서</label>
+          <select x-model="attendance.filterDept" class="input-base" style="width:100px;padding:5px 8px;font-size:11px;">
+            <option value="">전체 부서</option>
+            <template x-for="dept in attendance.departments" :key="'fd_'+dept">
+              <option :value="dept" x-text="dept"></option>
+            </template>
+          </select>
+        </div>
+        <div x-show="!canViewAllAttendance">
+          <label class="label-base">직원</label>
+          <div class="input-base" style="width:100px;padding:5px 8px;font-size:11px;background:#f8fafc;color:#374151;font-weight:600;" x-text="auth.name"></div>
+        </div>
+        <button @click="loadAttendanceSummary()" :disabled="attendance.loading"
+          class="btn-primary" style="height:30px;padding:0 14px;font-size:11px;">
+          <span class="material-symbols-outlined" style="font-size:13px;" x-text="attendance.loading?'hourglass_empty':'search'"></span>
+          <span x-text="attendance.loading?'조회 중...':'조회'"></span>
+        </button>
+        <div class="ml-auto flex rounded-lg border border-gray-200 overflow-hidden" style="height:30px;">
+          <button @click="attendance.leaveView=false; attendance.viewMode='summary'"
+            class="px-3 text-[10px] font-semibold transition-colors"
+            :style="!attendance.leaveView&&attendance.viewMode==='summary'?'background:#4f6ef7;color:#fff':'background:#fff;color:#6b7280'">요약</button>
+          <button @click="attendance.leaveView=false; attendance.viewMode='grid'"
+            class="px-3 text-[10px] font-semibold transition-colors"
+            :style="!attendance.leaveView&&attendance.viewMode==='grid'?'background:#4f6ef7;color:#fff':'background:#fff;color:#6b7280'">전체 현황</button>
+          <button @click="attendance.leaveView=true; loadLeaveSummary()"
+            class="px-3 text-[10px] font-semibold transition-colors"
+            :style="attendance.leaveView?'background:#f59e0b;color:#fff':'background:#fff;color:#6b7280'">연차 현황</button>
+        </div>
+        <button x-show="auth.role==='admin' && !attendance.leaveView && attendance.summary.length>0"
+          @click="syncLeaveFromAttendance()" :disabled="attendance._syncing"
+          class="text-[10px] font-semibold px-3 rounded-lg border transition-colors" style="height:30px;margin-left:6px;background:#f0fdf4;color:#15803d;border-color:#bbf7d0;"
+          :class="attendance._syncing?'opacity-50 pointer-events-none':''"
+          title="출퇴근 기록의 연차/반차를 연차관리에 일괄 반영합니다">
+          <span class="material-symbols-outlined" style="font-size:13px;vertical-align:middle;margin-right:2px;" :class="attendance._syncing?'animate-spin':''">sync</span>
+          <span x-text="attendance._syncing?'동기화 중...':'출퇴근 동기화'"></span>
+        </button>
+        <button x-show="auth.role==='admin'" @click="attendance.orderMode=!attendance.orderMode; if(attendance.orderMode) loadAttendanceOrder();"
+          class="text-[10px] font-semibold px-3 rounded-lg border transition-colors" style="height:30px;margin-left:6px;"
+          :style="attendance.orderMode?'background:#7c3aed;color:#fff;border-color:#7c3aed':'background:#fff;color:#6b7280;border-color:#e5e7eb'">
+          <span class="material-symbols-outlined" style="font-size:13px;vertical-align:middle;margin-right:2px;">sort</span>
+          <span x-text="attendance.orderMode?'순서 설정 닫기':'순서 설정'"></span>
+        </button>
+        <button x-show="auth.role==='admin' && attendance.summary.length>0"
+          @click="downloadAttendanceExcel()"
+          class="text-[10px] font-semibold px-3 rounded-lg border transition-colors" style="height:30px;margin-left:4px;background:#fff;color:#16a34a;border-color:#bbf7d0;"
+          :class="attendance.excelLoading?'opacity-50 pointer-events-none':''">
+          <span class="material-symbols-outlined" style="font-size:13px;vertical-align:middle;margin-right:2px;">download</span>
+          <span x-text="attendance.excelLoading?'다운로드 중...':'엑셀 다운로드'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 순서 설정 패널 ===== -->
+  <template x-if="attendance.orderMode && auth.role==='admin'">
+    <div class="card fade-in" style="padding:12px 16px;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <span class="material-symbols-outlined" style="font-size:16px;color:#7c3aed;">sort</span>
+        <span style="font-size:12px;font-weight:700;color:#374151;">부서별 직원 순서 설정</span>
+        <span style="font-size:10px;color:#9ca3af;margin-left:4px;">드래그하여 순서 변경, 직원을 부서 간 이동 가능</span>
+      </div>
+      <!-- 부서 추가 -->
+      <div style="display:flex;gap:6px;margin-bottom:10px;align-items:center;">
+        <input x-model="attendance.newDeptName" @keydown.enter="addAttDept()" class="input-base" style="width:140px;height:28px;font-size:11px;" placeholder="새 부서명">
+        <button @click="addAttDept()" class="btn-primary" style="height:28px;padding:0 10px;font-size:10px;">부서 추가</button>
+      </div>
+      <!-- 부서별 직원 리스트 -->
+      <div style="display:flex;flex-wrap:wrap;gap:10px;">
+        <template x-for="dept in attendance.departments" :key="dept">
+          <div style="min-width:180px;flex:1;max-width:280px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;padding:8px;"
+            draggable="true" @dragstart="onDeptDragStart($event,dept)" @dragover="onDeptDragOver($event,dept)" @dragleave="onDeptDragLeave($event,dept)" @drop="onDeptDrop($event,dept)"
+            :style="attendance.dragOverDept===dept?'border-color:#7c3aed;background:#f5f3ff':''">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+              <span style="font-size:11px;font-weight:700;color:#4b5563;cursor:grab;" @dblclick="renameAttDept(dept)" x-text="dept"></span>
+              <button @click="removeAttDept(dept)" style="font-size:14px;color:#d1d5db;background:none;border:none;cursor:pointer;line-height:1;" onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='#d1d5db'">×</button>
+            </div>
+            <!-- 직원 목록 -->
+            <div style="min-height:28px;">
+              <template x-for="empName in (attendance.employeeOrder[dept]||[])" :key="empName">
+                <div draggable="true" @dragstart.stop="onEmpDragStart($event,empName,dept)" @dragover.stop="onEmpDragOver($event,empName,dept)" @dragleave.stop="onEmpDragLeave($event,empName)" @drop.stop="onEmpDrop($event,empName,dept)"
+                  style="display:flex;align-items:center;justify-content:space-between;padding:3px 6px;margin-bottom:2px;background:#fff;border:1px solid #e5e7eb;border-radius:4px;cursor:grab;font-size:11px;color:#374151;"
+                  :style="attendance.dragOverEmp===empName?'border-color:#7c3aed;background:#ede9fe':''">
+                  <span x-text="empName"></span>
+                  <button @click="removeEmpFromDept(empName,dept)" style="font-size:12px;color:#d1d5db;background:none;border:none;cursor:pointer;line-height:1;" onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='#d1d5db'">×</button>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+        <!-- 미배정 직원 -->
+        <template x-if="unassignedEmps.length > 0">
+          <div style="min-width:180px;flex:1;max-width:280px;border:1px dashed #d1d5db;border-radius:8px;background:#fff;padding:8px;">
+            <div style="font-size:11px;font-weight:700;color:#9ca3af;margin-bottom:6px;">미배정</div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
+              <template x-for="emp in unassignedEmps" :key="emp.employeeName">
+                <div style="display:inline-flex;align-items:center;gap:0;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:4px;overflow:hidden;">
+                  <span style="font-size:10px;color:#6b7280;padding:3px 6px;" x-text="emp.employeeName"></span>
+                  <select @change="if($event.target.value){assignEmpToDept(emp.employeeName,$event.target.value);$event.target.value='';}"
+                    style="font-size:10px;color:#fff;background:#7c3aed;border:none;cursor:pointer;padding:3px 6px;min-width:32px;">
+                    <option value="">▸</option>
+                    <template x-for="dept in attendance.departments" :key="'ua_'+dept+emp.employeeName">
+                      <option :value="dept" x-text="dept" style="color:#333;background:#fff;"></option>
+                    </template>
+                  </select>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+      <!-- 근무규칙 설정 -->
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid #e5e7eb;">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+          <span class="material-symbols-outlined" style="font-size:14px;color:#16a34a;">tune</span>
+          <span style="font-size:11px;font-weight:700;color:#374151;">부서별 근무규칙</span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:16px;">
+          <!-- 유연근무 부서 (조퇴 면제) -->
+          <div style="flex:1;min-width:200px;">
+            <div style="font-size:10px;font-weight:600;color:#6b7280;margin-bottom:4px;">유연근무 부서 <span style="color:#9ca3af;font-weight:400;">(조퇴 체크 면제)</span></div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;">
+              <template x-for="fd in attendance.flexDepts" :key="'fd_'+fd">
+                <span style="display:inline-flex;align-items:center;gap:2px;background:#dcfce7;color:#16a34a;font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;">
+                  <span x-text="fd"></span>
+                  <button @click="attendance.flexDepts=attendance.flexDepts.filter(x=>x!==fd);saveAttWorkRules()" style="background:none;border:none;color:#16a34a;cursor:pointer;font-size:12px;line-height:1;padding:0;">×</button>
+                </span>
+              </template>
+            </div>
+            <div style="display:flex;gap:4px;">
+              <select x-ref="flexDeptSelect" class="input-base" style="height:26px;font-size:10px;flex:1;">
+                <option value="">부서 선택...</option>
+                <template x-for="dept in attendance.departments.filter(d=>!attendance.flexDepts.includes(d))" :key="'fds_'+dept">
+                  <option :value="dept" x-text="dept"></option>
+                </template>
+              </select>
+              <button @click="const v=$refs.flexDeptSelect.value; if(v&&!attendance.flexDepts.includes(v)){attendance.flexDepts.push(v);saveAttWorkRules();$refs.flexDeptSelect.value='';}"
+                class="btn-primary" style="height:26px;padding:0 8px;font-size:10px;">추가</button>
+            </div>
+          </div>
+          <!-- 토요근무 부서 -->
+          <div style="flex:1;min-width:200px;">
+            <div style="font-size:10px;font-weight:600;color:#6b7280;margin-bottom:4px;">토요일 근무 부서 <span style="color:#9ca3af;font-weight:400;">(토요 출근 시 정상근무 인정)</span></div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;">
+              <template x-for="sd in attendance.saturdayWorkDepts" :key="'sd_'+sd">
+                <span style="display:inline-flex;align-items:center;gap:2px;background:#dbeafe;color:#2563eb;font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;">
+                  <span x-text="sd"></span>
+                  <button @click="attendance.saturdayWorkDepts=attendance.saturdayWorkDepts.filter(x=>x!==sd);saveAttWorkRules()" style="background:none;border:none;color:#2563eb;cursor:pointer;font-size:12px;line-height:1;padding:0;">×</button>
+                </span>
+              </template>
+            </div>
+            <div style="display:flex;gap:4px;">
+              <select x-ref="satDeptSelect" class="input-base" style="height:26px;font-size:10px;flex:1;">
+                <option value="">부서 선택...</option>
+                <template x-for="dept in attendance.departments.filter(d=>!attendance.saturdayWorkDepts.includes(d))" :key="'sds_'+dept">
+                  <option :value="dept" x-text="dept"></option>
+                </template>
+              </select>
+              <button @click="const v=$refs.satDeptSelect.value; if(v&&!attendance.saturdayWorkDepts.includes(v)){attendance.saturdayWorkDepts.push(v);saveAttWorkRules();$refs.satDeptSelect.value='';}"
+                class="btn-primary" style="height:26px;padding:0 8px;font-size:10px;">추가</button>
+            </div>
+          </div>
+          <!-- 근태면제 부서 -->
+          <div style="flex:1;min-width:200px;">
+            <div style="font-size:10px;font-weight:600;color:#6b7280;margin-bottom:4px;">근태면제 부서 <span style="color:#9ca3af;font-weight:400;">(지각/조퇴/출근미기록 체크 안함)</span></div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;">
+              <template x-for="ed in attendance.exemptDepts" :key="'ed_'+ed">
+                <span style="display:inline-flex;align-items:center;gap:2px;background:#fef3c7;color:#b45309;font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;">
+                  <span x-text="ed"></span>
+                  <button @click="attendance.exemptDepts=attendance.exemptDepts.filter(x=>x!==ed);saveAttWorkRules()" style="background:none;border:none;color:#b45309;cursor:pointer;font-size:12px;line-height:1;padding:0;">×</button>
+                </span>
+              </template>
+            </div>
+            <div style="display:flex;gap:4px;">
+              <select x-ref="exemptDeptSelect" class="input-base" style="height:26px;font-size:10px;flex:1;">
+                <option value="">부서 선택...</option>
+                <template x-for="dept in attendance.departments.filter(d=>!attendance.exemptDepts.includes(d))" :key="'eds_'+dept">
+                  <option :value="dept" x-text="dept"></option>
+                </template>
+              </select>
+              <button @click="const v=$refs.exemptDeptSelect.value; if(v&&!attendance.exemptDepts.includes(v)){attendance.exemptDepts.push(v);saveAttWorkRules();$refs.exemptDeptSelect.value='';}"
+                class="btn-primary" style="height:26px;padding:0 8px;font-size:10px;">추가</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- ===== 요약 뷰 ===== -->
+  <template x-if="!attendance.leaveView && attendance.viewMode === 'summary'">
+    <div class="space-y-4 fade-in">
+      <template x-if="attendance.summary.length > 0">
+        <div>
+          <div class="grid grid-cols-4 gap-3 mb-4">
+            <div class="card text-center" style="padding:12px 6px;">
+              <p class="text-[10px] text-gray-400 font-medium mb-1">총 근무일</p>
+              <p class="text-2xl font-bold text-gray-800" x-text="computedTotalStats.normalDays"></p>
+            </div>
+            <div class="card text-center" style="padding:12px 6px;">
+              <p class="text-[10px] text-gray-400 font-medium mb-1">사용 연차</p>
+              <p class="text-2xl font-bold" style="color:#f59e0b;" x-text="(computedTotalStats.usedLeave||0).toFixed(1)+'일'"></p>
+            </div>
+            <div class="card text-center" style="padding:12px 6px;">
+              <p class="text-[10px] text-gray-400 font-medium mb-1">지각 건수</p>
+              <p class="text-2xl font-bold" style="color:#ef4444;" x-text="computedTotalStats.lateDays+'건'"></p>
+            </div>
+            <div class="card text-center" style="padding:12px 6px;">
+              <p class="text-[10px] text-gray-400 font-medium mb-1">총 추가근무</p>
+              <p class="text-2xl font-bold" style="color:#6366f1;" x-text="computedTotalStats.overtimeLabel+'h'"></p>
+            </div>
+          </div>
+          <div class="card" style="padding:0;overflow:hidden;">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead>
+                <tr style="background:linear-gradient(135deg,#f8faff,#eef2ff);border-bottom:2px solid #e0e7ff;">
+                  <th style="padding:9px 12px;text-align:left;font-weight:700;color:#374151;">직원</th>
+                  <th style="padding:9px 6px;text-align:center;color:#374151;">정상</th>
+                  <th style="padding:9px 6px;text-align:center;color:#374151;">오전반차</th>
+                  <th style="padding:9px 6px;text-align:center;color:#374151;">오후반차</th>
+                  <th style="padding:9px 6px;text-align:center;color:#374151;">연차</th>
+                  <th style="padding:9px 6px;text-align:center;color:#f59e0b;">사용연차</th>
+                  <th style="padding:9px 6px;text-align:center;color:#ef4444;">지각</th>
+                  <th style="padding:9px 6px;text-align:center;color:#6366f1;">추가근무</th>
+                  <th style="padding:9px 6px;text-align:center;">상세</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="emp in filteredSummary" :key="emp.employeeId">
+                  <tr style="border-bottom:1px solid #f3f4f6;" class="hover:bg-blue-50/30">
+                    <td style="padding:8px 12px;font-weight:600;color:#1e293b;" x-text="emp.employeeName"></td>
+                    <td style="padding:8px 6px;text-align:center;color:#16a34a;font-weight:600;" x-text="emp.normalDays"></td>
+                    <td style="padding:8px 6px;text-align:center;color:#0284c7;" x-text="emp.halfAM||'—'"></td>
+                    <td style="padding:8px 6px;text-align:center;color:#0284c7;" x-text="emp.halfPM||'—'"></td>
+                    <td style="padding:8px 6px;text-align:center;color:#d97706;" x-text="emp.annualDays||'—'"></td>
+                    <td style="padding:8px 6px;text-align:center;font-weight:700;" :style="emp.usedLeave>0?'color:#f59e0b':'color:#9ca3af'" x-text="emp.usedLeave>0?emp.usedLeave.toFixed(1)+'일':'—'"></td>
+                    <td style="padding:8px 6px;text-align:center;" :style="emp.lateDays>0?'color:#ef4444;font-weight:700':'color:#9ca3af'" x-text="emp.lateDays>0?emp.lateDays+'건':'—'"></td>
+                    <td style="padding:8px 6px;text-align:center;" :style="emp.totalOvertimeMin>0?'color:#6366f1;font-weight:700':'color:#9ca3af'" x-text="emp.totalOvertimeMin>0?(emp.totalOvertimeHours||0).toFixed(2)+'h':'—'"></td>
+                    <td style="padding:8px 6px;text-align:center;">
+                      <button @click="openAttendanceDetail(emp)" style="background:#eef2ff;color:#4f6ef7;border:none;border-radius:5px;padding:2px 8px;font-size:10px;font-weight:600;cursor:pointer;">보기</button>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+      <template x-if="!attendance.loading && attendance.summary.length===0">
+        <div class="card text-center" style="padding:50px 20px;">
+          <span class="material-symbols-outlined" style="font-size:40px;color:#cbd5e1;display:block;margin-bottom:10px;">event_busy</span>
+          <p style="font-size:12px;color:#9ca3af;">해당 기간에 출퇴근 데이터가 없습니다</p>
+        </div>
+      </template>
+    </div>
+  </template>
+
+  <!-- ===== 전체 현황 — 가로 나열 컴팩트 카드 ===== -->
+  <template x-if="!attendance.leaveView && attendance.viewMode === 'grid'">
+    <div class="fade-in">
+      <template x-if="attendance.summary.length===0 && !attendance.loading">
+        <div class="card text-center" style="padding:50px 20px;">
+          <span class="material-symbols-outlined" style="font-size:36px;color:#e2e8f0;display:block;margin-bottom:8px;">grid_view</span>
+          <p style="font-size:11px;color:#9ca3af;">조회 버튼을 눌러 데이터를 불러오세요</p>
+        </div>
+      </template>
+
+      <template x-if="attendance.summary.length > 0">
+        <div>
+          <template x-for="group in groupedSummary" :key="group.dept">
+            <div style="margin-bottom:12px;">
+              <!-- 부서 헤더 -->
+              <div x-show="attendance.departments.length > 0" style="display:flex;align-items:center;gap:6px;margin-bottom:6px;padding:0 4px;">
+                <span class="material-symbols-outlined" style="font-size:14px;color:#7c3aed;">group</span>
+                <span style="font-size:11px;font-weight:700;color:#4b5563;" x-text="group.dept"></span>
+                <span style="font-size:10px;color:#9ca3af;" x-text="group.emps.length+'명'"></span>
+              </div>
+              <div class="att-grid" :class="{ 'single-emp': group.emps.length === 1 }">
+          <template x-for="emp in group.emps" :key="emp.employeeId">
+            <div class="att-card"
+              :draggable="auth.role==='admin'"
+              @dragstart.stop="auth.role==='admin' && onEmpDragStart($event,emp.employeeName,group.dept)"
+              @dragover.stop="auth.role==='admin' && onEmpDragOver($event,emp.employeeName,group.dept)"
+              @dragleave.stop="auth.role==='admin' && onEmpDragLeave($event,emp.employeeName)"
+              @drop.stop="auth.role==='admin' && onEmpDrop($event,emp.employeeName,group.dept)"
+              :style="attendance.dragOverEmp===emp.employeeName ? 'outline:2px dashed #4f6ef7;outline-offset:2px;opacity:0.7' : ''"
+              :class="{'cursor-grab': auth.role==='admin'}"
+              <!-- 카드 헤더 -->
+              <div class="att-card-head">
+                <div>
+                  <span class="emp-name" x-text="emp.employeeName"></span>
+                  <span class="emp-sub" x-text="(emp.position||'')"></span>
+                </div>
+                <div class="att-chips">
+                  <span x-show="emp.exemptDept" class="att-chip" style="background:#fef3c7;color:#b45309;">면제</span>
+                  <span class="att-chip" style="background:#dcfce7;color:#16a34a;" x-text="(emp.normalDays||0)+'일'"></span>
+                  <span x-show="!emp.exemptDept&&(emp.lateDays||0)>0" class="att-chip" style="background:#fee2e2;color:#ef4444;" x-text="'지각'+emp.lateDays"></span>
+                  <span x-show="(emp.annualDays||0)>0" class="att-chip" style="background:#fef3c7;color:#b45309;" x-text="'연차'+emp.annualDays"></span>
+                </div>
+              </div>
+
+              <!-- 테이블 스크롤 영역 -->
+              <div class="att-scroll">
+                <table class="att-tbl">
+                  <colgroup><col><col><col><col><col><col></colgroup>
+                  <thead>
+                    <tr>
+                      <th>일</th>
+                      <th>요</th>
+                      <th>출근</th>
+                      <th>퇴근</th>
+                      <th>상태</th>
+                      <th>비고</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="d in attendanceGrid.dates" :key="d.dateStr">
+                      <tr x-data="{
+                        get rec(){ return (emp.records||[]).find(r=>r.date===d.dateStr) },
+                        get isSun(){ return d.dayOfWeek===0 },
+                        get isSat(){ return d.dayOfWeek===6 },
+                        get isHoliday(){ return !!d.holiday },
+                        get isWE(){ if(d.dayOfWeek===0) return true; if(d.holiday) return true; if(d.dayOfWeek===6 && emp.saturdayWork && this.rec && this.rec.inTime) return false; return d.dayOfWeek===6; },
+                        get isLate(){ if(emp.exemptDept) return false; return this.rec&&this.rec.late },
+                        get lt(){ return this.rec?this.rec.leaveType:null },
+                        get isAnnual(){ return this.lt==='annual' },
+                        get isHalf(){ return this.lt==='halfAM'||this.lt==='halfPM' },
+                        get isNoswipe(){ return this.lt==='noswipe' },
+                        get isAbsent(){ return this.lt==='absent' },
+                        get isFuture(){ const today = new Date(); today.setHours(0,0,0,0); return new Date(d.dateStr+'T00:00:00') > today; },
+                        get noRecord(){ if(emp.exemptDept) return false; if(this.isFuture) return false; return !this.isWE && !this.rec },
+                        get earlyOut(){ if(!this.rec||!this.rec.outTime||this.isWE) return false; if(emp.flexDept||emp.exemptDept) return false; const p=this.rec.outTime.split(':'); return parseInt(p[0])<17; },
+                        editingIn: false, editingOut: false, editVal: '',
+                        startEdit(field) {
+                          if(auth.role!=='admin' || this.isWE) return;
+                          this.editVal = (this.rec ? (field==='in' ? this.rec.inTime : this.rec.outTime) : '') || '';
+                          if(field==='in') { this.editingIn=true; this.editingOut=false; }
+                          else { this.editingOut=true; this.editingIn=false; }
+                          this.$nextTick(()=>{ const inp=this.$el.querySelector('.att-inline-input'); if(inp) inp.focus(); });
+                        },
+                        saveEdit(field) {
+                          const newVal = this.editVal;
+                          const origIn = this.rec ? this.rec.inTime||'' : '';
+                          const origOut = this.rec ? this.rec.outTime||'' : '';
+                          const newIn = field==='in' ? newVal : origIn;
+                          const newOut = field==='out' ? newVal : origOut;
+                          const lt = this.rec ? this.rec.leaveType||'normal' : 'normal';
+                          const lbl = {'normal':'정상','annual':'연차','halfAM':'오전반차','halfPM':'오후반차','absent':'결근','noswipe':'출근미기록'}[lt]||lt;
+                          const changed = (field==='in' ? newVal!==origIn : newVal!==origOut);
+                          if(changed) {
+                            saveAttendanceNote(emp.employeeName, d.dateStr, lt, lbl, '', newIn, newOut);
+                            if(this.rec) {
+                              if(field==='in') { if(!this.rec.originalInTime&&this.rec.inTime) this.rec.originalInTime=this.rec.inTime; this.rec.inTime=newVal; }
+                              else { if(!this.rec.originalOutTime&&this.rec.outTime) this.rec.originalOutTime=this.rec.outTime; this.rec.outTime=newVal; }
+                              this.rec.timeModified=true;
+                            }
+                          }
+                          this.editingIn=false; this.editingOut=false;
+                        },
+                        _saved: false,
+                        saveLeaveType(val) {
+                          if(val==='__clear__') {
+                            deleteAttendanceNote(emp.employeeName, d.dateStr);
+                            if(this.rec && this.rec.manuallySet) {
+                              const idx = (emp.records||[]).indexOf(this.rec);
+                              if(idx>=0) emp.records.splice(idx,1);
+                            } else if(this.rec) {
+                              this.rec.leaveType='normal'; this.rec.leaveLabel='정상'; this.rec.manuallySet=false;
+                            }
+                            this._recalcEmpStats(emp);
+                            this._saved=true; setTimeout(()=>this._saved=false, 1500);
+                            return;
+                          }
+                          const lbl = {'normal':'정상','annual':'연차','halfAM':'오전반차','halfPM':'오후반차','absent':'결근','noswipe':'출근미기록'}[val]||val;
+                          saveAttendanceNote(emp.employeeName, d.dateStr, val, lbl, '', undefined, undefined);
+                          if(this.rec) { this.rec.leaveType=val; this.rec.leaveLabel=lbl; this.rec.manuallySet=true; }
+                          else if(emp.records) { emp.records.push({employeeId:emp.employeeName, employeeName:emp.employeeName, date:d.dateStr, inTime:null, outTime:null, leaveType:val, leaveLabel:lbl, late:false, lateMinutes:0, overtime:0, overtimeLabel:'', note:'', manuallySet:true}); }
+                          this._recalcEmpStats(emp);
+                          this._saved=true; setTimeout(()=>this._saved=false, 1500);
+                        },
+                        _recalcEmpStats(e) {
+                          const recs = e.records || [];
+                          let normal=0, late=0, leave=0, annual=0;
+                          for(const r of recs) {
+                            const lt = r.leaveType||'normal';
+                            if(lt==='annual') { leave+=1; annual++; }
+                            else if(lt==='halfAM'||lt==='halfPM') { leave+=0.5; normal+=0.5; }
+                            else if(lt==='normal' && r.inTime) { normal++; if(r.late) late++; }
+                          }
+                          e.normalDays = normal;
+                          e.lateDays = late;
+                          e.usedLeave = leave;
+                          e.annualDays = annual;
+                        }
+                      }"
+                        :class="{ 'row-sun':isSun&&!isHoliday, 'row-sat':isSat&&!isHoliday, 'row-holiday':isHoliday&&!isSun&&!isSat, 'row-nodata':noRecord&&!isWE }">
+
+                        <!-- 날짜 -->
+                        <td style="font-weight:600;" :title="d.holiday||''"><span x-text="d.day"></span><span x-show="isHoliday" class="att-holiday-dot"></span></td>
+                        <!-- 요일 -->
+                        <td style="font-size:9px;font-weight:500;" :title="d.holiday||''">
+                          <span x-text="isHoliday ? (d.holiday||'').replace(/\s*대체공휴일/,'(대)').substring(0,3) : ['일','월','화','수','목','금','토'][d.dayOfWeek]"
+                            :style="isHoliday ? 'color:#ef4444;font-weight:700;font-size:7px;' : ''"></span>
+                        </td>
+                        <!-- 출근 (인라인 편집) -->
+                        <td :class="[isLate?'t-late':(rec&&rec.inTime?'t-normal':'t-dim'), rec&&rec.timeModified?'att-time-modified':'']"
+                          :title="rec&&rec.originalInTime ? '원본: '+rec.originalInTime : ''"
+                          @click.stop="startEdit('in')" :style="auth.role==='admin'&&!isWE?'cursor:pointer':''">
+                          <template x-if="editingIn">
+                            <input type="text" class="att-inline-input" x-model="editVal" placeholder="00:00" maxlength="5"
+                              @blur="saveEdit('in')" @keydown.enter="$el.blur()" @keydown.escape="editingIn=false"
+                              @click.stop style="width:40px;font-size:10.5px;border:1px solid #4f6ef7;border-radius:2px;padding:0 2px;text-align:center;outline:none;font-family:inherit;">
+                          </template>
+                          <template x-if="!editingIn">
+                            <span x-text="rec&&rec.inTime ? rec.inTime : ''"></span>
+                          </template>
+                        </td>
+                        <!-- 퇴근 (인라인 편집) -->
+                        <td :class="[earlyOut?'t-early':(rec&&rec.outTime?'t-normal':'t-dim'), rec&&rec.timeModified?'att-time-modified':'']"
+                          :title="rec&&rec.originalOutTime ? '원본: '+rec.originalOutTime : ''"
+                          @click.stop="startEdit('out')" :style="auth.role==='admin'&&!isWE?'cursor:pointer':''">
+                          <template x-if="editingOut">
+                            <input type="text" class="att-inline-input" x-model="editVal" placeholder="00:00" maxlength="5"
+                              @blur="saveEdit('out')" @keydown.enter="$el.blur()" @keydown.escape="editingOut=false"
+                              @click.stop style="width:40px;font-size:10.5px;border:1px solid #4f6ef7;border-radius:2px;padding:0 2px;text-align:center;outline:none;font-family:inherit;">
+                          </template>
+                          <template x-if="!editingOut">
+                            <span x-text="rec&&rec.outTime ? rec.outTime : ''"></span>
+                          </template>
+                        </td>
+                        <!-- 상태 -->
+                        <td>
+                          <span x-show="isHoliday&&!isSun&&!isSat" class="att-status" style="background:#fecaca;color:#dc2626;font-size:7px;padding:0 3px;border-radius:3px;" x-text="(d.holiday||'').length>4?(d.holiday||'').substring(0,4):(d.holiday||'')"></span>
+                          <span x-show="isLate&&!isAnnual&&!isHalf&&!isHoliday" class="att-status att-status-late">지각</span>
+                          <span x-show="earlyOut&&!isAnnual&&!isHalf" class="att-status att-status-early">조퇴</span>
+                          <span x-show="!isWE&&rec&&!isLate&&!earlyOut&&!isAnnual&&!isHalf&&!isNoswipe&&!isAbsent" class="att-status att-status-ok">✓</span>
+                          <span x-show="noRecord&&!isHoliday" class="att-status" style="background:#fef3c7;color:#d97706;font-size:8px;padding:0 3px;border-radius:3px;">연차</span>
+                        </td>
+                        <!-- 비고 (인라인 근태 변경) -->
+                        <td style="text-align:left;padding-left:4px;">
+                          <div style="display:flex;align-items:center;gap:2px;">
+                            <template x-if="auth.role==='admin' && !isWE && !isFuture">
+                              <select @change="saveLeaveType($event.target.value)" @click.stop
+                                :value="noRecord && !rec ? 'annual' : (lt||'normal')"
+                                style="font-size:9px;border:1px solid #e2e6ee;border-radius:3px;padding:0 2px;background:#fff;cursor:pointer;max-width:60px;">
+                                <option value="normal">정상</option>
+                                <option value="annual">연차</option>
+                                <option value="halfAM">오전반차</option>
+                                <option value="halfPM">오후반차</option>
+                                <option value="absent">결근</option>
+                                <option value="noswipe">미기록</option>
+                                <option value="__clear__" x-show="rec&&rec.manuallySet" style="color:#dc2626;">✕ 제거</option>
+                              </select>
+                            </template>
+                            <template x-if="auth.role!=='admin' || isWE || isFuture">
+                              <span>
+                                <span x-show="isAnnual && !isFuture" class="bigo-badge bigo-annual">연차</span>
+                                <span x-show="lt==='halfAM' && !isFuture" class="bigo-badge bigo-halfAM">오전반차</span>
+                                <span x-show="lt==='halfPM' && !isFuture" class="bigo-badge bigo-halfPM">오후반차</span>
+                                <span x-show="isNoswipe && !isFuture" class="bigo-badge bigo-noswipe">미기록</span>
+                                <span x-show="isAbsent && !isFuture" class="bigo-badge bigo-absent">결근</span>
+                                <span x-show="lt==='holiday'" class="bigo-badge" style="background:#fecaca;color:#dc2626;" x-text="rec?rec.leaveLabel:''"></span>
+                              </span>
+                            </template>
+                            <span x-show="rec&&rec.timeModified" style="font-size:8px;color:#4f6ef7;" title="시간 수정됨">✎</span>
+                            <span x-show="_saved" x-transition.opacity style="font-size:8px;color:#16a34a;font-weight:700;">✓저장</span>
+                          </div>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- 카드 하단 -->
+              <div class="att-footer">
+                <span class="att-chip" style="background:#dcfce7;color:#16a34a;" x-text="'정상 '+(emp.normalDays||0)"></span>
+                <span x-show="(emp.usedLeave||0)>0" class="att-chip" style="background:#fef3c7;color:#b45309;" x-text="'연차 '+emp.usedLeave.toFixed(1)"></span>
+                <span x-show="(emp.lateDays||0)>0" class="att-chip" style="background:#fee2e2;color:#ef4444;" x-text="'지각 '+emp.lateDays"></span>
+                <span x-show="(emp.totalOvertimeMin||0)>0" class="att-chip" style="background:#ede9fe;color:#6366f1;" x-text="'추가 '+(emp.totalOvertimeMin/60).toFixed(1)+'h'"></span>
+                <button @click="openAttendanceDetail(emp)" class="ml-auto"
+                  style="background:#eef2ff;color:#4f6ef7;border:none;border-radius:5px;padding:2px 8px;font-size:9px;font-weight:600;cursor:pointer;">상세</button>
+              </div>
+            </div>
+          </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </template>
+    </div>
+  </template>
+
+  <!-- ===== 수정 요청 목록 (관리자) ===== -->
+  <template x-if="!attendance.leaveView && canViewAllAttendance && attendance.requests.filter(r=>r.status==='pending').length > 0">
+    <div class="card" style="padding:0;overflow:hidden;">
+      <div style="padding:7px 12px;background:linear-gradient(135deg,#fef3c7,#fde68a);border-bottom:1px solid #fbbf24;">
+        <h3 class="font-work text-[11px] font-bold text-amber-800 flex items-center gap-2 m-0">
+          <span class="material-symbols-outlined" style="font-size:14px;">pending_actions</span>
+          출퇴근 수정 요청
+          <span style="background:#dc2626;color:#fff;font-size:9px;padding:1px 5px;border-radius:8px;font-weight:700;"
+            x-text="attendance.requests.filter(r=>r.status==='pending').length"></span>
+        </h3>
+      </div>
+      <div style="padding:8px 12px;">
+        <template x-for="rq in attendance.requests.filter(r=>r.status==='pending')" :key="rq.id">
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f3f4f6;font-size:11px;">
+            <span style="font-weight:700;color:#1e293b;" x-text="rq.empName"></span>
+            <span style="color:#6b7280;" x-text="rq.date"></span>
+            <span x-show="rq.requestedInTime" style="color:#4f6ef7;font-weight:600;" x-text="'출근→'+rq.requestedInTime"></span>
+            <span x-show="rq.requestedOutTime" style="color:#4f6ef7;font-weight:600;" x-text="'퇴근→'+rq.requestedOutTime"></span>
+            <span x-show="rq.reason" style="color:#9ca3af;font-size:10px;" x-text="'('+rq.reason+')'"></span>
+            <div style="margin-left:auto;display:flex;gap:4px;">
+              <button @click="handleTimeRequest(rq.id,'approved')"
+                style="background:#16a34a;color:#fff;border:none;border-radius:4px;padding:2px 8px;font-size:10px;font-weight:600;cursor:pointer;">승인</button>
+              <button @click="handleTimeRequest(rq.id,'rejected')"
+                style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:2px 8px;font-size:10px;font-weight:600;cursor:pointer;">거절</button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </template>
+
+<!-- 시간 수정 요청 모달 (일반 사용자) -->
+<template x-if="attendance.timeEditModal.open">
+  <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" style="backdrop-filter:blur(4px);" @click.self="attendance.timeEditModal.open=false">
+    <div class="bg-white rounded-2xl shadow-2xl fade-in" style="width:340px;max-width:95vw;padding:20px;">
+      <h3 style="font-size:14px;font-weight:800;color:#1e293b;margin:0 0 14px;">출퇴근 시간 수정 요청</h3>
+      <div style="font-size:11px;color:#6b7280;margin-bottom:12px;">
+        <span x-text="attendance.timeEditModal.date"></span> 의 출퇴근 시간 수정을 관리자에게 요청합니다.
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <label style="font-size:11px;font-weight:600;width:40px;">출근</label>
+          <input type="text" x-model="attendance.timeEditModal.inTime" placeholder="00:00" maxlength="5"
+            style="flex:1;border:1px solid #e2e6ee;border-radius:6px;padding:4px 8px;font-size:12px;">
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <label style="font-size:11px;font-weight:600;width:40px;">퇴근</label>
+          <input type="text" x-model="attendance.timeEditModal.outTime" placeholder="00:00" maxlength="5"
+            style="flex:1;border:1px solid #e2e6ee;border-radius:6px;padding:4px 8px;font-size:12px;">
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <label style="font-size:11px;font-weight:600;width:40px;">사유</label>
+          <input type="text" x-model="attendance.timeEditModal.reason" placeholder="수정 사유 입력"
+            style="flex:1;border:1px solid #e2e6ee;border-radius:6px;padding:4px 8px;font-size:11px;">
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:6px;margin-top:14px;">
+        <button @click="attendance.timeEditModal.open=false"
+          style="background:#f3f4f6;color:#6b7280;border:none;border-radius:6px;padding:6px 14px;font-size:11px;font-weight:600;cursor:pointer;">취소</button>
+        <button @click="
+          submitTimeRequest(attendance.timeEditModal.date, attendance.timeEditModal.inTime, attendance.timeEditModal.outTime, attendance.timeEditModal.reason);
+          attendance.timeEditModal.open=false;
+        " style="background:#4f6ef7;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:11px;font-weight:600;cursor:pointer;">요청 보내기</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<!-- 개인별 상세 모달 -->
+<template x-if="attendance.detailModal.open">
+  <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" style="backdrop-filter:blur(4px);" @click.self="attendance.detailModal.open=false">
+    <div class="bg-white rounded-2xl shadow-2xl fade-in" style="width:420px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column;">
+
+      <!-- 모달 헤더 -->
+      <div style="padding:12px 16px;border-bottom:2px solid #e0e7ff;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;background:linear-gradient(135deg,#f8faff,#eef2ff);border-radius:16px 16px 0 0;">
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <span class="material-symbols-outlined" style="font-size:16px;color:#4f6ef7;">person_check</span>
+            <span style="font-size:14px;font-weight:800;color:#1e293b;" x-text="attendance.detailModal.name"></span>
+            <span style="font-size:11px;color:#6b7280;" x-text="attendance.year+'년 '+attendance.month+'월'"></span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;">
+            <span style="background:#dcfce7;color:#16a34a;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;" x-text="'정상 '+(attendance.detailModal.emp?.normalDays||0)+'일'"></span>
+            <span x-show="(attendance.detailModal.emp?.lateDays||0)>0" style="background:#fee2e2;color:#ef4444;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;" x-text="'지각 '+attendance.detailModal.emp?.lateDays+'건'"></span>
+            <span x-show="(attendance.detailModal.emp?.annualDays||0)>0" style="background:#fef3c7;color:#d97706;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;" x-text="'연차 '+attendance.detailModal.emp?.annualDays+'일'"></span>
+            <span x-show="(attendance.detailModal.emp?.totalOvertimeMin||0)>0" style="background:#ede9fe;color:#6366f1;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;" x-text="'추가근무 '+(attendance.detailModal.emp?.totalOvertimeHours||0).toFixed(2)+'h'"></span>
+          </div>
+        </div>
+        <button @click="attendance.detailModal.open=false" style="background:#e0e7ff;border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <span class="material-symbols-outlined" style="font-size:16px;color:#4f6ef7;">close</span>
+        </button>
+      </div>
+
+      <!-- 일별 기록 -->
+      <div style="flex:1;overflow-y:auto;">
+        <table class="att-tbl" style="font-size:12px;table-layout:fixed;">
+          <colgroup>
+            <col style="width:10%;">
+            <col style="width:8%;">
+            <col style="width:18%;">
+            <col style="width:18%;">
+            <col style="width:14%;">
+            <col style="width:32%;">
+          </colgroup>
+          <thead style="position:sticky;top:0;z-index:10;">
+            <tr style="background:#f8f9fb;border-bottom:1.5px solid #e0e4eb;">
+              <th style="padding:7px 6px;text-align:center;font-weight:700;color:#374151;font-size:11px;">일</th>
+              <th style="padding:7px 4px;text-align:center;font-weight:700;color:#374151;font-size:11px;">요</th>
+              <th style="padding:7px 8px;text-align:center;font-weight:700;color:#374151;font-size:11px;">출근</th>
+              <th style="padding:7px 8px;text-align:center;font-weight:700;color:#374151;font-size:11px;">퇴근</th>
+              <th style="padding:7px 4px;text-align:center;font-weight:700;color:#374151;font-size:11px;">상태</th>
+              <th style="padding:7px 8px;text-align:center;font-weight:700;color:#374151;font-size:11px;">비고</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="r in attendance.detailModal.records" :key="r.date">
+              <tr x-data="{
+                editingIn: false, editingOut: false, editVal: '',
+                get isWE(){ return r.dayOfWeek===0||r.dayOfWeek===6; },
+                get earlyOut(){ if(!r.outTime||this.isWE) return false; const de=attendance.detailModal.emp; if(de&&(de.flexDept||de.exemptDept)) return false; const p=r.outTime.split(':'); return parseInt(p[0])<17; },
+                startEdit(field) {
+                  if(auth.role!=='admin' || this.isWE) return;
+                  this.editVal = (field==='in' ? r.inTime : r.outTime) || '';
+                  if(field==='in') { this.editingIn=true; this.editingOut=false; }
+                  else { this.editingOut=true; this.editingIn=false; }
+                  this.$nextTick(()=>{ const inp=this.$el.querySelector('.att-detail-input'); if(inp) inp.focus(); });
+                },
+                saveEdit(field) {
+                  const newVal = this.editVal;
+                  const origIn = r.inTime||''; const origOut = r.outTime||'';
+                  const newIn = field==='in' ? newVal : origIn;
+                  const newOut = field==='out' ? newVal : origOut;
+                  const lt = r.leaveType||'normal';
+                  const lbl = {'normal':'정상','annual':'연차','halfAM':'오전반차','halfPM':'오후반차','absent':'결근','noswipe':'출근미기록'}[lt]||lt;
+                  const changed = (field==='in' ? newVal!==origIn : newVal!==origOut);
+                  if(changed) {
+                    saveAttendanceNote(attendance.detailModal.name, r.date, lt, lbl, '', newIn, newOut);
+                    if(field==='in') { if(!r.originalInTime&&r.inTime) r.originalInTime=r.inTime; r.inTime=newVal; r.modifiedInTime=newVal; }
+                    else { if(!r.originalOutTime&&r.outTime) r.originalOutTime=r.outTime; r.outTime=newVal; r.modifiedOutTime=newVal; }
+                    r.timeModified=true;
+                  }
+                  this.editingIn=false; this.editingOut=false;
+                },
+                saveLeaveType(val) {
+                  const lbl = {'normal':'정상','annual':'연차','halfAM':'오전반차','halfPM':'오후반차','absent':'결근','noswipe':'출근미기록'}[val]||val;
+                  saveAttendanceNote(attendance.detailModal.name, r.date, val, lbl, '', undefined, undefined);
+                  r.leaveType=val; r.leaveLabel=lbl; r.manuallySet=true;
+                }
+              }"
+                :style="
+                r.dayOfWeek===0 ? 'background:#fef2f2;border-bottom:1px solid #fecdd3;' :
+                r.dayOfWeek===6 ? 'background:#eff6ff;border-bottom:1px solid #bfdbfe;' :
+                (!r.inTime&&!r.outTime&&r.dayOfWeek!==0&&r.dayOfWeek!==6&&r.leaveType!=='annual'&&r.leaveType!=='halfAM'&&r.leaveType!=='halfPM'&&r.leaveType!=='weekend'&&r.leaveType!=='nodata') ? 'background:#fffbeb;border-bottom:1px solid #fde68a;' :
+                r.leaveType==='annual' ? 'background:#fefce8;border-bottom:1px solid #fef08a;' :
+                'border-bottom:1px solid #f3f4f6;'">
+                <td style="padding:6px;text-align:center;font-weight:700;"
+                  :style="r.dayOfWeek===0?'color:#ef4444;':r.dayOfWeek===6?'color:#3b82f6;':'color:#374151;'"
+                  x-text="(r.date||'').slice(-2).replace(/^0/,'')+'일'"></td>
+                <td style="padding:6px 4px;text-align:center;font-size:11px;font-weight:600;"
+                  :style="r.dayOfWeek===0?'color:#ef4444;':r.dayOfWeek===6?'color:#3b82f6;':'color:#9ca3af;'"
+                  x-text="['일','월','화','수','목','금','토'][r.dayOfWeek]||''"></td>
+                <!-- 출근 (인라인 편집) -->
+                <td style="padding:6px 8px;text-align:center;"
+                  :style="r.modifiedInTime?'color:#4f6ef7;font-style:italic;font-weight:600;':isWE?'color:#d1d5db;':r.late?'color:#ef4444;font-weight:700;':'color:#1e293b;font-weight:500;'"
+                  :title="r.originalInTime?'원본: '+r.originalInTime:''"
+                  @click.stop="startEdit('in')" :class="auth.role==='admin'&&!isWE?'cursor-pointer':''">
+                  <template x-if="editingIn">
+                    <input type="text" class="att-detail-input" x-model="editVal" placeholder="00:00" maxlength="5"
+                      @blur="saveEdit('in')" @keydown.enter="$el.blur()" @keydown.escape="editingIn=false"
+                      @click.stop style="width:50px;font-size:12px;border:1px solid #4f6ef7;border-radius:3px;padding:2px 4px;text-align:center;outline:none;font-family:inherit;">
+                  </template>
+                  <template x-if="!editingIn">
+                    <span x-text="r.inTime||''"></span>
+                  </template>
+                </td>
+                <!-- 퇴근 (인라인 편집) -->
+                <td style="padding:6px 8px;text-align:center;"
+                  :style="r.modifiedOutTime?'color:#4f6ef7;font-style:italic;font-weight:600;':earlyOut?'color:#ea580c;font-weight:700;':isWE?'color:#d1d5db;':'color:#1e293b;font-weight:500;'"
+                  :title="r.originalOutTime?'원본: '+r.originalOutTime:''"
+                  @click.stop="startEdit('out')" :class="auth.role==='admin'&&!isWE?'cursor-pointer':''">
+                  <template x-if="editingOut">
+                    <input type="text" class="att-detail-input" x-model="editVal" placeholder="00:00" maxlength="5"
+                      @blur="saveEdit('out')" @keydown.enter="$el.blur()" @keydown.escape="editingOut=false"
+                      @click.stop style="width:50px;font-size:12px;border:1px solid #4f6ef7;border-radius:3px;padding:2px 4px;text-align:center;outline:none;font-family:inherit;">
+                  </template>
+                  <template x-if="!editingOut">
+                    <span x-text="r.outTime||''"></span>
+                  </template>
+                </td>
+                <!-- 상태 -->
+                <td style="padding:4px;text-align:center;">
+                  <span x-show="r.late&&r.leaveType!=='annual'&&r.leaveType!=='halfAM'&&r.leaveType!=='halfPM'" class="att-status att-status-late">지각</span>
+                  <span x-show="earlyOut&&r.leaveType!=='annual'&&r.leaveType!=='halfAM'&&r.leaveType!=='halfPM'" class="att-status att-status-early">조퇴</span>
+                  <span x-show="!isWE&&r.inTime&&!r.late&&!earlyOut&&r.leaveType!=='annual'&&r.leaveType!=='halfAM'&&r.leaveType!=='halfPM'" class="att-status att-status-ok">✓</span>
+                </td>
+                <!-- 비고 (인라인 근태 변경) -->
+                <td style="padding:5px 8px;text-align:center;">
+                  <div style="display:flex;align-items:center;justify-content:center;gap:3px;">
+                    <template x-if="auth.role==='admin' && !isWE">
+                      <select @change="saveLeaveType($event.target.value)" @click.stop
+                        :value="r.leaveType||'normal'"
+                        style="font-size:10px;border:1px solid #e2e6ee;border-radius:3px;padding:1px 3px;background:#fff;cursor:pointer;">
+                        <option value="normal">정상</option>
+                        <option value="annual">연차</option>
+                        <option value="halfAM">오전반차</option>
+                        <option value="halfPM">오후반차</option>
+                        <option value="absent">결근</option>
+                        <option value="noswipe">미기록</option>
+                      </select>
+                    </template>
+                    <template x-if="auth.role!=='admin' || isWE">
+                      <span>
+                        <span x-show="r.leaveType&&r.leaveType!=='normal'&&r.leaveType!=='weekend'&&r.leaveType!=='nodata'"
+                          style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;"
+                          :style="leaveTypeStyle(r.leaveType)"
+                          x-text="r.leaveLabel"></span>
+                      </span>
+                    </template>
+                    <span x-show="r.timeModified" style="font-size:8px;color:#4f6ef7;" title="시간 수정됨">✎</span>
+                    <span x-show="r.note" style="font-size:9px;color:#6b7280;" x-text="r.note"></span>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</template>
+
+<!-- ===== 연차 현황 뷰 ===== -->
+<template x-if="attendance.leaveView">
+  <div class="space-y-4 fade-in">
+
+    <!-- 서브탭 + 연도 선택 -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:0 2px;">
+      <div style="display:flex;gap:4px;">
+        <button @click="attendance.leaveSubTab='summary'"
+          style="padding:6px 16px;border-radius:8px 8px 0 0;font-size:12px;font-weight:700;border:1px solid #fde68a;border-bottom:none;cursor:pointer;transition:all .2s;"
+          :style="attendance.leaveSubTab==='summary'?'background:#fef3c7;color:#92400e;':'background:#f8fafc;color:#9ca3af;'">
+          <span class="material-symbols-outlined" style="font-size:14px;vertical-align:-2px;">event_available</span> 연차 현황
+        </button>
+        <button @click="attendance.leaveSubTab='records'; loadLeaveRecordsList()"
+          style="padding:6px 16px;border-radius:8px 8px 0 0;font-size:12px;font-weight:700;border:1px solid #fde68a;border-bottom:none;cursor:pointer;transition:all .2s;"
+          :style="attendance.leaveSubTab==='records'?'background:#fef3c7;color:#92400e;':'background:#f8fafc;color:#9ca3af;'">
+          <span class="material-symbols-outlined" style="font-size:14px;vertical-align:-2px;">list_alt</span> 사용 내역
+        </button>
+        <button x-show="auth.role==='admin'" @click="attendance.leaveSubTab='adjustments'; loadAdjustments()"
+          style="padding:6px 16px;border-radius:8px 8px 0 0;font-size:12px;font-weight:700;border:1px solid #fde68a;border-bottom:none;cursor:pointer;transition:all .2s;"
+          :style="attendance.leaveSubTab==='adjustments'?'background:#fef3c7;color:#92400e;':'background:#f8fafc;color:#9ca3af;'">
+          <span class="material-symbols-outlined" style="font-size:14px;vertical-align:-2px;">tune</span> 추가/공제 내역
+        </button>
+      </div>
+      <!-- 연도 이동 -->
+      <div style="display:flex;align-items:center;gap:4px;">
+        <button @click="attendance.leaveYear--; loadLeaveSummary()"
+          style="background:#fef3c7;border:1px solid #fde68a;border-radius:6px;width:28px;height:28px;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+          <span class="material-symbols-outlined" style="font-size:16px;color:#92400e;">chevron_left</span>
+        </button>
+        <span style="font-size:13px;font-weight:800;color:#92400e;min-width:50px;text-align:center;" x-text="attendance.leaveYear + '년'"></span>
+        <button @click="attendance.leaveYear++; loadLeaveSummary()"
+          style="background:#fef3c7;border:1px solid #fde68a;border-radius:6px;width:28px;height:28px;cursor:pointer;display:flex;align-items:center;justify-content:center;"
+          :style="attendance.leaveYear >= new Date().getFullYear() ? 'opacity:0.3;pointer-events:none;' : ''">
+          <span class="material-symbols-outlined" style="font-size:16px;color:#92400e;">chevron_right</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 로딩 -->
+    <div x-show="attendance.leaveLoading" style="text-align:center;padding:40px;color:#9ca3af;font-size:13px;">
+      <span class="material-symbols-outlined" style="font-size:24px;animation:spin 1s linear infinite;">progress_activity</span>
+      <div>연차 데이터 로드 중...</div>
+    </div>
+
+    <!-- ── 서브탭1: 연차 현황 테이블 ── -->
+    <template x-if="!attendance.leaveLoading && attendance.leaveSummary.length > 0 && attendance.leaveSubTab==='summary'">
+      <div class="card" style="padding:0;overflow:hidden;">
+        <div style="padding:8px 14px;background:linear-gradient(135deg,#fefce8,#fef3c7);border-bottom:1px solid #fde68a;display:flex;align-items:center;justify-content:space-between;">
+          <h3 class="font-work text-[12px] font-bold text-amber-800 flex items-center gap-2 m-0">
+            <span class="material-symbols-outlined" style="font-size:15px;color:#d97706;">event_available</span>
+            <span x-text="attendance.leaveYear + '년 연차 현황'"></span>
+            <span style="font-size:10px;font-weight:500;color:#92400e;"
+              x-text="attendance.showResigned ? '(전체 '+attendance.leaveSummary.length+'명, 퇴사 '+attendance.leaveSummary.filter(e=>e.resignDate).length+'명)' : '(재직 '+attendance.leaveSummary.length+'명)'"></span>
+          </h3>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <label x-show="auth.role==='admin'" style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:10px;color:#6b7280;">
+              <input type="checkbox" :checked="attendance.showResigned"
+                @change="attendance.showResigned=!attendance.showResigned; loadLeaveSummary()"
+                style="width:14px;height:14px;cursor:pointer;">
+              <span>퇴사자 포함</span>
+            </label>
+            <button x-show="auth.role==='admin'" @click="syncLeaveFromAttendance()"
+              style="padding:3px 10px;font-size:10px;background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;border-radius:6px;cursor:pointer;font-weight:600;"
+              title="출퇴근 기록에서 연차/반차 데이터를 연차현황에 일괄 동기화합니다">
+              <span class="material-symbols-outlined" style="font-size:13px;vertical-align:-2px;">sync</span> 출퇴근 동기화
+            </button>
+            <button x-show="auth.role==='admin'" @click="openLeaveAdd('')"
+              style="background:#d97706;color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:10px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:3px;">
+              <span class="material-symbols-outlined" style="font-size:13px;">add</span> 휴가 등록
+            </button>
+          </div>
+        </div>
+        <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:11px;text-align:center;">
+            <thead>
+              <tr style="background:#fffbeb;border-bottom:2px solid #fde68a;">
+                <th style="padding:7px 6px;text-align:center;font-weight:700;color:#92400e;font-size:10px;white-space:nowrap;position:sticky;left:0;background:#fffbeb;z-index:5;">성명</th>
+                <th style="padding:7px 4px;text-align:center;font-weight:600;color:#92400e;font-size:10px;">부서</th>
+                <th style="padding:7px 4px;text-align:center;font-weight:600;color:#92400e;font-size:10px;">직위</th>
+                <th style="padding:7px 4px;text-align:center;font-weight:600;color:#92400e;font-size:9px;">입사일</th>
+                <th style="padding:7px 4px;text-align:center;font-weight:700;color:#1d4ed8;font-size:10px;">발생</th>
+                <th style="padding:7px 4px;text-align:center;font-weight:700;color:#16a34a;font-size:10px;">추가</th>
+                <th style="padding:7px 4px;text-align:center;font-weight:700;color:#dc2626;font-size:10px;">공제</th>
+                <th style="padding:7px 4px;text-align:center;font-weight:700;color:#7c3aed;font-size:10px;border-left:2px solid #e5e7eb;">총연차</th>
+                <th style="padding:7px 4px;text-align:center;font-weight:700;color:#ea580c;font-size:10px;">사용</th>
+                <th style="padding:7px 4px;text-align:center;font-weight:700;color:#6b7280;font-size:10px;">수당</th>
+                <th style="padding:7px 4px;text-align:center;font-weight:700;color:#059669;font-size:10px;border-left:2px solid #e5e7eb;">잔여</th>
+                <template x-for="m in [1,2,3,4,5,6,7,8,9,10,11,12]" :key="m">
+                  <th style="padding:7px 3px;text-align:center;font-weight:600;color:#78716c;font-size:9px;min-width:28px;border-left:1px solid #f3f4f6;" x-text="m+'월'"></th>
+                </template>
+                <th style="padding:7px 4px;text-align:center;font-weight:700;color:#374151;font-size:10px;border-left:2px solid #e5e7eb;">합계</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="emp in attendance.leaveSummary" :key="emp.name">
+                <tr style="border-bottom:1px solid #f3f4f6;" class="hover:bg-amber-50 cursor-pointer" @click="openLeaveDetail(emp)"
+                  :style="emp.resignDate ? 'opacity:0.5;background:#f9fafb;' : ''">
+                  <td style="padding:5px 6px;text-align:center;font-weight:700;white-space:nowrap;position:sticky;left:0;z-index:4;"
+                    :style="emp.resignDate ? 'color:#9ca3af;background:#f9fafb;' : 'color:#1e293b;background:#fff;'">
+                    <span x-text="emp.name"></span>
+                    <span x-show="emp.resignDate" style="font-size:8px;font-weight:600;color:#ef4444;background:#fee2e2;padding:0 3px;border-radius:3px;margin-left:2px;">퇴사</span>
+                  </td>
+                  <td style="padding:5px 4px;text-align:center;color:#6b7280;font-size:10px;" x-text="emp.department"></td>
+                  <td style="padding:5px 4px;text-align:center;color:#6b7280;font-size:10px;" @click.stop>
+                    <template x-if="auth.role==='admin'">
+                      <select :value="emp.position||''"
+                        @change="updateLeaveEmpField(emp.name, 'position', $event.target.value)"
+                        style="font-size:10px;border:1px solid #e2e6ee;border-radius:3px;padding:0 2px;background:#fff;cursor:pointer;color:#6b7280;text-align:center;max-width:70px;">
+                        <option value="">-</option>
+                        <option value="대표이사">대표이사</option>
+                        <option value="이사">이사</option>
+                        <option value="실장">실장</option>
+                        <option value="팀장">팀장</option>
+                        <option value="부장">부장</option>
+                        <option value="차장">차장</option>
+                        <option value="과장">과장</option>
+                        <option value="대리">대리</option>
+                        <option value="사원">사원</option>
+                      </select>
+                    </template>
+                    <template x-if="auth.role!=='admin'">
+                      <span x-text="emp.position"></span>
+                    </template>
+                  </td>
+                  <!-- 입사일 -->
+                  <td style="padding:5px 4px;text-align:center;color:#94a3b8;font-size:9px;white-space:nowrap;" x-text="emp.hireDate || '-'"></td>
+                  <!-- 발생 (연차 일수) -->
+                  <td style="padding:5px 4px;text-align:center;font-weight:600;color:#1d4ed8;" @click.stop>
+                    <template x-if="auth.role==='admin'">
+                      <div style="display:flex;align-items:center;justify-content:center;gap:2px;">
+                        <input type="number" :value="emp.annualLeave" min="0" max="25" step="1"
+                          @change="updateLeaveEmpField(emp.name, 'annualLeaveOverride', parseInt($event.target.value)||0)"
+                          style="width:36px;text-align:center;border:1px solid #e2e6ee;border-radius:3px;font-size:11px;font-weight:600;color:#1d4ed8;padding:1px;background:#fff;">
+                        <template x-if="emp.annualLeaveOverride!==null && emp.annualLeaveOverride!==undefined && emp.autoAnnualLeave!==emp.annualLeave">
+                          <span @click="updateLeaveEmpField(emp.name, 'annualLeaveOverride', null); emp.annualLeave=emp.autoAnnualLeave"
+                            style="cursor:pointer;font-size:8px;color:#9ca3af;" title="자동계산으로 복원">↺</span>
+                        </template>
+                        <span x-show="emp.autoAnnualLeave!==undefined && emp.autoAnnualLeave!==emp.annualLeave"
+                          style="font-size:8px;color:#9ca3af;"
+                          :title="'입사일('+emp.hireDate+') 기준 자동: '+emp.autoAnnualLeave+'일'"
+                          x-text="'('+emp.autoAnnualLeave+')'"></span>
+                      </div>
+                    </template>
+                    <template x-if="auth.role!=='admin'">
+                      <span x-text="emp.annualLeave"
+                        :title="emp.autoAnnualLeave!==undefined ? '입사일 기준: '+emp.autoAnnualLeave+'일' : ''"></span>
+                    </template>
+                  </td>
+                  <!-- 추가 (admin 수정 가능) -->
+                  <td style="padding:5px 4px;text-align:center;font-weight:600;" @click.stop>
+                    <template x-if="auth.role==='admin'">
+                      <input type="number" :value="emp.additionalDays||0" min="0" step="0.5"
+                        @change="updateLeaveEmpField(emp.name, 'additionalDays', parseFloat($event.target.value)||0)"
+                        style="width:36px;text-align:center;border:1px solid #e2e6ee;border-radius:3px;font-size:11px;font-weight:600;color:#16a34a;padding:1px;background:#fff;">
+                    </template>
+                    <template x-if="auth.role!=='admin'">
+                      <span :style="emp.additionalDays>0?'color:#16a34a':'color:#d1d5db'" x-text="emp.additionalDays||0"></span>
+                    </template>
+                  </td>
+                  <!-- 공제 (admin 수정 가능) -->
+                  <td style="padding:5px 4px;text-align:center;font-weight:600;" @click.stop>
+                    <template x-if="auth.role==='admin'">
+                      <input type="number" :value="emp.deductedDays||0" min="0" step="0.5"
+                        @change="updateLeaveEmpField(emp.name, 'deductedDays', parseFloat($event.target.value)||0)"
+                        style="width:36px;text-align:center;border:1px solid #e2e6ee;border-radius:3px;font-size:11px;font-weight:600;color:#dc2626;padding:1px;background:#fff;">
+                    </template>
+                    <template x-if="auth.role!=='admin'">
+                      <span :style="emp.deductedDays>0?'color:#dc2626':'color:#d1d5db'" x-text="emp.deductedDays||0"></span>
+                    </template>
+                  </td>
+                  <td style="padding:5px 4px;text-align:center;font-weight:700;color:#7c3aed;border-left:2px solid #e5e7eb;" x-text="emp.totalLeave"></td>
+                  <td style="padding:5px 4px;text-align:center;font-weight:700;" :style="emp.usedDays>0?'color:#ea580c':'color:#d1d5db'" x-text="emp.usedDays"></td>
+                  <!-- 수당 (admin 수정 가능) -->
+                  <td style="padding:5px 4px;text-align:center;font-weight:600;" @click.stop>
+                    <template x-if="auth.role==='admin'">
+                      <input type="number" :value="emp.paidDays||0" min="0" step="0.5"
+                        @change="updateLeaveEmpField(emp.name, 'paidDays', parseFloat($event.target.value)||0)"
+                        style="width:36px;text-align:center;border:1px solid #e2e6ee;border-radius:3px;font-size:11px;font-weight:600;color:#6b7280;padding:1px;background:#fff;">
+                    </template>
+                    <template x-if="auth.role!=='admin'">
+                      <span :style="emp.paidDays>0?'color:#6b7280':'color:#d1d5db'" x-text="emp.paidDays||0"></span>
+                    </template>
+                  </td>
+                  <td style="padding:5px 4px;text-align:center;font-weight:800;border-left:2px solid #e5e7eb;"
+                    :style="emp.remainingDays<=3?'color:#dc2626;':'color:#059669;'" x-text="emp.remainingDays"></td>
+                  <template x-for="m in [1,2,3,4,5,6,7,8,9,10,11,12]" :key="'m'+m">
+                    <td style="padding:5px 3px;text-align:center;font-size:10px;border-left:1px solid #f3f4f6;"
+                      :style="(emp.monthly[m]||0)>0?'color:#ea580c;font-weight:700;':'color:#e5e7eb;'"
+                      x-text="(emp.monthly[m]||0)>0 ? emp.monthly[m] : '-'"></td>
+                  </template>
+                  <td style="padding:5px 4px;text-align:center;font-weight:700;color:#374151;border-left:2px solid #e5e7eb;" x-text="emp.usedDays"></td>
+                </tr>
+              </template>
+            </tbody>
+            <!-- 합계 행 -->
+            <tfoot>
+              <tr style="background:#fef3c7;border-top:2px solid #fde68a;">
+                <td style="padding:6px;text-align:center;font-weight:800;color:#92400e;position:sticky;left:0;background:#fef3c7;z-index:4;">합계</td>
+                <td colspan="3"></td>
+                <td style="padding:6px 4px;text-align:center;font-weight:700;color:#1d4ed8;" x-text="attendance.leaveSummary.reduce((s,e)=>s+e.annualLeave,0)"></td>
+                <td style="padding:6px 4px;text-align:center;font-weight:700;color:#16a34a;" x-text="attendance.leaveSummary.reduce((s,e)=>s+(e.additionalDays||0),0)"></td>
+                <td style="padding:6px 4px;text-align:center;font-weight:700;color:#dc2626;" x-text="attendance.leaveSummary.reduce((s,e)=>s+(e.deductedDays||0),0)"></td>
+                <td style="padding:6px 4px;text-align:center;font-weight:700;color:#7c3aed;border-left:2px solid #e5e7eb;" x-text="attendance.leaveSummary.reduce((s,e)=>s+e.totalLeave,0)"></td>
+                <td style="padding:6px 4px;text-align:center;font-weight:700;color:#ea580c;" x-text="attendance.leaveSummary.reduce((s,e)=>s+e.usedDays,0)"></td>
+                <td style="padding:6px 4px;text-align:center;font-weight:700;color:#6b7280;" x-text="attendance.leaveSummary.reduce((s,e)=>s+(e.paidDays||0),0)"></td>
+                <td style="padding:6px 4px;text-align:center;font-weight:800;color:#059669;border-left:2px solid #e5e7eb;" x-text="attendance.leaveSummary.reduce((s,e)=>s+e.remainingDays,0)"></td>
+                <template x-for="m in [1,2,3,4,5,6,7,8,9,10,11,12]" :key="'ft'+m">
+                  <td style="padding:6px 3px;text-align:center;font-weight:700;color:#92400e;font-size:10px;border-left:1px solid #fde68a;"
+                    x-text="attendance.leaveSummary.reduce((s,e)=>s+(e.monthly[m]||0),0) || '-'"></td>
+                </template>
+                <td style="padding:6px 4px;text-align:center;font-weight:800;color:#374151;border-left:2px solid #e5e7eb;" x-text="attendance.leaveSummary.reduce((s,e)=>s+e.usedDays,0)"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </template>
+  </div>
+</template>
+
+<!-- ── 서브탭2: 사용 내역 전체 리스트 ── -->
+<template x-if="!attendance.leaveLoading && attendance.leaveSubTab==='records'">
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div style="padding:8px 14px;background:linear-gradient(135deg,#fefce8,#fef3c7);border-bottom:1px solid #fde68a;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;">
+      <h3 class="font-work text-[12px] font-bold text-amber-800 flex items-center gap-2 m-0">
+        <span class="material-symbols-outlined" style="font-size:15px;color:#d97706;">list_alt</span>
+        <span x-text="attendance.leaveYear + '년 사용 내역'"></span>
+      </h3>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        <!-- 직원 필터 -->
+        <select x-model="attendance.recordsFilter.name"
+          style="border:1px solid #e2e6ee;border-radius:6px;padding:3px 8px;font-size:10px;background:#fff;">
+          <option value="">전체 직원</option>
+          <template x-for="emp in attendance.leaveSummary" :key="emp.name">
+            <option :value="emp.name" x-text="emp.name"></option>
+          </template>
+        </select>
+        <!-- 유형 필터 -->
+        <select x-model="attendance.recordsFilter.type"
+          style="border:1px solid #e2e6ee;border-radius:6px;padding:3px 8px;font-size:10px;background:#fff;">
+          <option value="">전체 유형</option>
+          <template x-for="lt in attendance.leaveTypes" :key="lt.name">
+            <option :value="lt.name" x-text="lt.name"></option>
+          </template>
+        </select>
+        <!-- 월 필터 -->
+        <select x-model="attendance.recordsFilter.month"
+          style="border:1px solid #e2e6ee;border-radius:6px;padding:3px 8px;font-size:10px;background:#fff;">
+          <option value="">전체 월</option>
+          <template x-for="m in [1,2,3,4,5,6,7,8,9,10,11,12]" :key="m">
+            <option :value="m" x-text="m+'월'"></option>
+          </template>
+        </select>
+      </div>
+    </div>
+
+    <!-- 내역 테이블 -->
+    <div style="overflow-x:auto;max-height:60vh;overflow-y:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead style="position:sticky;top:0;z-index:3;">
+          <tr style="background:#fffbeb;border-bottom:2px solid #fde68a;">
+            <th style="padding:7px 8px;text-align:center;font-weight:700;color:#92400e;font-size:10px;">날짜</th>
+            <th style="padding:7px 8px;text-align:center;font-weight:700;color:#92400e;font-size:10px;">직원</th>
+            <th style="padding:7px 8px;text-align:center;font-weight:700;color:#92400e;font-size:10px;">부서</th>
+            <th style="padding:7px 8px;text-align:center;font-weight:700;color:#92400e;font-size:10px;">유형</th>
+            <th style="padding:7px 8px;text-align:center;font-weight:700;color:#92400e;font-size:10px;">일수</th>
+            <th style="padding:7px 8px;text-align:center;font-weight:700;color:#92400e;font-size:10px;">연차차감</th>
+            <th style="padding:7px 8px;text-align:left;font-weight:700;color:#92400e;font-size:10px;">사유</th>
+            <th x-show="auth.role==='admin'" style="padding:7px;text-align:center;font-weight:700;color:#92400e;font-size:10px;width:40px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="rec in filteredLeaveRecords()" :key="rec.id">
+            <tr style="border-bottom:1px solid #f3f4f6;" class="hover:bg-amber-50">
+              <td style="padding:6px 8px;text-align:center;font-weight:600;color:#374151;white-space:nowrap;" x-text="rec.date"></td>
+              <td style="padding:6px 8px;text-align:center;font-weight:700;color:#1e293b;" x-text="rec.employeeName"></td>
+              <td style="padding:6px 8px;text-align:center;color:#6b7280;font-size:10px;" x-text="rec._dept || ''"></td>
+              <td style="padding:6px 8px;text-align:center;">
+                <span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;"
+                  :style="rec.leaveType==='연차'?'background:#fef3c7;color:#b45309;':
+                          rec.leaveType==='반차'?'background:#dbeafe;color:#1d4ed8;':
+                          rec.leaveType.startsWith('경조')?'background:#fce7f3;color:#be185d;':
+                          rec.leaveType.startsWith('예비군')||rec.leaveType==='민방위'?'background:#d1fae5;color:#047857;':
+                          rec.leaveType==='병가'?'background:#fee2e2;color:#dc2626;':
+                          'background:#f3f4f6;color:#6b7280;'"
+                  x-text="rec.leaveType"></span>
+              </td>
+              <td style="padding:6px 8px;text-align:center;font-weight:600;color:#ea580c;" x-text="(rec.annualDays||0)+(rec.nonAnnualDays||0)"></td>
+              <td style="padding:6px 8px;text-align:center;" :style="rec.annualDays>0?'color:#dc2626;font-weight:700;':'color:#d1d5db;'" x-text="rec.annualDays>0?rec.annualDays+'일':'-'"></td>
+              <td style="padding:6px 8px;text-align:left;color:#6b7280;font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" :title="rec.reason||''" x-text="rec.reason||''"></td>
+              <td x-show="auth.role==='admin'" style="padding:6px;text-align:center;">
+                <button @click.stop="deleteLeaveRecord(rec.id)"
+                  style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:12px;" title="삭제">
+                  <span class="material-symbols-outlined" style="font-size:14px;">delete</span>
+                </button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <div x-show="filteredLeaveRecords().length===0" style="text-align:center;padding:30px;color:#9ca3af;font-size:12px;">
+        해당 조건의 내역이 없습니다
+      </div>
+    </div>
+
+    <!-- 합계 -->
+    <div style="padding:8px 14px;background:#fef3c7;border-top:2px solid #fde68a;display:flex;gap:16px;font-size:11px;font-weight:700;color:#92400e;">
+      <span x-text="'총 ' + filteredLeaveRecords().length + '건'"></span>
+      <span x-text="'연차차감 ' + filteredLeaveRecords().reduce((s,r)=>s+(r.annualDays||0),0) + '일'"></span>
+      <span x-text="'기타 ' + filteredLeaveRecords().reduce((s,r)=>s+(r.nonAnnualDays||0),0) + '일'"></span>
+    </div>
+  </div>
+</template>
+
+<!-- ── 서브탭3: 추가/공제 내역 (admin only) ── -->
+<template x-if="!attendance.leaveLoading && attendance.leaveSubTab==='adjustments' && auth.role==='admin'">
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div style="padding:8px 14px;background:linear-gradient(135deg,#fefce8,#fef3c7);border-bottom:1px solid #fde68a;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;">
+      <h3 class="font-work text-[12px] font-bold text-amber-800 flex items-center gap-2 m-0">
+        <span class="material-symbols-outlined" style="font-size:15px;color:#d97706;">tune</span>
+        <span x-text="attendance.leaveYear + '년 추가/공제 내역'"></span>
+        <span style="font-size:10px;font-weight:500;color:#92400e;" x-text="'('+attendance.adjustmentsList.length+'건)'"></span>
+      </h3>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        <select x-model="attendance.adjustmentsFilter.name"
+          style="border:1px solid #e2e6ee;border-radius:6px;padding:3px 8px;font-size:10px;background:#fff;">
+          <option value="">전체 직원</option>
+          <template x-for="emp in attendance.leaveSummary" :key="'af'+emp.name">
+            <option :value="emp.name" x-text="emp.name"></option>
+          </template>
+        </select>
+        <select x-model="attendance.adjustmentsFilter.type"
+          style="border:1px solid #e2e6ee;border-radius:6px;padding:3px 8px;font-size:10px;background:#fff;">
+          <option value="">전체 유형</option>
+          <option value="추가">추가</option>
+          <option value="공제">공제</option>
+          <option value="수당지급">수당지급</option>
+        </select>
+        <button @click="attendance.adjustmentAddModal.open=true; attendance.adjustmentAddModal.year=attendance.leaveYear"
+          style="background:#d97706;color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:10px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:3px;">
+          <span class="material-symbols-outlined" style="font-size:13px;">add</span> 등록
+        </button>
+      </div>
+    </div>
+
+    <div style="overflow-x:auto;max-height:60vh;overflow-y:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead style="position:sticky;top:0;z-index:3;">
+          <tr style="background:#fffbeb;border-bottom:2px solid #fde68a;">
+            <th style="padding:7px 8px;text-align:center;font-weight:700;color:#92400e;font-size:10px;">직원</th>
+            <th style="padding:7px 8px;text-align:center;font-weight:700;color:#92400e;font-size:10px;">연도</th>
+            <th style="padding:7px 8px;text-align:center;font-weight:700;color:#92400e;font-size:10px;">구분</th>
+            <th style="padding:7px 8px;text-align:center;font-weight:700;color:#92400e;font-size:10px;">일수</th>
+            <th style="padding:7px 8px;text-align:left;font-weight:700;color:#92400e;font-size:10px;">사유</th>
+            <th style="padding:7px 8px;text-align:center;font-weight:700;color:#92400e;font-size:10px;">등록일</th>
+            <th style="padding:7px;text-align:center;font-weight:700;color:#92400e;font-size:10px;width:40px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="adj in filteredAdjustments()" :key="adj.id">
+            <tr style="border-bottom:1px solid #f3f4f6;" class="hover:bg-amber-50">
+              <td style="padding:6px 8px;text-align:center;font-weight:700;color:#1e293b;" x-text="adj.employeeName"></td>
+              <td style="padding:6px 8px;text-align:center;color:#6b7280;" x-text="adj.year+'년'"></td>
+              <td style="padding:6px 8px;text-align:center;">
+                <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;"
+                  :style="adj.type==='추가'?'background:#d1fae5;color:#047857;':
+                          adj.type==='공제'?'background:#fee2e2;color:#dc2626;':
+                          'background:#dbeafe;color:#1d4ed8;'"
+                  x-text="adj.type"></span>
+              </td>
+              <td style="padding:6px 8px;text-align:center;font-weight:700;"
+                :style="adj.type==='추가'?'color:#16a34a;':adj.type==='공제'?'color:#dc2626;':'color:#1d4ed8;'"
+                x-text="adj.days+'일'"></td>
+              <td style="padding:6px 8px;text-align:left;color:#6b7280;font-size:10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                :title="adj.reason||''" x-text="adj.reason||'-'"></td>
+              <td style="padding:6px 8px;text-align:center;color:#94a3b8;font-size:10px;" x-text="adj.createdAt||''"></td>
+              <td style="padding:6px;text-align:center;">
+                <button @click.stop="deleteAdjustment(adj.id)"
+                  style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:12px;" title="삭제">
+                  <span class="material-symbols-outlined" style="font-size:14px;">delete</span>
+                </button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <div x-show="filteredAdjustments().length===0" style="text-align:center;padding:30px;color:#9ca3af;font-size:12px;">
+        해당 연도의 추가/공제 내역이 없습니다
+      </div>
+    </div>
+
+    <!-- 합계 -->
+    <div style="padding:8px 14px;background:#fef3c7;border-top:2px solid #fde68a;display:flex;gap:16px;font-size:11px;font-weight:700;color:#92400e;">
+      <span x-text="'총 ' + filteredAdjustments().length + '건'"></span>
+      <span style="color:#16a34a;" x-text="'추가 ' + filteredAdjustments().filter(a=>a.type==='추가').reduce((s,a)=>s+a.days,0) + '일'"></span>
+      <span style="color:#dc2626;" x-text="'공제 ' + filteredAdjustments().filter(a=>a.type==='공제').reduce((s,a)=>s+a.days,0) + '일'"></span>
+      <span style="color:#1d4ed8;" x-text="'수당 ' + filteredAdjustments().filter(a=>a.type==='수당지급').reduce((s,a)=>s+a.days,0) + '일'"></span>
+    </div>
+  </div>
+</template>
+
+<!-- 추가/공제 등록 모달 -->
+<template x-if="attendance.adjustmentAddModal.open">
+  <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" style="backdrop-filter:blur(4px);" @click.self="attendance.adjustmentAddModal.open=false">
+    <div class="bg-white rounded-2xl shadow-2xl fade-in" style="width:380px;max-width:95vw;padding:20px;">
+      <h3 style="font-size:14px;font-weight:800;color:#1e293b;margin:0 0 14px;display:flex;align-items:center;gap:6px;">
+        <span class="material-symbols-outlined" style="font-size:18px;color:#d97706;">tune</span> 추가/공제 등록
+      </h3>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <label style="font-size:11px;font-weight:600;width:50px;">직원</label>
+          <select x-model="attendance.adjustmentAddModal.employeeName"
+            style="flex:1;border:1px solid #e2e6ee;border-radius:6px;padding:5px 8px;font-size:12px;">
+            <option value="">선택...</option>
+            <template x-for="emp in attendance.leaveSummary" :key="'adjm'+emp.name">
+              <option :value="emp.name" x-text="emp.name+' ('+emp.department+')'"></option>
+            </template>
+          </select>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <label style="font-size:11px;font-weight:600;width:50px;">연도</label>
+          <input type="number" x-model.number="attendance.adjustmentAddModal.year" min="2010" max="2030"
+            style="flex:1;border:1px solid #e2e6ee;border-radius:6px;padding:5px 8px;font-size:12px;">
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <label style="font-size:11px;font-weight:600;width:50px;">구분</label>
+          <select x-model="attendance.adjustmentAddModal.type"
+            style="flex:1;border:1px solid #e2e6ee;border-radius:6px;padding:5px 8px;font-size:12px;">
+            <option value="추가">추가</option>
+            <option value="공제">공제</option>
+            <option value="수당지급">수당지급</option>
+          </select>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <label style="font-size:11px;font-weight:600;width:50px;">일수</label>
+          <input type="number" x-model.number="attendance.adjustmentAddModal.days" min="0" step="0.5"
+            style="flex:1;border:1px solid #e2e6ee;border-radius:6px;padding:5px 8px;font-size:12px;">
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <label style="font-size:11px;font-weight:600;width:50px;">사유</label>
+          <input type="text" x-model="attendance.adjustmentAddModal.reason" placeholder="사유 입력"
+            style="flex:1;border:1px solid #e2e6ee;border-radius:6px;padding:5px 8px;font-size:12px;">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+        <button @click="attendance.adjustmentAddModal.open=false"
+          style="background:#f3f4f6;border:1px solid #e2e6ee;border-radius:8px;padding:6px 16px;font-size:11px;font-weight:600;cursor:pointer;color:#6b7280;">취소</button>
+        <button @click="addAdjustment()"
+          style="background:#d97706;color:#fff;border:none;border-radius:8px;padding:6px 16px;font-size:11px;font-weight:700;cursor:pointer;">등록</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<!-- 휴가 등록 모달 -->
+<template x-if="attendance.leaveAddModal.open">
+  <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" style="backdrop-filter:blur(4px);" @click.self="attendance.leaveAddModal.open=false">
+    <div class="bg-white rounded-2xl shadow-2xl fade-in" style="width:380px;max-width:95vw;padding:20px;">
+      <h3 style="font-size:14px;font-weight:800;color:#1e293b;margin:0 0 14px;display:flex;align-items:center;gap:6px;">
+        <span class="material-symbols-outlined" style="font-size:18px;color:#d97706;">event_available</span> 휴가 등록
+      </h3>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <label style="font-size:11px;font-weight:600;width:50px;">직원</label>
+          <select x-model="attendance.leaveAddModal.employeeName"
+            style="flex:1;border:1px solid #e2e6ee;border-radius:6px;padding:5px 8px;font-size:12px;">
+            <option value="">선택...</option>
+            <template x-for="emp in attendance.leaveSummary" :key="emp.name">
+              <option :value="emp.name" x-text="emp.name+' ('+emp.department+')'"></option>
+            </template>
+          </select>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <label style="font-size:11px;font-weight:600;width:50px;">날짜</label>
+          <input type="date" x-model="attendance.leaveAddModal.date"
+            style="flex:1;border:1px solid #e2e6ee;border-radius:6px;padding:5px 8px;font-size:12px;">
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <label style="font-size:11px;font-weight:600;width:50px;">유형</label>
+          <select x-model="attendance.leaveAddModal.leaveType" @change="
+            const lt = attendance.leaveTypes.find(t=>t.name===attendance.leaveAddModal.leaveType);
+            if(lt) attendance.leaveAddModal.days = lt.days;
+          " style="flex:1;border:1px solid #e2e6ee;border-radius:6px;padding:5px 8px;font-size:12px;">
+            <template x-for="lt in attendance.leaveTypes" :key="lt.name">
+              <option :value="lt.name" x-text="lt.name + ' (' + lt.days + '일)'"></option>
+            </template>
+          </select>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <label style="font-size:11px;font-weight:600;width:50px;">일수</label>
+          <input type="number" x-model.number="attendance.leaveAddModal.days" step="0.25" min="0.25"
+            style="flex:1;border:1px solid #e2e6ee;border-radius:6px;padding:5px 8px;font-size:12px;">
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <label style="font-size:11px;font-weight:600;width:50px;">사유</label>
+          <input type="text" x-model="attendance.leaveAddModal.reason" placeholder="사유 입력 (선택)"
+            style="flex:1;border:1px solid #e2e6ee;border-radius:6px;padding:5px 8px;font-size:11px;">
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:6px;margin-top:16px;">
+        <button @click="attendance.leaveAddModal.open=false"
+          style="background:#f3f4f6;color:#6b7280;border:none;border-radius:6px;padding:6px 14px;font-size:11px;font-weight:600;cursor:pointer;">취소</button>
+        <button @click="addLeaveRecord()"
+          style="background:#d97706;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:11px;font-weight:700;cursor:pointer;">등록</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<!-- 연차 상세 모달 -->
+<template x-if="attendance.leaveDetailModal.open">
+  <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" style="backdrop-filter:blur(4px);" @click.self="attendance.leaveDetailModal.open=false">
+    <div class="bg-white rounded-2xl shadow-2xl fade-in" style="width:520px;max-width:95vw;max-height:85vh;display:flex;flex-direction:column;">
+      <!-- 헤더 -->
+      <div style="padding:14px 18px;border-bottom:2px solid #fde68a;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;background:linear-gradient(135deg,#fefce8,#fef3c7);border-radius:16px 16px 0 0;">
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <span class="material-symbols-outlined" style="font-size:16px;color:#d97706;">person</span>
+            <span style="font-size:14px;font-weight:800;color:#1e293b;" x-text="attendance.leaveDetailModal.emp?.name"></span>
+            <span style="font-size:11px;color:#6b7280;" x-text="(attendance.leaveDetailModal.emp?.department||'')+' / '+(attendance.leaveDetailModal.emp?.position||'')"></span>
+            <span x-show="attendance.leaveDetailModal.emp?.resignDate"
+              style="font-size:9px;font-weight:700;color:#ef4444;background:#fee2e2;padding:1px 6px;border-radius:4px;"
+              x-text="'퇴사 ('+attendance.leaveDetailModal.emp?.resignDate+')'"></span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;">
+            <span style="background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;"
+              x-text="'총연차 '+attendance.leaveDetailModal.emp?.totalLeave+'일'"></span>
+            <span style="background:#fee2e2;color:#ea580c;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;"
+              x-text="'사용 '+attendance.leaveDetailModal.emp?.usedDays+'일'"></span>
+            <span style="font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;"
+              :style="attendance.leaveDetailModal.emp?.remainingDays<=3?'background:#fee2e2;color:#dc2626;':'background:#dcfce7;color:#059669;'"
+              x-text="'잔여 '+attendance.leaveDetailModal.emp?.remainingDays+'일'"></span>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <button x-show="auth.role==='admin'" @click="openLeaveAdd(attendance.leaveDetailModal.emp?.name)"
+            style="background:#d97706;color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:10px;font-weight:600;cursor:pointer;">+ 추가</button>
+          <button @click="attendance.leaveDetailModal.open=false" style="background:#fde68a;border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+            <span class="material-symbols-outlined" style="font-size:16px;color:#92400e;">close</span>
+          </button>
+        </div>
+      </div>
+      <!-- 유형별 요약 -->
+      <template x-if="attendance.leaveDetailModal.emp?.byType && Object.keys(attendance.leaveDetailModal.emp.byType).length > 0">
+        <div style="padding:10px 14px;background:#fafafa;border-bottom:1px solid #e5e7eb;display:flex;flex-wrap:wrap;gap:5px;">
+          <template x-for="(days, typeName) in attendance.leaveDetailModal.emp.byType" :key="typeName">
+            <span style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:12px;font-size:10px;font-weight:600;"
+              :style="typeName==='연차'?'background:#fef3c7;color:#b45309;':
+                       typeName==='반차'?'background:#dbeafe;color:#1d4ed8;':
+                       typeName.startsWith('경조')?'background:#fce7f3;color:#be185d;':
+                       typeName.startsWith('예비군')||typeName==='민방위'?'background:#d1fae5;color:#047857;':
+                       'background:#f3f4f6;color:#6b7280;'">
+              <span x-text="typeName"></span>
+              <span style="font-weight:800;" x-text="days+'일'"></span>
+            </span>
+          </template>
+        </div>
+      </template>
+      <!-- 사용 내역 -->
+      <div style="flex:1;overflow-y:auto;padding:0;">
+        <template x-if="attendance.leaveDetailModal.records.length === 0">
+          <div style="text-align:center;padding:30px;color:#9ca3af;font-size:12px;">사용 내역이 없습니다</div>
+        </template>
+        <template x-if="attendance.leaveDetailModal.records.length > 0">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead>
+              <tr style="background:#fffbeb;border-bottom:1.5px solid #fde68a;">
+                <th style="padding:8px;text-align:center;font-weight:700;color:#92400e;font-size:10px;">날짜</th>
+                <th style="padding:8px;text-align:center;font-weight:700;color:#92400e;font-size:10px;">유형</th>
+                <th style="padding:8px;text-align:center;font-weight:700;color:#92400e;font-size:10px;">일수</th>
+                <th style="padding:8px;text-align:center;font-weight:700;color:#92400e;font-size:10px;">연차차감</th>
+                <th style="padding:8px;text-align:left;font-weight:700;color:#92400e;font-size:10px;">사유</th>
+                <th x-show="auth.role==='admin'" style="padding:8px;text-align:center;font-weight:700;color:#92400e;font-size:10px;width:40px;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="rec in attendance.leaveDetailModal.records.sort((a,b)=>a.date.localeCompare(b.date))" :key="rec.id">
+                <tr style="border-bottom:1px solid #f3f4f6;" class="hover:bg-amber-50">
+                  <td style="padding:6px 8px;text-align:center;font-weight:600;color:#374151;" x-text="rec.date"></td>
+                  <td style="padding:6px 8px;text-align:center;">
+                    <span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;"
+                      :style="rec.leaveType==='연차'?'background:#fef3c7;color:#b45309;':
+                              rec.leaveType==='반차'?'background:#dbeafe;color:#1d4ed8;':
+                              rec.leaveType.startsWith('경조')?'background:#fce7f3;color:#be185d;':
+                              rec.leaveType.startsWith('예비군')||rec.leaveType==='민방위'?'background:#d1fae5;color:#047857;':
+                              rec.leaveType==='병가'?'background:#fee2e2;color:#dc2626;':
+                              'background:#f3f4f6;color:#6b7280;'"
+                      x-text="rec.leaveType"></span>
+                  </td>
+                  <td style="padding:6px 8px;text-align:center;font-weight:600;color:#ea580c;" x-text="(rec.annualDays||0)+(rec.nonAnnualDays||0)"></td>
+                  <td style="padding:6px 8px;text-align:center;" :style="rec.annualDays>0?'color:#dc2626;font-weight:700;':'color:#d1d5db;'" x-text="rec.annualDays>0?rec.annualDays:'-'"></td>
+                  <td style="padding:6px 8px;text-align:left;color:#6b7280;font-size:11px;" x-text="rec.reason||''"></td>
+                  <td x-show="auth.role==='admin'" style="padding:6px;text-align:center;">
+                    <button @click.stop="deleteLeaveRecord(rec.id)"
+                      style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:12px;" title="삭제">
+                      <span class="material-symbols-outlined" style="font-size:14px;">delete</span>
+                    </button>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </template>
+      </div>
+    </div>
+  </div>
+</template>
+
+</div>
+</div>

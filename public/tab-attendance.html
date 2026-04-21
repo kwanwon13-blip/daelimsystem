@@ -25,10 +25,14 @@
   .status-absent { background:#fef2f2; color:#991b1b; border:1px solid #fecaca; }
   .row-absent td { background:#fff5f5; }
   /* ── 테이블 ── */
-  .att-tbl { width:100%; border-collapse:collapse; font-size:10.5px; }
-  .att-tbl thead th { padding:3px 4px; text-align:center; font-weight:700; color:#6b7280; font-size:9px; background:#f8f9fb; border-bottom:1.5px solid #e0e4eb; position:sticky; top:0; z-index:2; }
-  .att-tbl tbody td { padding:2px 3px; text-align:center; border-bottom:1px solid #f3f4f6; font-size:10px; line-height:1.2; }
+  .att-tbl { width:100%; border-collapse:collapse; font-size:10.5px; table-layout:fixed; }
+  .att-tbl thead th { padding:3px 4px; text-align:center; font-weight:700; color:#6b7280; font-size:9px; background:#f8f9fb; border-bottom:1.5px solid #e0e4eb; border-right:1px solid #e5e7eb; position:sticky; top:0; z-index:2; }
+  .att-tbl thead th:last-child { border-right:none; }
+  .att-tbl tbody td { padding:2px 3px; text-align:center; border-bottom:1px solid #f3f4f6; border-right:1px solid #f1f5f9; font-size:10px; line-height:1.2; overflow:hidden; }
+  .att-tbl tbody td:last-child { border-right:none; }
   .att-tbl tbody tr:hover { background:#f8faff; }
+  /* ── 비고 셀 (긴 텍스트 줄바꿈) ── */
+  .att-tbl td.att-note { font-size:9px; color:#6b7280; text-align:left; padding:3px 5px; line-height:1.3; word-break:break-word; white-space:normal; vertical-align:top; }
   /* ── 행 색상 ── */
   .att-tbl tr.row-sun { background:#fee2e2; border-left:3px solid #ef4444; }
   .att-tbl tr.row-sun td { color:#b91c1c; font-weight:600; }
@@ -670,7 +674,7 @@
                         </template>
                       </td>
                       <!-- 비고 -->
-                      <td style="font-size:9px;color:#6b7280;text-align:left;padding-left:6px;" x-text="d.rec ? (d.rec.note||'') : ''"></td>
+                      <td class="att-note" :title="d.rec && d.rec.note ? d.rec.note : ''" x-text="d.rec ? (d.rec.note||'') : ''"></td>
                     </tr>
                   </template>
                 </tbody>
@@ -934,7 +938,7 @@
                         </template>
                         <template x-if="!d.isWeekend && !d.isHoliday && !d.rec"><span class="t-dim">—</span></template>
                       </td>
-                      <td style="font-size:9px;color:#6b7280;text-align:left;padding-left:6px;" x-text="d.rec?d.rec.note||'':''"></td>
+                      <td class="att-note" :title="d.rec && d.rec.note ? d.rec.note : ''" x-text="d.rec?d.rec.note||'':''"></td>
                     </tr>
                   </template>
                 </tbody>

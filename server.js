@@ -68,6 +68,13 @@ function buildIndexHtml() {
 }
 
 app.get('/api/admin/clear-cache', (req, res) => {
+  // 로그인 + 관리자 권한 확인 (require() 이전이라 직접 체크)
+  const { sessions, parseCookies } = require('./middleware/auth');
+  const cookies = parseCookies(req);
+  const token = cookies.session_token || req.headers['x-session-token'];
+  const sess = token ? sessions[token] : null;
+  if (!sess) return res.status(401).json({ error: '로그인이 필요합니다' });
+  if (sess.role !== 'admin') return res.status(403).json({ error: '관리자 권한이 필요합니다' });
   _indexCache = null;
   _indexMtime = 0;
   res.json({ ok: true, msg: 'SSI cache cleared' });
@@ -85,8 +92,30 @@ app.get(['/', '/index.html'], (req, res) => {
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
-// data 폴더에서 로고/직인 이미지 제공
-app.use('/data', express.static(path.join(__dirname, 'data')));
+
+// ── 워크스페이스 외부 공유 뷰어 (로그인 불필요) ──
+app.get('/workspace/view/:token', (req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'workspace-view.html'));
+});
+
+// ── /data 경로 — 이미지 파일만 서빙 (JSON/DB/백업 파일 보호) ──────
+// 이전에는 data/ 전체를 정적 서빙하여 설정.json(SMTP 비번), 조직관리.json(사용자 해시),
+// 업무데이터.db, 감사로그.json 등이 웹으로 모두 노출됐음. 이미지만 화이트리스트 허용.
+const DATA_ALLOWED_EXT = /\.(png|jpe?g|gif|webp|ico)$/i;  // svg는 XSS 위험으로 제외
+app.use('/data', (req, res, next) => {
+  // 이미지 확장자만 통과
+  if (!DATA_ALLOWED_EXT.test(req.path)) {
+    return res.status(404).send('Not Found');
+  }
+  // 백업 폴더 직접 접근 차단 (이중 방어)
+  if (/_기존백업|_자동백업|_backup|\.bak|\.db/i.test(req.path)) {
+    return res.status(404).send('Not Found');
+  }
+  next();
+}, express.static(path.join(__dirname, 'data'), {
+  dotfiles: 'deny',  // .env 등 dotfile 차단
+  index: false,      // 디렉토리 인덱싱 차단
+}));
 
 // ── 시안 파일 보안 미들웨어 ──────────────────────────────
 app.use('/files', (req, res, next) => {
@@ -152,6 +181,44 @@ function ensureAdminAccount() {
 }
 // 서버 시작 시 관리자 계정 확인
 try { ensureAdminAccount(); } catch(e) { console.error('⚠️ 관리자 계정 확인 실패 (서버는 계속 실행):', e.message); }
+
+// ── 멀티 컴퍼니 마이그레이션 (조직관리.json에 companies 필드 추가 + 기존 사용자에 companyId 부여) ──
+function migrateMultiCompany() {
+  const uData = db.loadUsers();
+  let changed = false;
+
+  // companies 배열이 없으면 생성
+  if (!uData.companies || uData.companies.length === 0) {
+    uData.companies = [
+      { id: 'dalim-sm', name: '대림에스엠', bizNo: '', ceo: '남관원', tel: '', address: '', note: '', sortOrder: 0 },
+      { id: 'dalim-company', name: '대림컴퍼니', bizNo: '', ceo: '남관원', tel: '', address: '', note: '', sortOrder: 1 }
+    ];
+    changed = true;
+    console.log('[멀티컴퍼니] companies 배열 생성됨');
+  }
+
+  // 기존 사용자에 companyId 없으면 기본값 부여
+  for (const u of (uData.users || [])) {
+    if (!u.companyId) {
+      u.companyId = 'dalim-sm'; // 기존 직원은 모두 대림에스엠 소속
+      changed = true;
+    }
+  }
+
+  // 기존 부서에 companyId 없으면 기본값 부여
+  for (const d of (uData.departments || [])) {
+    if (!d.companyId) {
+      d.companyId = 'dalim-sm';
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    db.saveUsers(uData);
+    console.log('[멀티컴퍼니] 마이그레이션 완료 — 기존 데이터에 companyId 부여됨');
+  }
+}
+try { migrateMultiCompany(); } catch(e) { console.error('⚠️ 멀티컴퍼니 마이그레이션 실패:', e.message); }
 
 app.use('/api/auth', require('./routes/auth'));
 
@@ -223,8 +290,17 @@ app.use('/api/salary', require('./routes/salary'));
 // ── 감사로그/알림/공지/대시보드/배포/GitHub (routes/misc.js) ──
 app.use('/api', require('./routes/misc'));
 
+// ── 과거 매출 검색 (routes/salesHistory.js) ──
+app.use('/api/sales-history', require('./routes/salesHistory'));
+
 // ── GitHub 연동 (routes/github.js) ──
 app.use('/api', require('./routes/github'));
+
+// ── GPS 출퇴근 (routes/gps-attendance.js) ──
+app.use('/api/gps-attendance', require('./routes/gps-attendance'));
+
+// ── 워크스페이스 (routes/workspace.js) ──
+app.use('/api/workspace', require('./routes/workspace'));
 
 app.listen(PORT, '0.0.0.0', () => {
   const nets = require('os').networkInterfaces();

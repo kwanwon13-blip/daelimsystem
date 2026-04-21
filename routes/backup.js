@@ -10,7 +10,7 @@ const db = require('../db');
 const { requireAdmin } = require('../middleware/auth');
 
 // ── 백업 ─────────────────────────────────────────────────
-router.get('/export', (req, res) => {
+router.get('/export', requireAdmin, (req, res) => {
   res.setHeader('Content-Disposition', 'attachment; filename="price-backup.json"');
   if (db.sql) {
     // SQLite 모드: 모든 데이터를 수집
@@ -33,7 +33,7 @@ router.get('/export', (req, res) => {
   res.json(db.load());
 });
 
-router.post('/import', (req, res) => {
+router.post('/import', requireAdmin, (req, res) => {
   try {
     if (!req.body.categories) throw new Error('형식 오류');
     if (db.sql) {

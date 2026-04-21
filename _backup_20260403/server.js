@@ -1,0 +1,5294 @@
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
+const fs = require('fs');
+const https = require('https');
+const net = require('net');
+const tls = require('tls');
+const crypto = require('crypto');
+const db = require('./db');
+const PDFDocument = require('pdfkit');
+let sharp;
+try { sharp = require('sharp'); } catch(e) { console.log('[썸네일] sharp 미설치 — npm install sharp 권장'); }
+
+// 썸네일 캐시 폴더
+const THUMB_DIR = path.join(__dirname, 'data', 'thumbs');
+if (!fs.existsSync(THUMB_DIR)) fs.mkdirSync(THUMB_DIR, { recursive: true });
+
+// HTML 이스케이프 유틸
+function escHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── 견적서 PDF 생성 함수 ──
+// Windows 시스템 폰트 (맑은 고딕) 사용, 없으면 data 폴더 폰트 사용
+const WIN_FONT = 'C:\\Windows\\Fonts\\malgun.ttf';
+const WIN_FONT_BOLD = 'C:\\Windows\\Fonts\\malgunbd.ttf';
+const FONT_PATH = fs.existsSync(WIN_FONT) ? WIN_FONT : path.join(__dirname, 'data', 'NotoSansKR-Regular.ttf');
+const FONT_BOLD_PATH = fs.existsSync(WIN_FONT_BOLD) ? WIN_FONT_BOLD : path.join(__dirname, 'data', 'NotoSansKR-Bold.ttf');
+const LOGO_PATH = path.join(__dirname, 'data', 'logo.png');
+const STAMP_PATH = path.join(__dirname, 'data', 'stamp.png');
+
+function generateQuotePdf(quoteData, namecardImgPath) {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ size: 'A4', margin: 50, autoFirstPage: true });
+      const chunks = [];
+      doc.on('data', c => chunks.push(c));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      const hasFont = fs.existsSync(FONT_PATH);
+      const hasBold = fs.existsSync(FONT_BOLD_PATH);
+      if (hasFont) doc.registerFont('Korean', FONT_PATH);
+      if (hasBold) doc.registerFont('KoreanBold', FONT_BOLD_PATH);
+      const f = hasFont ? 'Korean' : 'Helvetica';
+      const fb = hasBold ? 'KoreanBold' : (hasFont ? 'Korean' : 'Helvetica-Bold');
+
+      const pw = 595.28; // A4 width
+      const ml = 50, mr = 50;
+      const cw = pw - ml - mr; // content width
+      let y = 50;
+
+      // ── 헤더: 로고 + 회사정보 ──
+      if (fs.existsSync(LOGO_PATH)) {
+        try { doc.image(LOGO_PATH, ml, y, { height: 36 }); } catch(e) {}
+      }
+      doc.font(fb).fontSize(22).fillColor('#1a1a1a').text('견적내역서', ml, y + 42, { width: cw * 0.55 });
+      doc.font(f).fontSize(8).fillColor('#9ca3af').text('OFFICIAL BUSINESS QUOTATION', ml, y + 66, { width: cw * 0.55 });
+
+      // 오른쪽 회사 정보
+      const rx = ml + cw * 0.55;
+      const rw = cw * 0.45;
+      doc.font(fb).fontSize(14).fillColor('#1a1a1a').text('DAELIM SM', rx, y, { width: rw, align: 'right' });
+      doc.font(f).fontSize(8).fillColor('#4b5563').text('서울 구로구 경인로 393-7(고척동 73-3)', rx, y + 20, { width: rw, align: 'right' });
+      doc.text('일이삼전자타운 2동 4층 4101호', rx, y + 31, { width: rw, align: 'right' });
+      doc.text('TEL: 02.2682.8940 | FAX: 02.2672.3620', rx, y + 42, { width: rw, align: 'right' });
+      doc.font(fb).fontSize(9).fillColor('#1a1a1a').text('대표이사 이 정 호', rx, y + 58, { width: rw, align: 'right' });
+
+      // 직인
+      if (fs.existsSync(STAMP_PATH)) {
+        try { doc.image(STAMP_PATH, pw - mr - 48, y + 2, { width: 44, height: 44 }); } catch(e) {}
+      }
+
+      y += 90;
+      doc.moveTo(ml, y).lineTo(pw - mr, y).strokeColor('#e5e7eb').lineWidth(1).stroke();
+      y += 16;
+
+      // ── 현장명 / 견적명 ──
+      doc.font(f).fontSize(8).fillColor('#9ca3af').text('현장명', ml, y);
+      y += 12;
+      doc.font(fb).fontSize(13).fillColor('#1a1a1a').text(quoteData.siteName || '-', ml, y, { width: cw * 0.55 });
+      y += 20;
+      doc.moveTo(ml, y).lineTo(ml + cw * 0.55, y).strokeColor('#1a1a1a').lineWidth(1.5).stroke();
+      y += 10;
+      doc.font(f).fontSize(8).fillColor('#9ca3af').text('견적명', ml, y);
+      y += 12;
+      doc.font(fb).fontSize(13).fillColor('#1a1a1a').text(quoteData.quoteName || '-', ml, y, { width: cw * 0.55 });
+      y += 20;
+      doc.moveTo(ml, y).lineTo(ml + cw * 0.55, y).strokeColor('#1a1a1a').lineWidth(1.5).stroke();
+      y += 14;
+
+      // 담당자 / 우리측 담당 / 견적일
+      const colW = cw * 0.55 / 3;
+      const labels = ['담당자', '우리측 담당', '견적일'];
+      const values = [quoteData.manager || '-', quoteData.vendorManager || '-', quoteData.quoteDate || new Date().toISOString().slice(0,10)];
+      for (let i = 0; i < 3; i++) {
+        const cx = ml + colW * i;
+        doc.font(f).fontSize(7).fillColor('#9ca3af').text(labels[i], cx, y);
+        doc.font(f).fontSize(10).fillColor('#1a1a1a').text(values[i], cx, y + 11, { width: colW - 8 });
+      }
+      y += 28;
+      doc.moveTo(ml, y).lineTo(ml + cw * 0.55, y).strokeColor('#d1d5db').lineWidth(0.5).stroke();
+
+      // ── 총 견적금액 박스 (오른쪽) ──
+      const supplyTotal = quoteData.items.reduce((s, it) => s + ((it.qty || 0) * (it.unitPrice || 0)), 0);
+      const vatAmount = Math.round(supplyTotal * 0.1);
+      const grandTotal = supplyTotal + vatAmount;
+      const boxX = ml + cw * 0.58, boxY = y - 90, boxW = cw * 0.42, boxH = 80;
+      doc.roundedRect(boxX, boxY, boxW, boxH, 6).fillColor('#fdf6ed').fill();
+      doc.font(f).fontSize(8).fillColor('#8b5e3c').text('총 견적금액 (VAT 포함)', boxX + 12, boxY + 12, { width: boxW - 24 });
+      doc.font(fb).fontSize(22).fillColor('#1a1a1a').text('₩ ' + grandTotal.toLocaleString(), boxX + 12, boxY + 26, { width: boxW - 24 });
+      doc.font(f).fontSize(8).fillColor('#8b5e3c').text(`공급가액 ₩${supplyTotal.toLocaleString()} + VAT ₩${vatAmount.toLocaleString()}`, boxX + 12, boxY + 54, { width: boxW - 24 });
+
+      y += 20;
+
+      // ── 품목 테이블 ──
+      const cols = [
+        { label: 'No', w: 28, align: 'center' },
+        { label: '품명', w: cw * 0.28, align: 'left' },
+        { label: '단위', w: 40, align: 'center' },
+        { label: '수량', w: 45, align: 'right' },
+        { label: '단가', w: 65, align: 'right' },
+        { label: '금액', w: 70, align: 'right' },
+        { label: '비고', w: 0, align: 'left' } // 나머지
+      ];
+      // 비고 폭 계산
+      const usedW = cols.slice(0, 6).reduce((s, c) => s + c.w, 0);
+      cols[6].w = cw - usedW;
+
+      const rh = 26; // row height (글씨 잘림 방지)
+      // 헤더
+      doc.rect(ml, y, cw, rh).fillColor('#f9fafb').fill();
+      let cx = ml;
+      for (const col of cols) {
+        doc.font(fb).fontSize(8).fillColor('#6b7280');
+        const tx = col.align === 'right' ? cx + col.w - 6 : (col.align === 'center' ? cx + col.w / 2 : cx + 6);
+        doc.text(col.label, tx - (col.align === 'center' ? 20 : 0), y + 7, { width: col.align === 'center' ? 40 : col.w - 6, align: col.align });
+        cx += col.w;
+      }
+      doc.moveTo(ml, y + rh).lineTo(pw - mr, y + rh).strokeColor('#e5e7eb').lineWidth(0.5).stroke();
+      y += rh;
+
+      // 데이터 행
+      quoteData.items.forEach((item, idx) => {
+        const amt = (item.qty || 0) * (item.unitPrice || 0);
+        if (y > 720) { doc.addPage(); y = 50; }
+        cx = ml;
+        const vals = [
+          String(idx + 1).padStart(2, '0'),
+          item.name || '',
+          item.unit || '',
+          String(item.qty || 0),
+          (item.unitPrice || 0).toLocaleString(),
+          amt.toLocaleString(),
+          item.remark || ''
+        ];
+        for (let i = 0; i < cols.length; i++) {
+          const col = cols[i];
+          const isName = i === 1;
+          doc.font(isName ? fb : f).fontSize(9).fillColor(i === 0 ? '#9ca3af' : '#1a1a1a');
+          const tx = col.align === 'right' ? cx + col.w - 6 : (col.align === 'center' ? cx + col.w / 2 : cx + 6);
+          doc.text(vals[i], tx - (col.align === 'center' ? 20 : 0), y + 7, { width: col.align === 'center' ? 40 : col.w - 12, align: col.align, lineBreak: false });
+          cx += col.w;
+        }
+        doc.moveTo(ml, y + rh).lineTo(pw - mr, y + rh).strokeColor('#e5e7eb').lineWidth(0.3).stroke();
+        y += rh;
+      });
+
+      // 합계 영역
+      const sumLabelW = cw - cols[5].w - cols[6].w;
+      // 공급가액
+      doc.font(f).fontSize(8).fillColor('#6b7280').text('공급가액', ml, y + 5, { width: sumLabelW - 6, align: 'right' });
+      doc.font(fb).fontSize(10).fillColor('#1a1a1a').text('₩ ' + supplyTotal.toLocaleString(), ml + sumLabelW, y + 4, { width: cols[5].w + cols[6].w, align: 'right' });
+      doc.moveTo(ml, y + rh).lineTo(pw - mr, y + rh).strokeColor('#e5e7eb').lineWidth(0.3).stroke();
+      y += rh;
+      // 부가세
+      doc.font(f).fontSize(8).fillColor('#6b7280').text('부가세 (10%)', ml, y + 5, { width: sumLabelW - 6, align: 'right' });
+      doc.font(fb).fontSize(10).fillColor('#1a1a1a').text('₩ ' + vatAmount.toLocaleString(), ml + sumLabelW, y + 4, { width: cols[5].w + cols[6].w, align: 'right' });
+      doc.moveTo(ml, y + rh).lineTo(pw - mr, y + rh).strokeColor('#e5e7eb').lineWidth(0.3).stroke();
+      y += rh;
+      // 합계
+      doc.rect(ml, y, cw, rh + 4).fillColor('#f9fafb').fill();
+      doc.font(fb).fontSize(10).fillColor('#4b5563').text('합 계', ml, y + 7, { width: sumLabelW - 6, align: 'right' });
+      doc.font(fb).fontSize(16).fillColor('#1a1a1a').text('₩ ' + grandTotal.toLocaleString(), ml + sumLabelW, y + 3, { width: cols[5].w + cols[6].w, align: 'right' });
+      y += rh + 8;
+
+      // 유효기간
+      doc.font(f).fontSize(7).fillColor('#94a3b8').text('※ 견적 유효기간: 견적일로부터 30일', ml, y, { width: cw, align: 'right' });
+      y += 16;
+
+      // ── 하단 ──
+      y = Math.max(y, 700);
+      doc.moveTo(ml, y).lineTo(pw - mr, y).strokeColor('#e5e7eb').lineWidth(0.5).stroke();
+      doc.font(f).fontSize(7).fillColor('#9ca3af').text('품질과 안전을 최우선으로 고객을 위해 항상 최선을 다하겠습니다', ml, y + 6, { width: cw, align: 'center' });
+      doc.text('DAELIM SM - Total Safety Group Co., Ltd.', ml, y + 16, { width: cw, align: 'center' });
+
+      doc.end();
+    } catch(e) { reject(e); }
+  });
+}
+
+const app = express();
+const PORT = 3000;
+
+app.use(cors());
+app.use(express.json({ limit: '50mb' }));
+
+// ── index.html 서버사이드 인클루드 ─────────────────────────
+// <!--INCLUDE:파일명.html--> 태그를 실제 파일 내용으로 치환하여 서빙
+// 분리된 탭 HTML (tab-pricing.html, tab-options.html 등)을 index.html에 합쳐서 전송
+const PUBLIC_DIR = path.join(__dirname, 'public');
+let _indexCache = null;
+let _indexMtime = 0;
+
+function buildIndexHtml() {
+  const indexPath = path.join(PUBLIC_DIR, 'index.html');
+  const stat = fs.statSync(indexPath);
+  // 인클루드 파일들의 최신 mtime도 확인
+  const includeFiles = (fs.readdirSync(PUBLIC_DIR)).filter(f => f.startsWith('tab-') && f.endsWith('.html'));
+  const latestMtime = Math.max(stat.mtimeMs, ...includeFiles.map(f => {
+    try { return fs.statSync(path.join(PUBLIC_DIR, f)).mtimeMs; } catch(e) { return 0; }
+  }));
+  // 파일이 변경되지 않았으면 캐시 사용
+  if (_indexCache && latestMtime === _indexMtime) return _indexCache;
+  let html = fs.readFileSync(indexPath, 'utf-8');
+  // <!--INCLUDE:filename.html--> 패턴 치환
+  html = html.replace(/<!--INCLUDE:([a-zA-Z0-9_\-]+\.html)-->/g, (match, filename) => {
+    const filePath = path.join(PUBLIC_DIR, filename);
+    if (fs.existsSync(filePath)) {
+      return fs.readFileSync(filePath, 'utf-8');
+    }
+    console.warn('[SSI] 파일 없음:', filename);
+    return match; // 파일이 없으면 원본 유지
+  });
+  _indexCache = html;
+  _indexMtime = latestMtime;
+  return html;
+}
+
+app.get(['/', '/index.html'], (req, res) => {
+  try {
+    const html = buildIndexHtml();
+    res.type('html').send(html);
+  } catch (e) {
+    console.error('[SSI] 오류:', e.message);
+    // 실패 시 원본 index.html 직접 전송
+    res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
+  }
+});
+
+app.use(express.static(path.join(__dirname, 'public')));
+// data 폴더에서 로고/직인 이미지 제공
+app.use('/data', express.static(path.join(__dirname, 'data')));
+
+// ── 쿠키 파서 (수동) ─────────────────────────────────────
+function parseCookies(req) {
+  const obj = {};
+  const str = req.headers.cookie || '';
+  str.split(';').forEach(pair => {
+    try {
+      const [k, ...v] = pair.trim().split('=');
+      if (k) obj[k.trim()] = decodeURIComponent(v.join('='));
+    } catch(e) {}
+  });
+  return obj;
+}
+
+// ── 세션 관리 ─────────────────────────────────────────────
+const sessions = {}; // { token: { userId, name, role, loginAt } }
+
+function hashPassword(pw) {
+  return crypto.createHash('sha256').update(pw + '_단가표_salt').digest('hex');
+}
+
+function requireAuth(req, res, next) {
+  const cookies = parseCookies(req);
+  const token = cookies.session_token || req.headers['x-session-token'];
+  if (!token || !sessions[token]) {
+    return res.status(401).json({ error: '로그인이 필요합니다' });
+  }
+  req.user = sessions[token];
+  req.sessionToken = token;
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  requireAuth(req, res, () => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: '관리자 권한이 필요합니다' });
+    next();
+  });
+}
+
+// ══════════════════════════════════════════════════════
+// 감사 로그 시스템 (Audit Trail)
+// ══════════════════════════════════════════════════════
+function auditLog(userId, action, target, detail = {}) {
+  try {
+    const logs = db.감사로그.load();
+    logs.logs.push({
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2,5)}`,
+      시간: new Date().toISOString(),
+      사용자: userId || '시스템',
+      행동: action,
+      대상: target || '',
+      상세: detail
+    });
+    // 최근 10,000건만 유지
+    if (logs.logs.length > 10000) logs.logs = logs.logs.slice(-10000);
+    db.감사로그.save(logs);
+  } catch (e) {
+    console.error('[감사로그] 기록 실패:', e.message);
+  }
+}
+
+// 요청에서 사용자 정보 추출 헬퍼
+function getReqUser(req) {
+  if (req.user) return req.user.userId || req.user.name || '알수없음';
+  const cookies = parseCookies(req);
+  const token = cookies.session_token || req.headers['x-session-token'];
+  if (token && sessions[token]) return sessions[token].userId;
+  return '비로그인';
+}
+
+// ══════════════════════════════════════════════════════
+// 알림 시스템 (Notifications)
+// ══════════════════════════════════════════════════════
+function notify(targetUserId, type, message, link = '') {
+  try {
+    const notifs = db.알림.load();
+    notifs.notifications.push({
+      id: `notif_${Date.now()}_${Math.random().toString(36).slice(2,5)}`,
+      대상: targetUserId,
+      유형: type,
+      메시지: message,
+      링크: link,
+      읽음: false,
+      생성시간: new Date().toISOString()
+    });
+    // 전체 5,000건 제한
+    if (notifs.notifications.length > 5000) notifs.notifications = notifs.notifications.slice(-5000);
+    db.알림.save(notifs);
+  } catch (e) {
+    console.error('[알림] 저장 실패:', e.message);
+  }
+}
+
+// 특정 역할의 모든 사용자에게 알림
+function notifyRole(role, type, message, link = '') {
+  try {
+    const org = db.loadUsers();
+    (org.users || []).filter(u => u.role === role && u.status === 'approved')
+      .forEach(u => notify(u.userId, type, message, link));
+  } catch (e) {}
+}
+
+// 초기 관리자 계정 확인 (없으면 admin/admin 생성)
+function ensureAdminAccount() {
+  const uData = db.loadUsers();
+  if (!uData.users) uData.users = [];
+  const hasAdmin = uData.users.some(u => u.role === 'admin');
+  if (!hasAdmin) {
+    uData.users.push({
+      id: db.generateId('u'),
+      userId: 'admin',
+      name: '관리자',
+      password: hashPassword('admin'),
+      role: 'admin',        // admin 또는 user
+      status: 'approved',   // approved, pending, rejected
+      createdAt: new Date().toISOString(),
+      lastLogin: null
+    });
+    db.saveUsers(uData);
+    console.log('[초기설정] 관리자 계정 생성됨 (admin / admin)');
+  }
+}
+
+// ── 로그인 ────────────────────────────────────────────────
+app.post('/api/auth/login', (req, res) => {
+  const { userId, password } = req.body;
+  if (!userId || !password) return res.status(400).json({ error: '아이디와 비밀번호를 입력해주세요' });
+
+  const uData = db.loadUsers();
+  if (!uData.users) uData.users = [];
+  const user = uData.users.find(u => u.userId === userId);
+  if (!user) return res.status(401).json({ error: '존재하지 않는 아이디입니다' });
+  if (user.password !== hashPassword(password)) return res.status(401).json({ error: '비밀번호가 틀렸습니다' });
+  if (user.status === 'pending') return res.status(403).json({ error: '관리자 승인 대기 중입니다. 관리자에게 문의하세요.' });
+  if (user.status === 'rejected') return res.status(403).json({ error: '가입이 거절되었습니다. 관리자에게 문의하세요.' });
+  if (user.status === 'resigned') return res.status(403).json({ error: '퇴사 처리된 계정입니다. 관리자에게 문의하세요.' });
+
+  // 로그인 성공
+  user.lastLogin = new Date().toISOString();
+  db.saveUsers(uData);
+
+  const token = crypto.randomBytes(32).toString('hex');
+  const perms = user.permissions || [];
+  sessions[token] = { userId: user.userId, name: user.name, role: user.role, position: user.position || '', phone: user.phone || '', department: user.department || '', permissions: perms, loginAt: Date.now() };
+  res.setHeader('Set-Cookie', `session_token=${token}; Path=/; HttpOnly; Max-Age=86400`);
+  auditLog(user.userId, '로그인', '시스템');
+  // 조직도에서 부서 리더인지 확인
+  let isTeamLeader = false;
+  if (user.department) {
+    const dept = (uData.departments || []).find(d => d.id === user.department);
+    if (dept && dept.leaderId === user.id) isTeamLeader = true;
+  }
+  res.json({ ok: true, userId: user.userId, name: user.name, role: user.role, position: user.position || '', phone: user.phone || '', department: user.department || '', permissions: perms, isTeamLeader });
+});
+
+// 회원가입 (관리자 승인 필요)
+app.post('/api/auth/register', (req, res) => {
+  const { userId, password, name, position, phone, hireDate } = req.body;
+  if (!userId || !password || !name) return res.status(400).json({ error: '아이디, 비밀번호, 이름을 모두 입력해주세요' });
+  if (userId.length < 3) return res.status(400).json({ error: '아이디는 3자 이상이어야 합니다' });
+  if (password.length < 4) return res.status(400).json({ error: '비밀번호는 4자 이상이어야 합니다' });
+
+  const uData = db.loadUsers();
+  if (!uData.users) uData.users = [];
+  if (uData.users.find(u => u.userId === userId)) return res.status(400).json({ error: '이미 사용 중인 아이디입니다' });
+
+  uData.users.push({
+    id: db.generateId('u'),
+    userId,
+    name,
+    position: position || '',
+    phone: phone || '',
+    hireDate: hireDate || '',
+    password: hashPassword(password),
+    role: 'user',
+    status: 'pending',  // 관리자 승인 대기
+    createdAt: new Date().toISOString(),
+    lastLogin: null
+  });
+  db.saveUsers(uData);
+  auditLog(userId, '회원가입 신청', name);
+  notifyRole('admin', 'system', `새 가입 신청: ${name} (${userId})`, 'admin');
+  res.json({ ok: true, message: '가입 신청이 완료되었습니다. 관리자 승인 후 로그인할 수 있습니다.' });
+});
+
+// 로그아웃
+app.post('/api/auth/logout', (req, res) => {
+  const cookies = parseCookies(req);
+  const token = cookies.session_token;
+  if (token) delete sessions[token];
+  res.setHeader('Set-Cookie', 'session_token=; Path=/; HttpOnly; Max-Age=0');
+  res.json({ ok: true });
+});
+
+// 현재 로그인 상태
+app.get('/api/auth/me', (req, res) => {
+  const cookies = parseCookies(req);
+  const token = cookies.session_token || req.headers['x-session-token'];
+  if (!token || !sessions[token]) return res.json({ loggedIn: false });
+  const s = sessions[token];
+  // 조직도에서 부서 리더인지 확인
+  let isTeamLeader = false;
+  try {
+    const uData = db.loadUsers();
+    const me = (uData.users || []).find(u => u.userId === s.userId);
+    if (me && me.department) {
+      const dept = (uData.departments || []).find(d => d.id === me.department);
+      if (dept && dept.leaderId === me.id) isTeamLeader = true;
+    }
+  } catch(e) {}
+  res.json({ loggedIn: true, userId: s.userId, name: s.name, role: s.role, position: s.position || '', phone: s.phone || '', department: s.department || '', permissions: s.permissions || [], isTeamLeader });
+});
+
+// ── 관리자: 사용자 관리 ──────────────────────────────────
+app.get('/api/admin/users', requireAdmin, (req, res) => {
+  const uData = db.loadUsers();
+  // 연차관리 직원 목록 로드 (CAPS 연동 확인용)
+  let leaveEmployees = [];
+  try {
+    const leaveData = db['연차관리'] ? db['연차관리'].load() : {};
+    leaveEmployees = leaveData.employees || [];
+  } catch(e) {}
+  // 비밀번호 제외하고 반환
+  const users = (uData.users || []).map(u => ({
+    id: u.id, userId: u.userId, name: u.name, role: u.role, status: u.status,
+    position: u.position || '', phone: u.phone || '',
+    department: u.department || '',
+    hireDate: u.hireDate || '', resignDate: u.resignDate || '',
+    permissions: u.permissions || [],
+    createdAt: u.createdAt, lastLogin: u.lastLogin,
+    capsLinked: leaveEmployees.some(e => e.name === u.name)
+  }));
+  res.json(users);
+});
+
+// 관리자 직접 계정 생성
+app.post('/api/admin/users/create', requireAdmin, (req, res) => {
+  const { userId, password, name, role, position, phone, department } = req.body;
+  if (!userId || !password || !name) return res.status(400).json({ error: '아이디, 비밀번호, 이름을 모두 입력해주세요' });
+  if (userId.length < 3) return res.status(400).json({ error: '아이디는 3자 이상이어야 합니다' });
+  if (password.length < 4) return res.status(400).json({ error: '비밀번호는 4자 이상이어야 합니다' });
+
+  const uData = db.loadUsers();
+  if (!uData.users) uData.users = [];
+  if (uData.users.some(u => u.userId === userId)) {
+    return res.status(400).json({ error: '이미 존재하는 아이디입니다' });
+  }
+
+  uData.users.push({
+    id: db.generateId('u'), userId, name,
+    position: position || '', phone: phone || '',
+    department: department || '',
+    password: hashPassword(password),
+    role: role === 'admin' ? 'admin' : 'user',
+    status: 'approved', // 관리자가 만든 계정은 바로 승인
+    createdAt: new Date().toISOString(), lastLogin: null
+  });
+  db.saveUsers(uData);
+
+  // 연차관리에 직원 자동 등록 (이름 매칭으로 CAPS 연동)
+  try {
+    const leaveData = db['연차관리'] ? db['연차관리'].load() : {};
+    if (!leaveData.employees) leaveData.employees = [];
+    const existing = leaveData.employees.find(e => e.name === name);
+    if (!existing) {
+      // 부서명 조회
+      let deptName = '';
+      if (department) {
+        const dept = (uData.departments || []).find(d => d.id === department);
+        if (dept) deptName = dept.name;
+      }
+      leaveData.employees.push({
+        name, department: deptName, position: position || '',
+        hireDate: req.body.hireDate || '', resignDate: '',
+        annualLeave: 0, additionalDays: 0, deductedDays: 0,
+        totalLeave: 0, usedDays: 0, paidDays: 0, remainingDays: 0, yearlyData: {}
+      });
+      if (db['연차관리']) db['연차관리'].save(leaveData);
+    }
+  } catch(e) { console.error('연차관리 자동등록 오류:', e.message); }
+
+  res.json({ ok: true, message: `${name} (${userId}) 계정 생성 완료` });
+});
+
+// 사용자 승인
+app.post('/api/admin/users/:id/approve', requireAdmin, (req, res) => {
+  const { linkToEmployee, department } = req.body || {};
+  const uData = db.loadUsers();
+  const user = (uData.users || []).find(u => u.id === req.params.id);
+  if (!user) return res.status(404).json({ error: '사용자 없음' });
+  user.status = 'approved';
+  if (department) user.department = department;
+  db.saveUsers(uData);
+
+  // 연차관리 연동
+  try {
+    const leaveData = db['연차관리'].load();
+    if (!leaveData.employees) leaveData.employees = [];
+
+    if (linkToEmployee) {
+      // 기존 직원과 연결: 이름 매칭된 직원의 정보 업데이트
+      const existing = leaveData.employees.find(e => e.name === linkToEmployee);
+      if (existing) {
+        // 퇴사자였으면 복직 처리
+        if (existing.resignDate) {
+          existing.resignDate = '';
+          console.log(`✅ 복직 처리: ${existing.name} (퇴사일 해제)`);
+        }
+        // 부서/직위 업데이트
+        const deptObj = (uData.departments || []).find(d => d.id === user.department);
+        if (deptObj) existing.department = deptObj.name;
+        if (user.position) existing.position = user.position;
+        if (user.hireDate && !existing.hireDate) existing.hireDate = user.hireDate;
+        db['연차관리'].save(leaveData);
+        console.log(`✅ 연차관리 연동: ${user.name} → 기존 직원 '${linkToEmployee}'과 연결 (부서: ${existing.department})`);
+      } else {
+        console.warn(`⚠️ 연차관리에서 '${linkToEmployee}' 직원을 찾을 수 없음`);
+      }
+    } else {
+      // 새 직원 등록 (이름 일치하는 기존 직원이 없는 경우만)
+      const exists = leaveData.employees.find(e => e.name === user.name);
+      if (!exists) {
+        const deptObj = (uData.departments || []).find(d => d.id === user.department);
+        leaveData.employees.push({
+          name: user.name,
+          department: deptObj ? deptObj.name : '',
+          position: user.position || '',
+          hireDate: user.hireDate || '',
+          resignDate: '',
+          annualLeave: 0,
+          additionalDays: 0,
+          deductedDays: 0,
+          totalLeave: 0,
+          usedDays: 0,
+          paidDays: 0,
+          remainingDays: 0,
+          yearlyData: {}
+        });
+        db['연차관리'].save(leaveData);
+      }
+    }
+  } catch(e) { console.warn('연차관리 자동등록 실패:', e.message); }
+
+  const linked = linkToEmployee ? ` (기존 직원 '${linkToEmployee}'과 연결)` : '';
+  res.json({ ok: true, message: user.name + ' 승인 완료' + linked });
+});
+
+// 사용자 거절
+app.post('/api/admin/users/:id/reject', requireAdmin, (req, res) => {
+  const uData = db.loadUsers();
+  const user = (uData.users || []).find(u => u.id === req.params.id);
+  if (!user) return res.status(404).json({ error: '사용자 없음' });
+  user.status = 'rejected';
+  db.saveUsers(uData);
+  res.json({ ok: true, message: user.name + ' 거절' });
+});
+
+// 퇴사 처리
+app.post('/api/admin/users/:id/resign', requireAdmin, (req, res) => {
+  const { resignDate } = req.body;
+  if (!resignDate) return res.status(400).json({ error: '퇴사일을 입력해주세요' });
+
+  const uData = db.loadUsers();
+  const user = (uData.users || []).find(u => u.id === req.params.id);
+  if (!user) return res.status(404).json({ error: '사용자 없음' });
+
+  user.status = 'resigned';
+  user.resignDate = resignDate;
+  db.saveUsers(uData);
+
+  // 연차관리에도 퇴사일 반영
+  try {
+    const leaveData = db['연차관리'].load();
+    const emp = (leaveData.employees || []).find(e => e.name === user.name);
+    if (emp) {
+      emp.resignDate = resignDate;
+      db['연차관리'].save(leaveData);
+    }
+  } catch(e) {}
+
+  // 해당 사용자의 세션 무효화
+  for (const [token, session] of Object.entries(sessions)) {
+    if (session.userId === user.userId) delete sessions[token];
+  }
+
+  res.json({ ok: true, message: user.name + ' 퇴사 처리 완료' });
+});
+
+// 퇴사 복귀 (퇴사 취소)
+app.post('/api/admin/users/:id/reinstate', requireAdmin, (req, res) => {
+  const uData = db.loadUsers();
+  const user = (uData.users || []).find(u => u.id === req.params.id);
+  if (!user) return res.status(404).json({ error: '사용자 없음' });
+
+  user.status = 'approved';
+  user.resignDate = '';
+  db.saveUsers(uData);
+
+  // 연차관리에도 퇴사일 제거
+  try {
+    const leaveData = db['연차관리'].load();
+    const emp = (leaveData.employees || []).find(e => e.name === user.name);
+    if (emp) {
+      emp.resignDate = '';
+      db['연차관리'].save(leaveData);
+    }
+  } catch(e) {}
+
+  res.json({ ok: true, message: user.name + ' 복귀 처리 완료' });
+});
+
+// 사용자 삭제
+app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
+  const uData = db.loadUsers();
+  if (!uData.users) uData.users = [];
+  const target = uData.users.find(u => u.id === req.params.id);
+  if (target && target.role === 'admin' && uData.users.filter(u => u.role === 'admin').length <= 1) {
+    return res.status(400).json({ error: '마지막 관리자는 삭제할 수 없습니다' });
+  }
+  uData.users = uData.users.filter(u => u.id !== req.params.id);
+  db.saveUsers(uData);
+  res.json({ ok: true });
+});
+
+// 사용자 역할 변경
+app.post('/api/admin/users/:id/role', requireAdmin, (req, res) => {
+  const uData = db.loadUsers();
+  const user = (uData.users || []).find(u => u.id === req.params.id);
+  if (!user) return res.status(404).json({ error: '사용자 없음' });
+  const newRole = req.body.role;
+  if (newRole !== 'admin' && newRole !== 'user') return res.status(400).json({ error: '유효하지 않은 역할' });
+  // 마지막 관리자 체크
+  if (user.role === 'admin' && newRole === 'user') {
+    const adminCount = uData.users.filter(u => u.role === 'admin').length;
+    if (adminCount <= 1) return res.status(400).json({ error: '마지막 관리자의 역할을 변경할 수 없습니다' });
+  }
+  user.role = newRole;
+  db.saveUsers(uData);
+  res.json({ ok: true });
+});
+
+// 비밀번호 초기화 (관리자)
+app.post('/api/admin/users/:id/reset-password', requireAdmin, (req, res) => {
+  const uData = db.loadUsers();
+  const user = (uData.users || []).find(u => u.id === req.params.id);
+  if (!user) return res.status(404).json({ error: '사용자 없음' });
+  const newPw = req.body.password || '1234';
+  user.password = hashPassword(newPw);
+  db.saveUsers(uData);
+  res.json({ ok: true, message: `${user.name} 비밀번호를 "${newPw}"로 초기화했습니다` });
+});
+
+// 사용자별 메뉴 권한 설정 (관리자)
+app.post('/api/admin/users/:id/permissions', requireAdmin, (req, res) => {
+  const uData = db.loadUsers();
+  const user = (uData.users || []).find(u => u.id === req.params.id);
+  if (!user) return res.status(404).json({ error: '사용자 없음' });
+  user.permissions = req.body.permissions || [];
+  db.saveUsers(uData);
+  res.json({ ok: true, permissions: user.permissions });
+});
+
+// ── 권한 프리셋 CRUD (관리자) ──
+app.get('/api/admin/perm-presets', requireAdmin, (req, res) => {
+  try {
+    const data = db['설정'].load();
+    res.json(data.permPresets || []);
+  } catch(e) { res.json([]); }
+});
+
+app.post('/api/admin/perm-presets', requireAdmin, (req, res) => {
+  const { name, perms } = req.body;
+  if (!name || !Array.isArray(perms)) return res.status(400).json({ error: '이름과 권한 배열 필요' });
+  const data = db['설정'].load();
+  if (!data.permPresets) data.permPresets = [];
+  // 같은 이름이면 덮어쓰기
+  const idx = data.permPresets.findIndex(p => p.name === name);
+  if (idx >= 0) data.permPresets[idx] = { name, perms };
+  else data.permPresets.push({ name, perms });
+  db['설정'].save(data);
+  res.json(data.permPresets);
+});
+
+app.delete('/api/admin/perm-presets/:name', requireAdmin, (req, res) => {
+  const data = db['설정'].load();
+  if (!data.permPresets) data.permPresets = [];
+  data.permPresets = data.permPresets.filter(p => p.name !== req.params.name);
+  db['설정'].save(data);
+  res.json(data.permPresets);
+});
+
+// 사용자 프로필 수정 (관리자)
+app.post('/api/admin/users/:id/profile', requireAdmin, (req, res) => {
+  const uData = db.loadUsers();
+  const user = (uData.users || []).find(u => u.id === req.params.id);
+  if (!user) return res.status(404).json({ error: '사용자 없음' });
+  if (req.body.name !== undefined) user.name = req.body.name;
+  if (req.body.position !== undefined) user.position = req.body.position;
+  if (req.body.phone !== undefined) user.phone = req.body.phone;
+  if (req.body.department !== undefined) user.department = req.body.department;
+  if (req.body.hireDate !== undefined) user.hireDate = req.body.hireDate;
+  if (req.body.resignDate !== undefined) user.resignDate = req.body.resignDate;
+  db.saveUsers(uData);
+  res.json({ ok: true });
+});
+
+// 일반 사용자도 접근 가능한 사용자 목록 (결재 승인자 선택용)
+app.get('/api/users/list', requireAuth, (req, res) => {
+  const uData = db.loadUsers();
+  const users = (uData.users || [])
+    .filter(u => u.status === 'approved')
+    .map(u => ({
+      id: u.id, userId: u.userId, name: u.name,
+      position: u.position || '', department: u.department || '',
+      status: u.status || 'approved'
+    }));
+  res.json(users);
+});
+
+// ── 부서(조직도) 관리 ──────────────────────────────────
+app.get('/api/departments', requireAuth, (req, res) => {
+  const uData = db.loadUsers();
+  res.json(uData.departments || []);
+});
+
+app.post('/api/departments', requireAdmin, (req, res) => {
+  const { name, sortOrder } = req.body;
+  if (!name) return res.status(400).json({ error: '부서명을 입력해주세요' });
+  const uData = db.loadUsers();
+  if (!uData.departments) uData.departments = [];
+  if (uData.departments.find(d => d.name === name)) return res.status(400).json({ error: '이미 존재하는 부서입니다' });
+  uData.departments.push({
+    id: db.generateId('dept'),
+    name,
+    sortOrder: sortOrder || uData.departments.length,
+    createdAt: new Date().toISOString()
+  });
+  db.saveUsers(uData);
+  res.json({ ok: true, departments: uData.departments });
+});
+
+app.put('/api/departments/:id', requireAdmin, (req, res) => {
+  const uData = db.loadUsers();
+  const dept = (uData.departments || []).find(d => d.id === req.params.id);
+  if (!dept) return res.status(404).json({ error: '부서 없음' });
+  if (req.body.name !== undefined) dept.name = req.body.name;
+  if (req.body.sortOrder !== undefined) dept.sortOrder = req.body.sortOrder;
+  if (req.body.leaderId !== undefined) dept.leaderId = req.body.leaderId || null;
+  db.saveUsers(uData);
+  res.json({ ok: true, dept });
+});
+
+app.delete('/api/departments/:id', requireAdmin, (req, res) => {
+  const uData = db.loadUsers();
+  if (!uData.departments) uData.departments = [];
+  // 해당 부서 소속 사용자가 있는지 확인
+  const hasMembers = (uData.users || []).some(u => u.department === req.params.id);
+  if (hasMembers) return res.status(400).json({ error: '소속 직원이 있는 부서는 삭제할 수 없습니다' });
+  uData.departments = uData.departments.filter(d => d.id !== req.params.id);
+  db.saveUsers(uData);
+  res.json({ ok: true });
+});
+
+// 사용자 부서 배정
+app.post('/api/admin/users/:id/department', requireAdmin, (req, res) => {
+  const uData = db.loadUsers();
+  const user = (uData.users || []).find(u => u.id === req.params.id);
+  if (!user) return res.status(404).json({ error: '사용자 없음' });
+  user.department = req.body.department || '';
+  db.saveUsers(uData);
+  res.json({ ok: true });
+});
+
+// 내 부서 팀장 조회
+app.get('/api/my-department-leader', requireAuth, (req, res) => {
+  const uData = db.loadUsers();
+  const me = (uData.users || []).find(u => u.userId === req.user.userId);
+  if (!me || !me.department) return res.json({ leader: null });
+  const dept = (uData.departments || []).find(d => d.id === me.department);
+  if (!dept || !dept.leaderId) return res.json({ leader: null });
+  const leader = (uData.users || []).find(u => u.id === dept.leaderId);
+  if (!leader) return res.json({ leader: null });
+  res.json({ leader: { id: leader.id, userId: leader.userId, name: leader.name, position: leader.position } });
+});
+
+// ── 결재 시스템 ──────────────────────────────────────────
+// 결재 문서 목록 조회 (내가 작성 / 내가 승인할 / 전체)
+app.get('/api/approvals', requireAuth, (req, res) => {
+  const uData = db.loadUsers();
+  let docs = uData.approvals || [];
+  const { filter, status } = req.query;
+  const myId = req.user.userId;
+
+  if (filter === 'mine') {
+    docs = docs.filter(d => d.authorId === myId);
+  } else if (filter === 'pending') {
+    // 내가 승인해야 할 문서 (status가 pending이고, approverId가 나)
+    docs = docs.filter(d => d.status === 'pending' && d.approverId === myId);
+  }
+  if (status) {
+    docs = docs.filter(d => d.status === status);
+  }
+
+  // 최신순 정렬
+  docs.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  res.json(docs);
+});
+
+// 결재 문서 상세 조회
+app.get('/api/approvals/:id', requireAuth, (req, res) => {
+  const uData = db.loadUsers();
+  const doc = (uData.approvals || []).find(d => d.id === req.params.id);
+  if (!doc) return res.status(404).json({ error: '문서 없음' });
+  res.json(doc);
+});
+
+// 결재 문서 작성 (기안)
+app.post('/api/approvals', requireAuth, (req, res) => {
+  const { type, title, approverId, formData } = req.body;
+  if (!type || !title || !approverId) {
+    return res.status(400).json({ error: '문서 종류, 제목, 승인자를 입력해주세요' });
+  }
+  const uData = db.loadUsers();
+  if (!uData.approvals) uData.approvals = [];
+
+  // 승인자 존재 확인
+  const approver = (uData.users || []).find(u => u.userId === approverId);
+  if (!approver) return res.status(400).json({ error: '승인자를 찾을 수 없습니다' });
+
+  const doc = {
+    id: db.generateId('appr'),
+    type,          // 'expense' | 'leave'
+    title,
+    authorId: req.user.userId,
+    authorName: req.user.name,
+    authorDept: (() => {
+      const u = (uData.users || []).find(u2 => u2.userId === req.user.userId);
+      const deptId = u ? u.department : '';
+      const dept = (uData.departments || []).find(d => d.id === deptId);
+      return dept ? dept.name : '';
+    })(),
+    approverId,
+    approverName: approver.name,
+    status: 'pending',   // pending | approved | rejected
+    formData: formData || {},
+    comment: '',
+    createdAt: new Date().toISOString(),
+    processedAt: null
+  };
+
+  uData.approvals.push(doc);
+  db.saveUsers(uData);
+  auditLog(req.user.userId, '결재 기안', `${doc.title} → ${approver.name}`);
+  notify(approverId, 'approval', `${req.user.name}님이 결재를 요청했습니다: ${doc.title}`, 'approvals');
+  res.json({ ok: true, id: doc.id });
+});
+
+// 결재 승인/반려
+app.post('/api/approvals/:id/process', requireAuth, (req, res) => {
+  const uData = db.loadUsers();
+  const doc = (uData.approvals || []).find(d => d.id === req.params.id);
+  if (!doc) return res.status(404).json({ error: '문서 없음' });
+  if (doc.approverId !== req.user.userId) {
+    return res.status(403).json({ error: '승인 권한이 없습니다' });
+  }
+  if (doc.status !== 'pending') {
+    return res.status(400).json({ error: '이미 처리된 문서입니다' });
+  }
+
+  const { action, comment } = req.body;
+  if (action !== 'approved' && action !== 'rejected') {
+    return res.status(400).json({ error: 'action은 approved 또는 rejected여야 합니다' });
+  }
+
+  doc.status = action;
+  doc.comment = comment || '';
+  doc.processedAt = new Date().toISOString();
+  db.saveUsers(uData);
+  auditLog(req.user.userId, `결재 ${action === 'approved' ? '승인' : '반려'}`, doc.title);
+  notify(doc.authorId, 'approval',
+    `${req.user.name}님이 "${doc.title}"을 ${action === 'approved' ? '승인' : '반려'}했습니다`,
+    'approvals');
+
+  // 휴가계획서 승인 시 → 연차관리에 사용 기록 자동 반영
+  if (action === 'approved' && doc.type === 'leave' && doc.formData) {
+    try {
+      const leaveData = db['연차관리'].load();
+      const fd = doc.formData;
+
+      // 새 체계: leaveType이 직접 휴가유형 이름 (예: "경조휴가-부모상", "예비군-동미참")
+      // 하위호환: 이전 코드의 annual/half/sick/special도 처리
+      const legacyMap = { annual: '연차', half: '반차', sick: '병가', special: '특별휴가' };
+      const leaveTypeName = legacyMap[fd.leaveType] || fd.leaveType || '연차';
+      const leaveSetting = (leaveData.settings?.leaveTypes || []).find(t => t.name === leaveTypeName);
+      const deductsAnnual = leaveSetting ? leaveSetting.deductsAnnual : (leaveTypeName === '연차' || leaveTypeName === '반차');
+      const isHalfDay = leaveSetting ? (leaveSetting.days === 0.5) : (leaveTypeName === '반차');
+
+      // 총 부여일수 결정: 설정에 고정일수가 있으면 그대로, 아니면 시작~종료 범위
+      const fixedDays = leaveSetting?.days || null;
+      const start = new Date(fd.startDate);
+      let end;
+      if (fd.endDate) {
+        end = new Date(fd.endDate);
+      } else if (fixedDays && fixedDays >= 1) {
+        // 고정일수 유형 (경조, 예비군 등): 시작일로부터 N 평일 계산
+        end = new Date(start);
+        let remaining = fixedDays - 1;
+        while (remaining > 0) {
+          end.setDate(end.getDate() + 1);
+          const dow = end.getDay();
+          if (dow !== 0 && dow !== 6) remaining--;
+        }
+      } else {
+        end = new Date(start);
+      }
+
+      // 시작~종료 날짜 사이의 각 평일에 대해 기록 생성
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const dayOfWeek = d.getDay();
+        if (dayOfWeek === 0 || dayOfWeek === 6) continue; // 주말 건너뛰기
+        const dateStr = d.toISOString().slice(0, 10);
+        // 중복 방지
+        const dup = (leaveData.leaveRecords || []).find(r =>
+          r.employeeName === doc.authorName && r.date === dateStr && r.approvalId === doc.id
+        );
+        if (dup) continue;
+        const daysPerDay = isHalfDay ? 0.5 : 1;
+        if (!leaveData.leaveRecords) leaveData.leaveRecords = [];
+        leaveData.leaveRecords.push({
+          id: 'lr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+          employeeName: doc.authorName,
+          date: dateStr,
+          leaveType: leaveTypeName,
+          annualDays: deductsAnnual ? daysPerDay : 0,
+          nonAnnualDays: deductsAnnual ? 0 : daysPerDay,
+          reason: fd.reason || doc.title || '',
+          approvalId: doc.id,
+          createdAt: new Date().toISOString()
+        });
+      }
+      db['연차관리'].save(leaveData);
+      console.log(`✅ 휴가 승인 → 연차관리 자동 반영: ${doc.authorName} ${leaveTypeName} ${fd.startDate}~${fd.endDate || fd.startDate}`);
+    } catch(e) {
+      console.error('휴가 승인 → 연차관리 반영 실패:', e.message);
+    }
+  }
+
+  res.json({ ok: true, status: doc.status });
+});
+
+// 결재 문서 삭제 (기안자 본인만, pending 상태일 때만)
+app.delete('/api/approvals/:id', requireAuth, (req, res) => {
+  const uData = db.loadUsers();
+  const idx = (uData.approvals || []).findIndex(d => d.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: '문서 없음' });
+  const doc = uData.approvals[idx];
+  if (doc.authorId !== req.user.userId && req.user.role !== 'admin') {
+    return res.status(403).json({ error: '삭제 권한이 없습니다' });
+  }
+  if (doc.status !== 'pending' && req.user.role !== 'admin') {
+    return res.status(400).json({ error: '대기 중인 문서만 삭제할 수 있습니다' });
+  }
+  uData.approvals.splice(idx, 1);
+  db.saveUsers(uData);
+  res.json({ ok: true });
+});
+
+// ── CSV 품목 캐시 (메모리) ──────────────────────────────
+let csvCache = { list: [], loadedAt: 0 };
+
+function parseEcountCsv(csvText) {
+  const lines = csvText.replace(/^\uFEFF/, '').split(/\r?\n/);
+  if (lines.length < 3) return [];
+  const items = [];
+  for (let i = 2; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line || line.startsWith('"20')) continue;
+    const cols = line.split('","').map(c => c.replace(/^"|"$/g, '').replace(/\t/g, '').trim());
+    const code = cols[0];
+    if (!code || code === 'A0000000000') continue;
+    items.push({ PROD_CD: code, PROD_DES: cols[1] || code, SIZE_DES: cols[3] || '', GROUP_NM: cols[4] || '', USE_FLAG: (cols[6] || '').toUpperCase() === 'YES' });
+  }
+  return items;
+}
+
+const CSV_PATH = path.join(__dirname, 'data', 'ESA009M.csv');
+if (fs.existsSync(CSV_PATH)) {
+  csvCache.list = parseEcountCsv(fs.readFileSync(CSV_PATH, 'utf8'));
+  csvCache.loadedAt = Date.now();
+  console.log(`[시작] ✅ CSV에서 ${csvCache.list.length}개 품목 로드`);
+}
+
+app.post('/api/csv/upload', express.raw({ type: '*/*', limit: '50mb' }), (req, res) => {
+  if (!req.body || req.body.length === 0) return res.status(400).json({ error: '파일 없음' });
+  try {
+    fs.writeFileSync(CSV_PATH, req.body);
+    csvCache.list = parseEcountCsv(fs.readFileSync(CSV_PATH, 'utf8'));
+    csvCache.loadedAt = Date.now();
+    res.json({ ok: true, count: csvCache.list.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/csv/status', (req, res) => {
+  res.json({ loaded: csvCache.list.length > 0, count: csvCache.list.length });
+});
+
+app.post('/api/csv/search', (req, res) => {
+  const kw = (req.body.keyword || '').trim().toLowerCase();
+  if (!kw) return res.json({ items: [], total: 0 });
+  if (csvCache.list.length === 0) return res.status(400).json({ error: 'CSV 미로드' });
+  const items = csvCache.list.filter(item =>
+    (item.PROD_DES || '').toLowerCase().includes(kw) ||
+    (item.PROD_CD || '').toLowerCase().includes(kw) ||
+    (item.SIZE_DES || '').toLowerCase().includes(kw)
+  ).slice(0, 200);
+  res.json({ items, total: items.length, cacheTotal: csvCache.list.length });
+});
+
+// ── 이미지 업로드 (base64) ────────────────────────────────
+app.post('/api/upload-image', (req, res) => {
+  try {
+    const { imageData, fileName } = req.body;
+    if (!imageData) return res.status(400).json({ error: 'imageData required' });
+    const imgDir = path.join(__dirname, 'data', 'images');
+    if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
+    // base64에서 데이터 추출
+    const matches = imageData.match(/^data:([^;]+);base64,(.+)$/);
+    if (!matches) return res.status(400).json({ error: 'invalid base64 format' });
+    const ext = matches[1].split('/')[1] || 'png';
+    const buffer = Buffer.from(matches[2], 'base64');
+    const safeName = (fileName || 'img').replace(/[^a-zA-Z0-9가-힣_-]/g, '_');
+    const finalName = `${safeName}_${Date.now()}.${ext}`;
+    fs.writeFileSync(path.join(imgDir, finalName), buffer);
+    res.json({ url: `/data/images/${finalName}` });
+  } catch(e) {
+    console.error('이미지 업로드 실패:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── 카테고리 ────────────────────────────────────────────
+app.get('/api/categories', (req, res) => {
+  if (db.sql) {
+    return res.json(db.sql.categories.getAll());
+  }
+  res.json(db.load().categories);
+});
+
+app.post('/api/categories', (req, res) => {
+  if (db.sql) {
+    const cat = db.sql.categories.create({
+      name: req.body.name || '', code: req.body.code || '',
+      pricingType: req.body.pricingType || 'QTY', unit: req.body.unit || '개',
+      tiers: req.body.tiers || [], qtyPrice: req.body.qtyPrice || 0, fixedPrice: req.body.fixedPrice || 0
+    });
+    auditLog(getReqUser(req), '품목 추가', `${cat.name} (${cat.code})`);
+    return res.json(cat);
+  }
+  const data = db.load();
+  const cat = {
+    id: db.generateId('cat'), name: req.body.name || '', code: req.body.code || '',
+    pricingType: req.body.pricingType || 'QTY', unit: req.body.unit || '개',
+    tiers: req.body.tiers || [], qtyPrice: req.body.qtyPrice || 0, fixedPrice: req.body.fixedPrice || 0
+  };
+  data.categories.push(cat); db.save(data);
+  auditLog(getReqUser(req), '품목 추가', `${cat.name} (${cat.code})`);
+  res.json(cat);
+});
+
+app.put('/api/categories/:id', (req, res) => {
+  if (db.sql) {
+    const before = db.sql.categories.getById(req.params.id);
+    const cat = db.sql.categories.update(req.params.id, req.body);
+    if (!cat) return res.status(404).json({ error: 'not found' });
+    auditLog(getReqUser(req), '품목 수정', before ? before.name : req.params.id);
+    return res.json(cat);
+  }
+  const data = db.load();
+  const idx = data.categories.findIndex(c => c.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'not found' });
+  const before = data.categories[idx];
+  data.categories[idx] = { ...data.categories[idx], ...req.body, id: req.params.id };
+  db.save(data);
+  auditLog(getReqUser(req), '품목 수정', before.name);
+  res.json(data.categories[idx]);
+});
+
+app.delete('/api/categories/:id', (req, res) => {
+  let catName = req.params.id;
+  if (db.sql) {
+    const cat = db.sql.categories.getById(req.params.id);
+    if (cat) catName = cat.name;
+    db.sql.categories.delete(req.params.id);
+    auditLog(getReqUser(req), '품목 삭제', catName);
+    return res.json({ ok: true });
+  }
+  const data = db.load();
+  const cat = data.categories.find(c => c.id === req.params.id);
+  if (cat) catName = cat.name;
+  data.categories = data.categories.filter(c => c.id !== req.params.id);
+  db.save(data);
+  auditLog(getReqUser(req), '품목 삭제', catName);
+  res.json({ ok: true });
+});
+
+// ── 옵션 관리 ────────────────────────────────────────────
+app.get('/api/options', (req, res) => {
+  if (db.sql) {
+    return res.json(db.sql.options.getAll());
+  }
+  res.json(db.load().options || []);
+});
+
+app.post('/api/options', (req, res) => {
+  if (db.sql) {
+    const opt = db.sql.options.create({
+      code: req.body.code || '', name: req.body.name || '',
+      price: Number(req.body.price) || 0, unit: req.body.unit || '개',
+      categoryIds: req.body.categoryIds || [],
+      pricingType: req.body.pricingType || 'fixed',
+      variants: Array.isArray(req.body.variants) ? req.body.variants : []
+    });
+    return res.json(opt);
+  }
+  const data = db.load();
+  if (!data.options) data.options = [];
+  const opt = {
+    id: db.generateId('opt'), code: req.body.code || '', name: req.body.name || '',
+    price: Number(req.body.price) || 0, unit: req.body.unit || '개',
+    categoryIds: req.body.categoryIds || [],
+    pricingType: req.body.pricingType || 'fixed',
+    variants: Array.isArray(req.body.variants) ? req.body.variants : [],
+    quotes: []
+  };
+  data.options.push(opt); db.save(data); res.json(opt);
+});
+
+// 옵션 업체별 견적 추가
+app.post('/api/options/:id/quotes', (req, res) => {
+  if (db.sql) {
+    // For SQLite, update the option's quotes field
+    const opt = db.sql.options.getById(req.params.id);
+    if (!opt) return res.status(404).json({ error: 'not found' });
+    const quotes = Array.isArray(opt.quotes) ? opt.quotes : [];
+    const q = { id: db.generateId('oq'), vendor: req.body.vendor || '', price: Number(req.body.price) || 0, quoteDate: req.body.quoteDate || new Date().toISOString().slice(0,10), note: req.body.note || '' };
+    quotes.push(q);
+    db.sql.options.update(req.params.id, { quotes });
+    const updated = db.sql.options.getById(req.params.id);
+    return res.json(updated);
+  }
+  const data = db.load();
+  const opt = (data.options || []).find(o => o.id === req.params.id);
+  if (!opt) return res.status(404).json({ error: 'not found' });
+  if (!opt.quotes) opt.quotes = [];
+  const q = { id: db.generateId('oq'), vendor: req.body.vendor || '', price: Number(req.body.price) || 0, quoteDate: req.body.quoteDate || new Date().toISOString().slice(0,10), note: req.body.note || '' };
+  opt.quotes.push(q); db.save(data); res.json(opt);
+});
+
+// 옵션 업체별 견적 삭제
+app.delete('/api/options/:id/quotes/:qid', (req, res) => {
+  if (db.sql) {
+    const opt = db.sql.options.getById(req.params.id);
+    if (!opt) return res.status(404).json({ error: 'not found' });
+    const quotes = (opt.quotes || []).filter(q => q.id !== req.params.qid);
+    db.sql.options.update(req.params.id, { quotes });
+    const updated = db.sql.options.getById(req.params.id);
+    return res.json(updated);
+  }
+  const data = db.load();
+  const opt = (data.options || []).find(o => o.id === req.params.id);
+  if (!opt) return res.status(404).json({ error: 'not found' });
+  opt.quotes = (opt.quotes || []).filter(q => q.id !== req.params.qid);
+  db.save(data); res.json(opt);
+});
+
+app.put('/api/options/:id', (req, res) => {
+  if (db.sql) {
+    if (req.body.price !== undefined) req.body.price = Number(req.body.price);
+    if (req.body.variants !== undefined) req.body.variants = Array.isArray(req.body.variants) ? req.body.variants : [];
+    const opt = db.sql.options.update(req.params.id, req.body);
+    if (!opt) return res.status(404).json({ error: 'not found' });
+    return res.json(opt);
+  }
+  const data = db.load();
+  if (!data.options) data.options = [];
+  const idx = data.options.findIndex(o => o.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'not found' });
+  data.options[idx] = { ...data.options[idx], ...req.body, id: req.params.id };
+  if (req.body.price !== undefined) data.options[idx].price = Number(req.body.price);
+  if (req.body.pricingType !== undefined) data.options[idx].pricingType = req.body.pricingType;
+  if (req.body.variants !== undefined) data.options[idx].variants = Array.isArray(req.body.variants) ? req.body.variants : [];
+  db.save(data); res.json(data.options[idx]);
+});
+
+app.delete('/api/options/:id', (req, res) => {
+  if (db.sql) {
+    db.sql.options.delete(req.params.id);
+    return res.json({ ok: true });
+  }
+  const data = db.load();
+  if (!data.options) data.options = [];
+  data.options = data.options.filter(o => o.id !== req.params.id);
+  db.save(data); res.json({ ok: true });
+});
+
+// ── 업체 ─────────────────────────────────────────────────
+app.get('/api/vendors', (req, res) => {
+  try {
+    if (db.sql) {
+      return res.json(db.sql.vendors.getAll() || []);
+    }
+    // JSON 모드: 업체관리.json에서 읽기
+    if (db['업체관리']) {
+      const data = db['업체관리'].load();
+      return res.json(data.vendors || []);
+    }
+    // 폴백: db.load()
+    const data = db.load();
+    res.json(data.vendors || []);
+  } catch (e) {
+    console.error('[ERROR] GET /api/vendors:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/vendors', (req, res) => {
+  try {
+    if (db.sql) {
+      const v = db.sql.vendors.create({
+        name: req.body.name || '', bizNo: req.body.bizNo || '',
+        ceo: req.body.ceo || '', phone: req.body.phone || '', email: req.body.email || '',
+        address: req.body.address || '', note: req.body.note || ''
+      });
+      auditLog(getReqUser(req), '업체 추가', v.name);
+      return res.json(v);
+    }
+    // JSON 모드: 업체관리.json
+    const loadVendors = () => db['업체관리'] ? db['업체관리'].load() : db.load();
+    const saveVendors = (d) => db['업체관리'] ? db['업체관리'].save(d) : db.save(d);
+    const data = loadVendors();
+    if (!data.vendors) data.vendors = [];
+    const v = { id: db.generateId('v'), name: req.body.name || '', bizNo: req.body.bizNo || '',
+      ceo: req.body.ceo || '', phone: req.body.phone || '', email: req.body.email || '',
+      address: req.body.address || '', note: req.body.note || '' };
+    data.vendors.push(v); saveVendors(data);
+    auditLog(getReqUser(req), '업체 추가', v.name);
+    res.json(v);
+  } catch (e) {
+    console.error('[ERROR] POST /api/vendors:', e.message, e.stack);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── JSON → SQLite 업체 마이그레이션 ──
+app.post('/api/vendors/migrate-from-json', (req, res) => {
+  try {
+    if (!db.sql) return res.status(400).json({ error: 'SQLite 모드가 아닙니다' });
+    const existing = db.sql.vendors.getAll();
+    if (existing.length > 0) return res.json({ ok: true, message: '이미 데이터 있음', count: existing.length });
+    // JSON 파일에서 읽기
+    const fs = require('fs');
+    const path = require('path');
+    const jsonPath = path.join(__dirname, 'data', '업체관리.json');
+    if (!fs.existsSync(jsonPath)) return res.status(404).json({ error: '업체관리.json 없음' });
+    const jsonData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+    const vendors = jsonData.vendors || [];
+    let added = 0;
+    for (const v of vendors) {
+      try {
+        db.sql.vendors.create(v);
+        added++;
+      } catch (e2) {
+        console.error('[WARN] vendor migrate skip:', v.name, e2.message);
+      }
+    }
+    res.json({ ok: true, added, total: vendors.length });
+  } catch (e) {
+    console.error('[ERROR] vendor migrate:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/vendors/:id', (req, res) => {
+  if (db.sql) {
+    const before = db.sql.vendors.getById(req.params.id);
+    const v = db.sql.vendors.update(req.params.id, req.body);
+    if (!v) return res.status(404).json({ error: 'not found' });
+    auditLog(getReqUser(req), '업체 수정', before ? before.name : req.params.id);
+    return res.json(v);
+  }
+  const loadVendors = () => db['업체관리'] ? db['업체관리'].load() : db.load();
+  const saveVendors = (d) => db['업체관리'] ? db['업체관리'].save(d) : db.save(d);
+  const data = loadVendors();
+  if (!data.vendors) data.vendors = [];
+  const idx = data.vendors.findIndex(v => v.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'not found' });
+  const before = data.vendors[idx];
+  data.vendors[idx] = { ...data.vendors[idx], ...req.body, id: req.params.id };
+  saveVendors(data);
+  auditLog(getReqUser(req), '업체 수정', before.name);
+  res.json(data.vendors[idx]);
+});
+
+app.delete('/api/vendors/:id', (req, res) => {
+  let vendorName = req.params.id;
+  if (db.sql) {
+    const v = db.sql.vendors.getById(req.params.id);
+    if (v) vendorName = v.name;
+    db.sql.vendors.delete(req.params.id);
+    auditLog(getReqUser(req), '업체 삭제', vendorName);
+    return res.json({ ok: true });
+  }
+  const loadVendors = () => db['업체관리'] ? db['업체관리'].load() : db.load();
+  const saveVendors = (d) => db['업체관리'] ? db['업체관리'].save(d) : db.save(d);
+  const data = loadVendors();
+  if (!data.vendors) data.vendors = [];
+  const v = data.vendors.find(v => v.id === req.params.id);
+  if (v) vendorName = v.name;
+  data.vendors = data.vendors.filter(v => v.id !== req.params.id);
+  saveVendors(data);
+  auditLog(getReqUser(req), '업체 삭제', vendorName);
+  res.json({ ok: true });
+});
+
+// ── 업체별 단가 (vendorPrices) ───────────────────────────
+// vendorPrices: [ { id, vendorId, categoryId, pricingType, tiers, qtyPrice, fixedPrice } ]
+
+// 특정 업체의 모든 카테고리 단가 조회
+app.get('/api/vendor-prices/:vendorId', (req, res) => {
+  if (db.sql) {
+    return res.json(db.sql.vendorPrices.getByVendor(req.params.vendorId));
+  }
+  const data = db.load();
+  if (!data.vendorPrices) data.vendorPrices = [];
+  const vp = data.vendorPrices.filter(p => p.vendorId === req.params.vendorId);
+  res.json(vp);
+});
+
+// 특정 업체 + 카테고리 단가 저장/수정 (upsert)
+app.post('/api/vendor-prices', (req, res) => {
+  if (db.sql) {
+    const { vendorId, categoryId, tiers, widthTiers, qtyPrice, fixedPrice } = req.body;
+    if (!vendorId || !categoryId) return res.status(400).json({ error: 'vendorId, categoryId 필요' });
+    const entry = db.sql.vendorPrices.upsert({
+      vendorId, categoryId,
+      tiers: tiers || [],
+      widthTiers: widthTiers || [],
+      qtyPrice: Number(qtyPrice) || 0,
+      fixedPrice: Number(fixedPrice) || 0
+    });
+    return res.json(entry);
+  }
+  const data = db.load();
+  if (!data.vendorPrices) data.vendorPrices = [];
+  const { vendorId, categoryId, tiers, widthTiers, qtyPrice, fixedPrice } = req.body;
+  if (!vendorId || !categoryId) return res.status(400).json({ error: 'vendorId, categoryId 필요' });
+
+  const existing = data.vendorPrices.findIndex(p => p.vendorId === vendorId && p.categoryId === categoryId);
+  const entry = {
+    id: existing >= 0 ? data.vendorPrices[existing].id : db.generateId('vp'),
+    vendorId, categoryId,
+    tiers: tiers || [],
+    widthTiers: widthTiers || [],
+    qtyPrice: Number(qtyPrice) || 0,
+    fixedPrice: Number(fixedPrice) || 0
+  };
+
+  if (existing >= 0) {
+    data.vendorPrices[existing] = entry;
+  } else {
+    data.vendorPrices.push(entry);
+  }
+  db.save(data);
+  res.json(entry);
+});
+
+// 기본 단가를 업체 단가로 복사
+app.post('/api/vendor-prices/:vendorId/copy-defaults', (req, res) => {
+  if (db.sql) {
+    const vendorId = req.params.vendorId;
+    const categories = db.sql.categories.getAll();
+    let copied = 0;
+    for (const cat of categories) {
+      const existing = db.sql.vendorPrices.getByVendor(vendorId).find(p => p.categoryId === cat.id);
+      if (!existing) {
+        copied++;
+      }
+    }
+    db.sql.vendorPrices.copyDefaults(vendorId, categories);
+    return res.json({ ok: true, copied, message: `${copied}개 카테고리 기본 단가 복사 완료` });
+  }
+  const data = db.load();
+  if (!data.vendorPrices) data.vendorPrices = [];
+  const vendorId = req.params.vendorId;
+  let copied = 0;
+
+  for (const cat of data.categories) {
+    const exists = data.vendorPrices.find(p => p.vendorId === vendorId && p.categoryId === cat.id);
+    if (!exists) {
+      data.vendorPrices.push({
+        id: db.generateId('vp'), vendorId, categoryId: cat.id,
+        tiers: JSON.parse(JSON.stringify(cat.tiers || [])),
+        widthTiers: JSON.parse(JSON.stringify(cat.widthTiers || [])),
+        qtyPrice: cat.qtyPrice || 0,
+        fixedPrice: cat.fixedPrice || 0
+      });
+      copied++;
+    }
+  }
+  db.save(data);
+  res.json({ ok: true, copied, message: `${copied}개 카테고리 기본 단가 복사 완료` });
+});
+
+// 업체별 단가 삭제 (특정 카테고리)
+app.delete('/api/vendor-prices/:vendorId/:categoryId', (req, res) => {
+  if (db.sql) {
+    db.sql.vendorPrices.delete(req.params.vendorId, req.params.categoryId);
+    return res.json({ ok: true });
+  }
+  const data = db.load();
+  if (!data.vendorPrices) data.vendorPrices = [];
+  data.vendorPrices = data.vendorPrices.filter(p => !(p.vendorId === req.params.vendorId && p.categoryId === req.params.categoryId));
+  db.save(data);
+  res.json({ ok: true });
+});
+
+// ── 견적 계산 ────────────────────────────────────────────
+// vendorId가 있으면 업체별 단가 우선, 없으면 기본 단가
+app.post('/api/quote/calculate', (req, res) => {
+  const { categoryId, widthMm, heightMm, qty, optionSelections, vendorId } = req.body;
+
+  // Load data based on whether SQLite is available
+  let cat, options, vendorPrices;
+  if (db.sql) {
+    cat = db.sql.categories.getById(categoryId);
+    options = db.sql.options.getAll();
+    if (vendorId) {
+      vendorPrices = db.sql.vendorPrices.getByVendor(vendorId);
+    } else {
+      vendorPrices = [];
+    }
+  } else {
+    const data = db.load();
+    cat = data.categories.find(c => c.id === categoryId);
+    options = data.options || [];
+    vendorPrices = vendorId && data.vendorPrices ? data.vendorPrices.filter(p => p.vendorId === vendorId) : [];
+  }
+
+  if (!cat) return res.status(404).json({ error: '카테고리 없음' });
+
+  // 업체별 단가 확인
+  let pricing = cat; // 기본값은 카테고리 기본 단가
+  if (vendorId && vendorPrices) {
+    const vp = vendorPrices.find(p => p.vendorId === vendorId && p.categoryId === categoryId);
+    if (vp) {
+      pricing = { ...cat, tiers: vp.tiers, widthTiers: vp.widthTiers, qtyPrice: vp.qtyPrice, fixedPrice: vp.fixedPrice };
+    }
+  }
+
+  const q = Math.max(1, Number(qty) || 1);
+  let basePrice = 0, sqm = 0, matchedTier = null;
+  let lengthM = 0, matchedWidthTier = null;
+
+  if (cat.pricingType === 'SIZE') {
+    const w = Number(widthMm) || 0, h = Number(heightMm) || 0;
+    sqm = (w / 1000) * (h / 1000);
+    const tiers = (pricing.tiers || []).sort((a, b) => (a.areaMin || 0) - (b.areaMin || 0));
+    for (const t of tiers) {
+      const min = Number(t.areaMin) || 0;
+      const max = t.areaMax == null || t.areaMax === '' ? Infinity : Number(t.areaMax);
+      if (sqm >= min && sqm < max) { matchedTier = t; break; }
+    }
+    if (!matchedTier && tiers.length > 0) matchedTier = tiers[tiers.length - 1];
+    basePrice = sqm * (matchedTier ? Number(matchedTier.pricePerSqm) || 0 : 0) * q;
+  } else if (cat.pricingType === 'LENGTH') {
+    // 폭별 m당 단가: widthTiers = [{ widthMm: 300, pricePerM: 5000 }, ...]
+    const w = Number(widthMm) || 0, h = Number(heightMm) || 0;
+    lengthM = h / 1000; // heightMm = 길이(가로)
+    sqm = (w / 1000) * lengthM; // 참고용 면적
+    const wTiers = (pricing.widthTiers || []).sort((a, b) => (Number(a.widthMm) || 0) - (Number(b.widthMm) || 0));
+    // 비표준 폭: 올림 처리 (입력 폭 이상인 가장 가까운 티어)
+    for (const t of wTiers) {
+      if (w <= Number(t.widthMm)) { matchedWidthTier = t; break; }
+    }
+    // 최대 폭보다 크면 마지막 티어 적용
+    if (!matchedWidthTier && wTiers.length > 0) matchedWidthTier = wTiers[wTiers.length - 1];
+    const pricePerM = matchedWidthTier ? Number(matchedWidthTier.pricePerM) || 0 : 0;
+    basePrice = lengthM * pricePerM * q;
+  } else if (cat.pricingType === 'QTY') {
+    basePrice = (Number(pricing.qtyPrice) || 0) * q;
+  } else {
+    // FIXED 또는 기타: 고정단가 × 수량
+    basePrice = (Number(pricing.fixedPrice) || 0) * q;
+  }
+
+  let optionTotal = 0;
+  const optionDetails = [];
+  if (Array.isArray(optionSelections)) {
+    for (const sel of optionSelections) {
+      const opt = options.find(o => o.id === sel.optionId);
+      if (!opt) continue;
+      const oQty = Math.max(1, Number(sel.qty) || 1);
+      const optType = opt.pricingType || 'fixed';
+      let oPrice = 0;
+      let optLabel = opt.name;
+
+      if (optType === 'perSqm') {
+        // 면적(㎡) 기준 단가 — sqm은 위에서 이미 계산됨
+        oPrice = Math.round(Number(opt.price) * sqm) * oQty;
+        optLabel = `${opt.name}(${sqm.toFixed(2)}㎡)`;
+      } else if (optType === 'variants' && Array.isArray(opt.variants) && sel.variantIdx !== undefined) {
+        // 규격별 단가 — variantIdx로 선택된 규격의 단가 사용
+        const variant = opt.variants[Number(sel.variantIdx)];
+        if (variant) {
+          oPrice = Number(variant.price) * oQty;
+          optLabel = `${opt.name}(${variant.label})`;
+        }
+      } else {
+        // fixed: 고정 단가
+        oPrice = Number(opt.price) * oQty;
+      }
+
+      optionTotal += oPrice;
+      optionDetails.push({ id: opt.id, name: optLabel, code: opt.code, unitPrice: Math.round(oPrice / oQty), qty: oQty, total: oPrice, unit: opt.unit });
+    }
+  }
+
+  const totalExVat = Math.round(basePrice + optionTotal);
+  const vat = Math.round(totalExVat * 0.1);
+
+  const usingVendorPrice = !!(vendorId && vendorPrices && vendorPrices.find(p => p.vendorId === vendorId && p.categoryId === categoryId));
+
+  res.json({
+    sqm: Math.round(sqm * 10000) / 10000,
+    pricePerSqm: matchedTier ? Number(matchedTier.pricePerSqm) : null,
+    tierLabel: matchedTier ? `${matchedTier.areaMin || 0}~${matchedTier.areaMax || '∞'}㎡` : null,
+    // LENGTH 타입 전용 정보
+    lengthM: Math.round(lengthM * 1000) / 1000,
+    pricePerM: matchedWidthTier ? Number(matchedWidthTier.pricePerM) : null,
+    widthTierLabel: matchedWidthTier ? `${matchedWidthTier.widthMm}mm폭` : null,
+    basePrice: Math.round(basePrice), optionTotal, optionDetails,
+    totalExVat, vat, totalIncVat: totalExVat + vat,
+    optionRemark: optionDetails.map(o => o.qty > 1 ? `${o.name} ${o.qty}${o.unit||'개'}` : o.name).join(', '),
+    usingVendorPrice
+  });
+});
+
+// ── 견적서 저장/목록/조회 ────────────────────────────────
+app.get('/api/quotes', (req, res) => {
+  if (db.sql) {
+    const quotes = db.sql.quotes.getAll().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    // 목록은 가볍게 (items 제외)
+    return res.json(quotes.map(q => ({
+      id: q.id, siteName: q.siteName, quoteName: q.quoteName, vendorName: q.vendorName,
+      manager: q.manager, createdBy: q.createdBy, createdAt: q.createdAt,
+      totalAmount: q.totalAmount, itemCount: (q.items || []).length, status: q.status || 'draft'
+    })));
+  }
+  const data = db['견적관리'] ? db['견적관리'].load() : db.load();
+  const quotes = (data.quotes || []).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  // 목록은 가볍게 (items 제외)
+  res.json(quotes.map(q => ({
+    id: q.id, siteName: q.siteName, quoteName: q.quoteName, vendorName: q.vendorName,
+    manager: q.manager, createdBy: q.createdBy, createdAt: q.createdAt,
+    totalAmount: q.totalAmount, itemCount: (q.items || []).length, status: q.status || 'draft'
+  })));
+});
+
+app.get('/api/quotes/:id', (req, res) => {
+  if (db.sql) {
+    const quote = db.sql.quotes.getById(req.params.id);
+    if (!quote) return res.status(404).json({ error: '견적서 없음' });
+    return res.json(quote);
+  }
+  const data = db['견적관리'] ? db['견적관리'].load() : db.load();
+  const quote = (data.quotes || []).find(q => q.id === req.params.id);
+  if (!quote) return res.status(404).json({ error: '견적서 없음' });
+  res.json(quote);
+});
+
+app.post('/api/quotes', (req, res) => {
+  // 로그인 사용자 정보
+  const cookies = parseCookies(req);
+  const token = cookies.session_token || req.headers['x-session-token'];
+  const user = token ? sessions[token] : null;
+
+  if (db.sql) {
+    const quote = db.sql.quotes.create({
+      siteName: req.body.siteName || '',
+      quoteName: req.body.quoteName || '',
+      manager: req.body.manager || '',
+      vendorManager: req.body.vendorManager || '',
+      vendorId: req.body.vendorId || '',
+      vendorName: req.body.vendorName || '',
+      vendorBizNo: req.body.vendorBizNo || '',
+      items: req.body.items || [],
+      createdBy: user ? user.userId : (req.body.createdBy || '')
+    });
+    auditLog(user ? user.userId : '비로그인', '견적 생성', `${quote.siteName || ''} ${quote.quoteName || ''}`);
+    return res.json(quote);
+  }
+
+  const loadQuotes = () => db['견적관리'] ? db['견적관리'].load() : db.load();
+  const saveQuotes = (d) => db['견적관리'] ? db['견적관리'].save(d) : db.save(d);
+  const data = loadQuotes();
+  if (!data.quotes) data.quotes = [];
+
+  const quote = {
+    id: db.generateId('q'),
+    siteName: req.body.siteName || '',
+    quoteName: req.body.quoteName || '',
+    manager: req.body.manager || '',
+    vendorManager: req.body.vendorManager || '',
+    vendorId: req.body.vendorId || '',
+    vendorName: req.body.vendorName || '',
+    vendorBizNo: req.body.vendorBizNo || '',
+    items: req.body.items || [],
+    totalAmount: (req.body.items || []).reduce((sum, it) => sum + (it.amount || 0), 0),
+    createdBy: user ? user.userId : (req.body.createdBy || ''),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'draft'
+  };
+
+  data.quotes.push(quote);
+  saveQuotes(data);
+  auditLog(user ? user.userId : '비로그인', '견적 생성', `${quote.siteName || ''} ${quote.quoteName || ''}`);
+  res.json(quote);
+});
+
+app.put('/api/quotes/:id', (req, res) => {
+  if (db.sql) {
+    const updates = { ...req.body };
+    if (req.body.items) {
+      updates.totalAmount = req.body.items.reduce((sum, it) => sum + (it.amount || 0), 0);
+    }
+    const quote = db.sql.quotes.update(req.params.id, updates);
+    if (!quote) return res.status(404).json({ error: 'not found' });
+    return res.json(quote);
+  }
+  const loadQuotes = () => db['견적관리'] ? db['견적관리'].load() : db.load();
+  const saveQuotes = (d) => db['견적관리'] ? db['견적관리'].save(d) : db.save(d);
+  const data = loadQuotes();
+  if (!data.quotes) data.quotes = [];
+  const idx = data.quotes.findIndex(q => q.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'not found' });
+  data.quotes[idx] = { ...data.quotes[idx], ...req.body, id: req.params.id, updatedAt: new Date().toISOString() };
+  if (req.body.items) {
+    data.quotes[idx].totalAmount = req.body.items.reduce((sum, it) => sum + (it.amount || 0), 0);
+  }
+  saveQuotes(data); res.json(data.quotes[idx]);
+});
+
+app.delete('/api/quotes/:id', (req, res) => {
+  let qName = req.params.id;
+  if (db.sql) {
+    const q = db.sql.quotes.getById(req.params.id);
+    if (q) qName = `${q.siteName || ''} ${q.quoteName || ''}`.trim() || q.id;
+    db.sql.quotes.delete(req.params.id);
+    auditLog(getReqUser(req), '견적 삭제', qName);
+    return res.json({ ok: true });
+  }
+  const loadQuotes = () => db['견적관리'] ? db['견적관리'].load() : db.load();
+  const saveQuotes = (d) => db['견적관리'] ? db['견적관리'].save(d) : db.save(d);
+  const data = loadQuotes();
+  if (!data.quotes) data.quotes = [];
+  const q = data.quotes.find(q => q.id === req.params.id);
+  if (q) qName = `${q.siteName || ''} ${q.quoteName || ''}`.trim() || q.id;
+  data.quotes = data.quotes.filter(q => q.id !== req.params.id);
+  saveQuotes(data);
+  auditLog(getReqUser(req), '견적 삭제', qName);
+  res.json({ ok: true });
+});
+
+// 견적 복사
+app.post('/api/quotes/:id/copy', (req, res) => {
+  if (db.sql) {
+    const copied = db.sql.quotes.duplicate(req.params.id);
+    if (!copied) return res.status(404).json({ error: 'not found' });
+    return res.json(copied);
+  }
+  const data = db['견적관리'] ? db['견적관리'].load() : db.load();
+  const src = (data.quotes || []).find(q => q.id === req.params.id);
+  if (!src) return res.status(404).json({ error: 'not found' });
+  const copied = { ...JSON.parse(JSON.stringify(src)), id: db.generateId('q'), siteName: '[복사] ' + src.siteName, status: 'draft', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), mailHistory: [] };
+  data.quotes.push(copied);
+  (db['견적관리'] ? db['견적관리'].save(data) : db.save(data));
+  res.json(copied);
+});
+
+// 견적 상태 변경 (워크플로우 강제)
+const QUOTE_STATUS_FLOW = {
+  'draft':     ['review', 'sent', 'won', 'lost'],
+  'review':    ['approved', 'rejected', 'draft'],
+  'rejected':  ['draft', 'review'],
+  'approved':  ['sent', 'draft'],
+  'sent':      ['won', 'lost', 'draft'],
+  'won':       ['completed', 'draft'],
+  'lost':      ['draft'],
+  'completed': ['draft']
+};
+
+app.post('/api/quotes/:id/status', (req, res) => {
+  const newStatus = req.body.status;
+  const userId = getReqUser(req);
+
+  if (db.sql) {
+    const before = db.sql.quotes.getById(req.params.id);
+    if (!before) return res.status(404).json({ error: 'not found' });
+    const current = before.status || 'draft';
+    const allowed = QUOTE_STATUS_FLOW[current] || [];
+    if (!allowed.includes(newStatus)) {
+      return res.status(400).json({ error: `'${current}' → '${newStatus}' 전환 불가`, 허용: allowed });
+    }
+    const quote = db.sql.quotes.updateStatus(req.params.id, newStatus);
+    const qName = `${before.siteName || ''} ${before.quoteName || ''}`.trim();
+    auditLog(userId, `견적 상태변경 (${current}→${newStatus})`, qName);
+    // 승인/반려 시 작성자에게 알림
+    if (newStatus === 'approved' && before.createdBy) {
+      notify(before.createdBy, 'quote', `견적서 "${qName}"이 승인되었습니다`, 'history');
+    }
+    if (newStatus === 'rejected' && before.createdBy) {
+      notify(before.createdBy, 'quote', `견적서 "${qName}"이 반려되었습니다`, 'history');
+    }
+    return res.json(quote);
+  }
+  const loadQuotes = () => db['견적관리'] ? db['견적관리'].load() : db.load();
+  const saveQuotes = (d) => db['견적관리'] ? db['견적관리'].save(d) : db.save(d);
+  const data = loadQuotes();
+  const q = (data.quotes || []).find(q => q.id === req.params.id);
+  if (!q) return res.status(404).json({ error: 'not found' });
+  const current = q.status || 'draft';
+  const allowed = QUOTE_STATUS_FLOW[current] || [];
+  if (!allowed.includes(newStatus)) {
+    return res.status(400).json({ error: `'${current}' → '${newStatus}' 전환 불가`, 허용: allowed });
+  }
+  q.status = newStatus; q.updatedAt = new Date().toISOString();
+  if (newStatus === 'won' && !q.wonAt) q.wonAt = new Date().toISOString();
+  if (newStatus === 'lost' && !q.lostAt) q.lostAt = new Date().toISOString();
+  saveQuotes(data);
+  const qName = `${q.siteName || ''} ${q.quoteName || ''}`.trim();
+  auditLog(userId, `견적 상태변경 (${current}→${newStatus})`, qName);
+  if (newStatus === 'approved' && q.createdBy) notify(q.createdBy, 'quote', `견적서 "${qName}"이 승인되었습니다`, 'history');
+  if (newStatus === 'rejected' && q.createdBy) notify(q.createdBy, 'quote', `견적서 "${qName}"이 반려되었습니다`, 'history');
+  res.json(q);
+});
+
+// 통계
+app.get('/api/stats', (req, res) => {
+  const data = db['견적관리'] ? db['견적관리'].load() : db.load();
+  const quotes = data.quotes || [];
+  // 월별 통계
+  const byMonth = {};
+  quotes.forEach(q => {
+    const m = (q.createdAt || '').slice(0, 7);
+    if (!byMonth[m]) byMonth[m] = { count: 0, amount: 0, won: 0, lost: 0 };
+    byMonth[m].count++;
+    byMonth[m].amount += q.totalAmount || 0;
+    if (q.status === 'won') byMonth[m].won++;
+    if (q.status === 'lost') byMonth[m].lost++;
+  });
+  // 거래처별 통계
+  const byVendor = {};
+  quotes.forEach(q => {
+    const v = q.vendorName || '미지정';
+    if (!byVendor[v]) byVendor[v] = { count: 0, amount: 0 };
+    byVendor[v].count++; byVendor[v].amount += q.totalAmount || 0;
+  });
+  // 품목별 빈도
+  const byCategory = {};
+  quotes.forEach(q => (q.items || []).forEach(it => {
+    const c = it.category || it.name || '기타';
+    if (!byCategory[c]) byCategory[c] = 0;
+    byCategory[c]++;
+  }));
+  // 상태 요약
+  const statusCount = { draft: 0, sent: 0, won: 0, lost: 0, completed: 0 };
+  quotes.forEach(q => { const s = q.status || 'draft'; if (statusCount[s] !== undefined) statusCount[s]++; });
+  res.json({
+    total: quotes.length,
+    totalAmount: quotes.reduce((s, q) => s + (q.totalAmount || 0), 0),
+    statusCount,
+    byMonth: Object.entries(byMonth).sort((a,b)=>a[0]<b[0]?1:-1).slice(0, 12).reverse(),
+    topVendors: Object.entries(byVendor).sort((a,b)=>b[1].amount-a[1].amount).slice(0,5).map(([name,v])=>({name,...v})),
+    topCategories: Object.entries(byCategory).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([name,count])=>({name,count}))
+  });
+});
+
+// 명함 저장 (본인)
+app.post('/api/me/namecard', (req, res) => {
+  const cookies = parseCookies(req);
+  const token = cookies.session_token || req.headers['x-session-token'];
+  const session = token ? sessions[token] : null;
+  if (!session) return res.status(401).json({ error: '로그인 필요' });
+  const uData = db.loadUsers();
+  const user = (uData.users || []).find(u => u.userId === session.userId);
+  if (!user) return res.status(404).json({ error: 'not found' });
+  user.namecard = { mobile: req.body.mobile || '', tel: req.body.tel || '', fax: req.body.fax || '', email: req.body.email || '', dept: req.body.dept || '', tagline: req.body.tagline || '' };
+  db.saveUsers(uData); res.json({ ok: true });
+});
+
+// 내 명함 조회
+app.get('/api/me/namecard', (req, res) => {
+  const cookies = parseCookies(req);
+  const token = cookies.session_token || req.headers['x-session-token'];
+  const session = token ? sessions[token] : null;
+  if (!session) return res.status(401).json({ error: '로그인 필요' });
+  const uData = db.loadUsers();
+  const user = (uData.users || []).find(u => u.userId === session.userId);
+  res.json(user ? (user.namecard || {}) : {});
+});
+
+// 명함 이미지 업로드 (base64)
+app.post('/api/me/namecard-image', (req, res) => {
+  const cookies = parseCookies(req);
+  const token = cookies.session_token || req.headers['x-session-token'];
+  const session = token ? sessions[token] : null;
+  if (!session) return res.status(401).json({ error: '로그인 필요' });
+  const { image, mimeType } = req.body;
+  if (!image) return res.status(400).json({ error: '이미지 없음' });
+  // 사용자별 파일로 저장
+  const ext = (mimeType || 'image/jpeg').includes('png') ? 'png' : 'jpg';
+  const filename = `namecard_${session.userId}.${ext}`;
+  const filepath = path.join(__dirname, 'data', filename);
+  const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+  fs.writeFileSync(filepath, Buffer.from(base64Data, 'base64'));
+  // DB에 파일명 저장
+  const uData = db.loadUsers();
+  const user = (uData.users || []).find(u => u.userId === session.userId);
+  if (user) { user.namecardImage = filename; db.saveUsers(uData); }
+  res.json({ ok: true, url: `/data/${filename}` });
+});
+
+// 명함 이미지 조회 URL
+app.get('/api/me/namecard-image', (req, res) => {
+  const cookies = parseCookies(req);
+  const token = cookies.session_token || req.headers['x-session-token'];
+  const session = token ? sessions[token] : null;
+  if (!session) return res.status(401).json({ error: '로그인 필요' });
+  const uData = db.loadUsers();
+  const user = (uData.users || []).find(u => u.userId === session.userId);
+  if (user && user.namecardImage) {
+    res.json({ url: `/data/${user.namecardImage}` });
+  } else {
+    res.json({ url: null });
+  }
+});
+
+// 명함 이미지 삭제
+app.delete('/api/me/namecard-image', (req, res) => {
+  const cookies = parseCookies(req);
+  const token = cookies.session_token || req.headers['x-session-token'];
+  const session = token ? sessions[token] : null;
+  if (!session) return res.status(401).json({ error: '로그인 필요' });
+  const uData = db.loadUsers();
+  const user = (uData.users || []).find(u => u.userId === session.userId);
+  if (user && user.namecardImage) {
+    const filepath = path.join(__dirname, 'data', user.namecardImage);
+    if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
+    user.namecardImage = null;
+    db.saveUsers(uData);
+  }
+  res.json({ ok: true });
+});
+
+// ── 견적서 Excel 내보내기 (ZIP 직접 조작 — 도형/이미지 보존) ──
+const JSZip = require('jszip');
+const TEMPLATE_PATH = path.join(__dirname, 'data', 'template.xlsx');
+
+async function generateQuoteExcel(quoteData) {
+  const { siteName, quoteName, manager, vendorManager, quoteDate, items } = quoteData;
+  const templateBuf = fs.readFileSync(TEMPLATE_PATH);
+  const zip = await JSZip.loadAsync(templateBuf);
+
+  // drawing1.xml — 남중석 제거 (대표이사 이정호만 표시)
+  const drawFile = zip.file('xl/drawings/drawing1.xml');
+  if (drawFile) {
+    let drawXml = await drawFile.async('string');
+    drawXml = drawXml.replace(/<a:r><a:rPr[^>]*>(?:<[^>]*>)*<\/a:rPr><a:t>,<\/a:t><\/a:r>/g, '');
+    drawXml = drawXml.replace(/<a:r><a:rPr[^>]*>(?:<[^>]*>)*<\/a:rPr><a:t> 남 중 석<\/a:t><\/a:r>/g, '');
+    zip.file('xl/drawings/drawing1.xml', drawXml);
+  }
+
+  // sharedStrings.xml 읽기 — 기존 문자열 목록
+  let ssXml = await zip.file('xl/sharedStrings.xml').async('string');
+
+  // 기존 shared strings 파싱
+  const ssMatches = [...ssXml.matchAll(/<si>([\s\S]*?)<\/si>/g)];
+  const sharedStrings = ssMatches.map(m => {
+    const tMatch = m[1].match(/<t[^>]*>([^<]*)<\/t>/);
+    return tMatch ? tMatch[1] : '';
+  });
+
+  // 새 shared string 추가 헬퍼
+  function addSharedString(text) {
+    const escaped = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const idx = sharedStrings.length;
+    sharedStrings.push(text);
+    return idx;
+  }
+
+  // B4 현장명 (인덱스 41), B5 견적명 (인덱스 39), B6 담당자 (인덱스 40)
+  const idxSiteName = addSharedString('현 장 명: ' + (siteName || ''));
+  const idxQuoteName = addSharedString('견 적 명: ' + (quoteName || ''));
+  const idxManager = addSharedString('담 당 자: ' + (manager || ''));
+  const idxVendorMgr = addSharedString('담당자 : ' + (vendorManager || ''));
+
+  // 품목 데이터용 shared strings
+  const itemStrIndices = items.map(item => ({
+    name: addSharedString(item.name || ''),
+    spec: addSharedString(item.spec || ''),
+    unit: addSharedString(item.unit || ''),
+    remark: addSharedString(item.remark || '')
+  }));
+
+  // sheet1.xml 수정 (sharedStrings는 모든 인덱스 추가 후 아래에서 재생성)
+  let sheetXml = await zip.file('xl/worksheets/sheet1.xml').async('string');
+
+  // B4 현장명 교체 (원래 인덱스 41)
+  sheetXml = sheetXml.replace(
+    /(<c r="B4"[^>]*t="s"[^>]*><v>)\d+(<\/v><\/c>)/,
+    `$1${idxSiteName}$2`
+  );
+  // B5 견적명 (원래 인덱스 39)
+  sheetXml = sheetXml.replace(
+    /(<c r="B5"[^>]*t="s"[^>]*><v>)\d+(<\/v><\/c>)/,
+    `$1${idxQuoteName}$2`
+  );
+  // B6 담당자 (원래 인덱스 40)
+  sheetXml = sheetXml.replace(
+    /(<c r="B6"[^>]*t="s"[^>]*><v>)\d+(<\/v><\/c>)/,
+    `$1${idxManager}$2`
+  );
+  // G8 담당자 (원래 인덱스 21)
+  sheetXml = sheetXml.replace(
+    /(<c r="G8"[^>]*t="s"[^>]*><v>)\d+(<\/v><\/c>)/,
+    `$1${idxVendorMgr}$2`
+  );
+
+  // B8 견적일 — 수식 제거하고 직접 텍스트로
+  const dateStr = quoteDate || new Date().toISOString().slice(0, 10);
+  const formattedDate = '견적일:' + dateStr.replace(/-/g, '.');
+  const idxDate = addSharedString(formattedDate);
+  // sharedStrings 재생성은 아래에서 하므로 여기서는 인덱스만 확보
+  sheetXml = sheetXml.replace(
+    /<c r="B8"[^>]*>[\s\S]*?<\/c>/,
+    `<c r="B8" s="42" t="s"><v>${idxDate}</v></c>`
+  );
+
+  // sharedStrings.xml 재생성 (날짜 포함)
+  const newSiEntries2 = sharedStrings.map(s => {
+    const escaped = s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return `<si><t>${escaped}</t></si>`;
+  });
+  ssXml = ssXml.replace(
+    /<sst[^>]*>[\s\S]*<\/sst>/,
+    `<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="${sharedStrings.length}" uniqueCount="${sharedStrings.length}">${newSiEntries2.join('')}</sst>`
+  );
+  zip.file('xl/sharedStrings.xml', ssXml);
+
+  // 데이터 행 11~34 채우기
+  const DATA_START = 11;
+  const DATA_END = 34;
+  const itemCount = Math.min(items.length, DATA_END - DATA_START + 1); // 최대 24개
+
+  for (let i = 0; i < 24; i++) {
+    const rowNum = DATA_START + i;
+    const rowRegex = new RegExp(`<row r="${rowNum}"[^>]*>[\\s\\S]*?</row>`);
+    const rowMatch = sheetXml.match(rowRegex);
+    if (!rowMatch) continue;
+
+    if (i < itemCount) {
+      const item = items[i];
+      const si = itemStrIndices[i];
+      const newRow = `<row r="${rowNum}" spans="1:9" ht="19.5" customHeight="1" x14ac:dyDescent="0.15">` +
+        `<c r="A${rowNum}" s="17"/>` +
+        `<c r="B${rowNum}" s="21"><v>${i + 1}</v></c>` +
+        `<c r="C${rowNum}" s="21" t="s"><v>${si.name}</v></c>` +
+        `<c r="D${rowNum}" s="21" t="s"><v>${si.spec}</v></c>` +
+        `<c r="E${rowNum}" s="21" t="s"><v>${si.unit}</v></c>` +
+        `<c r="F${rowNum}" s="23"><v>${item.qty || 0}</v></c>` +
+        `<c r="G${rowNum}" s="22"><v>${item.unitPrice || 0}</v></c>` +
+        `<c r="H${rowNum}" s="22"><f>F${rowNum}*G${rowNum}</f><v>${(item.qty || 0) * (item.unitPrice || 0)}</v></c>` +
+        `<c r="I${rowNum}" s="21" t="s"><v>${si.remark}</v></c>` +
+        `</row>`;
+      sheetXml = sheetXml.replace(rowRegex, newRow);
+    } else {
+      // 빈 행
+      const emptyRow = `<row r="${rowNum}" spans="2:9" ht="19.5" customHeight="1" x14ac:dyDescent="0.15">` +
+        `<c r="B${rowNum}" s="21"/><c r="C${rowNum}" s="21"/><c r="D${rowNum}" s="21"/>` +
+        `<c r="E${rowNum}" s="21"/><c r="F${rowNum}" s="23"/><c r="G${rowNum}" s="22"/>` +
+        `<c r="H${rowNum}" s="22"/><c r="I${rowNum}" s="21"/>` +
+        `</row>`;
+      sheetXml = sheetXml.replace(rowRegex, emptyRow);
+    }
+  }
+
+  // H35 합계 수식 업데이트
+  const lastDataRow = DATA_START + itemCount - 1;
+  sheetXml = sheetXml.replace(
+    /(<c r="H35"[^>]*>)<f>[^<]*<\/f><v>[^<]*<\/v>/,
+    `$1<f>SUM(H${DATA_START}:H${lastDataRow})</f><v>${items.slice(0, itemCount).reduce((s, it) => s + (it.qty || 0) * (it.unitPrice || 0), 0)}</v>`
+  );
+
+  // B7 합계 참조도 업데이트 (=H35 이미 수식이라 값만 갱신)
+  const total = items.slice(0, itemCount).reduce((s, it) => s + (it.qty || 0) * (it.unitPrice || 0), 0);
+  sheetXml = sheetXml.replace(
+    /(<c r="B7"[^>]*>)<f>[^<]*<\/f><v>[^<]*<\/v>/,
+    `$1<f>H35</f><v>${total}</v>`
+  );
+
+  zip.file('xl/worksheets/sheet1.xml', sheetXml);
+
+  // Buffer로 반환
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
+app.post('/api/quote/export', async (req, res) => {
+  try {
+    const { items } = req.body;
+    if (!items || !items.length) return res.status(400).json({ error: '품목이 없습니다' });
+
+    const buffer = await generateQuoteExcel(req.body);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    const filename = (req.body.siteName || 'quote') + '_' + new Date().toISOString().slice(0,10) + '.xlsx';
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.send(buffer);
+  } catch (e) {
+    console.error('견적서 오류:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── 네이버 SMTP 메일 발송 ────────────────────────────────
+// nodemailer 없이 직접 SMTP 구현
+function sendSmtpMail({ smtpHost, smtpPort, smtpUser, smtpPass, from, to, subject, html, attachments }) {
+  return new Promise((resolve, reject) => {
+    const useSSL = (smtpPort === 465);
+
+    function handleSmtp(socket) {
+      let step = useSSL ? 'connect' : 'greeting';
+      let buffer = '';
+
+      socket.on('data', (data) => {
+        buffer += data.toString();
+        if (!buffer.includes('\r\n')) return;
+        const lines = buffer.split('\r\n');
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          const code = parseInt(line.substring(0, 3));
+
+          if (step === 'greeting' && code === 220) {
+            // 587: 평문 접속 후 EHLO
+            socket.write('EHLO localhost\r\n'); step = 'ehlo_starttls';
+          } else if (step === 'ehlo_starttls' && code === 250) {
+            if (line.startsWith('250 ')) {
+              // STARTTLS 요청
+              socket.write('STARTTLS\r\n'); step = 'starttls';
+            }
+          } else if (step === 'starttls' && code === 220) {
+            // TLS 업그레이드
+            const tlsSocket = tls.connect({ socket, host: smtpHost, rejectUnauthorized: false }, () => {
+              tlsSocket.write('EHLO localhost\r\n');
+            });
+            // 새 TLS 소켓으로 교체하여 이벤트 재등록
+            step = 'ehlo';
+            let tlsBuf = '';
+            tlsSocket.on('data', (d) => {
+              tlsBuf += d.toString();
+              if (!tlsBuf.includes('\r\n')) return;
+              const tlines = tlsBuf.split('\r\n');
+              tlsBuf = tlines.pop();
+              for (const tl of tlines) processLine(tl, tlsSocket);
+            });
+            tlsSocket.on('error', reject);
+            tlsSocket.on('timeout', () => reject(new Error('SMTP 타임아웃')));
+            tlsSocket.setTimeout(30000);
+            return; // 기존 소켓 이벤트 종료
+          } else {
+            processLine(line, socket);
+            continue;
+          }
+
+          // 공통 처리가 아닌 경우 skip
+          continue;
+        }
+      });
+
+      function processLine(line, sock) {
+        const code = parseInt(line.substring(0, 3));
+        if (step === 'connect' && code === 220) {
+          sock.write('EHLO localhost\r\n'); step = 'ehlo';
+        } else if (step === 'ehlo' && code === 250) {
+          if (line.startsWith('250 ')) {
+            const auth = Buffer.from(`\0${smtpUser}\0${smtpPass}`).toString('base64');
+            sock.write(`AUTH PLAIN ${auth}\r\n`); step = 'auth';
+          }
+        } else if (step === 'auth' && code === 235) {
+          sock.write(`MAIL FROM:<${from}>\r\n`); step = 'from';
+        } else if (step === 'from' && code === 250) {
+          sock.write(`RCPT TO:<${to}>\r\n`); step = 'rcpt';
+        } else if (step === 'rcpt' && code === 250) {
+          sock.write('DATA\r\n'); step = 'data';
+        } else if (step === 'data' && code === 354) {
+          const boundary = 'BOUNDARY_' + crypto.randomBytes(16).toString('hex');
+          let msg = '';
+          msg += `From: ${from}\r\n`;
+          msg += `To: ${to}\r\n`;
+          msg += `Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=\r\n`;
+          msg += `MIME-Version: 1.0\r\n`;
+          msg += `Content-Type: multipart/mixed; boundary="${boundary}"\r\n\r\n`;
+          msg += `--${boundary}\r\n`;
+          msg += `Content-Type: text/html; charset=UTF-8\r\n\r\n`;
+          msg += html + '\r\n';
+
+          if (attachments && attachments.length > 0) {
+            for (const att of attachments) {
+              msg += `--${boundary}\r\n`;
+              msg += `Content-Type: ${att.contentType || 'application/octet-stream'}; name="${att.filename}"\r\n`;
+              msg += `Content-Disposition: attachment; filename="=?UTF-8?B?${Buffer.from(att.filename).toString('base64')}?="\r\n`;
+              msg += `Content-Transfer-Encoding: base64\r\n\r\n`;
+              msg += att.content.toString('base64').replace(/(.{76})/g, '$1\r\n') + '\r\n';
+            }
+          }
+          msg += `--${boundary}--\r\n`;
+          msg += '\r\n.\r\n';
+          sock.write(msg); step = 'sent';
+        } else if (step === 'sent' && code === 250) {
+          sock.write('QUIT\r\n'); step = 'quit';
+          resolve({ ok: true, message: '메일 발송 완료' });
+        } else if (code >= 400) {
+          sock.write('QUIT\r\n');
+          reject(new Error(`SMTP 오류 (${code}): ${line}`));
+        }
+      }
+
+      socket.on('error', reject);
+      socket.on('timeout', () => reject(new Error('SMTP 타임아웃')));
+      socket.setTimeout(30000);
+    }
+
+    if (useSSL) {
+      // 465: 직접 SSL 접속
+      const socket = tls.connect(smtpPort, smtpHost, { rejectUnauthorized: false }, () => {
+        handleSmtp(socket);
+      });
+    } else {
+      // 587: 평문 접속 후 STARTTLS
+      const net = require('net');
+      const socket = net.connect(smtpPort, smtpHost, () => {
+        handleSmtp(socket);
+      });
+    }
+  });
+}
+
+// SMTP 설정 저장
+app.get('/api/mail/settings', (req, res) => {
+  try {
+    const settingsPath = path.join(__dirname, 'data', 'settings.json');
+    if (!fs.existsSync(settingsPath)) return res.json({});
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    // 비밀번호는 마스킹
+    if (settings.smtp && settings.smtp.pass) {
+      settings.smtp.pass = '****';
+    }
+    res.json(settings);
+  } catch (e) { res.json({}); }
+});
+
+app.post('/api/mail/settings', (req, res) => {
+  try {
+    const settingsPath = path.join(__dirname, 'data', 'settings.json');
+    let settings = {};
+    if (fs.existsSync(settingsPath)) settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    settings.smtp = {
+      host: req.body.host || 'smtp.naver.com',
+      port: Number(req.body.port) || 465,
+      user: req.body.user || '',
+      pass: req.body.pass === '****' ? (settings.smtp?.pass || '') : (req.body.pass || ''),
+      from: req.body.from || req.body.user || ''
+    };
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 견적서 메일 발송
+app.post('/api/mail/send', async (req, res) => {
+  try {
+    const { quoteId, toEmail, subject, message } = req.body;
+    if (!toEmail) return res.status(400).json({ error: '수신 이메일을 입력해주세요' });
+
+    // SMTP 설정 로드
+    const settingsPath = path.join(__dirname, 'data', 'settings.json');
+    if (!fs.existsSync(settingsPath)) return res.status(400).json({ error: 'SMTP 설정을 먼저 해주세요' });
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    if (!settings.smtp || !settings.smtp.user || !settings.smtp.pass) {
+      return res.status(400).json({ error: 'SMTP 설정이 완료되지 않았습니다 (설정 탭에서 메일 설정)' });
+    }
+
+    // 견적서 데이터 (quoteId가 있으면 DB에서, 없으면 body에서)
+    let quoteData = req.body.quoteData;
+    const cookies2 = parseCookies(req);
+    const token2 = cookies2.session_token || req.headers['x-session-token'];
+    const senderSession = token2 ? sessions[token2] : null;
+    let senderInfo = null;
+    if (senderSession) {
+      const uData = db.loadUsers();
+      const senderUser = (uData.users || []).find(u => u.userId === senderSession.userId);
+      if (senderUser) senderInfo = { name: senderUser.name, position: senderUser.position || '', phone: senderUser.phone || '', namecard: senderUser.namecard || {}, namecardImage: senderUser.namecardImage || null };
+    }
+    if (quoteId) {
+      if (db.sql) {
+        const quote = db.sql.quotes.getById(quoteId);
+        if (!quote) return res.status(404).json({ error: '견적서를 찾을 수 없습니다' });
+        quoteData = quote;
+      } else {
+        const data = db.load();
+        const quote = (data.quotes || []).find(q => q.id === quoteId);
+        if (!quote) return res.status(404).json({ error: '견적서를 찾을 수 없습니다' });
+        quoteData = quote;
+      }
+    }
+    if (!quoteData || !quoteData.items || !quoteData.items.length) {
+      return res.status(400).json({ error: '견적서 데이터가 없습니다' });
+    }
+
+    const supplyTotal = quoteData.items.reduce((s, it) => s + ((it.qty || 0) * (it.unitPrice || 0)), 0);
+    const vatAmount = Math.round(supplyTotal * 0.1);
+    const grandTotal = supplyTotal + vatAmount;
+
+    // 명함 이미지 경로
+    let namecardImgPath = null;
+    if (senderInfo && senderInfo.namecardImage) {
+      const imgPath = path.join(__dirname, 'data', senderInfo.namecardImage);
+      if (fs.existsSync(imgPath)) namecardImgPath = imgPath;
+    }
+
+    // PDF 견적서 생성
+    const pdfBuffer = await generateQuotePdf(quoteData, namecardImgPath);
+    const pdfFilename = `견적서_${(quoteData.siteName || '').replace(/[^가-힣a-zA-Z0-9]/g,'_')}_${quoteData.quoteDate || new Date().toISOString().slice(0,10)}.pdf`;
+
+    // 명함 HTML (이메일 서명용)
+    const nc = senderInfo ? senderInfo.namecard : {};
+    let namecardHtml = '';
+    if (senderInfo && senderInfo.namecardImage && namecardImgPath) {
+      const imgExt = senderInfo.namecardImage.endsWith('.png') ? 'png' : 'jpeg';
+      const imgBase64 = fs.readFileSync(namecardImgPath).toString('base64');
+      namecardHtml = `<div style="margin-top:20px;"><img src="data:image/${imgExt};base64,${imgBase64}" style="max-width:280px;border-radius:4px;border:1px solid #e2e8f0;" alt="명함"></div>`;
+    } else if (senderInfo) {
+      namecardHtml = `<div style="margin-top:20px;padding-top:16px;border-top:1px solid #e5e7eb;">
+        <table style="border-collapse:collapse;font-size:11px;color:#4b5563;line-height:1.7;">
+          <tr><td style="font-weight:700;color:#1a1a1a;font-size:12px;padding-bottom:2px;">${escHtml(senderInfo.name)}${senderInfo.position ? ' | ' + escHtml(senderInfo.position) : ''}</td></tr>
+          ${senderInfo.phone ? `<tr><td>T. ${escHtml(senderInfo.phone)}${nc.mobile ? ' | M. ' + escHtml(nc.mobile) : ''}</td></tr>` : ''}
+          ${nc.email ? `<tr><td style="color:#0284c7;">${escHtml(nc.email)}</td></tr>` : ''}
+          <tr><td style="font-size:10px;color:#9ca3af;">(주)대림에스엠 | 서울 구로구 경인로 393-7</td></tr>
+        </table>
+      </div>`;
+    }
+
+    // 이메일 HTML — 심플 텍스트 + 명함 서명
+    const defaultMsg = '안녕하세요.\n\n견적서를 보내드립니다.\n첨부파일 확인 부탁드립니다.\n\n감사합니다.';
+    const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;font-family:'Malgun Gothic','맑은 고딕',Arial,sans-serif;">
+      <div style="max-width:600px;padding:10px 0;">
+        <div style="font-size:14px;color:#222;line-height:2.0;">
+          ${(message || defaultMsg).replace(/\n/g, '<br>')}
+        </div>
+        ${namecardHtml}
+      </div>
+    </body></html>`;
+
+    await sendSmtpMail({
+      smtpHost: settings.smtp.host,
+      smtpPort: settings.smtp.port,
+      smtpUser: settings.smtp.user,
+      smtpPass: settings.smtp.pass,
+      from: settings.smtp.from || settings.smtp.user,
+      to: toEmail,
+      subject: subject || `[견적서] ${quoteData.siteName || ''} - ${quoteData.quoteName || ''}`,
+      html,
+      attachments: [{
+        filename: pdfFilename,
+        contentType: 'application/pdf',
+        content: pdfBuffer
+      }]
+    });
+
+    // 발송 기록 저장
+    if (quoteId) {
+      if (db.sql) {
+        const quote = db.sql.quotes.getById(quoteId);
+        if (quote) {
+          if (!quote.mailHistory) quote.mailHistory = [];
+          const cookies = parseCookies(req);
+          const token = cookies.session_token;
+          const user = token ? sessions[token] : null;
+          quote.mailHistory.push({ to: toEmail, sentAt: new Date().toISOString(), sentBy: user ? user.userId : '' });
+          db.sql.quotes.update(quoteId, { mailHistory: quote.mailHistory, status: 'sent' });
+        }
+      } else {
+        const data = db.load();
+        const quote = (data.quotes || []).find(q => q.id === quoteId);
+        if (quote) {
+          if (!quote.mailHistory) quote.mailHistory = [];
+          const cookies = parseCookies(req);
+          const token = cookies.session_token;
+          const user = token ? sessions[token] : null;
+          quote.mailHistory.push({ to: toEmail, sentAt: new Date().toISOString(), sentBy: user ? user.userId : '' });
+          quote.status = 'sent';
+          db.save(data);
+        }
+      }
+    }
+
+    res.json({ ok: true, message: `${toEmail}로 발송 완료` });
+  } catch (e) {
+    console.error('메일 발송 오류:', e);
+    res.status(500).json({ error: '메일 발송 실패: ' + e.message });
+  }
+});
+
+// ── 백업 ─────────────────────────────────────────────────
+app.get('/api/export', (req, res) => {
+  res.setHeader('Content-Disposition', 'attachment; filename="price-backup.json"');
+  if (db.sql) {
+    // SQLite 모드: 모든 데이터를 수집
+    const vendors = db.sql.vendors.getAll();
+    const vendorPrices = [];
+    for (const vendor of vendors) {
+      const prices = db.sql.vendorPrices.getByVendor(vendor.id);
+      vendorPrices.push(...prices);
+    }
+    const exportData = {
+      categories: db.sql.categories.getAll(),
+      options: db.sql.options.getAll(),
+      vendors: vendors,
+      vendorPrices: vendorPrices,
+      quotes: db.sql.quotes.getAll(),
+      products: []
+    };
+    return res.json(exportData);
+  }
+  res.json(db.load());
+});
+
+app.post('/api/import', (req, res) => {
+  try {
+    if (!req.body.categories) throw new Error('형식 오류');
+    if (db.sql) {
+      // SQLite 모드: 데이터를 각 테이블에 저장
+      // Note: 기존 데이터는 유지하고 새 데이터를 추가/갱신하는 로직이 필요할 수 있음
+      // 현재는 단순히 경고만 표시
+      console.warn('⚠️ SQLite 모드에서 import는 신중하게 구현되어야 합니다');
+      return res.status(400).json({ error: 'SQLite 모드에서 현재 import 미지원' });
+    }
+    db.save(req.body); res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ══════════════════════════════════════════════════════════
+// ── 전화번호부 (3단계: 업체 → 프로젝트 → 연락처) ──────
+// ══════════════════════════════════════════════════════════
+
+// 마이그레이션: 서버 시작 시 한 번 실행
+// flat contact 데이터(company, note 문자열)를 3단 구조(contactCompanies, contactProjects)로 변환
+function migrateContactsData() {
+  const data = db.load();
+  const contacts = data.contacts || [];
+
+  // contactCompanies가 이미 있고 내용이 있으면 skip
+  if (data.contactCompanies && data.contactCompanies.length > 0) {
+    return;
+  }
+
+  // 1) 기존 contactSites -> contactProjects 변환 (레거시)
+  if (data.contactSites && Array.isArray(data.contactSites)) {
+    const defaultCompany = {
+      id: 'comp_' + Date.now(),
+      name: '기본 업체',
+      note: '',
+      createdAt: new Date().toISOString()
+    };
+    data.contactCompanies = [defaultCompany];
+    data.contactProjects = data.contactSites.map(site => ({
+      id: site.id,
+      companyId: defaultCompany.id,
+      name: site.name,
+      address: site.address || '',
+      note: site.note || '',
+      createdAt: site.createdAt || new Date().toISOString(),
+      customFields: site.customFields || []
+    }));
+    contacts.forEach(c => {
+      if (c.siteId && !c.projectId) c.projectId = c.siteId;
+    });
+    db.save(data);
+    return;
+  }
+
+  // 2) flat contact 데이터에서 company/note 기반 자동 마이그레이션
+  console.log('[migrate] flat contacts → 3단 구조 시작');
+  const companyMap = {}; // companyName → company obj
+  const projectMap = {}; // companyId + projectName → project obj
+
+  if (!data.contactCompanies) data.contactCompanies = [];
+  if (!data.contactProjects) data.contactProjects = [];
+
+  contacts.forEach(c => {
+    const compName = (c.company || '').trim();
+    if (!compName) return;
+
+    // 업체 생성
+    if (!companyMap[compName]) {
+      const comp = {
+        id: 'comp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        name: compName,
+        note: '',
+        createdAt: new Date().toISOString()
+      };
+      companyMap[compName] = comp;
+      data.contactCompanies.push(comp);
+    }
+    const comp = companyMap[compName];
+    c.companyId = comp.id;
+
+    // 현장(note) 생성
+    const siteName = (c.note || '').trim();
+    if (siteName) {
+      const pKey = comp.id + '::' + siteName;
+      if (!projectMap[pKey]) {
+        const proj = {
+          id: 'proj_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+          companyId: comp.id,
+          name: siteName,
+          address: '',
+          note: '',
+          createdAt: new Date().toISOString(),
+          customFields: []
+        };
+        projectMap[pKey] = proj;
+        data.contactProjects.push(proj);
+      }
+      c.projectId = projectMap[comp.id + '::' + siteName].id;
+    }
+  });
+
+  db.save(data);
+  console.log('[migrate] 완료: 업체 ' + data.contactCompanies.length + '개, 현장 ' + data.contactProjects.length + '개');
+}
+
+// 업체 API
+app.get('/api/contacts/companies', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+  const companies = data.contactCompanies || [];
+  const projects = data.contactProjects || [];
+
+  // 각 업체의 프로젝트 수 포함
+  const result = companies.map(comp => ({
+    ...comp,
+    projectCount: projects.filter(p => p.companyId === comp.id).length
+  }));
+
+  res.json(result);
+});
+
+app.post('/api/contacts/companies', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+  if (!data.contactCompanies) data.contactCompanies = [];
+
+  const company = {
+    id: 'comp_' + Date.now(),
+    name: req.body.name || '',
+    note: req.body.note || '',
+    createdAt: new Date().toISOString()
+  };
+
+  data.contactCompanies.push(company);
+  db.saveContacts(data);
+  res.json(company);
+});
+
+app.put('/api/contacts/companies/:id', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+  const company = (data.contactCompanies || []).find(c => c.id === req.params.id);
+  if (!company) return res.status(404).json({ error: '업체 없음' });
+
+  if (req.body.name !== undefined) company.name = req.body.name;
+  if (req.body.note !== undefined) company.note = req.body.note;
+  if (req.body.order !== undefined) company.order = req.body.order;
+
+  db.saveContacts(data);
+  res.json(company);
+});
+
+app.delete('/api/contacts/companies/:id', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+
+  // 해당 업체의 모든 프로젝트 삭제
+  const projectIds = (data.contactProjects || [])
+    .filter(p => p.companyId === req.params.id)
+    .map(p => p.id);
+
+  data.contactProjects = (data.contactProjects || []).filter(p => p.companyId !== req.params.id);
+
+  // 해당 프로젝트의 모든 연락처 삭제
+  data.contacts = (data.contacts || []).filter(c => !projectIds.includes(c.projectId));
+
+  // 업체 삭제
+  data.contactCompanies = (data.contactCompanies || []).filter(c => c.id !== req.params.id);
+
+  db.saveContacts(data);
+  res.json({ ok: true });
+});
+
+// 프로젝트 API
+app.get('/api/contacts/projects', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+  let projects = data.contactProjects || [];
+
+  if (req.query.companyId) {
+    projects = projects.filter(p => p.companyId === req.query.companyId);
+  }
+
+  // 각 프로젝트의 연락처 수 포함
+  const contacts = data.contacts || [];
+  const result = projects.map(proj => ({
+    ...proj,
+    contactCount: contacts.filter(c => c.projectId === proj.id).length
+  }));
+
+  res.json(result);
+});
+
+app.post('/api/contacts/projects', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+  if (!data.contactProjects) data.contactProjects = [];
+
+  const project = {
+    id: 'proj_' + Date.now(),
+    companyId: req.body.companyId || '',
+    name: req.body.name || '',
+    address: req.body.address || '',
+    note: req.body.note || '',
+    createdAt: new Date().toISOString(),
+    customFields: []
+  };
+
+  data.contactProjects.push(project);
+  db.saveContacts(data);
+  res.json(project);
+});
+
+app.put('/api/contacts/projects/:id', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+  const project = (data.contactProjects || []).find(p => p.id === req.params.id);
+  if (!project) return res.status(404).json({ error: '프로젝트 없음' });
+
+  if (req.body.name !== undefined) project.name = req.body.name;
+  if (req.body.address !== undefined) project.address = req.body.address;
+  if (req.body.note !== undefined) project.note = req.body.note;
+  if (req.body.order !== undefined) project.order = req.body.order;
+
+  db.saveContacts(data);
+  res.json(project);
+});
+
+app.delete('/api/contacts/projects/:id', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+
+  // 해당 프로젝트의 모든 연락처 삭제
+  data.contacts = (data.contacts || []).filter(c => c.projectId !== req.params.id);
+
+  // 프로젝트 삭제
+  data.contactProjects = (data.contactProjects || []).filter(p => p.id !== req.params.id);
+
+  db.saveContacts(data);
+  res.json({ ok: true });
+});
+
+// 전체 연락처 조회 (플랫 구조, 검색+업체필터)
+app.get('/api/contacts/all', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+  let contacts = data.contacts || [];
+
+  // 업체 필터
+  if (req.query.company) {
+    const comp = req.query.company;
+    contacts = contacts.filter(c => (c.company || '') === comp);
+  }
+
+  // 검색 (현장명 note 포함)
+  if (req.query.q) {
+    const kw = req.query.q.toLowerCase();
+    contacts = contacts.filter(c =>
+      (c.name || '').toLowerCase().includes(kw) ||
+      (c.company || '').toLowerCase().includes(kw) ||
+      (c.position || '').toLowerCase().includes(kw) ||
+      (c.phone || '').includes(kw) ||
+      (c.mobile || '').includes(kw) ||
+      (c.email || '').toLowerCase().includes(kw) ||
+      (c.note || '').toLowerCase().includes(kw)
+    );
+  }
+
+  // 최신순 정렬
+  contacts.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  res.json(contacts);
+});
+
+// 3단 구조 전체 조회 (업체 > 현장 > 연락처) - 트리형태
+app.get('/api/contacts/tree', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+  const companies = data.contactCompanies || [];
+  const projects = data.contactProjects || [];
+  let contacts = data.contacts || [];
+
+  // 검색 필터
+  const q = (req.query.q || '').trim().toLowerCase();
+
+  // 업체별 프로젝트 맵
+  const projByCompany = {};
+  projects.forEach(p => {
+    if (!projByCompany[p.companyId]) projByCompany[p.companyId] = [];
+    projByCompany[p.companyId].push(p);
+  });
+
+  // 프로젝트별 연락처 맵
+  const contactByProject = {};
+  const contactNoProject = {}; // companyId 있지만 projectId 없는 연락처
+  const contactOrphan = []; // companyId도 없는 연락처
+
+  contacts.forEach(c => {
+    if (q) {
+      const match =
+        (c.name || '').toLowerCase().includes(q) ||
+        (c.company || '').toLowerCase().includes(q) ||
+        (c.position || '').toLowerCase().includes(q) ||
+        (c.phone || '').includes(q) ||
+        (c.mobile || '').includes(q) ||
+        (c.email || '').toLowerCase().includes(q) ||
+        (c.note || '').toLowerCase().includes(q);
+      if (!match) return;
+    }
+
+    if (c.projectId) {
+      if (!contactByProject[c.projectId]) contactByProject[c.projectId] = [];
+      contactByProject[c.projectId].push(c);
+    } else if (c.companyId) {
+      if (!contactNoProject[c.companyId]) contactNoProject[c.companyId] = [];
+      contactNoProject[c.companyId].push(c);
+    } else if (c.company) {
+      // companyId 없지만 company 문자열 있는 경우 — 매칭 시도
+      const matched = companies.find(comp => comp.name === c.company);
+      if (matched) {
+        if (!contactNoProject[matched.id]) contactNoProject[matched.id] = [];
+        contactNoProject[matched.id].push(c);
+      } else {
+        contactOrphan.push(c);
+      }
+    } else {
+      contactOrphan.push(c);
+    }
+  });
+
+  // 검색 시 현장명도 매치
+  if (q) {
+    projects.forEach(p => {
+      if ((p.name || '').toLowerCase().includes(q) || (p.address || '').toLowerCase().includes(q)) {
+        // 이 현장에 속한 모든 연락처 포함
+        const allInProj = contacts.filter(c => c.projectId === p.id);
+        allInProj.forEach(c => {
+          if (!contactByProject[p.id]) contactByProject[p.id] = [];
+          if (!contactByProject[p.id].find(x => x.id === c.id)) {
+            contactByProject[p.id].push(c);
+          }
+        });
+      }
+    });
+  }
+
+  // 트리 구성
+  const tree = companies.map(comp => {
+    const compProjects = (projByCompany[comp.id] || []).map(proj => ({
+      ...proj,
+      contacts: contactByProject[proj.id] || []
+    }));
+    // 검색 시 연락처/현장 없는 업체 제외
+    const noProjectContacts = contactNoProject[comp.id] || [];
+    const hasContent = compProjects.some(p => p.contacts.length > 0) || noProjectContacts.length > 0;
+    if (q && !hasContent && !(comp.name || '').toLowerCase().includes(q)) return null;
+
+    return {
+      ...comp,
+      projects: compProjects,
+      directContacts: noProjectContacts // 현장 미배정 연락처
+    };
+  }).filter(Boolean);
+
+  // 미분류 연락처
+  if (contactOrphan.length > 0) {
+    tree.push({
+      id: '_orphan',
+      name: '미분류',
+      note: '',
+      projects: [],
+      directContacts: contactOrphan
+    });
+  }
+
+  res.json(tree);
+});
+
+// 연락처 CRUD (projectId 기반, 하위 호환성: siteId도 지원)
+app.get('/api/contacts', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+  let contacts = data.contacts || [];
+
+  // projectId 또는 siteId로 필터링 (하위 호환성)
+  if (req.query.projectId) {
+    contacts = contacts.filter(c => c.projectId === req.query.projectId);
+  } else if (req.query.siteId) {
+    contacts = contacts.filter(c => c.projectId === req.query.siteId);
+  }
+
+  // 검색
+  if (req.query.q) {
+    const kw = req.query.q.toLowerCase();
+    contacts = contacts.filter(c =>
+      (c.name || '').toLowerCase().includes(kw) ||
+      (c.company || '').toLowerCase().includes(kw) ||
+      (c.position || '').toLowerCase().includes(kw) ||
+      (c.phone || '').includes(kw) ||
+      (c.mobile || '').includes(kw)
+    );
+  }
+
+  res.json(contacts);
+});
+
+app.post('/api/contacts', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+  if (!data.contacts) data.contacts = [];
+
+  // projectId 또는 siteId 받음 (하위 호환성)
+  const projectId = req.body.projectId || req.body.siteId || '';
+
+  const contact = {
+    id: 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
+    projectId: projectId,
+    siteId: projectId,  // 하위 호환성
+    name: req.body.name || '',
+    company: req.body.company || '',
+    position: req.body.position || '',
+    dept: req.body.dept || '',
+    phone: req.body.phone || '',
+    mobile: req.body.mobile || '',
+    email: req.body.email || '',
+    note: req.body.note || '',
+    customFields: req.body.customFields || {},
+    createdAt: new Date().toISOString(),
+    createdBy: req.authUser?.userId || ''
+  };
+
+  data.contacts.push(contact);
+  db.saveContacts(data);
+  res.json(contact);
+});
+
+app.put('/api/contacts/:id', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+  const c = (data.contacts || []).find(x => x.id === req.params.id);
+  if (!c) return res.status(404).json({ error: '연락처 없음' });
+
+  const updateFields = ['name','company','position','dept','phone','mobile','email','note','projectId','siteId'];
+  for (const key of updateFields) {
+    if (req.body[key] !== undefined) {
+      c[key] = req.body[key];
+      // projectId 변경 시 siteId도 동기화
+      if (key === 'projectId') c.siteId = req.body[key];
+      if (key === 'siteId') c.projectId = req.body[key];
+    }
+  }
+
+  // 커스텀 필드
+  if (req.body.customFields !== undefined) {
+    c.customFields = req.body.customFields;
+  }
+
+  db.saveContacts(data);
+  res.json(c);
+});
+
+app.delete('/api/contacts/:id', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+  data.contacts = (data.contacts || []).filter(c => c.id !== req.params.id);
+  db.saveContacts(data);
+  res.json({ ok: true });
+});
+
+// 연락처 복사 (다른 프로젝트로)
+app.post('/api/contacts/copy', requireAuth, (req, res) => {
+  const { contactIds, targetProjectId, targetSiteId } = req.body;
+  const projId = targetProjectId || targetSiteId;
+
+  if (!contactIds || !projId) return res.status(400).json({ error: '필수 값 누락' });
+
+  const data = db.loadContacts();
+  if (!data.contacts) data.contacts = [];
+
+  const copied = [];
+  for (const cid of contactIds) {
+    const orig = data.contacts.find(c => c.id === cid);
+    if (!orig) continue;
+
+    const newC = {
+      ...orig,
+      id: 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
+      projectId: projId,
+      siteId: projId,
+      createdAt: new Date().toISOString(),
+      createdBy: req.authUser?.userId || ''
+    };
+
+    data.contacts.push(newC);
+    copied.push(newC);
+  }
+
+  db.saveContacts(data);
+  res.json({ ok: true, copied: copied.length });
+});
+
+// 통합 검색 API (전체 연락처 검색 + 업체/프로젝트 정보 포함)
+app.get('/api/contacts/search', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+  const q = (req.query.q || '').toLowerCase();
+
+  if (!q) return res.json([]);
+
+  const contacts = data.contacts || [];
+  const projects = data.contactProjects || [];
+  const companies = data.contactCompanies || [];
+
+  // 프로젝트/회사 맵 만들기
+  const projectMap = {};
+  projects.forEach(p => { projectMap[p.id] = p; });
+
+  const companyMap = {};
+  companies.forEach(c => { companyMap[c.id] = c; });
+
+  // 검색
+  const results = contacts.filter(c =>
+    (c.name || '').toLowerCase().includes(q) ||
+    (c.company || '').toLowerCase().includes(q) ||
+    (c.position || '').toLowerCase().includes(q) ||
+    (c.phone || '').includes(q) ||
+    (c.mobile || '').includes(q) ||
+    (c.email || '').toLowerCase().includes(q)
+  ).map(c => {
+    const proj = projectMap[c.projectId];
+    const comp = proj ? companyMap[proj.companyId] : null;
+
+    return {
+      ...c,
+      projectName: proj ? proj.name : '',
+      companyName: comp ? comp.name : ''
+    };
+  });
+
+  res.json(results);
+});
+
+// 커스텀 필드 관리 (프로젝트별)
+app.get('/api/contacts/projects/:projectId/fields', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+  const project = (data.contactProjects || []).find(p => p.id === req.params.projectId);
+  if (!project) return res.status(404).json({ error: '프로젝트 없음' });
+
+  const fields = project.customFields || [];
+  res.json(fields);
+});
+
+app.post('/api/contacts/projects/:projectId/fields', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+  const project = (data.contactProjects || []).find(p => p.id === req.params.projectId);
+  if (!project) return res.status(404).json({ error: '프로젝트 없음' });
+
+  if (!project.customFields) project.customFields = [];
+
+  const field = {
+    id: 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
+    name: req.body.name || '',
+    type: req.body.type || 'text',
+    options: req.body.options || []
+  };
+
+  project.customFields.push(field);
+  db.saveContacts(data);
+  res.json(field);
+});
+
+app.delete('/api/contacts/projects/:projectId/fields/:fieldId', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+  const project = (data.contactProjects || []).find(p => p.id === req.params.projectId);
+  if (!project) return res.status(404).json({ error: '프로젝트 없음' });
+
+  project.customFields = (project.customFields || []).filter(f => f.id !== req.params.fieldId);
+
+  // 연락처에서 해당 필드 데이터 제거
+  (data.contacts || []).forEach(c => {
+    if (c.projectId === req.params.projectId && c.customFields) {
+      delete c.customFields[req.params.fieldId];
+    }
+  });
+
+  db.saveContacts(data);
+  res.json({ ok: true });
+});
+
+// 하위 호환성: 이전 sites API도 유지 (실제로는 projects 사용)
+app.get('/api/contacts/sites', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+  const sites = data.contactProjects || [];
+  res.json(sites);
+});
+
+app.post('/api/contacts/sites', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+  if (!data.contactProjects) data.contactProjects = [];
+  if (!data.contactCompanies || data.contactCompanies.length === 0) {
+    data.contactCompanies = [{
+      id: 'comp_default',
+      name: '기본 업체',
+      note: '',
+      createdAt: new Date().toISOString()
+    }];
+  }
+
+  const site = {
+    id: 'proj_' + Date.now(),
+    companyId: data.contactCompanies[0].id,
+    name: req.body.name || '',
+    address: req.body.address || '',
+    note: req.body.note || '',
+    createdAt: new Date().toISOString(),
+    customFields: []
+  };
+
+  data.contactProjects.push(site);
+  db.saveContacts(data);
+  res.json(site);
+});
+
+app.put('/api/contacts/sites/:id', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+  const site = (data.contactProjects || []).find(s => s.id === req.params.id);
+  if (!site) return res.status(404).json({ error: '현장 없음' });
+
+  if (req.body.name !== undefined) site.name = req.body.name;
+  if (req.body.address !== undefined) site.address = req.body.address;
+  if (req.body.note !== undefined) site.note = req.body.note;
+
+  db.saveContacts(data);
+  res.json(site);
+});
+
+app.delete('/api/contacts/sites/:id', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+
+  data.contactProjects = (data.contactProjects || []).filter(s => s.id !== req.params.id);
+  data.contacts = (data.contacts || []).filter(c => c.projectId !== req.params.id);
+
+  db.saveContacts(data);
+  res.json({ ok: true });
+});
+
+app.get('/api/contacts/sites/:siteId/fields', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+  const site = (data.contactProjects || []).find(s => s.id === req.params.siteId);
+  if (!site) return res.status(404).json({ error: '현장 없음' });
+
+  const fields = site.customFields || [];
+  res.json(fields);
+});
+
+app.post('/api/contacts/sites/:siteId/fields', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+  const site = (data.contactProjects || []).find(s => s.id === req.params.siteId);
+  if (!site) return res.status(404).json({ error: '현장 없음' });
+
+  if (!site.customFields) site.customFields = [];
+
+  const field = {
+    id: 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
+    name: req.body.name || '',
+    type: req.body.type || 'text',
+    options: req.body.options || []
+  };
+
+  site.customFields.push(field);
+  db.saveContacts(data);
+  res.json(field);
+});
+
+app.delete('/api/contacts/sites/:siteId/fields/:fieldId', requireAuth, (req, res) => {
+  const data = db.loadContacts();
+  const site = (data.contactProjects || []).find(s => s.id === req.params.siteId);
+  if (!site) return res.status(404).json({ error: '현장 없음' });
+
+  site.customFields = (site.customFields || []).filter(f => f.id !== req.params.fieldId);
+
+  (data.contacts || []).forEach(c => {
+    if (c.projectId === req.params.siteId && c.customFields) {
+      delete c.customFields[req.params.fieldId];
+    }
+  });
+
+  db.saveContacts(data);
+  res.json({ ok: true });
+});
+
+// ── 시안 검색 ─────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════
+
+const DESIGN_ROOT = process.env.DESIGN_ROOT || 'D:\\';
+const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp']);
+// 네트워크 공유 경로 (클라이언트에서 폴더 열기용)
+const NETWORK_SHARE = '\\\\192.168.0.133\\dd';
+function toNetworkPath(localPath) {
+  return localPath.replace(/^D:\\/i, NETWORK_SHARE + '\\');
+}
+
+let designIndex = [];
+let designIndexStatus = { built: false, building: false, count: 0, lastBuilt: null, error: null };
+
+// 건너뛸 시스템 폴더
+const SKIP_DIRS = new Set([
+  'system volume information', 'recycler', '$recycle.bin', 'recovery',
+  'windows', 'program files', 'program files (x86)', 'programdata',
+  'node_modules', '.git', '__pycache__', 'appdata',
+  '송지현 대리'
+]);
+
+async function buildDesignIndexAsync(rootPath) {
+  const items = [];
+  const queue = [{ dir: rootPath, depth: 0 }];
+  // .ai 파일 존재 여부를 폴더별로 배치 체크 (디스크 I/O 대폭 감소)
+  const aiFileCache = new Map(); // dir -> Set of basenames with .ai
+
+  while (queue.length > 0) {
+    const { dir, depth } = queue.shift();
+    if (depth > 8) continue;
+
+    // 10개 폴더마다 이벤트 루프 양보 (너무 자주 양보하면 오히려 느림)
+    if (items.length % 10 === 0) await new Promise(r => setImmediate(r));
+
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+    catch (e) { continue; }
+
+    // 해당 폴더의 .ai 파일 목록을 한 번에 수집
+    const aiSet = new Set();
+    for (const e of entries) {
+      if (e.isFile() && e.name.toLowerCase().endsWith('.ai')) {
+        aiSet.add(path.basename(e.name, '.ai').toLowerCase());
+      }
+    }
+
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') || entry.name.startsWith('$')) continue;
+      if (SKIP_DIRS.has(entry.name.toLowerCase())) continue;
+
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        queue.push({ dir: fullPath, depth: depth + 1 });
+      } else if (IMAGE_EXTS.has(path.extname(entry.name).toLowerCase())) {
+        const rel = path.relative(rootPath, fullPath);
+        const parts = rel.split(path.sep);
+        const baseName = path.basename(entry.name, path.extname(entry.name));
+        // .ai 파일 존재 여부를 이미 수집한 Set에서 O(1) 조회
+        const hasAi = aiSet.has(baseName.toLowerCase());
+        // 수정시간 저장 (최신순 정렬용)
+        let mtime = 0;
+        try { mtime = fs.statSync(fullPath).mtimeMs; } catch(e) {}
+        items.push({
+          path: fullPath, rel, parts, name: entry.name,
+          aiPath: hasAi ? path.join(dir, baseName + '.ai') : null,
+          mtime,
+          searchText: rel.toLowerCase().replace(/\\/g, ' ').replace(/_/g, ' ')
+        });
+        if (items.length % 500 === 0) {
+          designIndexStatus.count = items.length;
+        }
+      }
+    }
+  }
+  return items;
+}
+
+let designIndexTimer = null;
+
+function runDesignIndex() {
+  if (designIndexStatus.building) return;
+  if (!fs.existsSync(DESIGN_ROOT)) {
+    designIndexStatus.error = `경로 없음: ${DESIGN_ROOT}`;
+    console.log(`[시안검색] 경로 없음: ${DESIGN_ROOT}`);
+    return;
+  }
+  designIndexStatus.building = true;
+  designIndexStatus.error = null;
+  console.log(`[시안검색] 인덱싱 시작... (${DESIGN_ROOT})`);
+  buildDesignIndexAsync(DESIGN_ROOT).then(idx => {
+    designIndex = idx;
+    designIndexStatus = { built: true, building: false, count: idx.length, lastBuilt: new Date().toISOString(), error: null };
+    console.log(`[시안검색] 완료: ${idx.length}개 파일`);
+  }).catch(e => {
+    designIndexStatus = { ...designIndexStatus, building: false, error: e.message };
+    console.log(`[시안검색] 오류: ${e.message}`);
+  });
+}
+
+function startDesignIndexer() {
+  // 서버 시작 5초 후 첫 인덱싱
+  setTimeout(() => {
+    runDesignIndex();
+    // 이후 30분마다 자동 재인덱싱 (5분은 너무 빈번 → 서버 부담)
+    designIndexTimer = setInterval(runDesignIndex, 30 * 60 * 1000);
+  }, 5000);
+  // fs.watch 제거 — D드라이브 전체 감시는 서버 성능 심각하게 저하
+  // 대신 수동 재인덱싱 버튼 또는 30분 자동 주기 사용
+  console.log(`[시안검색] 30분 주기 자동 인덱싱 설정 완료 (수동: 재인덱싱 버튼 사용)`);
+}
+startDesignIndexer();
+
+app.get('/api/design/search', requireAuth, (req, res) => {
+  const q = (req.query.q || '').toLowerCase().trim();
+  if (!q) return res.json({ items: [], total: 0, status: designIndexStatus });
+  const keywords = q.split(/\s+/).filter(Boolean);
+  // 빠른 검색: 첫 키워드로 1차 필터링 후 나머지 키워드 매칭
+  const first = keywords[0];
+  const rest = keywords.slice(1);
+  let matches = designIndex.filter(item => item.searchText.includes(first));
+  if (rest.length > 0) matches = matches.filter(item => rest.every(kw => item.searchText.includes(kw)));
+  // 년도 필터
+  const yearFilter = parseInt(req.query.year);
+  if (yearFilter && yearFilter >= 2000 && yearFilter <= 2100) {
+    const yearStart = new Date(yearFilter, 0, 1).getTime();
+    const yearEnd = new Date(yearFilter + 1, 0, 1).getTime();
+    matches = matches.filter(item => item.mtime >= yearStart && item.mtime < yearEnd);
+  }
+  // 최신 수정일 순으로 정렬
+  matches.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+  const total = matches.length;
+  const pageSize = Math.min(200, parseInt(req.query.pageSize) || 100);
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const start = (page - 1) * pageSize;
+  // searchText 제외하고 응답 (트래픽 절감) + 네트워크 경로 추가
+  const results = matches.slice(start, start + pageSize).map(item => ({
+    path: item.path, rel: item.rel, parts: item.parts, name: item.name, aiPath: item.aiPath,
+    netPath: toNetworkPath(item.aiPath || item.path),
+    netFolder: toNetworkPath(path.dirname(item.aiPath || item.path))
+  }));
+  res.json({ items: results, total, page, pageSize, status: designIndexStatus });
+});
+
+app.get('/api/design/thumb', requireAuth, async (req, res) => {
+  const filePath = req.query.path;
+  if (!filePath) return res.status(400).send('path required');
+  const resolved = path.resolve(filePath);
+  if (!resolved.toLowerCase().startsWith(path.resolve(DESIGN_ROOT).toLowerCase())) return res.status(403).send('forbidden');
+  if (!fs.existsSync(resolved)) return res.status(404).send('not found');
+
+  res.set('Cache-Control', 'public, max-age=86400'); // 24시간 캐시
+
+  // sharp 있으면 축소된 썸네일 생성/캐시
+  if (sharp) {
+    const hash = crypto.createHash('md5').update(resolved).digest('hex');
+    const thumbPath = path.join(THUMB_DIR, hash + '.jpg');
+    // 캐시된 썸네일 있으면 바로 전송
+    if (fs.existsSync(thumbPath)) {
+      return res.type('image/jpeg').sendFile(thumbPath);
+    }
+    // 없으면 생성
+    try {
+      await sharp(resolved).resize(240, 180, { fit: 'cover', withoutEnlargement: true }).jpeg({ quality: 60 }).toFile(thumbPath);
+      return res.type('image/jpeg').sendFile(thumbPath);
+    } catch(e) {
+      // sharp 실패 시 원본 전송 (단 5MB 이하만)
+    }
+  }
+
+  // sharp 없으면 원본 전송 (5MB 제한)
+  try {
+    const stat = fs.statSync(resolved);
+    if (stat.size > 5 * 1024 * 1024) return res.status(204).end();
+  } catch(e) {}
+  res.sendFile(resolved);
+});
+
+app.get('/api/design/status', (req, res) => res.json(designIndexStatus));
+
+app.post('/api/design/open-folder', requireAuth, (req, res) => {
+  const { path: filePath } = req.body;
+  if (!filePath) return res.status(400).json({ error: 'path 필요' });
+  const absPath = path.resolve(DESIGN_ROOT, filePath);
+  const folderPath = path.dirname(absPath);
+  const { execFile } = require('child_process');
+  const platform = process.platform;
+  if (platform === 'win32') {
+    // execFile은 쉘을 거치지 않아서 특수문자(#, ●, 한글 등) 안전
+    execFile('explorer', [folderPath], (err) => {
+      // explorer는 성공해도 exit code 1 반환하는 경우가 있음
+      res.json({ ok: true });
+    });
+  } else if (platform === 'darwin') {
+    execFile('open', [folderPath], (err) => {
+      if (err) res.status(500).json({ error: err.message });
+      else res.json({ ok: true });
+    });
+  } else {
+    execFile('xdg-open', [folderPath], (err) => {
+      if (err) res.status(500).json({ error: err.message });
+      else res.json({ ok: true });
+    });
+  }
+});
+
+// ── 폴더/파일 열기 토큰 (URL 인코딩 문제 우회) ──
+const openFolderTokens = new Map(); // token -> { path, type, created }
+app.post('/api/design/openfolder', requireAuth, (req, res) => {
+  const { folderPath, openType } = req.body;
+  if (!folderPath) return res.status(400).json({ error: 'folderPath required' });
+  const token = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const type = openType === 'file' ? 'file' : openType === 'select' ? 'select' : 'folder';
+  openFolderTokens.set(token, { path: folderPath, type, created: Date.now() });
+  // 5분 후 자동 삭제
+  setTimeout(() => openFolderTokens.delete(token), 5 * 60 * 1000);
+  res.json({ token });
+});
+app.get('/api/design/openfolder/:token', (req, res) => {
+  const data = openFolderTokens.get(req.params.token);
+  if (!data) return res.status(404).send('not found');
+  openFolderTokens.delete(req.params.token);
+  res.send(data.type + '|' + data.path);
+});
+
+app.post('/api/design/reindex', requireAuth, (req, res) => {
+  if (designIndexStatus.building) return res.json({ building: true, message: '인덱싱 중...', count: designIndex.length });
+  runDesignIndex(); // 비동기 시작
+  res.json({ building: true, message: '인덱싱 시작됨 — 파일 수에 따라 수 분 소요될 수 있습니다', count: 0 });
+});
+
+// 진단용 (관리자) — 브라우저에서 /api/design/debug 로 확인
+app.get('/api/design/debug', requireAdmin, (req, res) => {
+  const rootExists = fs.existsSync(DESIGN_ROOT);
+  let entries = [];
+  if (rootExists) {
+    try { entries = fs.readdirSync(DESIGN_ROOT).slice(0, 20); } catch(e) { entries = ['읽기 오류: '+e.message]; }
+  }
+  res.json({
+    DESIGN_ROOT,
+    rootExists,
+    entries,
+    status: designIndexStatus,
+    indexedCount: designIndex.length,
+    platform: process.platform,
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+// ── 공지사항 (→ 하단 공지사항 API 섹션으로 이동됨) ───────
+// ══════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════
+// ── 출퇴근 관리 (CAPS Bridge 연동) ───────────────────────
+// ══════════════════════════════════════════════════════════
+
+const CAPS_BRIDGE_URL = 'http://192.168.0.30:3001';
+const http = require('http');
+
+// ── CAPS 데이터 캐시 ──────────────────────────────────
+// ── attendanceNotes 마이그레이션 (품목관리.json → 출퇴근관리.json) ──
+(function migrateAttendanceNotes() {
+  try {
+    const oldPath = path.join(__dirname, 'data', '품목관리.json');
+    if (!fs.existsSync(oldPath)) return;
+    const oldData = JSON.parse(fs.readFileSync(oldPath, 'utf8'));
+    const hasNotes = oldData.attendanceNotes && Object.keys(oldData.attendanceNotes).length > 0;
+    const hasRequests = oldData.attendanceRequests && oldData.attendanceRequests.length > 0;
+    if (!hasNotes && !hasRequests) return;
+
+    const newData = db.출퇴근관리.load();
+    if (hasNotes && (!newData.attendanceNotes || Object.keys(newData.attendanceNotes).length === 0)) {
+      newData.attendanceNotes = oldData.attendanceNotes;
+      console.log(`✅ attendanceNotes ${Object.keys(oldData.attendanceNotes).length}건 마이그레이션 완료`);
+    }
+    if (hasRequests && (!newData.attendanceRequests || newData.attendanceRequests.length === 0)) {
+      newData.attendanceRequests = oldData.attendanceRequests;
+      console.log(`✅ attendanceRequests ${oldData.attendanceRequests.length}건 마이그레이션 완료`);
+    }
+    db.출퇴근관리.save(newData);
+
+    // 원본에서 제거
+    delete oldData.attendanceNotes;
+    delete oldData.attendanceRequests;
+    fs.writeFileSync(oldPath, JSON.stringify(oldData, null, 2), 'utf8');
+    console.log('✅ 품목관리.json에서 출퇴근 데이터 분리 완료');
+  } catch(e) {
+    console.warn('⚠️ attendanceNotes 마이그레이션 실패 (무시 가능):', e.message);
+  }
+})();
+
+// ── 출퇴근 데이터 영구 저장소 (키별 개별 파일) ──────────────
+const ATTENDANCE_STORE_DIR = path.join(__dirname, 'data', 'attendance-store');
+if (!fs.existsSync(ATTENDANCE_STORE_DIR)) fs.mkdirSync(ATTENDANCE_STORE_DIR, { recursive: true });
+
+// 캐시 키 → 안전한 파일명 변환
+function cacheKeyToFile(key) {
+  // 한글 포함 키를 안전한 파일명으로 변환 (hex 인코딩)
+  const safe = Buffer.from(key, 'utf8').toString('hex');
+  return path.join(ATTENDANCE_STORE_DIR, safe + '.json');
+}
+
+// 기존 캐시 파일 마이그레이션 (구버전 파일명 → hex 파일명)
+(function migrateOldCacheFiles() {
+  try {
+    const files = fs.readdirSync(ATTENDANCE_STORE_DIR).filter(f => f.endsWith('.json'));
+    let migrated = 0;
+    for (const f of files) {
+      // hex 파일은 [0-9a-f]+ 패턴이므로 그 외 문자가 있으면 구버전
+      const baseName = f.replace('.json', '');
+      if (/^[0-9a-f]+$/.test(baseName)) continue; // 이미 hex
+      const filePath = path.join(ATTENDANCE_STORE_DIR, f);
+      try {
+        const d = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        if (d._key) {
+          const newPath = cacheKeyToFile(d._key);
+          if (!fs.existsSync(newPath)) {
+            fs.copyFileSync(filePath, newPath);
+          }
+          fs.unlinkSync(filePath);
+          migrated++;
+        }
+      } catch(e) { /* 개별 파일 실패 무시 */ }
+    }
+    if (migrated > 0) console.log(`✅ 캐시 파일 ${migrated}건 마이그레이션 완료 (hex 파일명)`);
+  } catch(e) { /* 무시 */ }
+})();
+
+function loadAttendanceCache() {
+  // 하위 호환: 기존 단일 캐시 파일 (bridge-status용)
+  const files = fs.readdirSync(ATTENDANCE_STORE_DIR).filter(f => f.endsWith('.json'));
+  const cache = {};
+  for (const f of files) {
+    try {
+      const d = JSON.parse(fs.readFileSync(path.join(ATTENDANCE_STORE_DIR, f), 'utf8'));
+      cache[d._key || f.replace('.json', '')] = d;
+    } catch(e) { /* 개별 파일 깨져도 무시 */ }
+  }
+  return cache;
+}
+
+function setCacheEntry(cacheKey, data) {
+  const filePath = cacheKeyToFile(cacheKey);
+  const tmpPath = filePath + '.tmp';
+  try {
+    const content = JSON.stringify({ _key: cacheKey, data, savedAt: new Date().toISOString() });
+    fs.writeFileSync(tmpPath, content, 'utf8');
+    fs.renameSync(tmpPath, filePath); // atomic replace
+    console.log(`[저장] ${cacheKey} → ${path.basename(filePath)} (${Math.round(content.length/1024)}KB)`);
+  } catch(e) {
+    console.error('[저장 오류]', cacheKey, e.message);
+    try { fs.unlinkSync(tmpPath); } catch(_) {}
+  }
+}
+
+function getCacheEntry(cacheKey) {
+  const filePath = cacheKeyToFile(cacheKey);
+  try {
+    if (fs.existsSync(filePath)) {
+      const d = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      return d.data;
+    }
+  } catch(e) { console.error('[읽기 오류]', cacheKey, e.message); }
+  return null;
+}
+
+// 기존 단일 캐시 파일 → 개별 파일로 마이그레이션
+const OLD_CACHE_FILE = path.join(__dirname, 'data', 'attendance-cache.json');
+if (fs.existsSync(OLD_CACHE_FILE)) {
+  try {
+    const old = JSON.parse(fs.readFileSync(OLD_CACHE_FILE, 'utf8'));
+    let count = 0;
+    for (const [k, v] of Object.entries(old)) {
+      if (v && v.data) { setCacheEntry(k, v.data); count++; }
+    }
+    if (count > 0) {
+      console.log(`[마이그레이션] 기존 캐시 ${count}건 → 개별 파일 변환 완료`);
+      fs.renameSync(OLD_CACHE_FILE, OLD_CACHE_FILE + '.bak');
+    }
+  } catch(e) {
+    console.log('[마이그레이션] 기존 캐시 파일 깨짐, 무시:', e.message);
+    fs.renameSync(OLD_CACHE_FILE, OLD_CACHE_FILE + '.broken');
+  }
+}
+
+// CAPS bridge HTTP GET helper (외부 모듈 없이 내장 http 사용)
+function capsGet(path) {
+  return new Promise((resolve, reject) => {
+    const url = CAPS_BRIDGE_URL + path;
+    http.get(url, { timeout: 8000 }, (res) => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); }
+        catch (e) { reject(new Error('JSON 파싱 오류: ' + data.slice(0, 100))); }
+      });
+    }).on('error', reject).on('timeout', () => reject(new Error('CAPS Bridge 연결 시간초과')));
+  });
+}
+
+// ─────────────────────────────────────────────────────────
+// 출퇴근 계산 로직
+// ─────────────────────────────────────────────────────────
+// 시간 문자열 "HH:MM" → 분 변환
+function timeToMin(t) {
+  if (!t) return null;
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+}
+
+// 분 → "H시간 M분" 문자열
+function minToHHMM(min) {
+  if (min === null || min === undefined || min <= 0) return '0분';
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (h === 0) return `${m}분`;
+  if (m === 0) return `${h}시간`;
+  return `${h}시간 ${m}분`;
+}
+
+// 분 → 소수점 시간 (1시간=1.00, 30분=0.50, 소수점 2자리)
+function minToDecimalHours(min) {
+  if (min === null || min === undefined || min <= 0) return 0;
+  return Math.round((min / 60) * 100) / 100;
+}
+
+// ── 한국 공휴일 (2025~2027) ──
+const KOREAN_HOLIDAYS = {
+  // 2025
+  '2025-01-01': '신정', '2025-01-28': '설날 전날', '2025-01-29': '설날', '2025-01-30': '설날 다음날',
+  '2025-03-01': '삼일절', '2025-03-03': '삼일절 대체공휴일',
+  '2025-05-05': '어린이날', '2025-05-06': '석가탄신일',
+  '2025-06-06': '현충일', '2025-08-15': '광복절',
+  '2025-10-03': '개천절', '2025-10-05': '추석 전날', '2025-10-06': '추석', '2025-10-07': '추석 다음날', '2025-10-08': '추석 대체공휴일', '2025-10-09': '한글날',
+  '2025-12-25': '성탄절',
+  // 2026
+  '2026-01-01': '신정', '2026-02-16': '설날 전날', '2026-02-17': '설날', '2026-02-18': '설날 다음날',
+  '2026-03-01': '삼일절', '2026-03-02': '삼일절 대체공휴일',
+  '2026-05-05': '어린이날', '2026-05-24': '석가탄신일', '2026-05-25': '석가탄신일 대체공휴일',
+  '2026-06-06': '현충일',
+  '2026-08-15': '광복절', '2026-08-17': '광복절 대체공휴일',
+  '2026-09-24': '추석 전날', '2026-09-25': '추석', '2026-09-26': '추석 다음날',
+  '2026-10-03': '개천절', '2026-10-05': '개천절 대체공휴일', '2026-10-09': '한글날',
+  '2026-12-25': '성탄절',
+  // 2027
+  '2027-01-01': '신정', '2027-02-06': '설날 전날', '2027-02-07': '설날', '2027-02-08': '설날 다음날', '2027-02-09': '설날 대체공휴일',
+  '2027-03-01': '삼일절', '2027-05-05': '어린이날', '2027-05-13': '석가탄신일',
+  '2027-06-06': '현충일', '2027-06-07': '현충일 대체공휴일',
+  '2027-08-15': '광복절', '2027-08-16': '광복절 대체공휴일',
+  '2027-09-14': '추석 전날', '2027-09-15': '추석', '2027-09-16': '추석 다음날',
+  '2027-10-03': '개천절', '2027-10-04': '개천절 대체공휴일', '2027-10-09': '한글날', '2027-10-11': '한글날 대체공휴일',
+  '2027-12-25': '성탄절',
+};
+
+function isKoreanHoliday(dateStr) {
+  return KOREAN_HOLIDAYS[dateStr] || null;
+}
+
+// 공휴일 목록 API
+app.get('/api/holidays', (req, res) => {
+  res.json(KOREAN_HOLIDAYS);
+});
+
+/**
+ * 출퇴근 기록 1건 분석
+ * @param {Object} rec - caps-bridge에서 받은 레코드 (inTime, outTime, date 등)
+ * @returns {Object} 분석 결과
+ */
+function analyzeRecord(rec) {
+  const holidayName = isKoreanHoliday(rec.date);
+  const result = {
+    employeeId: rec.name,
+    employeeName: rec.name,
+    date: rec.date,
+    inTime: rec.inTime,
+    outTime: rec.outTime,
+    leaveType: 'normal',
+    leaveLabel: '정상',
+    late: false,
+    lateMinutes: 0,
+    overtime: 0,
+    overtimeLabel: '',
+    overtimeHours: 0,
+    note: '',
+    holiday: holidayName || null,    // 공휴일이면 이름, 아니면 null
+  };
+
+  const inMin  = timeToMin(rec.inTime);
+  const outMin = timeToMin(rec.outTime);
+
+  const WORK_START  = 8 * 60 + 30;   // 08:30
+  const WORK_END    = 18 * 60;        // 18:00
+  const LUNCH_END   = 13 * 60;        // 13:00 (점심 11:30~13:00)
+  const HALF_AM_IN  = 14 * 60;        // 오전반차 출근 = 14:00
+  const HALF_PM_OUT = 11 * 60 + 30;   // 오후반차 퇴근 = 11:30 (점심 시작)
+  const OT_BASE     = 19 * 60;        // 추가근무 기준 (저녁식사 후)
+  const OT_BASE_NO_DINNER = 18 * 60;  // 저녁 안 먹을 때 기준
+  const PREP_MIN    = 15;             // 퇴근준비 제외 시간 (10~20분 중간값)
+
+  // ── 주말/공휴일 체크 (출근기록 없으면 해당 타입으로 처리)
+  const dt = new Date(rec.date + 'T00:00:00');
+  const dayOfWeek = dt.getDay(); // 0=일, 6=토
+  if (holidayName && !inMin && !outMin) {
+    result.leaveType = 'holiday';
+    result.leaveLabel = holidayName;
+    return result;
+  }
+  if ((dayOfWeek === 0 || dayOfWeek === 6) && !inMin && !outMin) {
+    result.leaveType = 'weekend';
+    result.leaveLabel = dayOfWeek === 0 ? '일요일' : '토요일';
+    return result;
+  }
+
+  // ── 출근 기록 없음
+  if (!inMin) {
+    if (outMin) {
+      result.leaveType = 'noswipe';
+      result.leaveLabel = '출근미기록';
+    } else {
+      // 아무 기록 없음 → 연차 추정
+      result.leaveType = 'annual';
+      result.leaveLabel = '연차';
+    }
+    return result;
+  }
+
+  // ── 오전반차: 14:00 ± 30분 이내 출근
+  if (inMin >= HALF_AM_IN - 30 && inMin <= HALF_AM_IN + 30) {
+    result.leaveType = 'halfAM';
+    result.leaveLabel = '오전반차';
+  }
+  // ── 오후반차: 11:30 ± 30분 이내 퇴근
+  else if (outMin && outMin >= HALF_PM_OUT - 30 && outMin <= HALF_PM_OUT + 30) {
+    result.leaveType = 'halfPM';
+    result.leaveLabel = '오후반차';
+  }
+  // ── 연차: 출근이 16:00 이후거나 퇴근 기록 없는데 출근도 매우 늦음
+  else if (inMin >= 16 * 60) {
+    result.leaveType = 'annual';
+    result.leaveLabel = '연차';
+  }
+  else {
+    result.leaveType = 'normal';
+    result.leaveLabel = '정상';
+  }
+
+  // ── 지각 체크 (오전반차/연차 제외)
+  if (result.leaveType === 'normal' && inMin > WORK_START) {
+    result.late = true;
+    result.lateMinutes = inMin - WORK_START;
+  }
+
+  // ── 추가근무 계산 (퇴근 기록 있을 때만)
+  if (outMin && result.leaveType !== 'annual') {
+    // 저녁 먹는 경우: 19:00 이후 퇴근 → 추가근무 = (퇴근 - 19:00) - 15분
+    if (outMin > OT_BASE) {
+      const raw = outMin - OT_BASE - PREP_MIN;
+      result.overtime = Math.max(0, raw);
+    }
+    // 저녁 안 먹는 경우: 18:00~19:00 사이 퇴근 → 추가근무 = (퇴근 - 18:00) - 15분
+    // (이 경우는 프론트에서 수동 체크 옵션 제공 — 기본은 0)
+    // 서버에서는 일단 0으로 두고 프론트에서 토글 가능하게
+    if (result.overtime > 0) {
+      result.overtimeLabel = minToHHMM(result.overtime);
+      result.overtimeHours = minToDecimalHours(result.overtime);
+    }
+  }
+
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────
+// API: 브릿지 헬스체크
+// GET /api/attendance/bridge-status
+// ─────────────────────────────────────────────────────────
+app.get('/api/attendance/bridge-status', requireAuth, async (req, res) => {
+  // admin 아닌 사용자: 항상 캐시 모드 OK 반환 (브릿지 체크 불필요)
+  if (req.user.role !== 'admin') {
+    const files = fs.readdirSync(ATTENDANCE_STORE_DIR).filter(f => f.endsWith('.json'));
+    return res.json({ connected: false, hasCache: files.length > 0, cacheOnly: true });
+  }
+  try {
+    const data = await capsGet('/health');
+    res.json({ connected: true, hasCache: true, ...data });
+  } catch (err) {
+    const files = fs.readdirSync(ATTENDANCE_STORE_DIR).filter(f => f.endsWith('.json'));
+    res.json({ connected: false, hasCache: files.length > 0, error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────
+// API: 출퇴근 수동 노트 (잘못된 분류 수정용)
+// GET  /api/attendance/notes        → 전체 노트 반환
+// PUT  /api/attendance/notes/:key   → 노트 저장 (key = "이름_YYYY-MM-DD")
+// DELETE /api/attendance/notes/:key → 노트 삭제 (자동 분류로 복원)
+// ─────────────────────────────────────────────────────────
+app.get('/api/attendance/notes', requireAuth, (req, res) => {
+  const data = db.출퇴근관리.load();
+  res.json(data.attendanceNotes || {});
+});
+
+app.put('/api/attendance/notes/:key', requireAuth, (req, res) => {
+  const canEdit = req.user.role === 'admin';
+  if (!canEdit) return res.status(403).json({ error: '권한 없음' });
+  const data = db.출퇴근관리.load();
+  if (!data.attendanceNotes) data.attendanceNotes = {};
+  const existing = data.attendanceNotes[req.params.key] || {};
+  const updated = {
+    ...existing,
+    leaveType:  req.body.leaveType  ?? existing.leaveType ?? '',
+    leaveLabel: req.body.leaveLabel ?? existing.leaveLabel ?? '',
+    note:       req.body.note       ?? existing.note ?? '',
+    updatedBy:  req.user.name,
+    updatedAt:  new Date().toISOString(),
+  };
+  // 출퇴근 시간 수정 저장 (관리자 전용)
+  if (req.body.modifiedInTime !== undefined) updated.modifiedInTime = req.body.modifiedInTime;
+  if (req.body.modifiedOutTime !== undefined) updated.modifiedOutTime = req.body.modifiedOutTime;
+  data.attendanceNotes[req.params.key] = updated;
+  db.출퇴근관리.save(data);
+
+  // ── 연차관리 연동: 연차/반차이면 leaveRecords에 동기화 ──
+  const parts = req.params.key.match(/^(.+)_(\d{4}-\d{2}-\d{2})$/);
+  if (parts) {
+    const [, empName, dateStr] = parts;
+    const lt = updated.leaveType;
+    const leaveData = db['연차관리'].load();
+    if (!leaveData.leaveRecords) leaveData.leaveRecords = [];
+    // 기존 출결연동 레코드 제거
+    leaveData.leaveRecords = leaveData.leaveRecords.filter(r =>
+      !(r.employeeName === empName && r.date === dateStr && r.source === 'attendance')
+    );
+    // 연차/반차이면 새로 추가
+    if (lt === 'annual' || lt === 'halfAM' || lt === 'halfPM') {
+      const annualDays = lt === 'annual' ? 1 : 0.5;
+      leaveData.leaveRecords.push({
+        id: Date.now(),
+        employeeName: empName,
+        date: dateStr,
+        leaveType: lt === 'annual' ? '연차' : (lt === 'halfAM' ? '오전반차' : '오후반차'),
+        annualDays,
+        nonAnnualDays: 0,
+        note: '출결기록 자동연동',
+        source: 'attendance',
+        createdAt: new Date().toISOString(),
+      });
+    }
+    db['연차관리'].save(leaveData);
+  }
+
+  res.json({ ok: true });
+});
+
+app.delete('/api/attendance/notes/:key', requireAuth, (req, res) => {
+  const canEdit = req.user.role === 'admin';
+  if (!canEdit) return res.status(403).json({ error: '권한 없음' });
+  const data = db.출퇴근관리.load();
+  if (data.attendanceNotes) {
+    delete data.attendanceNotes[req.params.key];
+    db.출퇴근관리.save(data);
+  }
+  // ── 연차관리에서도 출결연동 레코드 제거 ──
+  const parts = req.params.key.match(/^(.+)_(\d{4}-\d{2}-\d{2})$/);
+  if (parts) {
+    const [, empName, dateStr] = parts;
+    const leaveData = db['연차관리'].load();
+    if (leaveData.leaveRecords) {
+      leaveData.leaveRecords = leaveData.leaveRecords.filter(r =>
+        !(r.employeeName === empName && r.date === dateStr && r.source === 'attendance')
+      );
+      db['연차관리'].save(leaveData);
+    }
+  }
+  res.json({ ok: true });
+});
+
+// ─────────────────────────────────────────────────────────
+// API: 출퇴근 시간 수정 요청 (일반 사용자 → 관리자)
+// ─────────────────────────────────────────────────────────
+app.get('/api/attendance/requests', requireAuth, (req, res) => {
+  const data = db.출퇴근관리.load();
+  const requests = data.attendanceRequests || [];
+  const isAdmin = req.user.role === 'admin' || (req.user.permissions || []).includes('attendance_all');
+  // 관리자: 전체, 일반: 본인만
+  const filtered = isAdmin ? requests : requests.filter(r => r.empName === req.user.name);
+  res.json(filtered);
+});
+
+app.post('/api/attendance/requests', requireAuth, (req, res) => {
+  const { date, requestedInTime, requestedOutTime, reason } = req.body;
+  if (!date) return res.status(400).json({ error: 'date 필요' });
+  const data = db.출퇴근관리.load();
+  if (!data.attendanceRequests) data.attendanceRequests = [];
+  const newReq = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    empName: req.user.name,
+    date,
+    requestedInTime: requestedInTime || null,
+    requestedOutTime: requestedOutTime || null,
+    reason: reason || '',
+    status: 'pending', // pending | approved | rejected
+    createdAt: new Date().toISOString(),
+  };
+  data.attendanceRequests.push(newReq);
+  db.출퇴근관리.save(data);
+  res.json(newReq);
+});
+
+app.put('/api/attendance/requests/:id', requireAuth, (req, res) => {
+  const isAdmin = req.user.role === 'admin' || (req.user.permissions || []).includes('attendance_all');
+  if (!isAdmin) return res.status(403).json({ error: '관리자만 처리 가능' });
+  const data = db.출퇴근관리.load();
+  const requests = data.attendanceRequests || [];
+  const reqItem = requests.find(r => r.id === req.params.id);
+  if (!reqItem) return res.status(404).json({ error: '요청 없음' });
+
+  reqItem.status = req.body.status || reqItem.status;
+  reqItem.reviewedBy = req.user.name;
+  reqItem.reviewedAt = new Date().toISOString();
+
+  // 승인 시 → notes에 시간 자동 반영
+  if (reqItem.status === 'approved') {
+    if (!data.attendanceNotes) data.attendanceNotes = {};
+    const nKey = `${reqItem.empName}_${reqItem.date}`;
+    const existing = data.attendanceNotes[nKey] || {};
+    if (reqItem.requestedInTime) existing.modifiedInTime = reqItem.requestedInTime;
+    if (reqItem.requestedOutTime) existing.modifiedOutTime = reqItem.requestedOutTime;
+    existing.updatedBy = req.user.name;
+    existing.updatedAt = new Date().toISOString();
+    data.attendanceNotes[nKey] = existing;
+  }
+
+  db.출퇴근관리.save(data);
+  res.json(reqItem);
+});
+
+// ─────────────────────────────────────────────────────────
+// API: 직원 목록 (CAPS)
+// GET /api/attendance/employees
+// ─────────────────────────────────────────────────────────
+app.get('/api/attendance/employees', requireAuth, async (req, res) => {
+  const cacheKey = 'employees';
+  let data;
+
+  if (req.user.role !== 'admin') {
+    // 일반/팀장: 캐시에서만
+    data = getCacheEntry(cacheKey);
+    if (!data) return res.json([]); // 캐시 없으면 빈 목록
+  } else {
+    // admin: 브릿지 시도 → 실패 시 캐시
+    try {
+      data = await capsGet('/api/employees');
+      setCacheEntry(cacheKey, data);
+    } catch (err) {
+      const cached = getCacheEntry(cacheKey);
+      if (cached) { data = cached; }
+      else return res.status(502).json({ error: 'CAPS 브릿지 연결 실패: ' + err.message });
+    }
+  }
+
+  // 팀장 부서 필터: admin 아닌 attendance_all 권한자 또는 조직도 리더는 같은 부서 팀원만
+  const userPerms = req.user.permissions || [];
+  let canViewTeamEmp = userPerms.includes('attendance_all');
+  let userDeptIdEmp = req.user.department;
+  if (!canViewTeamEmp && req.user.role !== 'admin') {
+    const uData2 = db.loadUsers();
+    const me2 = (uData2.users || []).find(u => u.userId === req.user.userId);
+    if (me2 && me2.department) {
+      userDeptIdEmp = me2.department;
+      const myDept = (uData2.departments || []).find(d => d.id === me2.department);
+      if (myDept && myDept.leaderId === me2.id) canViewTeamEmp = true;
+    }
+  }
+  if (req.user.role !== 'admin' && canViewTeamEmp && userDeptIdEmp) {
+    const uData = db.loadUsers();
+    const teamNames = (uData.users || [])
+      .filter(u => u.department === userDeptIdEmp && u.status === 'approved')
+      .map(u => u.name);
+    if (!teamNames.includes(req.user.name)) teamNames.push(req.user.name);
+    data = data.filter(emp => teamNames.includes(emp.name || emp.id));
+  }
+
+  res.json(data);
+});
+
+// ─────────────────────────────────────────────────────────
+// API: 출퇴근 기록 + 분석
+// GET /api/attendance/records?from=YYYY-MM-DD&to=YYYY-MM-DD[&employeeId=]
+// ─────────────────────────────────────────────────────────
+app.get('/api/attendance/records', requireAuth, async (req, res) => {
+  const { from, to, employeeId } = req.query;
+  if (!from || !to) return res.status(400).json({ error: 'from, to 파라미터 필요' });
+
+  let url = `/api/attendance?from=${from}&to=${to}`;
+  if (employeeId) url += `&employeeId=${encodeURIComponent(employeeId)}`;
+  const cacheKey = `rec_${from}_${to}_${employeeId||'all'}`;
+
+  let raw;
+  let fromCache = false;
+
+  if (req.user.role !== 'admin') {
+    const allCacheKey = `rec_${from}_${to}_all`;
+    raw = getCacheEntry(allCacheKey);
+    if (!raw) return res.status(404).json({ error: '저장된 데이터가 없습니다. 관리자가 해당 월을 먼저 조회해야 합니다.' });
+    fromCache = true;
+  } else {
+    try {
+      raw = await capsGet(url);
+      setCacheEntry(cacheKey, raw);
+    } catch (err) {
+      raw = getCacheEntry(cacheKey);
+      if (!raw) return res.status(502).json({ error: 'CAPS 브릿지 연결 실패 (캐시 없음): ' + err.message });
+      fromCache = true;
+    }
+  }
+
+  const analyzed = raw.map(analyzeRecord);
+  // 수동 노트 병합
+  const dbData = db.출퇴근관리.load();
+  const notes = dbData.attendanceNotes || {};
+  const existingKeys = new Set(analyzed.map(r => `${r.employeeId}_${r.date}`));
+  for (const r of analyzed) {
+    const nKey = `${r.employeeId}_${r.date}`;
+    if (notes[nKey]) {
+      r.leaveType  = notes[nKey].leaveType  || r.leaveType;
+      r.leaveLabel = notes[nKey].leaveLabel || r.leaveLabel;
+      r.note       = notes[nKey].note || '';
+      r.manuallySet = true;
+      // 수정된 출퇴근 시간 병합 (원본은 originalInTime/originalOutTime에 보존)
+      if (notes[nKey].modifiedInTime !== undefined) {
+        r.originalInTime = r.originalInTime || r.inTime;
+        r.inTime = notes[nKey].modifiedInTime;
+        r.timeModified = true;
+      }
+      if (notes[nKey].modifiedOutTime !== undefined) {
+        r.originalOutTime = r.originalOutTime || r.outTime;
+        r.outTime = notes[nKey].modifiedOutTime;
+        r.timeModified = true;
+      }
+    }
+  }
+  // CAPS에 기록이 없지만 수동 노트가 있는 날짜 → 가상 레코드 생성
+  for (const [nKey, note] of Object.entries(notes)) {
+    if (existingKeys.has(nKey)) continue;
+    const parts = nKey.match(/^(.+)_(\d{4}-\d{2}-\d{2})$/);
+    if (!parts) continue;
+    const [, empName, date] = parts;
+    if (date < from || date > to) continue;
+    if (employeeId && empName !== employeeId) continue;
+    analyzed.push({
+      employeeId: empName, employeeName: empName, date,
+      inTime: note.modifiedInTime || null, outTime: note.modifiedOutTime || null,
+      leaveType: note.leaveType || 'annual', leaveLabel: note.leaveLabel || '연차',
+      late: false, lateMinutes: 0, overtime: 0, overtimeLabel: '',
+      note: note.note || '', manuallySet: true, timeModified: !!(note.modifiedInTime || note.modifiedOutTime),
+    });
+  }
+  if (fromCache) {
+    res.set('X-Data-Source', 'cache');
+  }
+  res.json(analyzed);
+});
+
+// ─────────────────────────────────────────────────────────
+// API: 월별 요약
+// GET /api/attendance/summary?year=2025&month=3[&employeeId=]
+// ─────────────────────────────────────────────────────────
+app.get('/api/attendance/summary', requireAuth, async (req, res) => {
+  const { year, month, employeeId } = req.query;
+  if (!year || !month) return res.status(400).json({ error: 'year, month 파라미터 필요' });
+
+  const y = parseInt(year), m = parseInt(month);
+  const from = `${y}-${String(m).padStart(2,'0')}-01`;
+  const lastDay = new Date(y, m, 0).getDate();
+  const to = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
+
+  // ── 권한별 필터: admin=전체, 팀장=부서원, 일반=본인 ──
+  let teamMemberNames = null; // null이면 전체, 배열이면 해당 이름만
+  const userPerms = req.user.permissions || [];
+  // attendance_all 권한이 있거나, 조직도에서 부서 리더인 경우 팀 전체 조회 가능
+  let canViewTeam = userPerms.includes('attendance_all');
+  let userDeptId = req.user.department;
+  if (!canViewTeam && req.user.role !== 'admin') {
+    // 조직도에서 리더인지 자동 감지
+    const uData2 = db.loadUsers();
+    const me2 = (uData2.users || []).find(u => u.userId === req.user.userId);
+    if (me2 && me2.department) {
+      userDeptId = me2.department;
+      const myDept = (uData2.departments || []).find(d => d.id === me2.department);
+      if (myDept && myDept.leaderId === me2.id) canViewTeam = true;
+    }
+  }
+  if (req.user.role !== 'admin' && canViewTeam && userDeptId) {
+    // 팀장: 같은 부서 팀원만
+    const uData = db.loadUsers();
+    teamMemberNames = (uData.users || [])
+      .filter(u => u.department === userDeptId && u.status === 'approved')
+      .map(u => u.name);
+    if (!teamMemberNames.includes(req.user.name)) teamMemberNames.push(req.user.name);
+  } else if (req.user.role !== 'admin' && !canViewTeam) {
+    // 일반 직원: 본인만
+    teamMemberNames = [req.user.name];
+  }
+
+  let url = `/api/attendance?from=${from}&to=${to}`;
+  if (employeeId) url += `&employeeId=${encodeURIComponent(employeeId)}`;
+  const cacheKey = `sum_${from}_${to}_${employeeId||'all'}`;
+
+  let raw;
+  let fromCache = false;
+
+  // admin이 아닌 사용자: 항상 'all' 캐시에서 읽음 (관리자가 동기화한 전체 데이터)
+  if (req.user.role !== 'admin') {
+    const allCacheKey = `sum_${from}_${to}_all`;
+    raw = getCacheEntry(allCacheKey);
+    if (!raw) return res.status(404).json({ error: '저장된 출퇴근 데이터가 없습니다. 관리자가 해당 월을 먼저 조회해야 합니다.' });
+    fromCache = true;
+  } else {
+    // admin: 브릿지 시도 → 실패 시 캐시 폴백
+    try {
+      raw = await capsGet(url);
+      setCacheEntry(cacheKey, raw);
+    } catch (err) {
+      raw = getCacheEntry(cacheKey);
+      if (!raw) return res.status(502).json({ error: 'CAPS 브릿지 연결 실패 (캐시 없음): ' + err.message });
+      fromCache = true;
+    }
+  }
+
+  const records = raw.map(analyzeRecord);
+
+  // 수동 노트 병합 (leaveType 재분류)
+  const dbData = db.출퇴근관리.load();
+  const notes = dbData.attendanceNotes || {};
+  const existingKeys = new Set(records.map(r => `${r.employeeId}_${r.date}`));
+  for (const r of records) {
+    const nKey = `${r.employeeId}_${r.date}`;
+    if (notes[nKey]) {
+      r.leaveType  = notes[nKey].leaveType  || r.leaveType;
+      r.leaveLabel = notes[nKey].leaveLabel || r.leaveLabel;
+      r.note       = notes[nKey].note || '';
+      r.manuallySet = true;
+      // 수정된 출퇴근 시간 병합
+      if (notes[nKey].modifiedInTime !== undefined) {
+        r.originalInTime = r.originalInTime || r.inTime;
+        r.inTime = notes[nKey].modifiedInTime;
+        r.timeModified = true;
+      }
+      if (notes[nKey].modifiedOutTime !== undefined) {
+        r.originalOutTime = r.originalOutTime || r.outTime;
+        r.outTime = notes[nKey].modifiedOutTime;
+        r.timeModified = true;
+      }
+      // 지각 재계산 (manual로 normal 복원 시)
+      if (r.leaveType === 'normal' || r.leaveType === 'noswipe') {
+        const inMin = timeToMin(r.inTime);
+        const WORK_START = 8 * 60 + 30;
+        if (inMin && inMin > WORK_START) { r.late = true; r.lateMinutes = inMin - WORK_START; }
+        else { r.late = false; r.lateMinutes = 0; }
+      }
+    }
+  }
+  // CAPS에 기록이 없지만 수동 노트가 있는 날짜 → 가상 레코드 생성
+  for (const [nKey, note] of Object.entries(notes)) {
+    if (existingKeys.has(nKey)) continue;
+    const parts = nKey.match(/^(.+)_(\d{4}-\d{2}-\d{2})$/);
+    if (!parts) continue;
+    const [, empName, date] = parts;
+    if (date < from || date > to) continue;
+    if (employeeId && empName !== employeeId) continue;
+    records.push({
+      employeeId: empName, employeeName: empName, date,
+      inTime: null, outTime: null,
+      leaveType: note.leaveType || 'annual', leaveLabel: note.leaveLabel || '연차',
+      late: false, lateMinutes: 0, overtime: 0, overtimeLabel: '',
+      note: note.note || '', manuallySet: true,
+    });
+  }
+
+  // 직원별 집계
+  const byEmp = {};
+  for (const r of records) {
+    const key = r.employeeId;
+    if (!byEmp[key]) {
+      byEmp[key] = {
+        employeeId: r.employeeId,
+        employeeName: r.employeeName,
+        normalDays: 0,
+        halfAM: 0,
+        halfPM: 0,
+        annualDays: 0,
+        lateDays: 0,
+        totalLateMin: 0,
+        totalOvertimeMin: 0,
+        records: [],
+      };
+    }
+    const e = byEmp[key];
+    e.records.push(r);
+    if (r.leaveType === 'normal' || r.leaveType === 'noswipe') e.normalDays++;
+    else if (r.leaveType === 'halfAM') e.halfAM++;
+    else if (r.leaveType === 'halfPM') e.halfPM++;
+    else if (r.leaveType === 'annual') e.annualDays++;
+    if (r.late) { e.lateDays++; e.totalLateMin += r.lateMinutes; }
+    e.totalOvertimeMin += (r.overtime || 0);
+  }
+
+  let summary = Object.values(byEmp).map(e => ({
+    ...e,
+    totalOvertimeLabel: minToHHMM(e.totalOvertimeMin),
+    totalOvertimeHours: minToDecimalHours(e.totalOvertimeMin),
+    usedLeave: e.annualDays + (e.halfAM + e.halfPM) * 0.5,
+  }));
+
+  // 팀장 부서 필터 적용
+  if (teamMemberNames) {
+    summary = summary.filter(e => teamMemberNames.includes(e.employeeName));
+  }
+
+  // 부서/순서 적용
+  const attData = db.출퇴근관리.load();
+  const depts = attData.departments || [];
+  const empOrder = attData.employeeOrder || {};
+  const flexDepts = (attData.flexDepts || []).map(d => d.toLowerCase());
+  const satWorkDepts = (attData.saturdayWorkDepts || []).map(d => d.toLowerCase());
+  const exemptDeptsList = (attData.exemptDepts || []).map(d => d.toLowerCase());
+  // 직원에 부서 정보 붙이기
+  for (const e of summary) {
+    e.department = '';
+    for (const dept of depts) {
+      const order = empOrder[dept] || [];
+      if (order.includes(e.employeeName)) {
+        e.department = dept;
+        e.sortIdx = order.indexOf(e.employeeName);
+        break;
+      }
+    }
+    if (!e.department) e.sortIdx = 9999;
+    // 유연근무/토요근무/근태면제 부서 플래그
+    const deptLower = (e.department || '').toLowerCase();
+    e.flexDept = flexDepts.some(fd => deptLower.includes(fd) || fd.includes(deptLower));
+    e.saturdayWork = satWorkDepts.some(sd => deptLower.includes(sd) || sd.includes(deptLower));
+    e.exemptDept = exemptDeptsList.some(ed => deptLower.includes(ed) || ed.includes(deptLower));
+    // 근태면제 부서: 지각/출근미기록 보정
+    if (e.exemptDept) {
+      e.lateDays = 0;
+      e.totalLateMin = 0;
+      for (const r of e.records) {
+        r.late = false;
+        r.lateMinutes = 0;
+        // 출근미기록(noswipe) → 정상으로 변경 (퇴근만 찍는 부서)
+        if (r.leaveType === 'noswipe') {
+          r.leaveType = 'normal';
+          r.leaveLabel = '정상';
+        }
+      }
+      // normalDays 재계산
+      e.normalDays = e.records.filter(r => r.leaveType === 'normal' || r.leaveType === 'noswipe').length;
+    }
+    // 토요일 근무 부서: 토요일 출근 기록 카운트
+    if (e.saturdayWork) {
+      e.saturdayDays = 0;
+      for (const r of e.records) {
+        if (new Date(r.date).getDay() === 6 && (r.inTime || r.outTime)) e.saturdayDays++;
+      }
+    }
+  }
+  // 부서 순서대로, 부서 내 순서대로 정렬
+  summary.sort((a, b) => {
+    const ai = depts.indexOf(a.department);
+    const bi = depts.indexOf(b.department);
+    const da = ai >= 0 ? ai : 9999;
+    const db2 = bi >= 0 ? bi : 9999;
+    if (da !== db2) return da - db2;
+    return (a.sortIdx || 0) - (b.sortIdx || 0);
+  });
+
+  if (fromCache) {
+    res.set('X-Data-Source', 'cache');
+  }
+  res.json(summary);
+});
+
+// ─── 출퇴근 기록부 엑셀 다운로드 ───
+app.get('/api/attendance/export-excel', requireAdmin, async (req, res) => {
+  const { year, month } = req.query;
+  if (!year || !month) return res.status(400).json({ error: 'year, month 필요' });
+
+  // summary API와 동일한 데이터 수집 로직 재사용
+  const y = parseInt(year), m = parseInt(month);
+  const from = `${y}-${String(m).padStart(2,'0')}-01`;
+  const lastDay = new Date(y, m, 0).getDate();
+  const to = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
+
+  let teamMemberNames = null;
+  const userPerms = req.user.permissions || [];
+  let canViewTeam2 = userPerms.includes('attendance_all');
+  let userDeptId2 = req.user.department;
+  if (!canViewTeam2 && req.user.role !== 'admin') {
+    const uData2 = db.loadUsers();
+    const me2 = (uData2.users || []).find(u => u.userId === req.user.userId);
+    if (me2 && me2.department) {
+      userDeptId2 = me2.department;
+      const myDept = (uData2.departments || []).find(d => d.id === me2.department);
+      if (myDept && myDept.leaderId === me2.id) canViewTeam2 = true;
+    }
+  }
+  if (req.user.role !== 'admin' && canViewTeam2 && userDeptId2) {
+    const uData = db.loadUsers();
+    teamMemberNames = (uData.users || [])
+      .filter(u => u.department === userDeptId2 && u.status === 'approved')
+      .map(u => u.name);
+    if (!teamMemberNames.includes(req.user.name)) teamMemberNames.push(req.user.name);
+  } else if (req.user.role !== 'admin' && !canViewTeam2) {
+    teamMemberNames = [req.user.name];
+  }
+
+  let raw;
+  if (req.user.role !== 'admin') {
+    const allCacheKey = `sum_${from}_${to}_all`;
+    raw = getCacheEntry(allCacheKey);
+    if (!raw) return res.status(404).json({ error: '저장된 출퇴근 데이터가 없습니다.' });
+  } else {
+    try { raw = await capsGet(`/api/attendance?from=${from}&to=${to}`); setCacheEntry(`sum_${from}_${to}_all`, raw); }
+    catch (err) { raw = getCacheEntry(`sum_${from}_${to}_all`); if (!raw) return res.status(502).json({ error: 'CAPS 연결 실패 (캐시 없음)' }); }
+  }
+
+  const records = raw.map(analyzeRecord);
+  const dbData = db.출퇴근관리.load();
+  const notes = dbData.attendanceNotes || {};
+  const existingKeys = new Set(records.map(r => `${r.employeeId}_${r.date}`));
+  for (const r of records) {
+    const nKey = `${r.employeeId}_${r.date}`;
+    if (notes[nKey]) {
+      r.leaveType = notes[nKey].leaveType || r.leaveType;
+      r.leaveLabel = notes[nKey].leaveLabel || r.leaveLabel;
+      r.note = notes[nKey].note || '';
+      if (notes[nKey].modifiedInTime !== undefined) r.inTime = notes[nKey].modifiedInTime;
+      if (notes[nKey].modifiedOutTime !== undefined) r.outTime = notes[nKey].modifiedOutTime;
+      if (r.leaveType === 'normal' || r.leaveType === 'noswipe') {
+        const inMin = timeToMin(r.inTime);
+        const WORK_START = 8 * 60 + 30;
+        if (inMin && inMin > WORK_START) { r.late = true; r.lateMinutes = inMin - WORK_START; }
+        else { r.late = false; r.lateMinutes = 0; }
+      }
+    }
+  }
+  for (const [nKey, note] of Object.entries(notes)) {
+    if (existingKeys.has(nKey)) continue;
+    const parts = nKey.match(/^(.+)_(\d{4}-\d{2}-\d{2})$/);
+    if (!parts) continue;
+    const [, empName, date] = parts;
+    if (date < from || date > to) continue;
+    records.push({ employeeId: empName, employeeName: empName, date, inTime: null, outTime: null,
+      leaveType: note.leaveType || 'annual', leaveLabel: note.leaveLabel || '연차',
+      late: false, lateMinutes: 0, overtime: 0, note: note.note || '', manuallySet: true });
+  }
+
+  const byEmp = {};
+  for (const r of records) {
+    const key = r.employeeId;
+    if (!byEmp[key]) byEmp[key] = { employeeId: r.employeeId, employeeName: r.employeeName, normalDays:0, halfAM:0, halfPM:0, annualDays:0, lateDays:0, totalLateMin:0, totalOvertimeMin:0, records:[] };
+    const e = byEmp[key];
+    e.records.push(r);
+    if (r.leaveType === 'normal' || r.leaveType === 'noswipe') e.normalDays++;
+    else if (r.leaveType === 'halfAM') e.halfAM++;
+    else if (r.leaveType === 'halfPM') e.halfPM++;
+    else if (r.leaveType === 'annual') e.annualDays++;
+    if (r.late) { e.lateDays++; e.totalLateMin += r.lateMinutes; }
+    e.totalOvertimeMin += (r.overtime || 0);
+  }
+  let summary = Object.values(byEmp).map(e => ({ ...e, usedLeave: e.annualDays + (e.halfAM + e.halfPM) * 0.5 }));
+  if (teamMemberNames) summary = summary.filter(e => teamMemberNames.includes(e.employeeName));
+
+  const depts = dbData.departments || [];
+  const empOrder = dbData.employeeOrder || {};
+  const flexDeptsExport = (dbData.flexDepts || []).map(d => d.toLowerCase());
+  const satWorkDeptsExport = (dbData.saturdayWorkDepts || []).map(d => d.toLowerCase());
+  const exemptDeptsExport = (dbData.exemptDepts || []).map(d => d.toLowerCase());
+  for (const e of summary) {
+    e.department = '';
+    for (const dept of depts) { const order = empOrder[dept] || []; if (order.includes(e.employeeName)) { e.department = dept; e.sortIdx = order.indexOf(e.employeeName); break; } }
+    if (!e.department) e.sortIdx = 9999;
+    const deptL = (e.department || '').toLowerCase();
+    e.exemptDept = exemptDeptsExport.some(ed => deptL.includes(ed) || ed.includes(deptL));
+    if (e.exemptDept) {
+      e.lateDays = 0; e.totalLateMin = 0;
+      for (const r of e.records) { r.late = false; if (r.leaveType === 'noswipe') { r.leaveType = 'normal'; r.leaveLabel = '정상'; } }
+      e.normalDays = e.records.filter(r => r.leaveType === 'normal' || r.leaveType === 'noswipe').length;
+    }
+    e.saturdayWork = satWorkDeptsExport.some(sd => deptL.includes(sd) || sd.includes(deptL));
+    if (e.saturdayWork) {
+      e.saturdayDays = 0;
+      for (const r of e.records) { if (new Date(r.date).getDay() === 6 && r.inTime) e.saturdayDays++; }
+    }
+  }
+  summary.sort((a, b) => { const da = depts.indexOf(a.department) >= 0 ? depts.indexOf(a.department) : 9999; const db2 = depts.indexOf(b.department) >= 0 ? depts.indexOf(b.department) : 9999; if (da !== db2) return da - db2; return (a.sortIdx||0) - (b.sortIdx||0); });
+
+  // ── 엑셀 생성 ──
+  const ExcelJS = require('exceljs');
+  const wb = new ExcelJS.Workbook();
+  wb.creator = '출퇴근관리시스템';
+
+  // 시트1: 월간 요약
+  const ws1 = wb.addWorksheet(`${y}년 ${m}월 요약`);
+  const headerFill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF4F6EF7' } };
+  const headerFont = { bold:true, color:{ argb:'FFFFFFFF' }, size:10, name:'맑은 고딕' };
+  const bodyFont = { size:10, name:'맑은 고딕' };
+  const thinBorder = { top:{style:'thin'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style:'thin'} };
+
+  ws1.columns = [
+    { header:'부서', key:'dept', width:14 },
+    { header:'직원명', key:'name', width:12 },
+    { header:'정상출근', key:'normal', width:10 },
+    { header:'토요근무', key:'satDays', width:10 },
+    { header:'오전반차', key:'halfAM', width:10 },
+    { header:'오후반차', key:'halfPM', width:10 },
+    { header:'연차', key:'annual', width:8 },
+    { header:'사용연차', key:'usedLeave', width:10 },
+    { header:'지각', key:'late', width:8 },
+    { header:'추가근무(h)', key:'overtime', width:12 },
+  ];
+  ws1.getRow(1).eachCell(c => { c.fill = headerFill; c.font = headerFont; c.alignment = { horizontal:'center', vertical:'middle' }; c.border = thinBorder; });
+  ws1.getRow(1).height = 24;
+
+  for (const emp of summary) {
+    const row = ws1.addRow({ dept: emp.department||'미배정', name: emp.employeeName, normal: emp.normalDays, satDays: emp.saturdayDays||0, halfAM: emp.halfAM||0, halfPM: emp.halfPM||0, annual: emp.annualDays||0, usedLeave: emp.usedLeave, late: emp.lateDays, overtime: +(emp.totalOvertimeMin/60).toFixed(2) });
+    row.eachCell(c => { c.font = bodyFont; c.alignment = { horizontal:'center', vertical:'middle' }; c.border = thinBorder; });
+    row.getCell('name').alignment = { horizontal:'left', vertical:'middle' };
+    row.getCell('dept').alignment = { horizontal:'left', vertical:'middle' };
+    if (emp.lateDays > 0) row.getCell('late').font = { ...bodyFont, color:{ argb:'FFEF4444' }, bold:true };
+    if (emp.totalOvertimeMin > 0) row.getCell('overtime').font = { ...bodyFont, color:{ argb:'FF6366F1' }, bold:true };
+    if (emp.usedLeave > 0) row.getCell('usedLeave').font = { ...bodyFont, color:{ argb:'FFF59E0B' }, bold:true };
+  }
+
+  // 시트2: 일별 상세
+  const ws2 = wb.addWorksheet(`${y}년 ${m}월 상세`);
+  const leaveLabels = { normal:'정상', noswipe:'미타각', halfAM:'오전반차', halfPM:'오후반차', annual:'연차', absent:'결근', holiday:'공휴일', weekend:'주말' };
+  ws2.columns = [
+    { header:'부서', key:'dept', width:14 },
+    { header:'직원명', key:'name', width:12 },
+    { header:'날짜', key:'date', width:12 },
+    { header:'요일', key:'day', width:6 },
+    { header:'출근시간', key:'inTime', width:10 },
+    { header:'퇴근시간', key:'outTime', width:10 },
+    { header:'구분', key:'type', width:10 },
+    { header:'지각', key:'late', width:6 },
+    { header:'비고', key:'note', width:20 },
+  ];
+  ws2.getRow(1).eachCell(c => { c.fill = headerFill; c.font = headerFont; c.alignment = { horizontal:'center', vertical:'middle' }; c.border = thinBorder; });
+  ws2.getRow(1).height = 24;
+
+  const dayNames = ['일','월','화','수','목','금','토'];
+  for (const emp of summary) {
+    const sorted = [...emp.records].sort((a,b) => a.date.localeCompare(b.date));
+    for (const r of sorted) {
+      const d = new Date(r.date);
+      const dayName = dayNames[d.getDay()];
+      const typeLabel = r.leaveLabel || leaveLabels[r.leaveType] || r.leaveType || '';
+      const row = ws2.addRow({ dept: emp.department||'미배정', name: emp.employeeName, date: r.date, day: dayName, inTime: r.inTime||'', outTime: r.outTime||'', type: typeLabel, late: r.late?'O':'', note: r.note||'' });
+      row.eachCell(c => { c.font = bodyFont; c.alignment = { horizontal:'center', vertical:'middle' }; c.border = thinBorder; });
+      row.getCell('name').alignment = { horizontal:'left', vertical:'middle' };
+      row.getCell('dept').alignment = { horizontal:'left', vertical:'middle' };
+      row.getCell('note').alignment = { horizontal:'left', vertical:'middle' };
+      if (r.late) row.getCell('late').font = { ...bodyFont, color:{ argb:'FFEF4444' }, bold:true };
+      if (d.getDay() === 0) row.eachCell(c => { c.font = { ...c.font, color:{ argb:'FFEF4444' } }; });
+      if (d.getDay() === 6) row.eachCell(c => { c.font = { ...c.font, color:{ argb:'FF2563EB' } }; });
+      if (r.leaveType === 'annual' || r.leaveType === 'halfAM' || r.leaveType === 'halfPM') {
+        row.getCell('type').font = { ...bodyFont, color:{ argb:'FFF59E0B' }, bold:true };
+      }
+    }
+  }
+
+  // 자동필터
+  ws1.autoFilter = { from:'A1', to:`J${ws1.rowCount}` };
+  ws2.autoFilter = { from:'A1', to:`I${ws2.rowCount}` };
+
+  const filename = encodeURIComponent(`출퇴근기록부_${y}년${m}월.xlsx`);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${filename}`);
+  await wb.xlsx.write(res);
+  res.end();
+});
+
+// ─── 출퇴근 직원 순서/부서 관리 API ───
+app.get('/api/attendance/order', requireAuth, (req, res) => {
+  const data = db.출퇴근관리.load();
+  res.json({
+    departments: data.departments || [],
+    employeeOrder: data.employeeOrder || {},
+    flexDepts: data.flexDepts || [],
+    saturdayWorkDepts: data.saturdayWorkDepts || [],
+    exemptDepts: data.exemptDepts || [],
+  });
+});
+
+app.post('/api/attendance/order', requireAdmin, (req, res) => {
+  const { departments, employeeOrder, flexDepts, saturdayWorkDepts, exemptDepts } = req.body;
+  const data = db.출퇴근관리.load();
+  if (departments) data.departments = departments;
+  if (employeeOrder) data.employeeOrder = employeeOrder;
+  if (flexDepts !== undefined) data.flexDepts = flexDepts;
+  if (saturdayWorkDepts !== undefined) data.saturdayWorkDepts = saturdayWorkDepts;
+  if (exemptDepts !== undefined) data.exemptDepts = exemptDepts;
+  db.출퇴근관리.save(data);
+  res.json({ ok: true });
+});
+
+// ══════════════════════════════════════════════
+// ★ 연차 관리 API
+// ══════════════════════════════════════════════
+
+// 연차관리 전체 데이터 조회
+app.get('/api/leave', (req, res) => {
+  try {
+    const data = db['연차관리'].load();
+    res.json(data);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── 입사일 기반 연차 자동 계산 (한국 근로기준법) ──
+// 1년 미만: 입사 후 매월 1일씩 발생 (최대 11일, 해당 연도 내 비례)
+// 1년 이상: 15일 기본 + 2년마다 1일 추가 (최대 25일)
+function calcAnnualLeave(hireDateStr, targetYear) {
+  if (!hireDateStr) return 0;
+  const hire = new Date(hireDateStr);
+  if (isNaN(hire.getTime())) return 0;
+
+  const yearStart = new Date(targetYear, 0, 1);
+  const yearEnd = new Date(targetYear, 11, 31);
+
+  // 입사일이 대상 연도 이후면 연차 없음
+  if (hire > yearEnd) return 0;
+
+  // 근속 연수 (대상 연도 1월 1일 기준)
+  const yearsAtStart = (yearStart - hire) / (365.25 * 24 * 60 * 60 * 1000);
+
+  if (yearsAtStart < 1) {
+    // 1년 미만: 대상 연도 내에서 입사 후 경과 개월 수만큼 (매월 1개, 최대 11개)
+    // 입사일이 대상 연도 중이면 해당 연도 내 개월수
+    const startDate = hire > yearStart ? hire : yearStart;
+    const months = (yearEnd.getFullYear() - startDate.getFullYear()) * 12
+      + (yearEnd.getMonth() - startDate.getMonth());
+    return Math.min(Math.max(months, 0), 11);
+  }
+
+  // 1년 이상: 15일 + 매 2년 초과 근속마다 1일 (최대 25일)
+  const fullYears = Math.floor(yearsAtStart);
+  const bonus = Math.floor((fullYears - 1) / 2);
+  return Math.min(15 + bonus, 25);
+}
+
+// 연차관리 설정만 조회
+app.get('/api/leave/settings', requireAuth, (req, res) => {
+  try {
+    const data = db['연차관리'].load();
+    res.json(data.settings || {});
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 직원 이름 검색 (승인 시 매칭용)
+app.get('/api/leave/employees/search', requireAuth, (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    if (!q) return res.json([]);
+    const data = db['연차관리'].load();
+    const emps = data.employees || [];
+    // 한글 초성 추출 함수
+    const getChosung = (str) => {
+      const CHO = ['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+      return [...str].map(c => {
+        const code = c.charCodeAt(0) - 0xAC00;
+        if (code < 0 || code > 11171) return c;
+        return CHO[Math.floor(code / 588)];
+      }).join('');
+    };
+    const nameMatch = (name, query) => {
+      if (!name) return false;
+      if (name.includes(query)) return true;
+      if (getChosung(name).includes(query)) return true;
+      if (Math.abs(name.length - query.length) <= 1) {
+        let diff = 0;
+        const longer = name.length >= query.length ? name : query;
+        const shorter = name.length < query.length ? name : query;
+        let j = 0;
+        for (let i = 0; i < longer.length && diff <= 1; i++) {
+          if (longer[i] !== shorter[j]) { diff++; }
+          else { j++; }
+        }
+        if (diff <= 1) return true;
+      }
+      return false;
+    };
+    const results = emps.filter(e => nameMatch(e.name, q)).map(e => ({
+      name: e.name,
+      department: e.department,
+      position: e.position,
+      hireDate: e.hireDate,
+      resignDate: e.resignDate || ''
+    }));
+    // 연차관리 데이터에 없으면 사용자 DB에서도 검색 (가입 승인 시 매칭)
+    if (results.length === 0) {
+      const uData = db.loadUsers();
+      const depts = uData.departments || [];
+      const deptMap = {};
+      depts.forEach(d => { deptMap[d.id] = d.name; });
+      const userResults = (uData.users || [])
+        .filter(u => u.status === 'approved' && nameMatch(u.name, q))
+        .map(u => ({
+          name: u.name,
+          department: deptMap[u.department] || u.department || '',
+          position: u.position || '',
+          hireDate: '',
+          resignDate: ''
+        }));
+      return res.json(userResults);
+    }
+    res.json(results);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 직원 목록 조회 (재직자만 or 전체)
+app.get('/api/leave/employees', (req, res) => {
+  try {
+    const data = db['연차관리'].load();
+    const activeOnly = req.query.active !== 'false';
+    let emps = data.employees || [];
+    if (activeOnly) emps = emps.filter(e => !e.resignDate);
+    res.json(emps);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 직원 추가
+app.post('/api/leave/employees', (req, res) => {
+  try {
+    const data = db['연차관리'].load();
+    const emp = req.body;
+    if (!emp.name || !emp.hireDate) return res.status(400).json({ error: '성명과 입사일 필수' });
+    data.employees.push(emp);
+    db['연차관리'].save(data);
+    res.json(emp);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 직원 수정 (연도별 필드는 yearlyData에 저장)
+app.put('/api/leave/employees/:name', (req, res) => {
+  try {
+    const data = db['연차관리'].load();
+    const idx = data.employees.findIndex(e => e.name === req.params.name);
+    if (idx < 0) return res.status(404).json({ error: '직원 없음' });
+    const emp = data.employees[idx];
+
+    const yearlyFields = ['additionalDays', 'deductedDays', 'paidDays', 'annualLeaveOverride'];
+    const year = req.body._year || String(new Date().getFullYear());
+    delete req.body._year; // 메타 필드 제거
+
+    // 연도별 필드는 yearlyData에 저장
+    const hasYearlyField = Object.keys(req.body).some(k => yearlyFields.includes(k));
+    if (hasYearlyField) {
+      if (!emp.yearlyData) emp.yearlyData = {};
+      if (!emp.yearlyData[year]) emp.yearlyData[year] = {};
+      for (const f of yearlyFields) {
+        if (req.body[f] !== undefined) {
+          emp.yearlyData[year][f] = req.body[f];
+          // 하위호환: 현재 연도면 기존 단일값도 업데이트
+          if (year === String(new Date().getFullYear())) {
+            emp[f] = req.body[f];
+          }
+          delete req.body[f];
+        }
+      }
+    }
+
+    // 나머지 필드 (department, position, hireDate 등)는 직접 저장
+    Object.assign(emp, req.body);
+    db['연차관리'].save(data);
+    res.json(emp);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 휴가 사용 기록 조회 (연도별)
+app.get('/api/leave/records', (req, res) => {
+  try {
+    const data = db['연차관리'].load();
+    let records = data.leaveRecords || [];
+    const year = parseInt(req.query.year);
+    const name = req.query.name;
+    if (year) records = records.filter(r => r.date && r.date.startsWith(String(year)));
+    if (name) records = records.filter(r => r.employeeName === name);
+    res.json(records);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 휴가 사용 등록
+app.post('/api/leave/records', (req, res) => {
+  try {
+    const data = db['연차관리'].load();
+    const rec = req.body;
+    if (!rec.employeeName || !rec.date || !rec.leaveType) {
+      return res.status(400).json({ error: '직원명, 날짜, 휴가유형 필수' });
+    }
+    const maxId = (data.leaveRecords || []).reduce((m, r) => Math.max(m, r.id || 0), 0);
+    rec.id = maxId + 1;
+    // 연차차감 여부 자동 설정
+    const lt = (data.settings.leaveTypes || []).find(t => t.name === rec.leaveType);
+    if (lt) {
+      rec.days = rec.days || lt.days;
+      rec.annualDays = lt.deductsAnnual ? (rec.days || lt.days) : 0;
+      rec.nonAnnualDays = lt.deductsAnnual ? 0 : (rec.days || lt.days);
+    }
+    if (!data.leaveRecords) data.leaveRecords = [];
+    data.leaveRecords.push(rec);
+
+    // 직원의 사용일수, 잔여일수 갱신
+    const yr = rec.date.substring(0, 4);
+    const empIdx = data.employees.findIndex(e => e.name === rec.employeeName);
+    if (empIdx >= 0 && rec.annualDays > 0) {
+      const emp = data.employees[empIdx];
+      const yearRecords = data.leaveRecords.filter(r =>
+        r.employeeName === rec.employeeName && r.date.startsWith(yr) && r.annualDays > 0
+      );
+      emp.usedDays = yearRecords.reduce((s, r) => s + (r.annualDays || 0), 0);
+      emp.remainingDays = (emp.totalLeave || 0) - emp.usedDays - (emp.paidDays || 0);
+    }
+
+    db['연차관리'].save(data);
+    res.json(rec);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 휴가 사용 삭제
+app.delete('/api/leave/records/:id', (req, res) => {
+  try {
+    const data = db['연차관리'].load();
+    const id = parseInt(req.params.id);
+    const idx = (data.leaveRecords || []).findIndex(r => r.id === id);
+    if (idx < 0) return res.status(404).json({ error: '기록 없음' });
+    const removed = data.leaveRecords.splice(idx, 1)[0];
+
+    // 직원 사용일수 갱신
+    if (removed.annualDays > 0) {
+      const yr = removed.date.substring(0, 4);
+      const empIdx = data.employees.findIndex(e => e.name === removed.employeeName);
+      if (empIdx >= 0) {
+        const emp = data.employees[empIdx];
+        const yearRecords = data.leaveRecords.filter(r =>
+          r.employeeName === removed.employeeName && r.date.startsWith(yr) && r.annualDays > 0
+        );
+        emp.usedDays = yearRecords.reduce((s, r) => s + (r.annualDays || 0), 0);
+        emp.remainingDays = (emp.totalLeave || 0) - emp.usedDays - (emp.paidDays || 0);
+      }
+    }
+
+    db['연차관리'].save(data);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 추가/공제 내역 조회
+app.get('/api/leave/adjustments', requireAuth, (req, res) => {
+  try {
+    const data = db['연차관리'].load();
+    const year = req.query.year ? parseInt(req.query.year) : null;
+    let list = data.adjustments || [];
+    if (year) list = list.filter(a => a.year === year);
+    res.json(list);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 추가/공제 내역 등록
+app.post('/api/leave/adjustments', requireAuth, (req, res) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: '관리자만 가능' });
+    const data = db['연차관리'].load();
+    if (!data.adjustments) data.adjustments = [];
+    const { employeeName, year, type, days, reason } = req.body;
+    if (!employeeName || !year || !type || !days) return res.status(400).json({ error: '필수 항목 누락' });
+    const maxId = data.adjustments.reduce((m, a) => Math.max(m, a.id || 0), 0);
+    const adj = {
+      id: maxId + 1,
+      employeeName, year: parseInt(year), type, days: parseFloat(days),
+      reason: reason || '',
+      createdAt: new Date().toISOString().substring(0, 10)
+    };
+    data.adjustments.push(adj);
+    // yearlyData 동기화
+    const emp = (data.employees || []).find(e => e.name === employeeName);
+    if (emp) {
+      if (!emp.yearlyData) emp.yearlyData = {};
+      const y = String(adj.year);
+      if (!emp.yearlyData[y]) emp.yearlyData[y] = {};
+      // 해당 연도 전체 재집계
+      const yearAdjs = data.adjustments.filter(a => a.employeeName === employeeName && a.year === adj.year);
+      emp.yearlyData[y].additionalDays = yearAdjs.filter(a => a.type === '추가').reduce((s, a) => s + a.days, 0);
+      emp.yearlyData[y].deductedDays = yearAdjs.filter(a => a.type === '공제').reduce((s, a) => s + a.days, 0);
+      emp.yearlyData[y].paidDays = yearAdjs.filter(a => a.type === '수당지급').reduce((s, a) => s + a.days, 0);
+    }
+    db['연차관리'].save(data);
+    res.json(adj);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 추가/공제 내역 삭제
+app.delete('/api/leave/adjustments/:id', requireAuth, (req, res) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: '관리자만 가능' });
+    const data = db['연차관리'].load();
+    const id = parseInt(req.params.id);
+    const idx = (data.adjustments || []).findIndex(a => a.id === id);
+    if (idx < 0) return res.status(404).json({ error: '내역 없음' });
+    const removed = data.adjustments.splice(idx, 1)[0];
+    // yearlyData 재집계
+    const emp = (data.employees || []).find(e => e.name === removed.employeeName);
+    if (emp && emp.yearlyData) {
+      const y = String(removed.year);
+      if (emp.yearlyData[y]) {
+        const yearAdjs = data.adjustments.filter(a => a.employeeName === removed.employeeName && a.year === removed.year);
+        emp.yearlyData[y].additionalDays = yearAdjs.filter(a => a.type === '추가').reduce((s, a) => s + a.days, 0);
+        emp.yearlyData[y].deductedDays = yearAdjs.filter(a => a.type === '공제').reduce((s, a) => s + a.days, 0);
+        emp.yearlyData[y].paidDays = yearAdjs.filter(a => a.type === '수당지급').reduce((s, a) => s + a.days, 0);
+      }
+    }
+    db['연차관리'].save(data);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 연차 현황 요약 (HOME 시트와 동일)
+app.get('/api/leave/summary', requireAuth, (req, res) => {
+  try {
+    const data = db['연차관리'].load();
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+    const includeResigned = req.query.includeResigned === 'true';
+    let activeEmps = includeResigned
+      ? (data.employees || [])
+      : (data.employees || []).filter(e => !e.resignDate || e.resignDate === '');
+
+    // 팀장 부서 필터: admin 아닌 attendance_all 권한자 → 같은 부서 팀원만
+    const userPerms = req.user.permissions || [];
+    if (req.user.role !== 'admin' && userPerms.includes('attendance_all') && req.user.department) {
+      const uData = db.loadUsers();
+      const myDeptId = req.user.department;
+      const teamNames = (uData.users || [])
+        .filter(u => u.department === myDeptId && u.status === 'approved')
+        .map(u => u.name);
+      if (!teamNames.includes(req.user.name)) teamNames.push(req.user.name);
+      activeEmps = activeEmps.filter(e => teamNames.includes(e.name));
+    }
+    // 일반 직원 (attendance_all 권한 없음) → 본인만
+    else if (req.user.role !== 'admin' && !userPerms.includes('attendance_all')) {
+      activeEmps = activeEmps.filter(e => e.name === req.user.name);
+    }
+
+    const summary = activeEmps.map(emp => {
+      const yearRecords = (data.leaveRecords || []).filter(r =>
+        r.employeeName === emp.name && r.date && r.date.startsWith(String(year))
+      );
+      const annualUsed = yearRecords.filter(r => r.annualDays > 0).reduce((s, r) => s + (r.annualDays || 0), 0);
+
+      // 연도별 데이터 읽기 (yearlyData 우선, 없으면 기존 단일값 폴백)
+      const yd = (emp.yearlyData && emp.yearlyData[String(year)]) || {};
+      const additionalDays = yd.additionalDays ?? emp.additionalDays ?? 0;
+      const deductedDays = yd.deductedDays ?? emp.deductedDays ?? 0;
+      const paidDays = yd.paidDays ?? emp.paidDays ?? 0;
+      const annualLeaveOverride = yd.annualLeaveOverride !== undefined ? yd.annualLeaveOverride : (emp.annualLeaveOverride ?? null);
+
+      // 입사일 기반 연차 자동 계산 (수동 오버라이드 우선)
+      const autoAnnual = emp.hireDate ? calcAnnualLeave(emp.hireDate, year) : 0;
+      const annualLeave = (annualLeaveOverride !== undefined && annualLeaveOverride !== null)
+        ? annualLeaveOverride : autoAnnual;
+      const total = annualLeave + additionalDays - deductedDays;
+
+      // 월별 집계
+      const monthly = {};
+      for (let m = 1; m <= 12; m++) monthly[m] = 0;
+      yearRecords.forEach(r => {
+        if (r.annualDays > 0) {
+          const m = parseInt(r.date.substring(5, 7));
+          monthly[m] = (monthly[m] || 0) + r.annualDays;
+        }
+      });
+
+      // 휴가유형별 집계
+      const byType = {};
+      yearRecords.forEach(r => {
+        if (!byType[r.leaveType]) byType[r.leaveType] = 0;
+        byType[r.leaveType] += (r.annualDays || 0) + (r.nonAnnualDays || 0);
+      });
+
+      return {
+        name: emp.name,
+        department: emp.department,
+        position: emp.position,
+        hireDate: emp.hireDate,
+        resignDate: emp.resignDate || '',
+        annualLeave: annualLeave,
+        autoAnnualLeave: autoAnnual,
+        annualLeaveOverride: annualLeaveOverride,
+        additionalDays: additionalDays,
+        deductedDays: deductedDays,
+        totalLeave: total,
+        usedDays: annualUsed,
+        paidDays: paidDays,
+        remainingDays: total - annualUsed - paidDays,
+        monthly,
+        byType,
+        records: yearRecords
+      };
+    });
+
+    res.json({ year, employees: summary });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─────────────────────────────────────────────────────────
+// API: 출퇴근 → 연차관리 벌크 동기화
+// 출퇴근 summary에서 연차/반차 기록을 연차관리 leaveRecords에 일괄 추가
+// ─────────────────────────────────────────────────────────
+app.post('/api/leave/sync-from-attendance', requireAuth, async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: '관리자만 가능' });
+  const { year, month } = req.body;
+  if (!year || !month) return res.status(400).json({ error: 'year, month 필요' });
+
+  const y = parseInt(year), m = parseInt(month);
+  const from = `${y}-${String(m).padStart(2,'0')}-01`;
+  const lastDay = new Date(y, m, 0).getDate();
+  const to = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
+
+  // CAPS 데이터 가져오기 (캐시 or 브릿지)
+  let raw;
+  try {
+    const url = `/api/attendance?from=${from}&to=${to}`;
+    const cacheKey = `sum_${from}_${to}_all`;
+    raw = getCacheEntry(cacheKey);
+    if (!raw) {
+      raw = await capsGet(url);
+      setCacheEntry(cacheKey, raw);
+    }
+  } catch (err) {
+    return res.status(502).json({ error: 'CAPS 데이터 가져오기 실패: ' + err.message });
+  }
+
+  const records = raw.map(analyzeRecord);
+
+  // 수동 노트 병합
+  const attData = db.출퇴근관리.load();
+  const notes = attData.attendanceNotes || {};
+  const existingKeys = new Set(records.map(r => `${r.employeeId}_${r.date}`));
+  for (const r of records) {
+    const nKey = `${r.employeeId}_${r.date}`;
+    if (notes[nKey]) {
+      r.leaveType = notes[nKey].leaveType || r.leaveType;
+      r.leaveLabel = notes[nKey].leaveLabel || r.leaveLabel;
+    }
+  }
+  // CAPS에 없지만 수동 노트가 있는 날짜
+  for (const [nKey, note] of Object.entries(notes)) {
+    if (existingKeys.has(nKey)) continue;
+    const parts = nKey.match(/^(.+)_(\d{4}-\d{2}-\d{2})$/);
+    if (!parts) continue;
+    const [, empName, date] = parts;
+    if (date < from || date > to) continue;
+    records.push({
+      employeeId: empName, employeeName: empName, date,
+      leaveType: note.leaveType || 'annual', leaveLabel: note.leaveLabel || '연차',
+    });
+  }
+
+  // 연차/반차 레코드 추출
+  const leaveRecords = records.filter(r =>
+    r.leaveType === 'annual' || r.leaveType === 'halfAM' || r.leaveType === 'halfPM'
+  );
+
+  // 연차관리에 동기화
+  const leaveData = db['연차관리'].load();
+  if (!leaveData.leaveRecords) leaveData.leaveRecords = [];
+
+  // 해당 월의 출결연동 레코드 제거 (다시 생성)
+  const monthPrefix = `${y}-${String(m).padStart(2,'0')}`;
+  leaveData.leaveRecords = leaveData.leaveRecords.filter(r =>
+    !(r.date && r.date.startsWith(monthPrefix) && r.source === 'attendance')
+  );
+
+  let added = 0;
+  for (const r of leaveRecords) {
+    const annualDays = r.leaveType === 'annual' ? 1 : 0.5;
+    const leaveTypeName = r.leaveType === 'annual' ? '연차' :
+      (r.leaveType === 'halfAM' ? '오전반차' : '오후반차');
+
+    // 같은 날짜+직원+수동 레코드가 이미 있으면 스킵
+    const exists = leaveData.leaveRecords.some(lr =>
+      lr.employeeName === r.employeeId && lr.date === r.date && lr.source !== 'attendance'
+    );
+    if (exists) continue;
+
+    leaveData.leaveRecords.push({
+      id: Date.now() + added,
+      employeeName: r.employeeId,
+      date: r.date,
+      leaveType: leaveTypeName,
+      annualDays,
+      nonAnnualDays: 0,
+      note: '출결기록 자동연동',
+      source: 'attendance',
+      createdAt: new Date().toISOString(),
+    });
+    added++;
+  }
+
+  db['연차관리'].save(leaveData);
+  auditLog(req.user.name, '연차 벌크동기화', `${y}년 ${m}월: ${added}건 추가`);
+  res.json({ ok: true, added, total: leaveRecords.length });
+});
+
+// 서버 시작 시 관리자 계정 확인
+ensureAdminAccount();
+
+// 서버 시작 시 데이터 마이그레이션
+migrateContactsData();
+
+// 연차관리: 기존 annualLeave → annualLeaveOverride 마이그레이션
+// 연차관리: 기존 단일값 → yearlyData 연도별 구조로 마이그레이션
+(function migrateToYearlyData() {
+  try {
+    const data = db['연차관리'].load();
+    let migrated = 0;
+    const currentYear = new Date().getFullYear();
+    for (const emp of data.employees || []) {
+      // 이미 yearlyData가 있으면 스킵
+      if (emp.yearlyData && Object.keys(emp.yearlyData).length > 0) continue;
+
+      // 기존 단일값이 있으면 현재 연도의 yearlyData로 이동
+      const hasOldData = (emp.additionalDays || emp.deductedDays || emp.paidDays ||
+                          emp.annualLeaveOverride !== undefined);
+      if (!hasOldData && !emp.annualLeave) continue;
+
+      if (!emp.yearlyData) emp.yearlyData = {};
+      emp.yearlyData[String(currentYear)] = {
+        additionalDays: emp.additionalDays || 0,
+        deductedDays: emp.deductedDays || 0,
+        paidDays: emp.paidDays || 0,
+        annualLeaveOverride: emp.annualLeaveOverride ?? null
+      };
+      // 기존 필드 정리 (하위호환을 위해 남겨둠, summary에서는 yearlyData 우선 사용)
+      migrated++;
+    }
+    if (migrated > 0) {
+      db['연차관리'].save(data);
+      console.log(`✅ 연차관리: ${migrated}명 yearlyData 마이그레이션 완료`);
+    }
+  } catch(e) { console.warn('연차관리 마이그레이션 실패:', e.message); }
+})();
+
+// ══════════════════════════════════════════════════════
+// 감사 로그 API
+// ══════════════════════════════════════════════════════
+app.get('/api/audit-logs', requireAdmin, (req, res) => {
+  try {
+    const logs = db.감사로그.load();
+    const { page = 1, limit = 50, user, action } = req.query;
+    let filtered = [...logs.logs];
+    if (user) filtered = filtered.filter(l => l.사용자 === user);
+    if (action) filtered = filtered.filter(l => l.행동 && l.행동.includes(action));
+    filtered.reverse();
+    const start = (parseInt(page) - 1) * parseInt(limit);
+    res.json({ total: filtered.length, logs: filtered.slice(start, start + parseInt(limit)) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ══════════════════════════════════════════════════════
+// 알림 API
+// ══════════════════════════════════════════════════════
+app.get('/api/notifications', requireAuth, (req, res) => {
+  try {
+    const notifs = db.알림.load();
+    const userId = req.user.userId;
+    const mine = (notifs.notifications || [])
+      .filter(n => n.대상 === userId)
+      .reverse()
+      .slice(0, 50);
+    const unreadCount = mine.filter(n => !n.읽음).length;
+    res.json({ unreadCount, notifications: mine });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/notifications/:id/read', requireAuth, (req, res) => {
+  try {
+    const notifs = db.알림.load();
+    const n = notifs.notifications.find(n => n.id === req.params.id);
+    if (n) { n.읽음 = true; db.알림.save(notifs); }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/notifications/read-all', requireAuth, (req, res) => {
+  try {
+    const notifs = db.알림.load();
+    const userId = req.user.userId;
+    notifs.notifications.filter(n => n.대상 === userId && !n.읽음)
+      .forEach(n => n.읽음 = true);
+    db.알림.save(notifs);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ══════════════════════════════════════════════════════
+// 공지사항 API
+// ══════════════════════════════════════════════════════
+app.get('/api/notices', requireAuth, (req, res) => {
+  try {
+    const data = db.공지사항.load();
+    res.json((data.notices || []).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/notices', requireAdmin, (req, res) => {
+  try {
+    const data = db.공지사항.load();
+    const notice = {
+      id: db.generateId('notice'),
+      제목: req.body.제목 || req.body.title || '',
+      내용: req.body.내용 || req.body.content || '',
+      작성자: req.user.userId,
+      중요: req.body.중요 || false,
+      createdAt: new Date().toISOString()
+    };
+    data.notices.push(notice);
+    db.공지사항.save(data);
+    auditLog(req.user.userId, '공지사항 등록', notice.제목);
+    // 전체 사용자에게 알림
+    const org = db.loadUsers();
+    (org.users || []).filter(u => u.status === 'approved' && u.userId !== req.user.userId)
+      .forEach(u => notify(u.userId, 'notice', `새 공지: ${notice.제목}`, 'notices'));
+    res.json(notice);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/notices/:id', requireAdmin, (req, res) => {
+  try {
+    const data = db.공지사항.load();
+    const idx = data.notices.findIndex(n => n.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: 'not found' });
+    data.notices[idx] = { ...data.notices[idx], ...req.body, id: req.params.id, updatedAt: new Date().toISOString() };
+    db.공지사항.save(data);
+    auditLog(req.user.userId, '공지사항 수정', data.notices[idx].제목 || req.params.id);
+    res.json(data.notices[idx]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/notices/:id', requireAdmin, (req, res) => {
+  try {
+    const data = db.공지사항.load();
+    const notice = data.notices.find(n => n.id === req.params.id);
+    data.notices = data.notices.filter(n => n.id !== req.params.id);
+    db.공지사항.save(data);
+    if (notice) auditLog(req.user.userId, '공지사항 삭제', notice.제목 || req.params.id);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ══════════════════════════════════════════════════════
+// 대시보드 API
+// ══════════════════════════════════════════════════════
+app.get('/api/dashboard', requireAuth, (req, res) => {
+  try {
+    // 데이터 수집
+    const categories = db.sql ? db.sql.categories.getAll() : (db.load().categories || []);
+    const vendors = db.sql ? db.sql.vendors.getAll() : (db['업체관리'] ? db['업체관리'].load().vendors || [] : []);
+    const quotes = db.sql ? db.sql.quotes.getAll() : (db['견적관리'] ? db['견적관리'].load().quotes || [] : []);
+    const approvals = db.결재관리.load().approvals || [];
+    const notices = db.공지사항.load().notices || [];
+
+    // 이번 달 견적
+    const thisMonth = new Date().toISOString().slice(0, 7);
+    const monthQuotes = quotes.filter(q => (q.createdAt || '').startsWith(thisMonth));
+    const monthTotal = monthQuotes.reduce((sum, q) => sum + (q.totalAmount || 0), 0);
+
+    // 미처리 결재
+    const pendingApprovals = approvals.filter(a => a.status === 'pending');
+
+    // 최근 활동 (감사로그 최근 10건)
+    let recentActivity = [];
+    try {
+      const logs = db.감사로그.load();
+      recentActivity = (logs.logs || []).slice(-15).reverse();
+    } catch(e) {}
+
+    // 최근 공지 3건
+    const recentNotices = notices.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 3);
+
+    // 알림
+    let unreadCount = 0;
+    try {
+      const notifs = db.알림.load();
+      unreadCount = (notifs.notifications || []).filter(n => n.대상 === req.user.userId && !n.읽음).length;
+    } catch(e) {}
+
+    res.json({
+      stats: {
+        품목수: categories.length,
+        업체수: vendors.length,
+        총견적수: quotes.length,
+        이번달견적: monthQuotes.length,
+        이번달매출: monthTotal,
+        미처리결재: pendingApprovals.length,
+        읽지않은알림: unreadCount
+      },
+      recentActivity,
+      recentNotices,
+      pendingApprovals: pendingApprovals.slice(0, 5)
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ══════════════════════════════════════════════════════
+// 견적 상태 흐름 조회 (프론트에서 허용 상태 표시용)
+// ══════════════════════════════════════════════════════
+app.get('/api/quote-status-flow', (req, res) => {
+  res.json(QUOTE_STATUS_FLOW);
+});
+
+// ══════════════════════════════════════════════════════
+// 파일 배포 API (관리자 전용)
+// POST /api/deploy - 파일을 서버에 직접 배포
+// ══════════════════════════════════════════════════════
+app.post('/api/deploy', requireAdmin, express.json({ limit: '50mb' }), (req, res) => {
+  try {
+    const { files } = req.body;
+    if (!files || !Array.isArray(files) || files.length === 0) {
+      return res.status(400).json({ error: '배포할 파일이 없습니다' });
+    }
+
+    const results = [];
+    const allowedDirs = ['public', 'public/css', 'public/js'];
+
+    for (const file of files) {
+      const { filePath, content, encoding } = file;
+      if (!filePath || !content) {
+        results.push({ filePath, success: false, error: '파일경로 또는 내용 누락' });
+        continue;
+      }
+
+      // 보안: public/ 하위만 허용, 상위 디렉토리 접근 차단
+      const normalized = path.normalize(filePath).replace(/\\/g, '/');
+      if (normalized.includes('..') || !normalized.startsWith('public/')) {
+        results.push({ filePath, success: false, error: 'public/ 폴더 외 접근 불가' });
+        continue;
+      }
+
+      // server.js, db.js 등 루트 파일도 허용 (명시적 화이트리스트)
+      const rootAllowed = ['server.js', 'db.js', 'db-sqlite.js'];
+      const isRoot = rootAllowed.includes(normalized);
+      const isPublic = normalized.startsWith('public/');
+
+      if (!isRoot && !isPublic) {
+        results.push({ filePath, success: false, error: '허용되지 않은 경로' });
+        continue;
+      }
+
+      const fullPath = path.join(__dirname, normalized);
+      const dir = path.dirname(fullPath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+      const buf = encoding === 'base64' ? Buffer.from(content, 'base64') : content;
+      fs.writeFileSync(fullPath, buf);
+      results.push({ filePath: normalized, success: true });
+    }
+
+    console.log(`[DEPLOY] ${req.user.name}(${req.user.userId}) 배포: ${results.filter(r=>r.success).length}/${files.length} 파일`);
+    res.json({ results, deployed: results.filter(r => r.success).length, total: files.length });
+  } catch (e) {
+    console.error('[ERROR] 배포 실패:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/deploy/status - 서버 파일 목록 조회 (배포 확인용)
+app.get('/api/deploy/status', requireAdmin, (req, res) => {
+  try {
+    const publicDir = path.join(__dirname, 'public');
+    const getFiles = (dir, base = 'public') => {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      let files = [];
+      for (const e of entries) {
+        const rel = `${base}/${e.name}`;
+        if (e.isDirectory()) {
+          files = files.concat(getFiles(path.join(dir, e.name), rel));
+        } else {
+          const stat = fs.statSync(path.join(dir, e.name));
+          files.push({ path: rel, size: stat.size, modified: stat.mtime });
+        }
+      }
+      return files;
+    };
+    res.json({ files: getFiles(publicDir), serverTime: new Date().toISOString() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// Git Pull API (GitHub -> Server auto deploy)
+// POST /api/git-pull - GitHub webhook or manual trigger
+// ══════════════════════════════════════════════════════
+app.post('/api/git-pull', express.json(), (req, res) => {
+  const { execSync } = require('child_process');
+  try {
+    // GitHub webhook signature check (optional, skip if no secret)
+    const result = execSync('git pull origin main', {
+      cwd: __dirname,
+      encoding: 'utf8',
+      timeout: 30000
+    });
+    console.log('[GIT-PULL] ' + result.trim());
+    res.json({ success: true, message: result.trim() });
+  } catch (e) {
+    console.error('[GIT-PULL ERROR]', e.message);
+    res.status(500).json({ success: false, error: e.stderr || e.message });
+  }
+});
+
+// GET /api/git-pull - manual trigger (admin only)
+app.get('/api/git-pull', requireAdmin, (req, res) => {
+  const { execSync } = require('child_process');
+  try {
+    const result = execSync('git pull origin main', {
+      cwd: __dirname,
+      encoding: 'utf8',
+      timeout: 30000
+    });
+    console.log('[GIT-PULL] ' + result.trim());
+    res.json({ success: true, message: result.trim() });
+  } catch (e) {
+    console.error('[GIT-PULL ERROR]', e.message);
+    res.status(500).json({ success: false, error: e.stderr || e.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// Git Commit & Push API (Server -> GitHub auto sync)
+// POST /api/git-push - commit all changes and push to GitHub
+// ══════════════════════════════════════════════════════
+app.post('/api/git-push', requireAdmin, express.json(), (req, res) => {
+  const { execSync } = require('child_process');
+  const message = (req.body && req.body.message) || 'Auto deploy from Claude';
+  try {
+    const opts = { cwd: __dirname, encoding: 'utf8', timeout: 30000 };
+    execSync('git add -A', opts);
+    try {
+      execSync(`git commit -m "${message}"`, opts);
+    } catch (commitErr) {
+      if (commitErr.stdout && commitErr.stdout.includes('nothing to commit')) {
+        return res.json({ success: true, message: 'Nothing to commit, already up to date.' });
+      }
+      throw commitErr;
+    }
+    const pushResult = execSync('git push origin main', opts);
+    console.log('[GIT-PUSH] ' + message);
+    res.json({ success: true, message: 'Pushed: ' + message });
+  } catch (e) {
+    console.error('[GIT-PUSH ERROR]', e.message);
+    res.status(500).json({ success: false, error: e.stderr || e.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// Full Auto Deploy: deploy file + git push in one call
+// POST /api/auto-deploy - deploy files, commit, push
+// ══════════════════════════════════════════════════════
+app.post('/api/auto-deploy', requireAdmin, express.json({ limit: '50mb' }), (req, res) => {
+  const { execSync } = require('child_process');
+  try {
+    const { files, message } = req.body;
+    if (!files || !Array.isArray(files) || files.length === 0) {
+      return res.status(400).json({ error: 'No files to deploy' });
+    }
+    const results = [];
+    for (const file of files) {
+      const { filePath, content, encoding } = file;
+      if (!filePath || !content) { results.push({ filePath, success: false, error: 'Missing data' }); continue; }
+      const normalized = path.normalize(filePath).replace(/\\/g, '/');
+      if (normalized.includes('..')) { results.push({ filePath, success: false, error: 'Invalid path' }); continue; }
+      const rootAllowed = ['server.js', 'db.js', 'db-sqlite.js', 'package.json', 'CLAUDE.md'];
+      const isRoot = rootAllowed.includes(normalized);
+      const isPublic = normalized.startsWith('public/');
+      if (!isRoot && !isPublic) { results.push({ filePath, success: false, error: 'Not allowed' }); continue; }
+      const fullPath = path.join(__dirname, normalized);
+      const dir = path.dirname(fullPath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const buf = encoding === 'base64' ? Buffer.from(content, 'base64') : content;
+      fs.writeFileSync(fullPath, buf);
+      results.push({ filePath: normalized, success: true });
+    }
+    // Auto git commit & push
+    const opts = { cwd: __dirname, encoding: 'utf8', timeout: 30000 };
+    const commitMsg = message || 'Deploy: ' + results.filter(r=>r.success).map(r=>r.filePath).join(', ');
+    execSync('git add -A', opts);
+    try { execSync(`git commit -m "${commitMsg}"`, opts); } catch(e) {}
+    try { execSync('git push origin main', opts); } catch(e) {}
+    console.log(`[AUTO-DEPLOY] ${req.user.name}: ${results.filter(r=>r.success).length}/${files.length} files`);
+    res.json({ results, deployed: results.filter(r=>r.success).length, total: files.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  const nets = require('os').networkInterfaces();
+  let localIP = 'localhost';
+  for (const iface of Object.values(nets)) {
+    for (const cfg of iface) {
+      if (cfg.family === 'IPv4' && !cfg.internal) { localIP = cfg.address; break; }
+    }
+  }
+  console.log(`\n✅ 단가표 서버 실행 중`);
+  console.log(`   로컬: http://localhost:${PORT}`);
+  console.log(`   네트워크: http://${localIP}:${PORT}  ← 직원들은 이 주소로 접속\n`);
+});

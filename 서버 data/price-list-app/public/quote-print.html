@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>대림 SM - 견적내역서</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;900&display=swap" rel="stylesheet"/>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Noto Sans KR', sans-serif; color: #1a1a1a; background: #f0f0f0; }
+  @media print {
+    body { background: white; }
+    .no-print { display: none !important; }
+    .page { box-shadow: none !important; margin: 0 !important; padding: 24px 28px !important; }
+  }
+  .page {
+    max-width: 900px; margin: 20px auto; background: white; padding: 36px 40px;
+    box-shadow: 0 2px 20px rgba(0,0,0,0.08); position: relative; min-height: 1100px;
+    display: flex; flex-direction: column;
+  }
+  /* 상단 컨트롤바 */
+  .control-bar {
+    background: #1e293b; color: white; padding: 10px 20px;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 50;
+    font-family: 'Noto Sans KR', sans-serif;
+  }
+  .control-bar a { color: #94a3b8; text-decoration: none; font-size: 12px; transition: color 0.15s; }
+  .control-bar a:hover { color: white; }
+  .control-bar button {
+    background: #2563eb; color: white; border: none; padding: 7px 16px;
+    font-size: 12px; font-weight: 600; cursor: pointer; border-radius: 6px;
+    transition: background 0.15s;
+  }
+  .control-bar button:hover { background: #1d4ed8; }
+
+  /* 헤더 */
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
+  .header-left h1 { font-size: 32px; font-weight: 900; color: #1a1a1a; letter-spacing: -1px; }
+  .header-left .subtitle { font-size: 11px; color: #9ca3af; letter-spacing: 2px; margin-top: 4px; }
+  .header-right { text-align: right; border-left: 1px solid #e5e7eb; padding-left: 24px; position: relative; }
+  .header-right .company-name { font-size: 18px; font-weight: 700; color: #1a1a1a; margin-bottom: 8px; }
+  .header-right .company-info { font-size: 11px; color: #4b5563; line-height: 1.8; }
+  .header-right .ceo { font-size: 12px; font-weight: 600; color: #1a1a1a; margin-top: 8px; padding-top: 8px; border-top: 1px solid #e5e7eb; }
+  .stamp { position: absolute; right: -8px; top: -4px; width: 60px; height: 60px; opacity: 0.75; }
+  .logo { height: 40px; margin-bottom: 10px; }
+
+  /* 견적정보 */
+  .info-section { display: flex; gap: 24px; margin-bottom: 20px; }
+  .info-left { flex: 1; }
+  .info-right { width: 300px; background: #fdf6ed; padding: 18px; }
+  .info-field { margin-bottom: 10px; }
+  .info-field label { display: block; font-size: 10px; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+  .info-field .value { font-size: 16px; font-weight: 600; color: #1a1a1a; border-bottom: 2px solid #1a1a1a; padding: 8px 0; }
+  .info-field .value-sm { font-size: 13px; color: #1a1a1a; border-bottom: 1px solid #d1d5db; padding: 8px 0; }
+  .info-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  .total-label { font-size: 10px; color: #8b5e3c; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+  .total-amount { font-size: 32px; font-weight: 900; color: #1a1a1a; letter-spacing: -1px; }
+  .total-sub { font-size: 11px; color: #8b5e3c; margin-top: 8px; }
+
+  /* 테이블 */
+  .items-table { width: 100%; border-collapse: collapse; flex: 1; }
+  .items-table thead th {
+    font-size: 11px; color: #6b7280; font-weight: 600; padding: 12px 10px;
+    background: #f9fafb; border-top: 1px solid #e5e7eb; border-bottom: 1px solid #e5e7eb;
+    text-align: left;
+  }
+  .items-table thead th.right { text-align: right; }
+  .items-table thead th.center { text-align: center; }
+  .items-table tbody td {
+    padding: 10px 8px; font-size: 13px; border-bottom: 1px solid #f3f4f6;
+  }
+  .items-table tbody td.right { text-align: right; }
+  .items-table tbody td.center { text-align: center; }
+  .items-table tbody td.name { font-weight: 600; }
+  .items-table tbody td.spec { color: #9ca3af; font-size: 12px; }
+  .items-table tbody td.amount { font-weight: 700; }
+  .items-table tbody td.remark { color: #9ca3af; font-size: 11px; }
+  .items-table tfoot td { padding: 10px; font-size: 12px; }
+  .items-table tfoot .total-row td { padding: 16px 10px; background: #f9fafb; border-top: 1px solid #e5e7eb; }
+
+  /* 푸터 */
+  .footer { margin-top: auto; padding-top: 24px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: flex-end; }
+  .footer-left { font-size: 11px; color: #9ca3af; line-height: 1.8; }
+  .footer-right { text-align: right; position: relative; }
+  .footer-right .sig-line { width: 160px; height: 1px; background: #1a1a1a; margin-bottom: 8px; margin-left: auto; }
+  .footer-right .sig-name { font-size: 14px; font-weight: 700; }
+  .footer-right .sig-title { font-size: 11px; color: #4b5563; }
+  .footer-stamp { position: absolute; right: 0; bottom: 0; width: 44px; height: 44px; opacity: 0.7; }
+  .empty-row { text-align: center; padding: 40px !important; color: #d1d5db; }
+</style>
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+</head>
+<body x-data="quotePrint()" x-init="init()">
+
+<!-- 상단 컨트롤바 (인쇄시 숨김) -->
+<div class="control-bar no-print">
+  <div style="display:flex;align-items:center;gap:16px;">
+    <a href="/">← 앱으로 돌아가기</a>
+    <span style="color:#4b5563;">|</span>
+    <span style="color:#9ca3af;font-size:13px;" x-text="quoteTitle"></span>
+  </div>
+  <button @click="window.print()">🖨 인쇄 / PDF</button>
+</div>
+
+<div class="page">
+  <!-- 헤더 -->
+  <div class="header">
+    <div class="header-left">
+      <img src="/data/logo.png" alt="DAELIM SM" class="logo" onerror="this.style.display='none'">
+      <h1>견적내역서</h1>
+      <div class="subtitle">OFFICIAL BUSINESS QUOTATION</div>
+    </div>
+    <div class="header-right">
+      <div class="company-name">DAELIM SM</div>
+      <div class="company-info">
+        서울 구로구 경인로 393-7(고척동 73-3)<br>
+        일이삼전자타운 2동 4층 4101호<br>
+        TEL: 02.2682.8940 | FAX: 02.2672.3620
+      </div>
+      <div class="ceo">대표이사 이 정 호</div>
+      <img src="/data/stamp.png" alt="직인" class="stamp" onerror="this.style.display='none'">
+    </div>
+  </div>
+
+  <!-- 견적 정보 -->
+  <div class="info-section">
+    <div class="info-left">
+      <div class="info-field">
+        <label>현장명 (Project Name)</label>
+        <div class="value" x-text="siteName || '-'"></div>
+      </div>
+      <div class="info-field">
+        <label>견적명 (Quotation Name)</label>
+        <div class="value" x-text="quoteName || '-'"></div>
+      </div>
+      <div class="info-row">
+        <div class="info-field">
+          <label>현장 담당자</label>
+          <div class="value-sm" x-text="manager || '-'"></div>
+        </div>
+        <div class="info-field">
+          <label>우리측 담당</label>
+          <div class="value-sm" x-text="vendorManager || '-'"></div>
+        </div>
+        <div class="info-field">
+          <label>견적일</label>
+          <div class="value-sm" x-text="quoteDate"></div>
+        </div>
+      </div>
+    </div>
+    <div class="info-right">
+      <div class="total-label">총 견적금액 (VAT 포함)</div>
+      <div class="total-amount">₩ <span x-text="Number(grandTotal).toLocaleString()"></span></div>
+      <div class="total-sub">
+        공급가액: ₩<span x-text="Number(supplyTotal).toLocaleString()"></span>
+        + 부가세: ₩<span x-text="Number(vatTotal).toLocaleString()"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 품목 테이블 -->
+  <table class="items-table">
+    <thead>
+      <tr>
+        <th class="center" style="width:40px;">No</th>
+        <th>품명</th>
+        <th class="center">단위</th>
+        <th class="right">수량</th>
+        <th class="right">단가</th>
+        <th class="right">금액</th>
+        <th>비고</th>
+      </tr>
+    </thead>
+    <tbody>
+      <template x-for="(item, idx) in items" :key="idx">
+        <tr>
+          <td class="center" style="color:#9ca3af;" x-text="String(idx+1).padStart(2,'0')"></td>
+          <td class="name" x-text="item.name"></td>
+          <td class="center" x-text="item.unit"></td>
+          <td class="right" x-text="item.qty"></td>
+          <td class="right" x-text="Number(item.unitPrice).toLocaleString()"></td>
+          <td class="right amount" x-text="Number(item.amount).toLocaleString()"></td>
+          <td class="remark" x-text="item.remark || ''"></td>
+        </tr>
+      </template>
+      <tr x-show="items.length === 0"><td colspan="7" class="empty-row">품목 없음</td></tr>
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="5" style="text-align:right;color:#6b7280;font-size:11px;">공급가액</td>
+        <td style="text-align:right;font-weight:700;font-size:13px;" x-text="'₩ ' + Number(supplyTotal).toLocaleString()"></td>
+        <td></td>
+      </tr>
+      <tr>
+        <td colspan="5" style="text-align:right;color:#6b7280;font-size:11px;">부가세 (10%)</td>
+        <td style="text-align:right;font-weight:700;font-size:13px;" x-text="'₩ ' + Number(vatTotal).toLocaleString()"></td>
+        <td></td>
+      </tr>
+      <tr class="total-row">
+        <td colspan="5" style="text-align:right;font-weight:600;font-size:12px;color:#4b5563;">합 계</td>
+        <td colspan="2" style="text-align:right;">
+          <span style="font-size:22px;font-weight:900;letter-spacing:-1px;" x-text="'₩ ' + Number(grandTotal).toLocaleString()"></span>
+        </td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <!-- 푸터 -->
+  <div class="footer">
+    <div class="footer-left">
+      품질과 안전을 최우선으로 고객을 위해 항상 최선을 다하겠습니다<br>
+      <span style="font-weight:500;">DAELIM SM - Total Safety Group Co., Ltd.</span>
+    </div>
+    <div class="footer-right">
+      <div class="sig-line"></div>
+      <div class="sig-name">DAELIM SM</div>
+      <div class="sig-title">대표이사 이 정 호</div>
+      <!-- 직인: 설정에서 활성화 시 표시 -->
+
+    </div>
+  </div>
+</div>
+
+<script>
+function quotePrint() {
+  return {
+    siteName: '', quoteName: '', manager: '', vendorManager: '', quoteDate: '',
+    items: [],
+    supplyTotal: 0, vatTotal: 0, grandTotal: 0,
+
+    get quoteTitle() {
+      return (this.siteName || '견적서') + (this.quoteName ? ' - ' + this.quoteName : '');
+    },
+
+    async init() {
+      const params = new URLSearchParams(window.location.search);
+      const quoteId = params.get('id');
+
+      if (quoteId) {
+        try {
+          const r = await fetch('/api/quotes/' + quoteId);
+          if (r.ok) {
+            const q = await r.json();
+            this.siteName = q.siteName || '';
+            this.quoteName = q.quoteName || '';
+            this.manager = q.manager || '';
+            this.vendorManager = q.vendorManager || '';
+            this.quoteDate = q.quoteDate || (q.createdAt ? q.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10));
+            this.items = q.items || [];
+          }
+        } catch(e) { console.error(e); }
+      } else {
+        try {
+          const data = JSON.parse(sessionStorage.getItem('print_quote') || '{}');
+          this.siteName = data.siteName || '';
+          this.quoteName = data.quoteName || '';
+          this.manager = data.manager || '';
+          this.vendorManager = data.vendorManager || '';
+          this.items = data.items || [];
+          this.quoteDate = data.quoteDate || new Date().toISOString().slice(0, 10);
+        } catch(e) {}
+      }
+
+      // 합계 계산
+      this.supplyTotal = this.items.reduce((s, i) => s + (i.amount || 0), 0);
+      this.vatTotal = Math.round(this.supplyTotal * 0.1);
+      this.grandTotal = this.supplyTotal + this.vatTotal;
+    }
+  };
+}
+</script>
+</body>
+</html>

@@ -4,8 +4,12 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { getReqUser } = require('../middleware/auth');
+const { getReqUser, requireAuth } = require('../middleware/auth');
 const { auditLog, savePriceHistory } = require('../middleware/audit');
+const { safeBody } = require('../middleware/sanitize');
+
+// ── 모든 카테고리 CRUD는 로그인 필수 ──
+router.use(requireAuth);
 
 router.get('/', (req, res) => {
   if (db.sql) return res.json(db.sql.categories.getAll());
@@ -34,6 +38,8 @@ router.post('/', (req, res) => {
 });
 
 router.put('/:id', (req, res) => {
+  // Mass Assignment / Prototype Pollution 차단 — id는 URL에서만 설정되도록 막음
+  req.body = safeBody(req.body, ['id']);
   const priceFields = ['tiers', 'widthTiers', 'qtyPrice', 'fixedPrice'];
   const hasPriceChange = priceFields.some(f => req.body[f] !== undefined);
   if (db.sql) {

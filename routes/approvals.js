@@ -115,8 +115,10 @@ router.get('/', requireAuth, (req, res) => {
   const { filter, status, dept } = req.query;
   const myId = req.user.userId;
 
-  // 먼저 접근 권한 필터 적용 (관리자가 아닌 경우)
+  // 회사별 필터 (관리자는 전체, 일반은 자기 회사만)
   if (req.user.role !== 'admin') {
+    const myCompany = req.user.companyId || 'dalim-sm';
+    docs = docs.filter(d => !d.companyId || d.companyId === myCompany);
     docs = docs.filter(d => canViewApproval(d, req.user, uData));
   }
 
@@ -197,6 +199,7 @@ router.post('/', requireAuth, (req, res) => {
     effectiveApproverId,
     approverDelegatedTo: isDelegated ? effectiveApprover.name : null,
     isDelegated,
+    companyId: req.user.companyId || 'dalim-sm',
     status: 'pending',
     formData: formData || {},
     comment: '',
@@ -217,6 +220,71 @@ router.post('/', requireAuth, (req, res) => {
       ? `[대리] ${req.user.name}님이 결재를 요청했습니다: ${doc.title}`
       : `${req.user.name}님이 결재를 요청했습니다: ${doc.title}`,
     'approvals');
+
+  res.json({ ok: true, id: doc.id });
+});
+
+// ── 시간외근무 빠른 기안 ──
+router.post('/overtime', requireAuth, (req, res) => {
+  const { date, startTime, endTime, reason, approverId } = req.body;
+  if (!date || !startTime || !endTime || !approverId) {
+    return res.status(400).json({ error: '날짜, 시작시간, 종료시간, 승인자를 입력해주세요' });
+  }
+  if (!reason || !String(reason).trim()) {
+    return res.status(400).json({ error: '사유를 입력해주세요' });
+  }
+  // 자기결재: 팀장/관리자만 허용
+  if (approverId === req.user.userId) {
+    if (req.user.role !== 'team_leader' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: '본인을 승인자로 지정할 수 없습니다' });
+    }
+  }
+  const uData = db.loadUsers();
+  if (!uData.approvals) uData.approvals = [];
+
+  const approver = (uData.users || []).find(u => u.userId === approverId);
+  if (!approver) return res.status(400).json({ error: '승인자를 찾을 수 없습니다' });
+
+  const effectiveApproverId = getEffectiveApprover(approverId);
+  const effectiveApprover = (uData.users || []).find(u => u.userId === effectiveApproverId);
+  const isDelegated = effectiveApproverId !== approverId;
+  const isSelfApproval = approverId === req.user.userId;
+
+  const doc = {
+    id: db.generateId('appr'),
+    type: '시간외근무',
+    title: `시간외근무 — ${date} (${startTime}~${endTime})`,
+    authorId: req.user.userId,
+    authorName: req.user.name,
+    authorDept: (() => {
+      const u = (uData.users || []).find(u2 => u2.userId === req.user.userId);
+      const deptId = u ? u.department : '';
+      const dept = (uData.departments || []).find(d => d.id === deptId);
+      return dept ? dept.name : '';
+    })(),
+    approverId,
+    approverName: approver.name,
+    effectiveApproverId,
+    approverDelegatedTo: isDelegated ? effectiveApprover.name : null,
+    isDelegated,
+    companyId: req.user.companyId || 'dalim-sm',
+    status: 'pending',
+    formData: { date, startTime, endTime, reason: String(reason).trim() },
+    comment: '',
+    createdAt: new Date().toISOString(),
+    processedAt: null
+  };
+
+  uData.approvals.push(doc);
+  db.saveUsers(uData);
+
+  auditLog(req.user.userId, '시간외근무 기안', `${date} ${startTime}~${endTime}`);
+  // 자기결재는 본인에게 알림 불필요
+  if (!isSelfApproval) {
+    notify(effectiveApproverId, 'approval',
+      `${req.user.name}님이 시간외근무를 신청했습니다: ${date} ${startTime}~${endTime}`,
+      'approvals');
+  }
 
   res.json({ ok: true, id: doc.id });
 });

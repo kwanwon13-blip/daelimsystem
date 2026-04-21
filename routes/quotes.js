@@ -7,12 +7,16 @@ const router = express.Router();
 const path = require('path');
 const fs = require('fs');
 const db = require('../db');
-const { sessions, parseCookies, getReqUser } = require('../middleware/auth');
+const { sessions, parseCookies, getReqUser, requireAuth } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
+const { safeBody } = require('../middleware/sanitize');
 const { notify } = require('../utils/notify');
 const JSZip = require('jszip');
 
 const TEMPLATE_PATH = path.join(__dirname, '..', 'data', 'template.xlsx');
+
+// ── 견적/명함/통계 API는 모두 로그인 필수 ──
+router.use(requireAuth);
 
 // ── 견적 계산 ─────────────────────────────────────────────
 router.post('/quote/calculate', (req, res) => {
@@ -223,6 +227,8 @@ router.post('/quotes', (req, res) => {
 router.get('/quotes-test-v2', (req, res) => { res.json({version: 'v2-createdAt-fix', ok: true}); });
 
 router.put('/quotes/:id', (req, res) => {
+  // Mass Assignment / Prototype Pollution 차단
+  req.body = safeBody(req.body, ['id', 'createdBy', 'createdAt']);
   if (db.sql) {
     const updates = { ...req.body };
     if (req.body.items) {

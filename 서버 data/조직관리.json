@@ -1,0 +1,107 @@
+{
+  "users": [
+    {
+      "id": "u_1775118506837_w0kja",
+      "userId": "admin",
+      "name": "관리자",
+      "password": "d21a16265efb74a1fd5c269f9c8645fd20c1dfc617c2abfdeeeb79505576d3fc",
+      "role": "admin",
+      "status": "approved",
+      "createdAt": "2026-04-02T08:28:26.839Z",
+      "lastLogin": "2026-04-02T09:04:52.152Z",
+      "department": "dept_1775119136568_vmn2b"
+    },
+    {
+      "id": "u_1775119016222_m0rpw",
+      "userId": "한윤호",
+      "name": "한윤호",
+      "position": "팀장",
+      "phone": "010-6860-8316",
+      "hireDate": "2017-04-03",
+      "password": "7cb446ce4a817394fe069a0dcbb9a1b7191d684960cabde57e2d28b3401902e7",
+      "role": "user",
+      "status": "approved",
+      "createdAt": "2026-04-02T08:36:56.222Z",
+      "lastLogin": "2026-04-02T08:38:25.740Z",
+      "department": "dept_1775119077245_s3mwo",
+      "permissions": [
+        "quote",
+        "pricing_edit",
+        "vendors",
+        "approval",
+        "design",
+        "attendance_all",
+        "history",
+        "pricing_view",
+        "options",
+        "contacts"
+      ]
+    },
+    {
+      "id": "u_1775119140383_thcmt",
+      "userId": "장은지",
+      "name": "장은지",
+      "position": "사원",
+      "phone": "010-9962-8933",
+      "hireDate": "2025-05-23",
+      "password": "73dc3c5506af20ec11f9dd0283386245f70dc8596eba8055bf102a4848bef33c",
+      "role": "user",
+      "status": "approved",
+      "createdAt": "2026-04-02T08:39:00.383Z",
+      "lastLogin": null,
+      "department": "dept_1775119077245_s3mwo",
+      "permissions": [
+        "quote",
+        "pricing_edit",
+        "vendors",
+        "approval",
+        "design",
+        "attendance_all",
+        "history",
+        "pricing_view",
+        "options",
+        "contacts"
+      ]
+    }
+  ],
+  "departments": [
+    {
+      "id": "dept_1775119077245_s3mwo",
+      "name": "디자인팀",
+      "sortOrder": 0,
+      "createdAt": "2026-04-02T08:37:57.245Z",
+      "leaderId": "u_1775119016222_m0rpw"
+    },
+    {
+      "id": "dept_1775119083550_lijhd",
+      "name": "경영지원팀",
+      "sortOrder": 1,
+      "createdAt": "2026-04-02T08:38:03.550Z"
+    },
+    {
+      "id": "dept_1775119087365_3asu4",
+      "name": "경영관리팀",
+      "sortOrder": 2,
+      "createdAt": "2026-04-02T08:38:07.365Z"
+    },
+    {
+      "id": "dept_1775119097261_jotzi",
+      "name": "영업관리팀",
+      "sortOrder": 3,
+      "createdAt": "2026-04-02T08:38:17.261Z"
+    },
+    {
+      "id": "dept_1775119102194_f4xnq",
+      "name": "영업지원팀",
+      "sortOrder": 4,
+      "createdAt": "2026-04-02T08:38:22.194Z"
+    },
+    {
+      "id": "dept_1775119136568_vmn2b",
+      "name": "재무회계",
+      "sortOrder": 5,
+      "createdAt": "2026-04-02T08:38:56.568Z",
+      "leaderId": "u_1775118506837_w0kja"
+    }
+  ]
+}

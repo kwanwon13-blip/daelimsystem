@@ -1,0 +1,42 @@
+<h2>견적 입력 UI 개선 — 현재 문제점 확인</h2>
+<p class="subtitle">지금까지 발견된 문제들이에요. 빠진 게 있거나 우선순위가 다르면 알려주세요.</p>
+
+<div class="options" data-multiselect>
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>팝업 위에 팝업 — 답답함</h3>
+      <p>견적 팝업 위에 항목 편집 팝업이 또 뜨면서, 과거단가 사이드바도 가리고 화면이 겹겹이 쌓임. 한 화면에서 다 처리하고 싶음.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>품목명 검색 불일치</h3>
+      <p>"3t포맥스" vs "포맥스3T" — 순서가 다르면 검색이 안 됨. 키워드 분리 검색 필요.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>품명 + 규격 동시 검색 불가</h3>
+      <p>"포맥스 600*900" 같이 규격까지 같이 검색해야 실무에서 의미가 있는데, 지금은 품명만 됨.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="d" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>입력 공간이 너무 좁음</h3>
+      <p>이카운트처럼 넓은 테이블형 입력이 아니라, 좁은 팝업 안에서 입력해야 해서 답답함. 실제 내용은 별로 없는데 공간만 차지.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="e" onclick="toggleSelect(this)">
+    <div class="letter">E</div>
+    <div class="content">
+      <h3>기타 — 다른 문제가 더 있음</h3>
+      <p>위에 없는 다른 불편한 점이 있으면 터미널에서 알려주세요.</p>
+    </div>
+  </div>
+</div>
+
+<p style="margin-top:24px;color:#6b7280;font-size:14px;">여러 개 선택 가능해요. 해당하는 것 다 클릭해주세요!</p>

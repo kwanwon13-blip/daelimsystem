@@ -23,9 +23,11 @@ router.get('/admin/users', requireAdmin, (req, res) => {
   // 비밀번호 제외하고 반환
   const users = (uData.users || []).map(u => ({
     id: u.id, userId: u.userId, name: u.name, role: u.role, status: u.status,
+    sabun: u.sabun || '',
     position: u.position || '', phone: u.phone || '',
-    department: u.department || '',
+    department: u.department || '', companyId: u.companyId || 'dalim-sm',
     hireDate: u.hireDate || '', resignDate: u.resignDate || '',
+    birthDate: u.birthDate || '', email: u.email || '',
     permissions: u.permissions || [],
     createdAt: u.createdAt, lastLogin: u.lastLogin,
     capsName: u.capsName || '',
@@ -37,7 +39,7 @@ router.get('/admin/users', requireAdmin, (req, res) => {
 
 // 관리자 직접 계정 생성
 router.post('/admin/users/create', requireAdmin, (req, res) => {
-  const { userId, password, name, role, position, phone, department } = req.body;
+  const { userId, password, name, role, position, phone, department, companyId } = req.body;
   if (!userId || !password || !name) return res.status(400).json({ error: '아이디, 비밀번호, 이름을 모두 입력해주세요' });
   if (userId.length < 3) return res.status(400).json({ error: '아이디는 3자 이상이어야 합니다' });
   if (password.length < 4) return res.status(400).json({ error: '비밀번호는 4자 이상이어야 합니다' });
@@ -51,7 +53,7 @@ router.post('/admin/users/create', requireAdmin, (req, res) => {
   uData.users.push({
     id: db.generateId('u'), userId, name,
     position: position || '', phone: phone || '',
-    department: department || '',
+    department: department || '', companyId: companyId || 'dalim-sm',
     password: hashPassword(password),
     role: role === 'admin' ? 'admin' : 'user',
     status: 'approved', // 관리자가 만든 계정은 바로 승인
@@ -250,15 +252,50 @@ router.post('/admin/users/:id/role', requireAdmin, (req, res) => {
 });
 
 // 비밀번호 초기화 (관리자)
+// 보안 강화:
+//  - 하드코딩 '1234' 기본값 제거 → admin이 암호를 주지 않으면 암호학적 랜덤 임시 비밀번호 생성
+//  - mustChangePassword 플래그 세팅 → 다음 로그인 시 반드시 변경
+//  - 대상 사용자의 활성 세션 전부 무효화 (세션 탈취/구세션 재사용 방지)
 router.post('/admin/users/:id/reset-password', requireAdmin, (req, res) => {
+  const crypto = require('crypto');
   const uData = db.loadUsers();
   const user = (uData.users || []).find(u => u.id === req.params.id);
   if (!user) return res.status(404).json({ error: '사용자 없음' });
-  const newPw = req.body.password || '1234';
+
+  // admin이 직접 지정한 경우에만 그 값을 사용, 아니면 12자리 랜덤 생성
+  const provided = (req.body.password || '').trim();
+  let newPw = provided;
+  if (!newPw) {
+    // 사람이 전달 가능한 문자만 사용 (혼동되는 0/O/1/l/I 제외)
+    const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+    const buf = crypto.randomBytes(12);
+    newPw = Array.from(buf).map(b => alphabet[b % alphabet.length]).join('');
+  } else if (newPw.length < 6) {
+    return res.status(400).json({ error: '비밀번호는 최소 6자 이상이어야 합니다' });
+  }
+
   user.password = hashPassword(newPw);
+  user.mustChangePassword = true;
+  user.passwordResetAt = new Date().toISOString();
   db.saveUsers(uData);
-  auditLog(req.user.userId, '비밀번호 초기화', user.name);
-  res.json({ ok: true, message: `${user.name} 비밀번호를 "${newPw}"로 초기화했습니다` });
+
+  // 해당 사용자의 활성 세션을 모두 만료시킨다
+  let killed = 0;
+  for (const token of Object.keys(sessions)) {
+    if (sessions[token] && sessions[token].userId === user.userId) {
+      delete sessions[token];
+      killed++;
+    }
+  }
+
+  auditLog(req.user.userId, '비밀번호 초기화', user.name, { sessionsInvalidated: killed });
+  res.json({
+    ok: true,
+    tempPassword: newPw,
+    mustChangePassword: true,
+    sessionsInvalidated: killed,
+    message: `${user.name}의 임시 비밀번호가 발급되었습니다. 최초 로그인 시 반드시 변경해야 합니다.`
+  });
 });
 
 // 사용자별 메뉴 권한 설정 (관리자)
@@ -313,6 +350,7 @@ router.post('/admin/users/:id/profile', requireAdmin, (req, res) => {
   if (req.body.hireDate !== undefined) user.hireDate = req.body.hireDate;
   if (req.body.resignDate !== undefined) user.resignDate = req.body.resignDate;
   if (req.body.capsName !== undefined) user.capsName = req.body.capsName;
+  if (req.body.companyId !== undefined) user.companyId = req.body.companyId;
   if (req.body.attendanceRule !== undefined) user.attendanceRule = req.body.attendanceRule; // general|flex|exempt|exclude
   db.saveUsers(uData);
 
@@ -380,7 +418,7 @@ router.post('/departments', requireAdmin, (req, res) => {
   if (uData.departments.find(d => d.name === name)) return res.status(400).json({ error: '이미 존재하는 부서입니다' });
   uData.departments.push({
     id: db.generateId('dept'),
-    name,
+    name, companyId: req.body.companyId || 'dalim-sm',
     sortOrder: sortOrder || uData.departments.length,
     createdAt: new Date().toISOString()
   });
@@ -395,6 +433,7 @@ router.put('/departments/:id', requireAdmin, (req, res) => {
   if (req.body.name !== undefined) dept.name = req.body.name;
   if (req.body.sortOrder !== undefined) dept.sortOrder = req.body.sortOrder;
   if (req.body.leaderId !== undefined) dept.leaderId = req.body.leaderId || null;
+  if (req.body.companyId !== undefined) dept.companyId = req.body.companyId;
   db.saveUsers(uData);
   res.json({ ok: true, dept });
 });
@@ -430,6 +469,80 @@ router.get('/my-department-leader', requireAuth, (req, res) => {
   const leader = (uData.users || []).find(u => u.id === dept.leaderId);
   if (!leader) return res.json({ leader: null });
   res.json({ leader: { id: leader.id, userId: leader.userId, name: leader.name, position: leader.position } });
+});
+
+// ══════════════════════════════════════════════════════
+// 회사(Company) 관리 API
+// ══════════════════════════════════════════════════════
+
+// 회사 목록 조회
+router.get('/companies', requireAuth, (req, res) => {
+  const uData = db.loadUsers();
+  res.json({ ok: true, companies: uData.companies || [] });
+});
+
+// 회사 추가
+router.post('/companies', requireAdmin, (req, res) => {
+  const { name, bizNo, ceo, tel, address, note } = req.body;
+  if (!name) return res.status(400).json({ error: '회사명을 입력해주세요' });
+  const uData = db.loadUsers();
+  if (!uData.companies) uData.companies = [];
+
+  // id 자동 생성 (회사명 기반 slug)
+  const id = name.replace(/[^가-힣a-zA-Z0-9]/g, '').toLowerCase() || db.generateId('co');
+  if (uData.companies.some(c => c.id === id || c.name === name)) {
+    return res.status(400).json({ error: '이미 존재하는 회사입니다' });
+  }
+
+  uData.companies.push({
+    id, name, bizNo: bizNo || '', ceo: ceo || '', tel: tel || '',
+    address: address || '', note: note || '',
+    sortOrder: uData.companies.length,
+    createdAt: new Date().toISOString()
+  });
+  db.saveUsers(uData);
+  res.json({ ok: true, companies: uData.companies });
+});
+
+// 회사 수정
+router.put('/companies/:id', requireAdmin, (req, res) => {
+  const uData = db.loadUsers();
+  const co = (uData.companies || []).find(c => c.id === req.params.id);
+  if (!co) return res.status(404).json({ error: '회사 없음' });
+  if (req.body.name !== undefined) co.name = req.body.name;
+  if (req.body.bizNo !== undefined) co.bizNo = req.body.bizNo;
+  if (req.body.ceo !== undefined) co.ceo = req.body.ceo;
+  if (req.body.tel !== undefined) co.tel = req.body.tel;
+  if (req.body.address !== undefined) co.address = req.body.address;
+  if (req.body.note !== undefined) co.note = req.body.note;
+  if (req.body.sortOrder !== undefined) co.sortOrder = req.body.sortOrder;
+  db.saveUsers(uData);
+  res.json({ ok: true, companies: uData.companies });
+});
+
+// 회사 삭제
+router.delete('/companies/:id', requireAdmin, (req, res) => {
+  const uData = db.loadUsers();
+  // 소속 직원이 있으면 삭제 불가
+  const hasUsers = (uData.users || []).some(u => u.companyId === req.params.id && u.status !== 'resigned');
+  if (hasUsers) return res.status(400).json({ error: '소속 직원이 있는 회사는 삭제할 수 없습니다' });
+  uData.companies = (uData.companies || []).filter(c => c.id !== req.params.id);
+  db.saveUsers(uData);
+  res.json({ ok: true, companies: uData.companies });
+});
+
+// 직원 회사 일괄 변경
+router.post('/admin/users/bulk-company', requireAdmin, (req, res) => {
+  const { userIds, companyId } = req.body;
+  if (!userIds || !companyId) return res.status(400).json({ error: 'userIds, companyId 필수' });
+  const uData = db.loadUsers();
+  let count = 0;
+  for (const uid of userIds) {
+    const user = (uData.users || []).find(u => u.id === uid);
+    if (user) { user.companyId = companyId; count++; }
+  }
+  db.saveUsers(uData);
+  res.json({ ok: true, updated: count });
 });
 
 module.exports = router;

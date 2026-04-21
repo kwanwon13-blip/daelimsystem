@@ -1,0 +1,98 @@
+================================================================
+  급여 데이터 일괄 수정 v2  @ 2026. 4. 18. AM 1:01:23
+================================================================
+  DB:   C:\Users\NAMGW\Documents\Claude\Projects\업체별 단가표 만들기!!!\price-list-app\data\급여관리.db
+  JSON: C:\Users\NAMGW\Documents\Claude\Projects\업체별 단가표 만들기!!!\price-list-app\_salary_fix_data.json
+
+1) 백업
+  💾 백업: 급여관리.db.bak_v2_20260417160123
+
+2) JSON 로드
+   configs: 54, records: 1510
+
+3) BEFORE
+
+  ── BEFORE ──
+    [SM] ws-001, ws-005, ws-010:
+      ws-001   김용재    base=   3180000 meal=  200000 trans=       0 fot=       0
+      ws-005   김춘분    base=   2100000 meal=  200000 trans=  200000 fot=       0
+      ws-010   이정호    base=   2900000 meal=  200000 trans=       0 fot=       0
+    [CO] all rows:
+      ws-001     박성국    base=   3205188 meal=  200000
+      ws-002     안소현    base=   2209222 meal=  200000
+      ws-003     왕문식    base=   2222687 meal=  200000
+      ws-004     김형섭    base=         0 meal=       0
+      ws-004-2   남한석    base=         0 meal=       0
+      ws-006     한준호    base=   2045455 meal=  200000
+      ws-007     정왕택    base=   2296774 meal=  200000
+      ws-008     전상현    base=   2763913 meal=  200000
+      ws-009     안영민    base=   1849638 meal=  200000
+      ws-009-2   안희찬    base=   2136162 meal=  200000
+    [SM] u_ 잔존:
+      u_1776436833266_a3bd2c    김용재    base=3180000
+      u_1776436833288_bdf770    김춘분    base=2100000
+      u_1775118506837_w0kja     남관원    base=4300000
+      u_1776436833287_2603cc    남중석    base=2200000
+      u_1776436833289_6f18ba    이정호    base=2900000
+      u_1775119140383_thcmt     장은지    base=2200000
+      u_1775119016222_m0rpw     한윤호    base=2851681
+
+4) userId 재정렬 (대림컴퍼니)
+   ✏️  ws-009-2 → ws-010 (안희찬) : configs 1, records 12
+   ✏️  ws-004-2 → ws-005 (남한석) : configs 1, records 2
+
+5) u_xxx 중복 config 병합
+   🔀  김용재: u_ → ws-001 병합 (base=3180000 meal=200000)
+   🗑️  u_1776436833266_a3bd2c (김용재) 삭제
+   🔀  남중석: u_ → ws-003 병합 (base=2200000 meal=200000)
+   🗑️  u_1776436833287_2603cc (남중석) 삭제
+   🔀  김춘분: u_ → ws-005 병합 (base=2100000 meal=200000)
+   🗑️  u_1776436833288_bdf770 (김춘분) 삭제
+   🔀  이정호: u_ → ws-010 병합 (base=2900000 meal=200000)
+   🗑️  u_1776436833289_6f18ba (이정호) 삭제
+
+6) JSON configs 적용
+   update 54, insert 0
+
+7) records 재분배
+   update 1510, miss 0
+
+8) AFTER
+
+  ── AFTER ──
+    [SM] ws-001, ws-005, ws-010:
+      ws-001   김용재    base=   3180000 meal=  200000 trans=       0 fot=       0
+      ws-005   김춘분    base=   2100000 meal=  200000 trans=  200000 fot=       0
+      ws-010   이정호    base=   2900000 meal=  200000 trans=       0 fot=       0
+    [CO] all rows:
+      ws-001     박성국    base=   3205188 meal=  200000
+      ws-002     안소현    base=   2209222 meal=  200000
+      ws-003     왕문식    base=   2222687 meal=  200000
+      ws-004     김형섭    base=         0 meal=       0
+      ws-005     남한석    base=         0 meal=       0
+      ws-006     한준호    base=   2045455 meal=  200000
+      ws-007     정왕택    base=   2296774 meal=  200000
+      ws-008     전상현    base=   2763913 meal=  200000
+      ws-009     안영민    base=   1849638 meal=  200000
+      ws-009-2   안희찬    base=   2136162 meal=  200000
+    [SM] u_ 잔존:
+      u_1775118506837_w0kja     남관원    base=4300000
+      u_1775119140383_thcmt     장은지    base=2200000
+      u_1775119016222_m0rpw     한윤호    base=2851681
+
+9) WAL 체크포인트 (본 DB 로 합침)
+   결과: [{"busy":0,"log":0,"checkpointed":0}]
+
+================================================================
+  ✅ 완료!
+     rename       : cfg 2, rec 14
+     u_ merged    : 4
+     u_ deleted   : 4
+     configs      : update 54, insert 0
+     records      : update 1510, miss 0
+================================================================
+
+  ※ 다음 단계:
+     1) 앱(node server.js 등)을 다시 시작
+     2) 브라우저에서 Ctrl+Shift+R (강제 새로고침)
+     3) 사원정보 / 급여대장 재조회

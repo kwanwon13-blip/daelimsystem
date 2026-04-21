@@ -11,7 +11,7 @@ function approvalApp() {
     activeDeptFolder: '',  // '' = 전체, 부서명 = 해당 부서 폴더
 
     // 새 문서 작성
-    docType: 'expense',   // expense | leave
+    docType: 'expense',   // expense | leave | overtime
     docTitle: '',
     docApproverId: '',
     formData: {},
@@ -36,6 +36,14 @@ function approvalApp() {
       endDate: '',
       reason: '',
       emergency_contact: ''
+    },
+
+    // 시간외근무 폼 기본값
+    overtimeForm: {
+      date: new Date().toISOString().slice(0, 10),
+      startTime: '18:00',
+      endTime: '20:00',
+      reason: ''
     },
 
     // 휴가유형 목록 (서버에서 로드)
@@ -150,6 +158,12 @@ function approvalApp() {
         reason: '',
         emergency_contact: ''
       };
+      this.overtimeForm = {
+        date: new Date().toISOString().slice(0, 10),
+        startTime: '18:00',
+        endTime: '20:00',
+        reason: ''
+      };
       this.selectedLeaveType = this.leaveTypes.find(t => t.name === '연차') || null;
       this.currentView = 'write';
 
@@ -263,10 +277,15 @@ function approvalApp() {
       return this.expenseForm.items.reduce((s, item) => s + (Number(item.amount) || 0), 0);
     },
 
-    // 승인 가능한 사용자 목록 (본인 제외)
+    // 승인 가능한 사용자 목록 (기본: 본인 제외)
+    // 시간외근무 + 팀장/관리자는 본인을 승인자로 지정 가능 (자기결재 허용)
     get approverList() {
-      const myId = this.$root?.dataset?.userId || '';
-      return this.allUsers.filter(u => u.userId !== myId && u.status === 'approved');
+      const myId = this.$root?.dataset?.userId || this.myUserId || '';
+      const allowSelf = this.docType === 'overtime' &&
+                        (this.myRole === 'team_leader' || this.myRole === 'admin');
+      return this.allUsers.filter(u =>
+        (allowSelf || u.userId !== myId) && u.status === 'approved'
+      );
     },
 
     // 부서명 가져오기
@@ -277,6 +296,52 @@ function approvalApp() {
 
     // 문서 제출
     async submitDoc() {
+      if (!this.docApproverId) {
+        this.showToast3('승인자를 선택해주세요', 'error');
+        return;
+      }
+
+      // 시간외근무는 별도 엔드포인트 사용
+      if (this.docType === 'overtime') {
+        const f = this.overtimeForm;
+        if (!f.date || !f.startTime || !f.endTime) {
+          this.showToast3('날짜, 시작시간, 종료시간을 입력해주세요', 'error');
+          return;
+        }
+        if (f.endTime <= f.startTime) {
+          this.showToast3('종료시간은 시작시간보다 늦어야 합니다', 'error');
+          return;
+        }
+        if (!f.reason || !f.reason.trim()) {
+          this.showToast3('사유를 입력해주세요', 'error');
+          return;
+        }
+        try {
+          const r = await fetch('/api/approval/overtime', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              date: f.date,
+              startTime: f.startTime,
+              endTime: f.endTime,
+              reason: f.reason.trim(),
+              approverId: this.docApproverId
+            })
+          });
+          const result = await r.json();
+          if (r.ok) {
+            this.showToast3('시간외근무 결재가 제출되었습니다', 'success');
+            this.currentView = 'list';
+            this.loadApprovals();
+          } else {
+            this.showToast3(result.error || '제출 실패', 'error');
+          }
+        } catch (e) {
+          this.showToast3('네트워크 오류', 'error');
+        }
+        return;
+      }
+
       const fd = this.docType === 'expense' ? { ...this.expenseForm } : { ...this.leaveForm };
 
       // 자동 제목 생성
@@ -294,11 +359,6 @@ function approvalApp() {
             : (this.leaveForm.startDate || '');
           this.docTitle = '[휴가] ' + (this.leaveForm.leaveType || '연차') + ` (${actualDays}일) ` + dateRange;
         }
-      }
-
-      if (!this.docApproverId) {
-        this.showToast3('승인자를 선택해주세요', 'error');
-        return;
       }
 
       try {
@@ -323,6 +383,25 @@ function approvalApp() {
       } catch (e) {
         this.showToast3('네트워크 오류', 'error');
       }
+    },
+
+    // 시간외근무 시간 계산 (HH:MM → 소수점 시간)
+    _calcHours(start, end) {
+      if (!start || !end) return null;
+      const toMin = (t) => {
+        const [h, m] = String(t).split(':').map(Number);
+        return (h || 0) * 60 + (m || 0);
+      };
+      const diff = toMin(end) - toMin(start);
+      if (diff <= 0) return null;
+      return Math.round((diff / 60) * 10) / 10;
+    },
+    get overtimeHours() {
+      return this._calcHours(this.overtimeForm.startTime, this.overtimeForm.endTime);
+    },
+    overtimeHoursOf(doc) {
+      if (!doc || !doc.formData) return null;
+      return this._calcHours(doc.formData.startTime, doc.formData.endTime);
     },
 
     // 문서 상세 보기
@@ -408,10 +487,10 @@ function approvalApp() {
 
     // 문서 타입 라벨
     typeLabel(t) {
-      return { expense: '지출결의서', leave: '휴가계획서' }[t] || t;
+      return { expense: '지출결의서', leave: '휴가계획서', overtime: '시간외근무', '시간외근무': '시간외근무' }[t] || t;
     },
     typeIcon(t) {
-      return { expense: 'receipt_long', leave: 'event_available' }[t] || 'description';
+      return { expense: 'receipt_long', leave: 'event_available', overtime: 'schedule', '시간외근무': 'schedule' }[t] || 'description';
     },
 
     // 간단 토스트

@@ -9,9 +9,13 @@ const fs = require('fs');
 const https = require('https');
 const net = require('net');
 const tls = require('tls');
+const crypto = require('crypto');
 const db = require('../db');
-const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { sessions, parseCookies, requireAuth, requireAdmin } = require('../middleware/auth');
 const { escHtml, generateQuotePdf } = require('../utils/pdf');
+
+// ── 메일 API는 모두 로그인 필수 ──
+router.use(requireAuth);
 
 // ── 네이버 SMTP 메일 발송 ────────────────────────────────
 // nodemailer 없이 직접 SMTP 구현
@@ -137,8 +141,8 @@ function sendSmtpMail({ smtpHost, smtpPort, smtpUser, smtpPass, from, to, subjec
   });
 }
 
-// SMTP 설정 저장
-router.get('/mail/settings', (req, res) => {
+// SMTP 설정 저장 (관리자 전용 — SMTP 크레덴셜 보호)
+router.get('/mail/settings', requireAdmin, (req, res) => {
   try {
     const settingsPath = path.join(__dirname, '..', 'data', 'settings.json');
     if (!fs.existsSync(settingsPath)) return res.json({});
@@ -151,7 +155,7 @@ router.get('/mail/settings', (req, res) => {
   } catch (e) { res.json({}); }
 });
 
-router.post('/mail/settings', (req, res) => {
+router.post('/mail/settings', requireAdmin, (req, res) => {
   try {
     const settingsPath = path.join(__dirname, '..', 'data', 'settings.json');
     let settings = {};

@@ -8,6 +8,7 @@ data/
 *.jpg
 *.bat
 *.vbs
+*.ps1
 *.zip
 package-lock.json
 *.bak

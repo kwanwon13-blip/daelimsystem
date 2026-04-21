@@ -9,6 +9,7 @@ const fs = require('fs');
 const { execSync, spawn } = require('child_process');
 const db = require('../db');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { safeBody } = require('../middleware/sanitize');
 const { auditLog } = require('../middleware/audit');
 const { notify, notifyRole } = require('../utils/notify');
 
@@ -128,6 +129,8 @@ router.post('/notices', requireAdmin, (req, res) => {
 
 router.put('/notices/:id', requireAdmin, (req, res) => {
   try {
+    // Prototype Pollution 차단
+    req.body = safeBody(req.body, ['id']);
     const data = db.공지사항.load();
     const idx = data.notices.findIndex(n => n.id === req.params.id);
     if (idx === -1) return res.status(404).json({ error: 'not found' });
@@ -291,22 +294,53 @@ router.get('/deploy/status', requireAdmin, (req, res) => {
 
 // ══════════════════════════════════════════════════════
 // Git Pull API (GitHub -> Server auto deploy)
-// POST /api/git-pull - GitHub webhook or manual trigger
+// POST /api/git-pull - GitHub webhook (HMAC 서명 검증) or 관리자 manual trigger
 // ══════════════════════════════════════════════════════
-router.post('/git-pull', express.json(), (req, res) => {
+// raw body 수집 (HMAC 검증에 필요) - json 파서 대신 수동 raw 파싱
+router.post('/git-pull', express.raw({ type: '*/*', limit: '1mb' }), (req, res) => {
   const { execSync } = require('child_process');
+  const crypto = require('crypto');
+
+  // ──── 1) 관리자 세션이면 통과 ────
+  const { sessions, parseCookies } = require('../middleware/auth');
+  const cookies = parseCookies(req);
+  const sessToken = cookies.session_token || req.headers['x-session-token'];
+  const sess = sessToken ? sessions[sessToken] : null;
+  const isAdminSession = sess && sess.role === 'admin';
+
+  // ──── 2) 관리자가 아니면 GitHub HMAC 서명 검증 ────
+  if (!isAdminSession) {
+    const secret = process.env.GITHUB_WEBHOOK_SECRET;
+    if (!secret) {
+      console.warn('[GIT-PULL] 거부: 관리자 세션 없음 + GITHUB_WEBHOOK_SECRET 미설정');
+      return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+    const sigHeader = req.headers['x-hub-signature-256'] || '';
+    if (!sigHeader.startsWith('sha256=')) {
+      return res.status(401).json({ success: false, error: 'Invalid signature header' });
+    }
+    const rawBody = req.body instanceof Buffer ? req.body : Buffer.from(req.body || '');
+    const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+    const a = Buffer.from(sigHeader);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      console.warn('[GIT-PULL] HMAC 서명 불일치 (공격 가능성)');
+      return res.status(401).json({ success: false, error: 'Invalid signature' });
+    }
+  }
+
+  // ──── 3) git pull 실행 ────
   try {
-    // GitHub webhook signature check (optional, skip if no secret)
     const result = execSync('git pull origin main', {
       cwd: path.join(__dirname, '..'),
       encoding: 'utf8',
       timeout: 30000
     });
-    console.log('[GIT-PULL] ' + result.trim());
+    console.log('[GIT-PULL] ' + (isAdminSession ? `by admin ${sess.userId}` : 'by webhook') + ': ' + result.trim());
     res.json({ success: true, message: result.trim() });
   } catch (e) {
     console.error('[GIT-PULL ERROR]', e.message);
-    res.status(500).json({ success: false, error: e.stderr || e.message });
+    res.status(500).json({ success: false, error: 'git pull failed' });  // stderr 노출 제거
   }
 });
 
@@ -323,9 +357,16 @@ router.get('/git-pull', requireAdmin, (req, res) => {
     res.json({ success: true, message: result.trim() });
   } catch (e) {
     console.error('[GIT-PULL ERROR]', e.message);
-    res.status(500).json({ success: false, error: e.stderr || e.message });
+    res.status(500).json({ success: false, error: 'git pull failed' });  // stderr 노출 제거
   }
 });
+
+// ── 커밋 메시지 shell 인젝션 방어용 sanitizer ──
+// 영문/숫자/한글/공백/기본 구두점만 허용, 나머지 제거. 최대 200자.
+function sanitizeCommitMessage(msg) {
+  const s = String(msg || '').replace(/[`$"\\|&;<>(){}[\]!\n\r\t]/g, '').slice(0, 200).trim();
+  return s || 'Auto commit';
+}
 
 // ══════════════════════════════════════════════════════
 // Git Commit & Push API (Server -> GitHub auto sync)
@@ -333,7 +374,7 @@ router.get('/git-pull', requireAdmin, (req, res) => {
 // ══════════════════════════════════════════════════════
 router.post('/git-push', requireAdmin, express.json(), (req, res) => {
   const { execSync } = require('child_process');
-  const message = (req.body && req.body.message) || 'Auto deploy from Claude';
+  const message = sanitizeCommitMessage((req.body && req.body.message) || 'Auto deploy from Claude');
   try {
     const opts = { cwd: path.join(__dirname, '..'), encoding: 'utf8', timeout: 30000 };
     execSync('git add -A', opts);
@@ -350,7 +391,7 @@ router.post('/git-push', requireAdmin, express.json(), (req, res) => {
     res.json({ success: true, message: 'Pushed: ' + message });
   } catch (e) {
     console.error('[GIT-PUSH ERROR]', e.message);
-    res.status(500).json({ success: false, error: e.stderr || e.message });
+    res.status(500).json({ success: false, error: 'git push failed' });  // stderr 노출 제거
   }
 });
 
@@ -384,7 +425,7 @@ router.post('/auto-deploy', requireAdmin, express.json({ limit: '50mb' }), (req,
     }
     // Auto git commit & push
     const opts = { cwd: path.join(__dirname, '..'), encoding: 'utf8', timeout: 30000 };
-    const commitMsg = message || 'Deploy: ' + results.filter(r=>r.success).map(r=>r.filePath).join(', ');
+    const commitMsg = sanitizeCommitMessage(message || 'Deploy: ' + results.filter(r=>r.success).map(r=>r.filePath).join(', '));
     execSync('git add -A', opts);
     try { execSync(`git commit -m "${commitMsg}"`, opts); } catch(e) {}
     try { execSync('git push origin main', opts); } catch(e) {}

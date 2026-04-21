@@ -6,8 +6,12 @@ const router = express.Router();
 const fs = require('fs');
 const path = require('path');
 const db = require('../db');
-const { getReqUser } = require('../middleware/auth');
+const { getReqUser, requireAuth } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
+const { safeBody } = require('../middleware/sanitize');
+
+// ── 모든 업체 CRUD는 로그인 필수 ──
+router.use(requireAuth);
 
 router.get('/', (req, res) => {
   try {
@@ -66,6 +70,8 @@ router.post('/migrate-from-json', (req, res) => {
 });
 
 router.put('/:id', (req, res) => {
+  // Mass Assignment / Prototype Pollution 차단
+  req.body = safeBody(req.body, ['id']);
   if (db.sql) {
     const before = db.sql.vendors.getById(req.params.id);
     const v = db.sql.vendors.update(req.params.id, req.body);

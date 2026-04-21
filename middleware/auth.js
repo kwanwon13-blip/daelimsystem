@@ -151,8 +151,8 @@ function requireAdmin(req, res, next) {
 
 /**
  * requireSalaryAccess
- * 조건: 로그인 + salary_view 권한 + 급여 PIN 재인증 완료
- * 셋 중 하나라도 빠지면 차단
+ * 조건: 로그인 + 관리자(admin) + 급여 PIN 재인증 완료
+ * 급여는 보안이 매우 중요하므로 관리자만 접근 가능 (2026-04-17 강화)
  */
 function requireSalaryAccess(req, res, next) {
   // 1. 로그인 확인
@@ -164,11 +164,9 @@ function requireSalaryAccess(req, res, next) {
   req.user = sessions[token];
   req.sessionToken = token;
 
-  // 2. 급여 열람 권한 확인 (admin도 명시적 권한 필요)
-  const perms = req.user.permissions || [];
-  const isAdmin = req.user.role === 'admin';
-  if (!isAdmin && !perms.includes('salary_view')) {
-    return res.status(403).json({ error: '급여 열람 권한이 없습니다', code: 'NO_SALARY_PERM' });
+  // 2. 관리자 권한 필수 (salary_view 권한만으론 부족 — 급여는 관리자 전용)
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: '급여 모듈은 관리자만 접근할 수 있습니다', code: 'ADMIN_ONLY' });
   }
 
   // 3. 급여 PIN 재인증 토큰 확인

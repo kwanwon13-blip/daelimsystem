@@ -4,6 +4,11 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { requireAuth } = require('../middleware/auth');
+const { safeBody } = require('../middleware/sanitize');
+
+// ── 모든 옵션 CRUD는 로그인 필수 ──
+router.use(requireAuth);
 
 router.get('/', (req, res) => {
   if (db.sql) return res.json(db.sql.options.getAll());
@@ -35,6 +40,8 @@ router.post('/', (req, res) => {
 });
 
 router.put('/:id', (req, res) => {
+  // Mass Assignment / Prototype Pollution 차단
+  req.body = safeBody(req.body, ['id']);
   if (db.sql) {
     if (req.body.price !== undefined) req.body.price = Number(req.body.price);
     if (req.body.variants !== undefined) req.body.variants = Array.isArray(req.body.variants) ? req.body.variants : [];

@@ -1,0 +1,264 @@
+<!-- tab-gps-attendance.html — GPS 모바일 출퇴근 -->
+<div>
+<style>
+  .gps-container { max-width:480px; margin:0 auto; padding:20px 16px; min-height:calc(100vh - var(--header-h) - 40px); display:flex; flex-direction:column; }
+
+  /* 오늘 날짜 & 상태 */
+  .gps-date-bar { text-align:center; margin-bottom:20px; }
+  .gps-date { font-family:'Work Sans',sans-serif; font-size:20px; font-weight:700; color:#1a1d23; }
+  .gps-weekday { font-size:13px; color:#9ca3af; margin-top:2px; }
+
+  /* 출퇴근 카드 */
+  .gps-status-cards { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:24px; }
+  .gps-status-card { background:#fff; border-radius:14px; padding:16px; text-align:center; border:1px solid #e5e7eb; }
+  .gps-status-card.done { border-color:#dcfce7; background:#f0fdf4; }
+  .gps-status-card .label { font-size:11px; font-weight:600; color:#9ca3af; text-transform:uppercase; letter-spacing:.03em; }
+  .gps-status-card .time { font-family:'Work Sans',sans-serif; font-size:24px; font-weight:700; color:#1a1d23; margin-top:4px; }
+  .gps-status-card.done .time { color:#16a34a; }
+  .gps-status-card .loc { font-size:10.5px; color:#6b7280; margin-top:4px; }
+  .gps-status-card .waiting { font-size:14px; color:#d1d5db; margin-top:4px; }
+
+  /* 메인 버튼 */
+  .gps-btn-area { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; padding:20px 0; }
+  .gps-check-btn { width:180px; height:180px; border-radius:50%; border:none; font-size:18px; font-weight:700; cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; transition:all .2s; box-shadow:0 8px 24px rgba(0,0,0,.12); }
+  .gps-check-btn:active { transform:scale(.95); }
+  .gps-check-btn.check-in { background:linear-gradient(135deg,#4f6ef7,#3b5ce4); color:#fff; }
+  .gps-check-btn.check-in:hover { filter:brightness(1.06); }
+  .gps-check-btn.check-out { background:linear-gradient(135deg,#f59e0b,#d97706); color:#fff; }
+  .gps-check-btn.check-out:hover { filter:brightness(1.06); }
+  .gps-check-btn.done { background:#e5e7eb; color:#9ca3af; cursor:default; box-shadow:none; }
+  .gps-check-btn .icon { font-size:36px; }
+  .gps-check-btn .text { font-size:16px; }
+
+  .gps-loading-btn { opacity:.6; pointer-events:none; }
+  .gps-loading-btn .icon { animation:spin 1s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* GPS 상태 */
+  .gps-location-info { text-align:center; margin-top:12px; font-size:12px; color:#9ca3af; }
+  .gps-location-info .accuracy { display:inline-flex; align-items:center; gap:4px; }
+  .gps-accuracy-dot { width:8px; height:8px; border-radius:50%; }
+  .gps-accuracy-dot.good { background:#16a34a; }
+  .gps-accuracy-dot.fair { background:#f59e0b; }
+  .gps-accuracy-dot.poor { background:#dc2626; }
+
+  /* 결과 메시지 */
+  .gps-result { text-align:center; padding:12px 16px; border-radius:12px; font-size:13px; font-weight:500; margin-top:12px; animation:fadeIn .3s; }
+  .gps-result.success { background:#f0fdf4; color:#16a34a; border:1px solid #dcfce7; }
+  .gps-result.warning { background:#fffbeb; color:#d97706; border:1px solid #fef3c7; }
+  .gps-result.error { background:#fef2f2; color:#dc2626; border:1px solid #fecaca; }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+
+  /* 최근 기록 */
+  .gps-history { margin-top:24px; }
+  .gps-history-title { font-size:12px; font-weight:700; color:#6b7280; margin-bottom:8px; text-transform:uppercase; letter-spacing:.03em; }
+  .gps-history-item { display:flex; align-items:center; gap:10px; padding:10px 12px; background:#fff; border-radius:10px; margin-bottom:6px; border:1px solid #f0f1f3; }
+  .gps-history-icon { width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; }
+  .gps-history-icon.in { background:#dbeafe; color:#2563eb; }
+  .gps-history-icon.out { background:#fef3c7; color:#d97706; }
+  .gps-history-info { flex:1; }
+  .gps-history-time { font-family:'Work Sans',sans-serif; font-size:14px; font-weight:600; color:#1a1d23; }
+  .gps-history-meta { font-size:11px; color:#9ca3af; }
+  .gps-range-badge { font-size:10px; padding:2px 8px; border-radius:4px; font-weight:600; }
+  .gps-range-badge.ok { background:#dcfce7; color:#16a34a; }
+  .gps-range-badge.out { background:#fef2f2; color:#dc2626; }
+  .gps-range-badge.unknown { background:#f3f4f6; color:#9ca3af; }
+
+  @media (max-width:480px) {
+    .gps-check-btn { width:160px; height:160px; }
+    .gps-check-btn .icon { font-size:30px; }
+  }
+</style>
+
+<div class="gps-container" x-data="gpsAttendanceApp()" x-init="init()">
+
+  <!-- 오늘 날짜 -->
+  <div class="gps-date-bar">
+    <div class="gps-date" x-text="todayFormatted"></div>
+    <div class="gps-weekday" x-text="weekday"></div>
+  </div>
+
+  <!-- 출근/퇴근 상태 카드 -->
+  <div class="gps-status-cards">
+    <div class="gps-status-card" :class="checkInData ? 'done' : ''">
+      <div class="label">출근</div>
+      <template x-if="checkInData">
+        <div>
+          <div class="time" x-text="checkInData.time.slice(0,5)"></div>
+          <div class="loc" x-text="checkInData.locationName || ''"></div>
+        </div>
+      </template>
+      <template x-if="!checkInData">
+        <div class="waiting">—</div>
+      </template>
+    </div>
+    <div class="gps-status-card" :class="checkOutData ? 'done' : ''">
+      <div class="label">퇴근</div>
+      <template x-if="checkOutData">
+        <div>
+          <div class="time" x-text="checkOutData.time.slice(0,5)"></div>
+          <div class="loc" x-text="checkOutData.locationName || ''"></div>
+        </div>
+      </template>
+      <template x-if="!checkOutData">
+        <div class="waiting">—</div>
+      </template>
+    </div>
+  </div>
+
+  <!-- 메인 체크 버튼 -->
+  <div class="gps-btn-area">
+    <template x-if="!checkInData">
+      <button class="gps-check-btn check-in" :class="loading ? 'gps-loading-btn' : ''" @click="doCheck('check_in')">
+        <span class="icon" x-text="loading ? '⏳' : '☀️'"></span>
+        <span class="text" x-text="loading ? 'GPS 확인 중...' : '출근하기'"></span>
+      </button>
+    </template>
+    <template x-if="checkInData && !checkOutData">
+      <button class="gps-check-btn check-out" :class="loading ? 'gps-loading-btn' : ''" @click="doCheck('check_out')">
+        <span class="icon" x-text="loading ? '⏳' : '🌙'"></span>
+        <span class="text" x-text="loading ? 'GPS 확인 중...' : '퇴근하기'"></span>
+      </button>
+    </template>
+    <template x-if="checkInData && checkOutData">
+      <button class="gps-check-btn done" disabled>
+        <span class="icon">✅</span>
+        <span class="text">오늘 완료</span>
+      </button>
+    </template>
+
+    <!-- GPS 정확도 표시 -->
+    <div class="gps-location-info" x-show="currentAccuracy !== null">
+      <span class="accuracy">
+        <span class="gps-accuracy-dot" :class="currentAccuracy < 50 ? 'good' : currentAccuracy < 150 ? 'fair' : 'poor'"></span>
+        GPS 정확도: <span x-text="currentAccuracy ? Math.round(currentAccuracy) + 'm' : '측정 중...'"></span>
+      </span>
+    </div>
+
+    <!-- 결과 메시지 -->
+    <div x-show="resultMsg" class="gps-result" :class="resultType" x-text="resultMsg"></div>
+  </div>
+
+  <!-- 오늘 기록 목록 -->
+  <div class="gps-history" x-show="todayRecords.length > 0">
+    <div class="gps-history-title">오늘 기록</div>
+    <template x-for="r in todayRecords" :key="r.id">
+      <div class="gps-history-item">
+        <div class="gps-history-icon" :class="r.type === 'check_in' ? 'in' : 'out'"
+          x-text="r.type === 'check_in' ? '출' : '퇴'"></div>
+        <div class="gps-history-info">
+          <div class="gps-history-time" x-text="r.time.slice(0,5)"></div>
+          <div class="gps-history-meta" x-text="r.locationName + (r.distance > 0 ? ' · ' + r.distance + 'm' : '')"></div>
+        </div>
+        <span class="gps-range-badge"
+          :class="r.withinRange === 1 ? 'ok' : r.withinRange === -1 ? 'unknown' : 'out'"
+          x-text="r.withinRange === 1 ? '반경내' : r.withinRange === -1 ? '미설정' : '반경밖'"></span>
+      </div>
+    </template>
+  </div>
+</div>
+
+<script>
+function gpsAttendanceApp() {
+  return {
+    checkInData: null,
+    checkOutData: null,
+    todayRecords: [],
+    loading: false,
+    currentAccuracy: null,
+    resultMsg: '',
+    resultType: '',
+
+    get todayFormatted() {
+      const d = new Date();
+      return `${d.getFullYear()}. ${d.getMonth()+1}. ${d.getDate()}.`;
+    },
+    get weekday() {
+      return ['일요일','월요일','화요일','수요일','목요일','금요일','토요일'][new Date().getDay()];
+    },
+
+    async init() {
+      await this.loadToday();
+      // GPS 미리 권한 요청
+      this.watchPosition();
+    },
+
+    watchPosition() {
+      if (!navigator.geolocation) return;
+      navigator.geolocation.watchPosition(
+        pos => { this.currentAccuracy = pos.coords.accuracy; },
+        () => {},
+        { enableHighAccuracy: true, maximumAge: 10000 }
+      );
+    },
+
+    async loadToday() {
+      try {
+        const res = await fetch('/api/gps-attendance/my-today');
+        const data = await res.json();
+        if (data.ok) {
+          this.checkInData = data.checkIn;
+          this.checkOutData = data.checkOut;
+          this.todayRecords = data.records || [];
+        }
+      } catch(e) {}
+    },
+
+    async doCheck(type) {
+      if (this.loading) return;
+      this.loading = true;
+      this.resultMsg = '';
+
+      // GPS 좌표 가져오기
+      try {
+        const pos = await new Promise((resolve, reject) => {
+          if (!navigator.geolocation) return reject(new Error('이 기기에서 GPS를 사용할 수 없습니다.'));
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 5000
+          });
+        });
+
+        const { latitude, longitude, accuracy } = pos.coords;
+        this.currentAccuracy = accuracy;
+
+        // 디바이스 정보
+        const deviceInfo = navigator.userAgent.slice(0, 200);
+
+        const res = await fetch('/api/gps-attendance/check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type, latitude, longitude, accuracy, deviceInfo })
+        });
+        const data = await res.json();
+
+        if (data.ok) {
+          this.resultMsg = data.message;
+          this.resultType = data.withinRange === 1 ? 'success' : data.withinRange === -1 ? 'warning' : 'warning';
+          await this.loadToday();
+        } else {
+          this.resultMsg = data.error || '처리 실패';
+          this.resultType = 'error';
+        }
+      } catch(e) {
+        if (e.code === 1) {
+          this.resultMsg = '위치 권한이 거부되었습니다. 브라우저 설정에서 위치 권한을 허용해주세요.';
+        } else if (e.code === 2) {
+          this.resultMsg = '위치를 확인할 수 없습니다. 실외에서 다시 시도해주세요.';
+        } else if (e.code === 3) {
+          this.resultMsg = 'GPS 응답 시간 초과. 다시 시도해주세요.';
+        } else {
+          this.resultMsg = e.message || '오류가 발생했습니다.';
+        }
+        this.resultType = 'error';
+      }
+
+      this.loading = false;
+      // 5초 후 메시지 자동 숨김
+      setTimeout(() => { this.resultMsg = ''; }, 8000);
+    }
+  };
+}
+</script>
+</div>

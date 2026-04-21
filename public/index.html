@@ -39,6 +39,15 @@
   <script src="/contacts.js"></script>
   <script src="/approval.js"></script>
   <script src="/orgchart.js"></script>
+  <!-- Editor.js (워크스페이스) -->
+  <script src="https://cdn.jsdelivr.net/npm/@editorjs/editorjs@2.29.1/dist/editorjs.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@editorjs/header@2.8.7/dist/header.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@editorjs/checklist@1.6.0/dist/checklist.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@editorjs/list@1.9.0/dist/list.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@editorjs/delimiter@1.4.2/dist/delimiter.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@editorjs/quote@2.7.2/dist/quote.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@editorjs/marker@1.4.0/dist/marker.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@editorjs/image@2.9.0/dist/image.umd.js"></script>
   <!-- Alpine.js -->
   <script src="https://unpkg.com/@alpinejs/collapse@3.x.x/dist/cdn.min.js" defer></script>
   <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
@@ -212,6 +221,20 @@
     ::-webkit-scrollbar-thumb { background: #c8cdd6; border-radius: 10px; }
     ::-webkit-scrollbar-thumb:hover { background: #a3aab5; }
 
+    /* ── Quote Item Table ── */
+    #quoteItemTable th { position: relative; }
+    #quoteItemTable th::after {
+      content: '';
+      position: absolute;
+      right: 0; top: 0; bottom: 0;
+      width: 4px;
+      cursor: col-resize;
+      background: transparent;
+    }
+    #quoteItemTable th:hover::after { background: #93c5fd; }
+    #quoteItemTable tr:hover td { background: #f8fafc; }
+    #quoteItemTable tr[style*="background:#eef2ff"] td { background: #eef2ff !important; }
+
     /* ── Login ── */
     .login-bg {
       background: linear-gradient(160deg, #0a0f1f 0%, #111827 40%, #1a2544 100%);
@@ -374,10 +397,9 @@
 </div>
 
 <!-- ════════════════════════════════════════════
-     이카운트 스타일 팝업 ① : 견적 작성 / 수정
+     견적 작성 팝업 (전체화면 레이아웃)
      ════════════════════════════════════════════ -->
 <template x-if="quotePopup.open">
-  <!-- 반투명 배경 -->
   <div class="ec-popup-backdrop" @click.self="quotePopup.open=false"
        @mousemove.window="onPopupDrag(quotePopup, $event); onPopupResize(quotePopup, $event)"
        @mouseup.window="quotePopup.dragging=false; quotePopup.resizing=false;"
@@ -388,7 +410,7 @@
   <div class="ec-popup"
        :style="`left:${quotePopup.x}px; top:${quotePopup.y}px; width:${quotePopup.minimized ? '340px' : quotePopup.width+'px'}; max-width:95vw; ${quotePopup.minimized ? '' : 'height:'+quotePopup.height+'px;'}`"
        @mousemove.window="onPopupDrag(quotePopup, $event); onPopupResize(quotePopup, $event)"
-       @mouseup.window="quotePopup.dragging=false; quotePopup.resizing=false;"
+       @mouseup.window="quotePopup.dragging=false; quotePopup.resizing=false;">
 
     <!-- 타이틀바 -->
     <div class="ec-popup-title" style="justify-content:space-between;"
@@ -412,228 +434,340 @@
       </div>
     </div>
 
-    <!-- 본문 (최소화 시 숨김) -->
+    <!-- 본문 -->
     <template x-if="!quotePopup.minimized">
-      <div class="ec-popup-body" style="padding:0;"
-        <!-- ── 탭 전환 바 ── -->
-        <div style="display:flex;border-bottom:2px solid #e5e7eb;background:#fff;padding:0 16px;position:sticky;top:0;z-index:10;">
-          <button @click.stop="quotePopup.tab='form'"
-            style="padding:9px 18px;font-size:12px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s;display:flex;align-items:center;gap:5px;"
-            :style="quotePopup.tab==='form' ? 'color:#4f6ef7;border-bottom-color:#4f6ef7;' : 'color:#9ca3af;'">
-            <span class="material-symbols-outlined" style="font-size:14px;">edit_note</span> 입력
-          </button>
-          <button @click.stop="quotePopup.tab='preview'; $nextTick(()=>refreshQuotePreview())"
-            style="padding:9px 18px;font-size:12px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s;display:flex;align-items:center;gap:5px;"
-            :style="quotePopup.tab==='preview' ? 'color:#4f6ef7;border-bottom-color:#4f6ef7;' : 'color:#9ca3af;'">
-            <span class="material-symbols-outlined" style="font-size:14px;">preview</span> 미리보기
-          </button>
-          <!-- 미리보기 탭에서 새로고침 버튼 -->
-          <template x-if="quotePopup.tab==='preview'">
-            <button @click.stop="refreshQuotePreview()"
-              style="margin-left:auto;padding:6px 12px;font-size:11px;font-weight:600;border:1px solid #e5e7eb;background:#f9fafb;border-radius:6px;cursor:pointer;display:flex;align-items:center;gap:4px;color:#6b7280;align-self:center;">
-              <span class="material-symbols-outlined" style="font-size:13px;">refresh</span> 새로고침
+      <div class="ec-popup-body" style="padding:0;display:flex;overflow:hidden;">
+        <!-- 왼쪽 70%: 입력/미리보기 -->
+        <div style="flex:7;min-width:0;overflow-y:auto;display:flex;flex-direction:column;">
+
+          <!-- 탭 바 -->
+          <div style="display:flex;gap:6px;background:#f3f4f6;padding:6px 16px;position:sticky;top:0;z-index:10;border-bottom:1px solid #e5e7eb;">
+            <button @click.stop="quotePopup.tab='form'"
+              style="padding:7px 20px;font-size:12px;font-weight:600;border:1px solid transparent;border-radius:6px;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:5px;"
+              :style="quotePopup.tab==='form' ? 'color:#fff;background:#4f6ef7;border-color:#4f6ef7;box-shadow:0 1px 3px rgba(79,110,247,.3);' : 'color:#6b7280;background:#fff;border-color:#d1d5db;'">
+              <span class="material-symbols-outlined" style="font-size:14px;">edit_note</span> 입력
             </button>
-          </template>
-        </div>
-
-        <!-- ── 입력 탭 ── -->
-        <div x-show="quotePopup.tab === 'form'" style="padding:14px 16px;">
-        <div class="space-y-4">
-
-          <!-- ─ 견적 정보 ─ -->
-          <div class="card" style="padding:0;overflow:hidden;">
-            <div style="padding:8px 14px;background:linear-gradient(135deg,#f8faff,#f0f4ff);border-bottom:1px solid #e5eaf4;">
-              <h3 class="section-title" style="margin-bottom:0;font-size:13px;">
-                <span class="material-symbols-outlined" style="font-size:16px;">info</span> 견적 정보
-              </h3>
-            </div>
-            <div style="padding:10px 14px;">
-              <!-- 거래처: 맨 위 강조 표시 -->
-              <div class="mb-3" style="background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1.5px solid #93c5fd;border-radius:10px;padding:10px 14px;">
-                <label class="label-base" style="color:#1d4ed8;font-weight:700;display:flex;align-items:center;gap:4px;">
-                  <span class="material-symbols-outlined" style="font-size:14px;">storefront</span> 거래처
-                </label>
-                <select x-model="quoteHeader.vendorId" @change="onVendorSelect()" class="input-base" style="font-weight:600;font-size:13px;border-color:#93c5fd;">
-                  <option value="">-- 거래처를 선택하세요 --</option>
-                  <template x-for="v in vendors" :key="v.id">
-                    <option :value="v.id" x-text="v.name"></option>
-                  </template>
-                </select>
-              </div>
-              <div class="grid grid-cols-3 gap-3">
-                <div class="col-span-2">
-                  <label class="label-base">현장명</label>
-                  <input x-model="quoteHeader.siteName" class="input-base" placeholder="현장명 입력">
-                </div>
-                <div>
-                  <label class="label-base">견적일</label>
-                  <input type="date" x-model="quoteHeader.quoteDate" class="input-base">
-                </div>
-                <div class="col-span-2">
-                  <label class="label-base">견적명</label>
-                  <input x-model="quoteHeader.quoteName" class="input-base" placeholder="견적명 입력">
-                </div>
-                <div>
-                  <label class="label-base">현장담당자</label>
-                  <input x-model="quoteHeader.manager" class="input-base" placeholder="현장 담당자명">
-                </div>
-              </div>
-            </div>
+            <button @click.stop="quotePopup.tab='preview'"
+              style="padding:7px 20px;font-size:12px;font-weight:600;border:1px solid transparent;border-radius:6px;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:5px;"
+              :style="quotePopup.tab==='preview' ? 'color:#fff;background:#4f6ef7;border-color:#4f6ef7;box-shadow:0 1px 3px rgba(79,110,247,.3);' : 'color:#6b7280;background:#fff;border-color:#d1d5db;'">
+              <span class="material-symbols-outlined" style="font-size:14px;">preview</span> 미리보기
+            </button>
           </div>
 
-          <!-- ─ 항목 추가 ─ -->
-          <div class="card" style="padding:0;overflow:visible;border:1.5px solid #d1fae5;">
-            <div style="padding:10px 16px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border-bottom:1.5px solid #bbf7d0;border-radius:12px 12px 0 0;display:flex;align-items:center;gap:8px;">
-              <div style="width:28px;height:28px;background:#16a34a;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 6px rgba(22,163,74,.3);">
-                <span class="material-symbols-outlined" style="font-size:16px;color:#fff;">add</span>
-              </div>
-              <div>
-                <h3 class="section-title" style="margin:0;font-size:13px;color:#15803d;">항목 추가</h3>
-                <p style="font-size:10px;color:#86efac;margin:0;">품목 선택 후 [추가] → ✏️ 편집에서 규격/옵션/매입 설정</p>
-              </div>
-            </div>
-            <div style="padding:12px 16px;background:#fff;">
-              <div class="flex gap-3 items-end flex-wrap">
-                <!-- 카테고리 검색 -->
-                <div class="relative flex-1" style="min-width:200px;">
-                  <label class="label-base" style="display:flex;align-items:center;gap:4px;">
-                    <span class="material-symbols-outlined" style="font-size:12px;color:#6b7280;">category</span> 품목
-                  </label>
-                  <input type="text" x-model="catSearch"
-                    @focus="catOpen = true; catHighlight = -1"
-                    @click="catOpen = true"
-                    @input="catOpen = true; catHighlight = 0"
-                    @keydown.escape="catOpen = false"
-                    @keydown.arrow-down.prevent="
-                      const list = filteredCategories;
-                      if(!catOpen) { catOpen = true; catHighlight = 0; }
-                      else if(catHighlight < list.length - 1) { catHighlight++; }
-                      $nextTick(() => { const el = $el.parentElement.querySelector('.cat-hl'); if(el) el.scrollIntoView({block:'nearest'}); });
-                    "
-                    @keydown.arrow-up.prevent="
-                      if(catHighlight > 0) { catHighlight--; }
-                      $nextTick(() => { const el = $el.parentElement.querySelector('.cat-hl'); if(el) el.scrollIntoView({block:'nearest'}); });
-                    "
-                    @keydown.enter.prevent="
-                      const list = filteredCategories;
-                      if(catHighlight >= 0 && catHighlight < list.length) {
-                        newItem.categoryId = list[catHighlight].id; catSearch = list[catHighlight].name; catOpen = false; onCategoryChange();
-                      } else if(list.length === 1) {
-                        newItem.categoryId = list[0].id; catSearch = list[0].name; catOpen = false; onCategoryChange();
-                      }
-                    "
-                    @keydown.tab="catOpen = false"
-                    :placeholder="newItem.categoryId ? '' : '품목명 검색...'"
-                    class="input-base"
-                    autocomplete="off">
-                  <div x-show="catOpen"
-                    @click.outside="catOpen = false"
-                    class="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-52 overflow-y-auto"
-                    style="z-index:1200;">
-                    <template x-for="(c, ci) in filteredCategories" :key="c.id">
-                      <div @click="newItem.categoryId = c.id; catSearch = c.name; catOpen = false; onCategoryChange();"
-                        @mouseenter="catHighlight = ci"
-                        class="px-4 py-2.5 cursor-pointer text-sm text-gray-700 transition-colors"
-                        :class="{
-                          'bg-blue-100 font-semibold text-blue-700 cat-hl': catHighlight === ci,
-                          'bg-blue-50 font-semibold text-blue-700': catHighlight !== ci && newItem.categoryId === c.id,
-                          'hover:bg-gray-50': catHighlight !== ci && newItem.categoryId !== c.id
-                        }"
-                        x-text="c.name"></div>
-                    </template>
-                    <div x-show="filteredCategories.length === 0"
-                      class="px-4 py-3 text-sm text-gray-400 text-center">검색 결과 없음</div>
+          <!-- ═══ 입력 탭 ═══ -->
+          <div x-show="quotePopup.tab === 'form'" style="padding:14px 16px;flex:1;">
+            <div class="space-y-4">
+
+              <!-- 견적 정보 헤더 (컴팩트 2행) -->
+              <div style="padding:10px 14px;background:#f8faff;border:1px solid #e5eaf4;border-radius:10px;">
+                <div style="display:grid;grid-template-columns:1.2fr 1fr 1fr 0.8fr;gap:8px;margin-bottom:6px;">
+                  <div>
+                    <label class="label-base" style="color:#1d4ed8;font-weight:700;font-size:10px;">거래처</label>
+                    <select x-model="quoteHeader.vendorId" @change="onVendorSelect()" class="input-base" style="font-weight:600;font-size:12px;">
+                      <option value="">-- 선택 --</option>
+                      <template x-for="v in vendors" :key="v.id">
+                        <option :value="v.id" x-text="v.name"></option>
+                      </template>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="label-base" style="font-size:10px;">현장명</label>
+                    <input x-model="quoteHeader.siteName" class="input-base" style="font-size:12px;" placeholder="현장명">
+                  </div>
+                  <div>
+                    <label class="label-base" style="font-size:10px;">견적명</label>
+                    <input x-model="quoteHeader.quoteName" class="input-base" style="font-size:12px;" placeholder="견적명">
+                  </div>
+                  <div>
+                    <label class="label-base" style="font-size:10px;">견적일</label>
+                    <input type="date" x-model="quoteHeader.quoteDate" class="input-base" style="font-size:12px;">
                   </div>
                 </div>
-                <!-- 수량 -->
-                <div style="width:80px;">
-                  <label class="label-base" style="display:flex;align-items:center;gap:4px;">
-                    <span class="material-symbols-outlined" style="font-size:12px;color:#6b7280;">tag</span> 수량
-                  </label>
-                  <input type="number" x-model="newItem.qty" min="1" class="input-base" placeholder="1">
-                </div>
-                <!-- 추가 버튼 -->
-                <div style="padding-bottom:1px;">
-                  <button @click="openItemEdit(-1)" :disabled="!newItem.categoryId"
-                    style="background:#16a34a;color:#fff;border:none;border-radius:9px;padding:8px 20px;font-size:12.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;box-shadow:0 2px 8px rgba(22,163,74,.3);transition:all .15s;"
-                    :style="!newItem.categoryId ? 'opacity:.45;cursor:not-allowed;box-shadow:none;' : ''"
-                    onmouseover="if(!this.disabled)this.style.background='#15803d'" onmouseout="this.style.background='#16a34a'">
-                    <span class="material-symbols-outlined" style="font-size:16px;">add_circle</span>
-                    <span>추가</span>
-                  </button>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                  <div>
+                    <label class="label-base" style="font-size:10px;">현장담당자</label>
+                    <input x-model="quoteHeader.manager" class="input-base" style="font-size:12px;" placeholder="현장 담당자명">
+                  </div>
+                  <div>
+                    <label class="label-base" style="font-size:10px;">거래처 담당자</label>
+                    <input x-model="quoteHeader.vendorManager" class="input-base" style="font-size:12px;" placeholder="거래처 담당자명">
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
 
-          <!-- ─ 견적 항목 테이블 ─ -->
-          <div x-show="quoteItems.length > 0" class="card overflow-x-auto" style="padding:0;">
-            <div style="padding:8px 14px;background:linear-gradient(135deg,#faf8ff,#f3f0ff);border-bottom:1px solid #e5e0f0;">
-              <h3 class="section-title" style="margin-bottom:0;font-size:13px;">
-                <span class="material-symbols-outlined" style="font-size:16px;color:#7c3aed;">list_alt</span> 견적 항목
-                <span class="text-xs font-medium px-2 py-0.5 rounded-full ml-1" style="background:rgba(124,58,237,.1);color:#7c3aed;" x-text="quoteItems.length+'건'"></span>
-              </h3>
-            </div>
-            <div style="padding:8px 14px;">
-              <table class="w-full text-xs">
-                <thead>
-                  <tr class="table-header">
-                    <th class="px-2 py-2 text-center" style="width:28px;">#</th>
-                    <th class="px-2 py-2 text-left">품목명</th>
-                    <th class="px-2 py-2 text-left" style="min-width:100px;">사양 요약</th>
-                    <th class="px-2 py-2 text-right" style="width:60px;">수량</th>
-                    <th class="px-2 py-2 text-right" style="width:80px;">단가</th>
-                    <th class="px-2 py-2 text-right" style="width:90px;">공급가</th>
-                    <th class="px-2 py-2 text-right" style="width:90px;">마진</th>
-                    <th class="px-2 py-2 text-center" style="width:60px;">편집</th>
-                    <th class="px-2 py-2 text-center" style="width:30px;">×</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <template x-for="(item, idx) in quoteItems" :key="idx">
-                    <tr class="border-b border-gray-100 hover:bg-blue-50/30 cursor-pointer" @dblclick="openItemEdit(idx)">
-                      <td class="px-2 py-2 text-center text-gray-400 font-medium" x-text="idx+1"></td>
-                      <td class="px-2 py-2">
-                        <div class="font-semibold text-gray-800" x-text="item.name"></div>
-                        <div class="flex items-center gap-1 mt-0.5 flex-wrap">
-                          <span x-show="(item.selectedOptions||[]).length > 0"
-                            class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                            style="background:#ede9fe;color:#7c3aed;"
-                            x-text="'⚙ 옵션 ' + (item.selectedOptions||[]).length + '개'"></span>
-                          <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                            :style="(item.purchasePrice||0) > 0 ? 'background:#dcfce7;color:#16a34a;' : 'background:#f3f4f6;color:#9ca3af;'"
-                            x-text="(item.purchasePrice||0) > 0 ? '₩ 매입 입력됨' : '매입 미입력'"></span>
-                        </div>
-                      </td>
-                      <td class="px-2 py-2 text-gray-500" x-text="item.spec || '-'"></td>
-                      <td class="px-2 py-2 text-right text-gray-700" x-text="(item.qty||1) + ' ' + (item.unit||'ea')"></td>
-                      <td class="px-2 py-2 text-right text-blue-700 font-semibold" x-text="(item.unitPrice||0).toLocaleString() + '원'"></td>
-                      <td class="px-2 py-2 text-right font-semibold text-gray-800" x-text="(item.amount||0).toLocaleString() + '원'"></td>
-                      <td class="px-2 py-2 text-right text-xs"
-                          :class="((item.amount||0) - ((item.purchasePrice||0) * (item.qty||1))) >= 0 ? 'text-green-600' : 'text-red-500'">
-                        <div class="font-semibold" x-text="((item.amount||0) - ((item.purchasePrice||0) * (item.qty||1))).toLocaleString() + '원'"></div>
-                        <div x-show="(item.amount||0) > 0" x-text="((((item.amount||0) - (item.purchasePrice||0) * (item.qty||1)) / (item.amount||1)) * 100).toFixed(1) + '%'" style="color:inherit;opacity:.7;"></div>
-                      </td>
-                      <td class="px-2 py-2 text-center">
-                        <button @click.stop="openItemEdit(idx)"
-                          class="flex items-center gap-0.5 text-[11px] font-semibold px-2 py-1 rounded-lg transition-colors"
-                          style="background:#eef2ff;color:#4f6ef7;border:1px solid #c7d2fe;"
-                          onmouseover="this.style.background='#e0e7ff'" onmouseout="this.style.background='#eef2ff'">
-                          <span class="material-symbols-outlined" style="font-size:12px;">edit</span> 편집
-                        </button>
-                      </td>
-                      <td class="px-2 py-2 text-center">
-                        <button @click.stop="quoteItems.splice(idx, 1)"
-                          class="w-6 h-6 rounded flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-                          style="font-size:15px;line-height:1;">×</button>
-                      </td>
+              <!-- ═══ 품목 인라인 테이블 ═══ -->
+              <div style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;">
+                <!-- 테이블 헤더 -->
+                <table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:11px;" id="quoteItemTable">
+                  <colgroup>
+                    <col style="width:32px;">
+                    <col><!-- 품목명: auto flex -->
+                    <col style="width:60px;">
+                    <col style="width:80px;">
+                    <col style="width:80px;">
+                    <col style="width:60px;">
+                    <col style="width:100px;">
+                    <col style="width:110px;">
+                    <col style="width:28px;">
+                  </colgroup>
+                  <thead>
+                    <tr style="background:#f3f4f6;font-size:10px;font-weight:700;color:#6b7280;">
+                      <th style="padding:6px 4px;border:1px solid #e5e7eb;text-align:center;">#</th>
+                      <th style="padding:6px 4px;border:1px solid #e5e7eb;text-align:left;">품목명</th>
+                      <th style="padding:6px 4px;border:1px solid #e5e7eb;text-align:center;">단위</th>
+                      <th style="padding:6px 4px;border:1px solid #e5e7eb;text-align:center;">가로(mm)</th>
+                      <th style="padding:6px 4px;border:1px solid #e5e7eb;text-align:center;">세로(mm)</th>
+                      <th style="padding:6px 4px;border:1px solid #e5e7eb;text-align:right;">수량</th>
+                      <th style="padding:6px 4px;border:1px solid #e5e7eb;text-align:right;">단가</th>
+                      <th style="padding:6px 4px;border:1px solid #e5e7eb;text-align:right;">금액</th>
+                      <th style="padding:6px 2px;border:1px solid #e5e7eb;"></th>
                     </tr>
-                  </template>
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
 
-              <!-- 합계 -->
-              <div class="mt-4 grid grid-cols-4 gap-2">
+                <!-- 기존 항목 행 -->
+                <template x-for="(item, idx) in quoteItems" :key="idx">
+                  <tr style="cursor:pointer;transition:background .1s;"
+                      :style="inlineEdit.accordionRow === idx ? 'background:#eef2ff;' : ''"
+                      @click="inlineEdit.accordionRow = (inlineEdit.accordionRow === idx ? -1 : idx)">
+                    <td style="padding:4px;border:1px solid #e5e7eb;text-align:center;color:#9ca3af;font-size:11px;" x-text="idx+1"></td>
+                    <td style="padding:4px 6px;border:1px solid #e5e7eb;font-weight:600;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" x-text="item.name"></td>
+                    <td style="padding:4px;border:1px solid #e5e7eb;text-align:center;color:#6b7280;font-size:11px;" x-text="item.categoryType === 'SIZE' ? '㎡' : item.categoryType === 'LENGTH' ? 'm' : '개'"></td>
+                    <td style="padding:4px;border:1px solid #e5e7eb;text-align:center;color:#6b7280;" x-text="item.widthMm || '-'"></td>
+                    <td style="padding:4px;border:1px solid #e5e7eb;text-align:center;color:#6b7280;" x-text="item.heightMm || '-'"></td>
+                    <td style="padding:4px;border:1px solid #e5e7eb;text-align:right;color:#374151;" x-text="(item.qty||1)"></td>
+                    <td style="padding:4px 6px;border:1px solid #e5e7eb;text-align:right;color:#1d4ed8;font-weight:600;" x-text="(item.unitPrice||0).toLocaleString()"></td>
+                    <td style="padding:4px 6px;border:1px solid #e5e7eb;text-align:right;font-weight:700;color:#374151;" x-text="(item.amount||0).toLocaleString()"></td>
+                    <td style="padding:2px;border:1px solid #e5e7eb;text-align:center;">
+                      <button @click.stop="quoteItems.splice(idx, 1); if(inlineEdit.accordionRow===idx) inlineEdit.accordionRow=-1;"
+                        style="width:18px;height:18px;border:none;background:none;cursor:pointer;color:#d1d5db;font-size:13px;display:inline-flex;align-items:center;justify-content:center;border-radius:3px;"
+                        onmouseover="this.style.color='#ef4444';this.style.background='#fef2f2'" onmouseout="this.style.color='#d1d5db';this.style.background='none'">×</button>
+                    </td>
+                  </tr>
+
+                  <tr x-show="inlineEdit.accordionRow === idx" x-transition>
+                    <td colspan="9" style="padding:0;border:1px solid #e5e7eb;background:#f8faff;">
+                    <div style="padding:10px 16px 10px 40px;">
+                      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+
+                        <!-- 왼쪽: 규격/옵션 편집 -->
+                        <div>
+                          <p style="font-size:10px;font-weight:700;color:#4f6ef7;margin-bottom:6px;">규격 / 옵션</p>
+                          <div class="space-y-2">
+                            <!-- 규격 수정 (면적형/길이형) -->
+                            <div x-show="item.categoryType === 'SIZE' || item.categoryType === 'LENGTH'" class="flex gap-2">
+                              <div>
+                                <label class="text-[10px] text-gray-500">가로(mm)</label>
+                                <input type="number" :value="item.widthMm" @change="item.widthMm=Number($el.value); recalcInlineItem(idx)" class="input-base py-1 text-xs" style="width:80px;">
+                              </div>
+                              <div>
+                                <label class="text-[10px] text-gray-500">세로(mm)</label>
+                                <input type="number" :value="item.heightMm" @change="item.heightMm=Number($el.value); recalcInlineItem(idx)" class="input-base py-1 text-xs" style="width:80px;">
+                              </div>
+                              <div>
+                                <label class="text-[10px] text-gray-500">수량</label>
+                                <input type="number" :value="item.qty" min="1" @change="item.qty=Number($el.value)||1; recalcInlineItem(idx)" class="input-base py-1 text-xs" style="width:60px;">
+                              </div>
+                            </div>
+                            <!-- 수동 단가 수정 -->
+                            <div x-show="item.manualPrice || item.categoryType === 'QTY' || item.categoryType === 'FIXED'" class="flex gap-2">
+                              <div>
+                                <label class="text-[10px] text-gray-500">단가(원)</label>
+                                <input type="number" :value="item.unitPrice" @change="item.unitPrice=Number($el.value); item.amount=item.unitPrice*(item.qty||1);" class="input-base py-1 text-xs" style="width:100px;">
+                              </div>
+                              <div>
+                                <label class="text-[10px] text-gray-500">수량</label>
+                                <input type="number" :value="item.qty" min="1" @change="item.qty=Number($el.value)||1; item.amount=item.unitPrice*(item.qty||1);" class="input-base py-1 text-xs" style="width:60px;">
+                              </div>
+                            </div>
+                            <!-- 옵션 체크박스 -->
+                            <template x-if="(options||[]).filter(o=>(o.categoryIds||[]).includes(item.categoryId)).length > 0">
+                              <div style="padding:6px 8px;background:#faf8ff;border:1px solid #e5e0f0;border-radius:6px;">
+                                <p style="font-size:10px;font-weight:600;color:#7c3aed;margin-bottom:4px;">옵션</p>
+                                <div class="space-y-1.5">
+                                  <template x-for="opt in (options||[]).filter(o=>(o.categoryIds||[]).includes(item.categoryId))" :key="opt.id">
+                                    <div>
+                                      <label class="flex items-center gap-2 text-xs cursor-pointer">
+                                        <input type="checkbox" :checked="(item.selectedOptions||[]).includes(opt.id)"
+                                          @change="
+                                            if($el.checked) { if(!item.selectedOptions) item.selectedOptions=[]; item.selectedOptions.push(opt.id); if(!item.optionQtys) item.optionQtys={}; item.optionQtys[opt.id]=1; }
+                                            else { item.selectedOptions=(item.selectedOptions||[]).filter(id=>id!==opt.id); }
+                                            recalcInlineItem(idx);
+                                          " class="w-3.5 h-3.5">
+                                        <span x-text="opt.name" class="text-gray-700"></span>
+                                        <span x-show="(opt.pricingType||'fixed')==='fixed'" class="text-gray-400" x-text="'(' + (opt.price||0).toLocaleString() + '원)'"></span>
+                                        <span x-show="opt.pricingType==='perSqm'" class="text-blue-500" x-text="'(' + (opt.price||0).toLocaleString() + '원/㎡)'"></span>
+                                        <span x-show="opt.pricingType==='variants'" class="text-amber-600">(규격선택)</span>
+                                        <!-- 수량 (perSqm 아닌 경우) -->
+                                        <input x-show="(item.selectedOptions||[]).includes(opt.id) && opt.pricingType!=='perSqm'" type="number"
+                                          :value="(item.optionQtys||{})[opt.id]||1" min="1"
+                                          @change="if(!item.optionQtys)item.optionQtys={}; item.optionQtys[opt.id]=Number($el.value)||1; recalcInlineItem(idx);"
+                                          @click.stop class="input-base py-0.5 text-xs" style="width:50px;" placeholder="수량">
+                                        <!-- 규격선택형 옵션 -->
+                                        <select x-show="(item.selectedOptions||[]).includes(opt.id) && opt.pricingType==='variants'"
+                                          :value="(item.optionVariants||{})[opt.id] ?? 0"
+                                          @change="if(!item.optionVariants)item.optionVariants={}; item.optionVariants[opt.id]=Number($el.value); recalcInlineItem(idx);"
+                                          @click.stop class="input-base py-0.5 text-xs" style="width:120px;">
+                                          <template x-for="(v, vi) in (opt.variants||[])" :key="vi">
+                                            <option :value="vi" x-text="v.label + ' (' + Number(v.price).toLocaleString() + '원)'"></option>
+                                          </template>
+                                        </select>
+                                      </label>
+                                      <!-- perSqm 옵션: 면적 오버라이드 -->
+                                      <div x-show="(item.selectedOptions||[]).includes(opt.id) && opt.pricingType==='perSqm'"
+                                        style="margin-left:22px;margin-top:3px;" @click.stop>
+                                        <button type="button"
+                                          @click="if(!item.optionAreas)item.optionAreas={}; if(!item.optionAreas[opt.id])item.optionAreas[opt.id]={useCustom:false,widthMm:item.widthMm,heightMm:item.heightMm}; item.optionAreas[opt.id].useCustom=!item.optionAreas[opt.id].useCustom; recalcInlineItem(idx)"
+                                          :class="(item.optionAreas||{})[opt.id]&&(item.optionAreas||{})[opt.id].useCustom ? 'bg-orange-100 text-orange-700 border-orange-300' : 'bg-gray-100 text-gray-500 border-gray-300'"
+                                          class="text-[10px] px-2 py-0.5 rounded border font-medium">범위 수정</button>
+                                        <template x-if="(item.optionAreas||{})[opt.id]&&(item.optionAreas||{})[opt.id].useCustom">
+                                          <div class="flex items-center gap-1 mt-1">
+                                            <input type="number" placeholder="가로"
+                                              :value="((item.optionAreas||{})[opt.id]||{}).widthMm||0"
+                                              @input="if(!item.optionAreas)item.optionAreas={}; item.optionAreas[opt.id]={...(item.optionAreas[opt.id]||{}),widthMm:Number($el.value)||0}; recalcInlineItem(idx)"
+                                              class="input-base w-16 py-0.5 text-xs">
+                                            <span class="text-gray-400 text-xs">×</span>
+                                            <input type="number" placeholder="세로"
+                                              :value="((item.optionAreas||{})[opt.id]||{}).heightMm||0"
+                                              @input="if(!item.optionAreas)item.optionAreas={}; item.optionAreas[opt.id]={...(item.optionAreas[opt.id]||{}),heightMm:Number($el.value)||0}; recalcInlineItem(idx)"
+                                              class="input-base w-16 py-0.5 text-xs">
+                                            <span class="text-[10px] text-blue-500" x-text="'= '+((((item.optionAreas||{})[opt.id]||{}).widthMm||0)/1000*(((item.optionAreas||{})[opt.id]||{}).heightMm||0)/1000).toFixed(4)+'㎡'"></span>
+                                          </div>
+                                        </template>
+                                        <span x-show="!((item.optionAreas||{})[opt.id]&&(item.optionAreas||{})[opt.id].useCustom)" class="text-[10px] text-gray-400 ml-2"
+                                          x-text="'상품과 동일 ('+((item.widthMm||0)/1000*(item.heightMm||0)/1000).toFixed(4)+'㎡)'"></span>
+                                      </div>
+                                    </div>
+                                  </template>
+                                </div>
+                              </div>
+                            </template>
+                          </div>
+                        </div>
+
+                        <!-- 오른쪽: 매입 정보 -->
+                        <div>
+                          <p style="font-size:10px;font-weight:700;color:#16a34a;margin-bottom:6px;">매입 정보</p>
+                          <div class="space-y-2">
+                            <div class="flex gap-2">
+                              <div class="flex-1">
+                                <label class="text-[10px] text-gray-500">매입처</label>
+                                <input x-model="item.supplier" class="input-base py-1 text-xs" placeholder="업체명" @click.stop>
+                              </div>
+                              <div style="width:100px;">
+                                <label class="text-[10px] text-gray-500">매입단가</label>
+                                <input type="number" x-model="item.purchasePrice" class="input-base py-1 text-xs" placeholder="0" @click.stop>
+                              </div>
+                            </div>
+                            <div x-show="(item.purchasePrice||0) > 0" class="text-xs">
+                              <span class="text-gray-500">매입합계:</span>
+                              <span class="font-semibold text-gray-700" x-text="((item.purchasePrice||0)*(item.qty||1)).toLocaleString()+'원'"></span>
+                              <span class="ml-2 text-gray-500">마진:</span>
+                              <span class="font-semibold"
+                                :class="(item.amount||0)-(item.purchasePrice||0)*(item.qty||1) >= 0 ? 'text-green-600' : 'text-red-500'"
+                                x-text="((item.amount||0)-(item.purchasePrice||0)*(item.qty||1)).toLocaleString()+'원'"></span>
+                            </div>
+                            <div>
+                              <label class="text-[10px] text-gray-500">메모</label>
+                              <input x-model="item.purchaseMemo" class="input-base py-1 text-xs" placeholder="매입 메모" @click.stop>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    </td>
+                  </tr>
+                </template>
+
+                  </tbody>
+                  <tfoot>
+                <!-- ═══ 새 행 추가 영역 ═══ -->
+                <tr style="background:#f0fdf4;">
+                  <td style="padding:4px;border:1px solid #bbf7d0;text-align:center;color:#16a34a;font-size:14px;">+</td>
+                  <!-- 품목 검색 드롭다운 -->
+                  <td style="padding:4px;border:1px solid #bbf7d0;"><div class="relative" @click.stop>
+                    <input type="text" x-model="newRow.catSearch"
+                      @focus="newRow.catOpen = true; newRow.catHighlight = -1"
+                      @click="newRow.catOpen = true"
+                      @input="newRow.catOpen = true; newRow.catHighlight = 0"
+                      @keydown.escape="newRow.catOpen = false"
+                      @keydown.arrow-down.prevent="
+                        const list = newRow.catSearch ? categories.filter(c=>c.name.toLowerCase().includes(newRow.catSearch.toLowerCase())) : categories;
+                        if(!newRow.catOpen){newRow.catOpen=true;newRow.catHighlight=0;}
+                        else if(newRow.catHighlight < list.length-1){newRow.catHighlight++;}
+                      "
+                      @keydown.arrow-up.prevent="if(newRow.catHighlight>0)newRow.catHighlight--;"
+                      @keydown.enter.prevent="
+                        const list = newRow.catSearch ? categories.filter(c=>c.name.toLowerCase().includes(newRow.catSearch.toLowerCase())) : categories;
+                        if(newRow.catHighlight>=0 && newRow.catHighlight<list.length){
+                          selectNewRowCategory(list[newRow.catHighlight]);
+                        } else if(list.length===1){
+                          selectNewRowCategory(list[0]);
+                        }
+                      "
+                      placeholder="품목 검색..."
+                      class="input-base py-1 text-xs" style="border-color:#86efac;" autocomplete="off">
+                    <div x-show="newRow.catOpen" @click.outside="newRow.catOpen=false"
+                      class="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-44 overflow-y-auto" style="z-index:1200;min-width:200px;">
+                      <template x-for="(c,ci) in (newRow.catSearch ? categories.filter(cc=>cc.name.toLowerCase().includes(newRow.catSearch.toLowerCase())) : categories)" :key="c.id">
+                        <div @click="selectNewRowCategory(c)" @mouseenter="newRow.catHighlight=ci"
+                          class="px-3 py-1.5 cursor-pointer text-xs text-gray-700"
+                          :class="newRow.catHighlight===ci ? 'bg-blue-100 font-semibold text-blue-700' : 'hover:bg-gray-50'"
+                          x-text="c.name"></div>
+                      </template>
+                      <div x-show="(newRow.catSearch ? categories.filter(cc=>cc.name.toLowerCase().includes(newRow.catSearch.toLowerCase())) : categories).length===0"
+                        class="px-3 py-2 text-xs text-gray-400 text-center">검색 결과 없음</div>
+                    </div>
+                  </div></td>
+                  <!-- 단위 -->
+                  <td style="padding:4px;border:1px solid #bbf7d0;">
+                  <select x-model="newRow.unitType" class="input-base py-1 text-xs" style="border-color:#86efac;" @click.stop>
+                    <option value="area">㎡</option>
+                    <option value="qty">개</option>
+                    <option value="length">m</option>
+                  </select>
+                  </td>
+                  <!-- 가로 -->
+                  <td style="padding:4px;border:1px solid #bbf7d0;">
+                  <input type="number" x-model="newRow.widthMm" class="input-base py-1 text-xs" style="border-color:#86efac;" placeholder="가로" @click.stop>
+                  </td>
+                  <!-- 세로 -->
+                  <td style="padding:4px;border:1px solid #bbf7d0;">
+                  <input type="number" x-model="newRow.heightMm" class="input-base py-1 text-xs" style="border-color:#86efac;" placeholder="세로" @click.stop>
+                  </td>
+                  <!-- 수량 -->
+                  <td style="padding:4px;border:1px solid #bbf7d0;">
+                  <input type="number" x-model="newRow.qty" min="1" class="input-base py-1 text-xs" style="text-align:right;border-color:#86efac;" @click.stop>
+                  </td>
+                  <!-- 단가 (수동 입력 시) -->
+                  <td style="padding:4px;border:1px solid #bbf7d0;">
+                  <input type="number" x-model="newRow.manualUnitPrice" class="input-base py-1 text-xs" style="text-align:right;border-color:#86efac;" placeholder="단가" @click.stop>
+                  </td>
+                  <!-- 추가 버튼 -->
+                  <td style="padding:4px;border:1px solid #bbf7d0;">
+                  <button @click="addInlineItem()"
+                    :disabled="!newRow.categoryId"
+                    style="background:#16a34a;color:#fff;border:none;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;cursor:pointer;"
+                    :style="!newRow.categoryId ? 'opacity:.4;cursor:not-allowed;' : ''">
+                    추가
+                  </button>
+                  </td>
+                </tr>
+
+                <!-- 합계 바 -->
+                <tr style="background:#f9fafb;font-size:12px;font-weight:700;">
+                  <td style="padding:8px 4px;border:1px solid #e5e7eb;"></td>
+                  <td style="padding:8px 6px;border:1px solid #e5e7eb;color:#6b7280;">합계 (<span x-text="quoteItems.length"></span>건)</td>
+                  <td colspan="5" style="padding:8px 4px;border:1px solid #e5e7eb;"></td>
+                  <td style="padding:8px 6px;border:1px solid #e5e7eb;text-align:right;color:#1d4ed8;" x-text="quoteTotals.supplyTotal.toLocaleString() + '원'"></td>
+                  <td style="padding:8px 2px;border:1px solid #e5e7eb;"></td>
+                </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              <!-- 합계 통계 카드 -->
+              <div x-show="quoteItems.length > 0" class="grid grid-cols-4 gap-2">
                 <div class="stat-card">
                   <p class="stat-label">공급가 (매출)</p>
                   <p class="stat-value text-sm" x-text="quoteTotals.supplyTotal.toLocaleString() + '원'"></p>
@@ -652,27 +786,179 @@
                   <p class="stat-value text-base" style="color:#1d4ed8;" x-text="quoteTotals.grandTotal.toLocaleString() + '원'"></p>
                 </div>
               </div>
+
+            </div>
+          </div>
+
+          <!-- ═══ 미리보기 탭 (A4 견적서) ═══ -->
+          <div x-show="quotePopup.tab === 'preview'" style="flex:1;overflow-y:auto;background:#e8ecf0;padding:20px;display:flex;justify-content:center;">
+            <!-- A4 용지 -->
+            <div style="width:210mm;max-width:100%;background:#fff;box-shadow:0 2px 20px rgba(0,0,0,.15);padding:20mm 15mm;font-family:'Malgun Gothic','맑은 고딕',sans-serif;min-height:297mm;">
+              <!-- 상단: 견적서 타이틀 -->
+              <div style="text-align:center;margin-bottom:10mm;">
+                <h1 style="font-size:24pt;font-weight:900;letter-spacing:2px;color:#1a1d23;margin:0;">견 적 서</h1>
+                <div style="width:60px;height:3px;background:#1d4ed8;margin:8px auto 0;"></div>
+              </div>
+
+              <!-- 거래처 정보 -->
+              <div style="display:flex;justify-content:space-between;margin-bottom:8mm;font-size:10pt;">
+                <div>
+                  <table style="border-collapse:collapse;">
+                    <tr><td style="padding:2px 8px 2px 0;font-weight:700;color:#374151;">거래처</td><td style="padding:2px 0;" x-text="vendors.find(v=>v.id===quoteHeader.vendorId)?.name || '-'"></td></tr>
+                    <tr><td style="padding:2px 8px 2px 0;font-weight:700;color:#374151;">현장명</td><td style="padding:2px 0;" x-text="quoteHeader.siteName || '-'"></td></tr>
+                    <tr><td style="padding:2px 8px 2px 0;font-weight:700;color:#374151;">견적명</td><td style="padding:2px 0;" x-text="quoteHeader.quoteName || '-'"></td></tr>
+                  </table>
+                </div>
+                <div style="text-align:right;">
+                  <table style="border-collapse:collapse;">
+                    <tr><td style="padding:2px 8px 2px 0;font-weight:700;color:#374151;">견적일</td><td style="padding:2px 0;" x-text="quoteHeader.quoteDate || '-'"></td></tr>
+                    <tr><td style="padding:2px 8px 2px 0;font-weight:700;color:#374151;">담당자</td><td style="padding:2px 0;" x-text="quoteHeader.manager || '-'"></td></tr>
+                    <tr x-show="quoteHeader.vendorManager"><td style="padding:2px 8px 2px 0;font-weight:700;color:#374151;">거래처 담당</td><td style="padding:2px 0;" x-text="quoteHeader.vendorManager || ''"></td></tr>
+                    <tr><td style="padding:2px 8px 2px 0;font-weight:700;color:#374151;">공급자</td><td style="padding:2px 0;">대림컴퍼니</td></tr>
+                  </table>
+                </div>
+              </div>
+
+              <!-- 합계 금액 강조 -->
+              <div style="background:#f0f5ff;border:2px solid #3b82f6;border-radius:6px;padding:8px 16px;margin-bottom:8mm;display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:11pt;font-weight:700;color:#1d4ed8;">합계금액 (VAT 포함)</span>
+                <span style="font-size:16pt;font-weight:900;color:#1d4ed8;" x-text="quoteTotals.grandTotal.toLocaleString() + ' 원'"></span>
+              </div>
+
+              <!-- 품목 테이블 -->
+              <table style="width:100%;border-collapse:collapse;font-size:9pt;margin-bottom:6mm;">
+                <thead>
+                  <tr style="background:#374151;color:#fff;">
+                    <th style="padding:6px 4px;border:1px solid #4b5563;width:28px;text-align:center;">No</th>
+                    <th style="padding:6px 4px;border:1px solid #4b5563;text-align:left;">품명</th>
+                    <th style="padding:6px 4px;border:1px solid #4b5563;text-align:left;width:120px;">규격</th>
+                    <th style="padding:6px 4px;border:1px solid #4b5563;text-align:center;width:40px;">단위</th>
+                    <th style="padding:6px 4px;border:1px solid #4b5563;text-align:right;width:45px;">수량</th>
+                    <th style="padding:6px 4px;border:1px solid #4b5563;text-align:right;width:80px;">단가</th>
+                    <th style="padding:6px 4px;border:1px solid #4b5563;text-align:right;width:90px;">금액</th>
+                    <th style="padding:6px 4px;border:1px solid #4b5563;text-align:left;width:80px;">비고</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="(item, idx) in quoteItems" :key="idx">
+                    <tr :style="idx % 2 === 1 ? 'background:#f9fafb;' : ''">
+                      <td style="padding:5px 4px;border:1px solid #e5e7eb;text-align:center;" x-text="idx+1"></td>
+                      <td style="padding:5px 4px;border:1px solid #e5e7eb;font-weight:600;" x-text="item.name"></td>
+                      <td style="padding:5px 4px;border:1px solid #e5e7eb;color:#6b7280;" x-text="item.spec || '-'"></td>
+                      <td style="padding:5px 4px;border:1px solid #e5e7eb;text-align:center;" x-text="item.unit || 'ea'"></td>
+                      <td style="padding:5px 4px;border:1px solid #e5e7eb;text-align:right;" x-text="(item.qty||1)"></td>
+                      <td style="padding:5px 4px;border:1px solid #e5e7eb;text-align:right;" x-text="(item.unitPrice||0).toLocaleString()"></td>
+                      <td style="padding:5px 4px;border:1px solid #e5e7eb;text-align:right;font-weight:600;" x-text="(item.amount||0).toLocaleString()"></td>
+                      <td style="padding:5px 4px;border:1px solid #e5e7eb;font-size:8pt;color:#6b7280;" x-text="item.remark || ''"></td>
+                    </tr>
+                  </template>
+                </tbody>
+                <tfoot>
+                  <tr style="background:#f3f4f6;font-weight:700;">
+                    <td colspan="6" style="padding:6px 8px;border:1px solid #e5e7eb;text-align:right;">공급가액</td>
+                    <td style="padding:6px 4px;border:1px solid #e5e7eb;text-align:right;" x-text="quoteTotals.supplyTotal.toLocaleString()"></td>
+                    <td style="border:1px solid #e5e7eb;"></td>
+                  </tr>
+                  <tr style="font-weight:600;">
+                    <td colspan="6" style="padding:4px 8px;border:1px solid #e5e7eb;text-align:right;">부가세(10%)</td>
+                    <td style="padding:4px 4px;border:1px solid #e5e7eb;text-align:right;" x-text="Math.round(quoteTotals.supplyTotal * 0.1).toLocaleString()"></td>
+                    <td style="border:1px solid #e5e7eb;"></td>
+                  </tr>
+                  <tr style="background:#1d4ed8;color:#fff;font-weight:800;font-size:10pt;">
+                    <td colspan="6" style="padding:8px 8px;border:1px solid #1d4ed8;text-align:right;">합계</td>
+                    <td style="padding:8px 4px;border:1px solid #1d4ed8;text-align:right;" x-text="quoteTotals.grandTotal.toLocaleString()"></td>
+                    <td style="border:1px solid #1d4ed8;"></td>
+                  </tr>
+                </tfoot>
+              </table>
+
+              <!-- 비고 -->
+              <div style="margin-top:10mm;font-size:9pt;color:#6b7280;">
+                <p style="font-weight:700;margin-bottom:4px;">비고</p>
+                <p>- 상기 견적은 발행일로부터 30일간 유효합니다.</p>
+                <p>- 부가세 별도 / 배송비 별도</p>
+              </div>
             </div>
           </div>
 
         </div>
-        </div><!-- /입력 탭 -->
 
-        <!-- ── 미리보기 탭 ── -->
-        <div x-show="quotePopup.tab === 'preview'" style="height:calc(85vh - 140px);display:flex;flex-direction:column;overflow:hidden;">
-          <div x-show="quoteItems.length === 0" style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;color:#9ca3af;">
-            <span class="material-symbols-outlined" style="font-size:40px;">receipt_long</span>
-            <p style="font-size:13px;font-weight:500;">항목을 추가하면 미리보기가 표시됩니다</p>
+        <!-- ═══ 오른쪽 30%: 과거단가 사이드바 (입력 탭일 때만) ═══ -->
+        <div x-show="quotePopup.tab === 'form'"
+          style="flex:3;flex-shrink:0;border-left:1px solid #e5e7eb;background:#fafbfc;display:flex;flex-direction:column;overflow:hidden;min-width:280px;max-width:380px;">
+          <!-- 사이드바 헤더 -->
+          <div style="padding:10px 12px;border-bottom:1px solid #e5e7eb;background:linear-gradient(135deg,#f0f5ff,#e8efff);flex-shrink:0;">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+              <span class="material-symbols-outlined" style="font-size:15px;color:#3b82f6;">manage_search</span>
+              <span style="font-size:12px;font-weight:700;color:#374151;">과거단가</span>
+              <span x-show="pastPriceVendorName" style="font-size:10px;background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:10px;font-weight:600;"
+                x-text="pastPriceVendorName"></span>
+            </div>
+            <div style="display:flex;gap:6px;">
+              <input type="text" x-model="pastPriceKeyword" @keydown.enter="searchPastPrices()"
+                placeholder="품명 검색 (예: 포맥스 3t)"
+                style="flex:1;padding:5px 8px;font-size:11px;border:1px solid #d1d5db;border-radius:6px;outline:none;min-width:0;"
+                @focus="$el.style.borderColor='#4f6ef7'" @blur="$el.style.borderColor='#d1d5db'">
+              <button @click="searchPastPrices()"
+                style="padding:5px 10px;background:#4f6ef7;color:#fff;border:none;border-radius:6px;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;">
+                검색
+              </button>
+            </div>
           </div>
-          <!-- ctrl bar(약 42px)를 위로 밀어 숨김, overflow:hidden으로 클리핑 -->
-          <div x-show="quoteItems.length > 0" style="flex:1;overflow:hidden;position:relative;">
-            <iframe
-              id="quote-preview-iframe"
-              src=""
-              style="position:absolute;top:-42px;left:0;width:100%;height:calc(100% + 42px);border:none;background:#e8ecf0;">
-            </iframe>
+          <!-- 과거단가 결과 (스크롤) -->
+          <div style="flex:1;overflow-y:auto;">
+            <div x-show="!pastPriceSearched && !pastPriceLoading" style="text-align:center;padding:40px 16px;color:#b0b8c4;">
+              <span class="material-symbols-outlined" style="font-size:32px;">history</span>
+              <p style="font-size:11px;margin-top:10px;line-height:1.6;">품목을 선택하면<br>과거 거래 내역이<br>자동으로 표시됩니다</p>
+            </div>
+            <div x-show="pastPriceLoading" style="text-align:center;padding:30px;color:#9ca3af;">
+              <span class="material-symbols-outlined animate-spin" style="font-size:18px;">progress_activity</span>
+            </div>
+            <div x-show="!pastPriceLoading && pastPriceSearched && pastPriceResults.length === 0"
+              style="text-align:center;padding:30px;color:#9ca3af;">
+              <span class="material-symbols-outlined" style="font-size:24px;">search_off</span>
+              <p style="font-size:11px;margin-top:4px;">결과 없음</p>
+            </div>
+            <div x-show="!pastPriceLoading && pastPriceResults.length > 0">
+              <template x-for="row in pastPriceResults" :key="row.id">
+                <div style="padding:7px 12px;border-bottom:1px solid #f0f1f3;cursor:default;transition:background .1s;"
+                  onmouseover="this.style.background='#eff6ff'" onmouseout="this.style.background=''">
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;">
+                    <span style="font-size:11px;font-weight:600;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:170px;" x-text="row.product_name"></span>
+                    <span style="font-size:12px;font-weight:700;color:#1d4ed8;white-space:nowrap;" x-text="row.unit_price.toLocaleString() + '원'"></span>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;margin-top:2px;">
+                    <span style="font-size:10px;color:#9ca3af;" x-text="row.sale_date + (row.raw_spec ? ' · ' + row.raw_spec : '')"></span>
+                    <span style="font-size:10px;white-space:nowrap;"
+                      :style="row.price_per_sqm ? 'color:#3b82f6;font-weight:500;' : ''"
+                      x-text="row.price_per_sqm ? row.price_per_sqm.toLocaleString() + '원/㎡' : ''"></span>
+                  </div>
+                </div>
+              </template>
+              <div x-show="pastPriceOthers.length > 0" style="padding:8px 12px;border-top:1px solid #e5e7eb;">
+                <button @click="pastPriceShowOthers = !pastPriceShowOthers"
+                  style="font-size:10px;color:#6b7280;background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:3px;padding:0;">
+                  <span class="material-symbols-outlined" style="font-size:12px;transition:transform .15s;"
+                    :style="pastPriceShowOthers ? '' : 'transform:rotate(-90deg)'">expand_more</span>
+                  다른 거래처 (<span x-text="pastPriceOthers.length"></span>건)
+                </button>
+                <template x-if="pastPriceShowOthers">
+                  <div style="margin-top:6px;">
+                    <template x-for="row in pastPriceOthers" :key="row.id">
+                      <div style="padding:4px 0;border-bottom:1px solid #f9fafb;opacity:.7;">
+                        <div style="display:flex;justify-content:space-between;">
+                          <span style="font-size:10px;color:#6b7280;" x-text="row.vendor"></span>
+                          <span style="font-size:10px;font-weight:600;color:#374151;" x-text="row.unit_price.toLocaleString() + '원'"></span>
+                        </div>
+                        <span style="font-size:9px;color:#9ca3af;" x-text="row.sale_date + (row.raw_spec ? ' · ' + row.raw_spec : '')"></span>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </div>
           </div>
-        </div><!-- /미리보기 탭 -->
+        </div>
 
       </div>
     </template>
@@ -700,391 +986,18 @@
       </div>
     </template>
 
-    <!-- 크기 조절 핸들 (드래그로 팝업 크기 변경) -->
+    <!-- 크기 조절 핸들 -->
     <template x-if="!quotePopup.minimized">
       <div>
-        <div class="ec-resize-r" @mousedown.prevent.stop="startPopupResize(quotePopup,'r',$event)" title="좌우 크기 조절"></div>
-        <div class="ec-resize-b" @mousedown.prevent.stop="startPopupResize(quotePopup,'b',$event)" title="상하 크기 조절"></div>
-        <div class="ec-resize-br" @mousedown.prevent.stop="startPopupResize(quotePopup,'br',$event)" title="크기 조절"></div>
+        <div class="ec-resize-r" @mousedown.prevent.stop="startPopupResize(quotePopup,'r',$event)"></div>
+        <div class="ec-resize-b" @mousedown.prevent.stop="startPopupResize(quotePopup,'b',$event)"></div>
+        <div class="ec-resize-br" @mousedown.prevent.stop="startPopupResize(quotePopup,'br',$event)"></div>
       </div>
     </template>
   </div>
 </template>
 
-<!-- ════════════════════════════════════════════
-     이카운트 스타일 팝업 ③ : 견적 항목 편집
-     ════════════════════════════════════════════ -->
-<!-- itemEditPopup: backdrop 없이 견적 팝업 위에 자유롭게 float -->
-<template x-if="itemEditPopup.open">
-  <div style="position:fixed;inset:0;z-index:1055;pointer-events:none;"></div>
-</template>
-<template x-if="itemEditPopup.open">
-  <div class="ec-popup"
-       :style="`left:${itemEditPopup.x}px; top:${itemEditPopup.y}px; width:${itemEditPopup.width}px; max-width:95vw; z-index:1060;`"
-       @mousemove.window="onPopupDrag(itemEditPopup, $event); onPopupResize(itemEditPopup, $event)"
-       @mouseup.window="itemEditPopup.dragging=false; itemEditPopup.resizing=false;"
-
-    <!-- 타이틀바 -->
-    <div class="ec-popup-title" style="justify-content:space-between;"
-         @mousedown="startPopupDrag(itemEditPopup, $event)">
-      <div class="flex items-center gap-2">
-        <div class="ec-popup-title-icon" style="background:rgba(79,110,247,.3);">
-          <span class="material-symbols-outlined" style="font-size:14px;color:#8fabff;">tune</span>
-        </div>
-        <span style="font-size:13px;font-weight:700;">
-          <span x-text="itemEditPopup.idx === -1 ? '항목 추가' : '항목 편집'"></span>
-        </span>
-        <span x-show="itemEditPopup.idx >= 0 && quoteItems[itemEditPopup.idx]"
-          class="text-[11px] font-normal" style="color:rgba(255,255,255,.45);"
-          x-text="'— ' + (quoteItems[itemEditPopup.idx]?.name||'')"></span>
-      </div>
-      <button class="ec-popup-ctrl-btn close" @click.stop="itemEditPopup.open=false" title="닫기">
-        <span class="material-symbols-outlined" style="font-size:14px;">close</span>
-      </button>
-    </div>
-
-    <!-- 탭 바 -->
-    <div style="display:flex;border-bottom:2px solid #e5e7eb;background:#fff;padding:0 16px;position:sticky;top:0;z-index:10;">
-      <button @click.stop="itemEditPopup.tab='spec'"
-        style="padding:9px 18px;font-size:12px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s;display:flex;align-items:center;gap:5px;"
-        :style="itemEditPopup.tab==='spec' ? 'color:#4f6ef7;border-bottom-color:#4f6ef7;' : 'color:#9ca3af;'">
-        <span class="material-symbols-outlined" style="font-size:14px;">straighten</span> 사양 / 옵션
-      </button>
-      <button @click.stop="itemEditPopup.tab='buy'"
-        style="padding:9px 18px;font-size:12px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s;display:flex;align-items:center;gap:5px;"
-        :style="itemEditPopup.tab==='buy' ? 'color:#4f6ef7;border-bottom-color:#4f6ef7;' : 'color:#9ca3af;'">
-        <span class="material-symbols-outlined" style="font-size:14px;">payments</span> 매입 정보
-        <span x-show="(itemEditPopup.purchasePrice||0) > 0"
-          class="text-[10px] px-1.5 rounded-full font-semibold" style="background:#dcfce7;color:#16a34a;">입력됨</span>
-      </button>
-    </div>
-
-    <!-- 본문 -->
-    <div class="ec-popup-body" :style="'max-height:' + (itemEditPopup.height - 120) + 'px; overflow-y:auto;'">
-
-      <!-- ── 사양/옵션 탭 ── -->
-      <div x-show="itemEditPopup.tab === 'spec'" style="padding:16px;">
-
-        <!-- 타입 선택 + 수동 토글 -->
-        <div class="flex items-center gap-2 mb-4 flex-wrap">
-          <span class="text-[11px] font-semibold text-gray-500 mr-1">측정 방식:</span>
-          <!-- 등록된 단가 유형만 표시 (QTY/FIXED는 수동입력 고정) -->
-          <template x-for="t in [{id:'SIZE',label:'면적형',icon:'crop_square'},{id:'LENGTH',label:'길이형',icon:'straighten'},{id:'QTY',label:'수량형',icon:'tag'},{id:'VARIANTS',label:'규격선택형',icon:'rule'}]" :key="t.id">
-            <button
-              x-show="itemEditPopup.categoryType === t.id"
-              style="background:#4f6ef7;color:#fff;border-color:#4f6ef7;cursor:default;"
-              class="flex items-center gap-1 text-[11px] font-semibold px-3 py-1.5 rounded-lg border transition-all">
-              <span class="material-symbols-outlined" style="font-size:13px;" x-text="t.icon"></span>
-              <span x-text="t.label"></span>
-            </button>
-          </template>
-          <div style="flex:1;"></div>
-          <label class="flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-semibold text-gray-600">
-            <input type="checkbox" x-model="itemEditPopup.manualPrice" @change="itemEditRecalc()" class="w-3.5 h-3.5">
-            수동 입력
-          </label>
-        </div>
-
-        <!-- 수량 -->
-        <div class="mb-3">
-          <label class="label-base">수량</label>
-          <input type="number" x-model="itemEditPopup.qty" min="1" @change="itemEditRecalc()" class="input-base" style="max-width:120px;">
-        </div>
-
-        <!-- 면적형 입력 -->
-        <div x-show="!itemEditPopup.manualPrice && itemEditPopup.categoryType === 'SIZE'" class="grid grid-cols-2 gap-3 mb-3">
-          <div>
-            <label class="label-base">가로 (mm)</label>
-            <input type="number" x-model="itemEditPopup.widthMm" @change="itemEditRecalc()" class="input-base" placeholder="예: 1000">
-          </div>
-          <div>
-            <label class="label-base">세로 (mm)</label>
-            <input type="number" x-model="itemEditPopup.heightMm" @change="itemEditRecalc()" class="input-base" placeholder="예: 2000">
-          </div>
-        </div>
-
-        <!-- 규격선택형 입력 (VARIANTS) -->
-        <div x-show="!itemEditPopup.manualPrice && itemEditPopup.categoryType === 'VARIANTS'" class="mb-3">
-          <label class="label-base">규격 선택</label>
-          <select x-model="itemEditPopup.variantIdx" @change="itemEditRecalc()" class="input-base">
-            <option value="-1">-- 규격 선택 --</option>
-            <template x-for="(v, vi) in (categories.find(c=>c.id===itemEditPopup.categoryId)||{}).variants||[]" :key="vi">
-              <option :value="vi" x-text="v.label + ' (' + (v.price||0).toLocaleString() + '원)'"></option>
-            </template>
-          </select>
-        </div>
-
-        <!-- 길이형 입력 -->
-        <div x-show="!itemEditPopup.manualPrice && itemEditPopup.categoryType === 'LENGTH'" class="grid grid-cols-2 gap-3 mb-3">
-          <div>
-            <label class="label-base">폭 (mm)</label>
-            <input type="number" x-model="itemEditPopup.widthMm" @change="itemEditRecalc()" class="input-base" placeholder="예: 1000">
-          </div>
-          <div>
-            <label class="label-base">길이 (mm)</label>
-            <input type="number" x-model="itemEditPopup.heightMm" @change="itemEditRecalc()" class="input-base" placeholder="예: 5000">
-          </div>
-        </div>
-
-        <!-- 수량형/수동 입력: 이름 + 규격 + 단가 -->
-        <div x-show="itemEditPopup.manualPrice || itemEditPopup.categoryType === 'QTY' || itemEditPopup.categoryType === 'FIXED'" class="space-y-3 mb-3">
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="label-base">항목명</label>
-              <input x-model="itemEditPopup.customName" class="input-base" placeholder="항목명">
-            </div>
-            <div>
-              <label class="label-base">규격/사양</label>
-              <input x-model="itemEditPopup.customSpec" class="input-base" placeholder="규격">
-            </div>
-          </div>
-          <div>
-            <label class="label-base">단가 (원)</label>
-            <input type="number" x-model="itemEditPopup.manualUnitPrice" @change="itemEditRecalc()" class="input-base" placeholder="단가 입력" style="max-width:160px;">
-          </div>
-        </div>
-
-        <!-- 자동 계산 결과 미리보기 -->
-        <div x-show="!itemEditPopup.manualPrice && Object.keys(itemEditCalc).length > 0"
-          class="p-3 rounded-lg border border-blue-200 mb-4"
-          style="background:linear-gradient(135deg,#f8fbff,#eff6ff);">
-          <p class="text-[10px] font-bold text-blue-500 mb-2">계산 결과</p>
-          <div class="grid grid-cols-3 gap-3 text-sm">
-            <div>
-              <p class="text-[10px] text-blue-400 font-semibold mb-0.5"
-                x-text="itemEditPopup.categoryType === 'LENGTH' ? '길이 / 폭' : '면적'"></p>
-              <p class="text-xs font-bold text-gray-800"
-                x-text="itemEditPopup.categoryType === 'LENGTH'
-                  ? ((itemEditCalc.lengthM||0)+'m / '+(itemEditCalc.widthTierLabel||'-'))
-                  : (itemEditCalc.sqm || '-')"></p>
-            </div>
-            <div>
-              <p class="text-[10px] text-blue-400 font-semibold mb-0.5"
-                x-text="itemEditPopup.categoryType === 'LENGTH' ? 'm당 단가' : '㎡당 단가'"></p>
-              <p class="text-xs font-bold text-gray-800"
-                x-text="itemEditPopup.categoryType === 'LENGTH'
-                  ? ((itemEditCalc.pricePerM||0).toLocaleString()+' 원/m')
-                  : ((itemEditCalc.unitPrice||0).toLocaleString()+' 원/㎡')"></p>
-            </div>
-            <div>
-              <p class="text-[10px] text-blue-400 font-semibold mb-0.5">공급가 (세전)</p>
-              <p class="text-xs font-bold text-blue-700" x-text="(itemEditCalc.totalExVat||0).toLocaleString() + ' 원'"></p>
-            </div>
-          </div>
-        </div>
-
-        <!-- 수동 입력 시 공급가 미리보기 -->
-        <div x-show="itemEditPopup.manualPrice && (itemEditPopup.manualUnitPrice||0) > 0"
-          class="p-3 rounded-lg border border-amber-200 mb-4"
-          style="background:#fffbeb;">
-          <p class="text-[10px] font-bold text-amber-600 mb-1">수동 입력 계산</p>
-          <p class="text-sm font-bold text-gray-800"
-            x-text="(Number(itemEditPopup.manualUnitPrice)||0).toLocaleString() + '원 × ' + (itemEditPopup.qty||1) + ' = ' + ((Number(itemEditPopup.manualUnitPrice)||0) * (itemEditPopup.qty||1)).toLocaleString() + '원'"></p>
-        </div>
-
-        <!-- 옵션 섹션 -->
-        <div x-show="itemEditAvailableOptions.length > 0" class="p-3 bg-gray-50 rounded-lg border border-gray-200">
-          <label class="label-base mb-2 flex items-center gap-1">
-            <span class="material-symbols-outlined" style="font-size:14px;color:#7c3aed;">settings</span>
-            옵션
-            <span x-show="itemEditPopup.selectedOptions.length > 0"
-              class="text-[10px] px-1.5 py-0.5 rounded-full font-semibold ml-1"
-              style="background:#ede9fe;color:#7c3aed;"
-              x-text="itemEditPopup.selectedOptions.length + '개 선택'"></span>
-          </label>
-          <div class="space-y-2">
-            <template x-for="opt in itemEditAvailableOptions" :key="opt.id">
-              <div class="flex flex-wrap items-center gap-2">
-                <input type="checkbox" :id="'ie_opt_' + opt.id" :value="opt.id"
-                  x-model="itemEditPopup.selectedOptions"
-                  @change="itemEditRecalc()"
-                  class="w-4 h-4 cursor-pointer">
-                <label :for="'ie_opt_' + opt.id" class="cursor-pointer flex items-center gap-1">
-                  <span class="text-sm text-gray-800 font-medium" x-text="opt.name"></span>
-                  <span x-show="(opt.pricingType||'fixed')==='fixed'" class="text-xs text-gray-400"
-                    x-text="'(' + (opt.price||0).toLocaleString() + '원/' + opt.unit + ')'"></span>
-                  <span x-show="opt.pricingType==='perSqm'" class="text-xs text-blue-500"
-                    x-text="'(' + (opt.price||0).toLocaleString() + '원/㎡)'"></span>
-                  <span x-show="opt.pricingType==='variants'" class="text-xs text-amber-600">(규격선택)</span>
-                </label>
-                <select x-show="itemEditPopup.selectedOptions.includes(opt.id) && opt.pricingType==='variants'"
-                  :value="(itemEditPopup.optionVariants||{})[opt.id] ?? 0"
-                  @change="itemEditPopup.optionVariants = {...(itemEditPopup.optionVariants||{}), [opt.id]: Number($el.value)}; itemEditRecalc()"
-                  class="input-base w-36 py-1 text-xs">
-                  <template x-for="(v, vi) in (opt.variants||[])" :key="vi">
-                    <option :value="vi" x-text="v.label + ' (' + Number(v.price).toLocaleString() + '원)'"></option>
-                  </template>
-                </select>
-                <input x-show="itemEditPopup.selectedOptions.includes(opt.id) && opt.pricingType!=='perSqm'" type="number"
-                  :value="(itemEditPopup.optionQtys||{})[opt.id] ?? 1"
-                  @change="itemEditPopup.optionQtys = {...(itemEditPopup.optionQtys||{}), [opt.id]: Math.max(1, Number($el.value)||1)}; itemEditRecalc()"
-                  class="input-base w-16 py-1 text-xs" placeholder="수량">
-                <!-- perSqm: 면적 수정 -->
-                <template x-if="itemEditPopup.selectedOptions.includes(opt.id) && opt.pricingType==='perSqm'">
-                  <div class="flex flex-wrap items-center gap-1">
-                    <button type="button"
-                      @click="if(!(itemEditPopup.optionAreas||{})[opt.id])itemEditPopup.optionAreas={...(itemEditPopup.optionAreas||{}),[opt.id]:{useCustom:false,widthMm:itemEditPopup.widthMm,heightMm:itemEditPopup.heightMm}};itemEditPopup.optionAreas[opt.id].useCustom=!itemEditPopup.optionAreas[opt.id].useCustom;itemEditRecalc()"
-                      :class="((itemEditPopup.optionAreas||{})[opt.id]&&(itemEditPopup.optionAreas||{})[opt.id].useCustom)?'bg-orange-100 text-orange-700 border-orange-300':'bg-gray-100 text-gray-500 border-gray-300'"
-                      class="text-xs px-2 py-0.5 rounded border font-medium">범위 수정</button>
-                    <template x-if="(itemEditPopup.optionAreas||{})[opt.id]&&(itemEditPopup.optionAreas||{})[opt.id].useCustom">
-                      <div class="flex items-center gap-1">
-                        <input type="number" placeholder="가로"
-                          :value="((itemEditPopup.optionAreas||{})[opt.id]||{}).widthMm||0"
-                          @input="itemEditPopup.optionAreas={...(itemEditPopup.optionAreas||{}),[opt.id]:{...((itemEditPopup.optionAreas||{})[opt.id]||{}),widthMm:Number($el.value)||0}};itemEditRecalc()"
-                          class="input-base w-20 py-0.5 text-xs">
-                        <span class="text-gray-400 text-xs">×</span>
-                        <input type="number" placeholder="세로"
-                          :value="((itemEditPopup.optionAreas||{})[opt.id]||{}).heightMm||0"
-                          @input="itemEditPopup.optionAreas={...(itemEditPopup.optionAreas||{}),[opt.id]:{...((itemEditPopup.optionAreas||{})[opt.id]||{}),heightMm:Number($el.value)||0}};itemEditRecalc()"
-                          class="input-base w-20 py-0.5 text-xs">
-                        <span class="text-xs text-blue-500" x-text="'= '+(((itemEditPopup.optionAreas||{})[opt.id]||{}).widthMm||0)/1000*(((itemEditPopup.optionAreas||{})[opt.id]||{}).heightMm||0)/1000+'㎡'"></span>
-                      </div>
-                    </template>
-                    <span x-show="!((itemEditPopup.optionAreas||{})[opt.id]&&(itemEditPopup.optionAreas||{})[opt.id].useCustom)" class="text-xs text-gray-400"
-                      x-text="'상품과 동일 ('+(itemEditPopup.widthMm/1000)*(itemEditPopup.heightMm/1000)+'㎡)'"></span>
-                  </div>
-                </template>
-              </div>
-            </template>
-          </div>
-        </div>
-      </div>
-
-      <!-- ── 매입 정보 탭 ── -->
-      <div x-show="itemEditPopup.tab === 'buy'" style="padding:16px;">
-        <div class="grid grid-cols-2 gap-3 mb-3">
-          <div>
-            <label class="label-base">매입처 (업체명)</label>
-            <input x-model="itemEditPopup.supplier" class="input-base" placeholder="예: 현수막나라">
-          </div>
-          <div>
-            <label class="label-base">매입단가 (원)</label>
-            <input type="number" x-model="itemEditPopup.purchasePrice" class="input-base" placeholder="0">
-          </div>
-        </div>
-
-        <!-- 매입 합계 표시 -->
-        <div x-show="(itemEditPopup.purchasePrice||0) > 0"
-          class="mb-3 p-3 rounded-lg border border-green-200"
-          style="background:#f0fdf4;">
-          <div class="grid grid-cols-2 gap-2 text-xs">
-            <div>
-              <p class="text-[10px] text-green-600 font-semibold mb-0.5">매입 합계</p>
-              <p class="font-bold text-gray-800"
-                x-text="((Number(itemEditPopup.purchasePrice)||0) * (itemEditPopup.qty||1)).toLocaleString() + '원'"></p>
-            </div>
-            <div>
-              <p class="text-[10px] text-green-600 font-semibold mb-0.5">예상 마진</p>
-              <p class="font-bold"
-                :class="(itemEditCalc.totalExVat||0) - (Number(itemEditPopup.purchasePrice)||0) * (itemEditPopup.qty||1) >= 0 ? 'text-green-600' : 'text-red-500'"
-                x-text="((itemEditCalc.totalExVat||itemEditPopup.manualUnitPrice*(itemEditPopup.qty||1)||0) - (Number(itemEditPopup.purchasePrice)||0) * (itemEditPopup.qty||1)).toLocaleString() + '원'"></p>
-            </div>
-          </div>
-        </div>
-
-        <div class="mb-3">
-          <label class="label-base">메모</label>
-          <textarea x-model="itemEditPopup.purchaseMemo" rows="3"
-            class="input-base w-full" style="resize:vertical;" placeholder="매입 관련 메모 (거래 조건, 납기, 참고사항 등)"></textarea>
-        </div>
-
-        <!-- 이미지 첨부 (클릭/붙여넣기/드래그 지원) -->
-        <div class="mb-3">
-          <label class="label-base">참고 이미지</label>
-          <!-- 드래그앤드롭 + Ctrl+V 영역 -->
-          <div
-            @paste.window="if(itemEditPopup.tab==='buy' && $event.clipboardData){ const items=[...$event.clipboardData.items]; const imgItem=items.find(i=>i.type.startsWith('image/')); if(imgItem){ $event.preventDefault(); const file=imgItem.getAsFile(); uploadItemEditImageFile(file); } }"
-            @dragover.prevent="$el.style.borderColor='#4f6ef7'; $el.style.background='#eef2ff';"
-            @dragleave="$el.style.borderColor='#e5e7eb'; $el.style.background='#fafafa';"
-            @drop.prevent="$el.style.borderColor='#e5e7eb'; $el.style.background='#fafafa'; const file=$event.dataTransfer.files[0]; if(file&&file.type.startsWith('image/')) uploadItemEditImageFile(file);"
-            style="border:2px dashed #e5e7eb;border-radius:10px;padding:12px 14px;background:#fafafa;transition:all .15s;">
-            <div class="flex items-center gap-3">
-              <!-- 이미지 미리보기 -->
-              <div x-show="itemEditPopup.purchaseImage"
-                class="w-16 h-16 rounded-lg overflow-hidden border border-gray-200 bg-gray-50 cursor-pointer flex-shrink-0"
-                @click="quoteImagePreview = itemEditPopup.purchaseImage">
-                <img :src="itemEditPopup.purchaseImage" class="w-full h-full object-contain">
-              </div>
-              <!-- 업로드 버튼 + 힌트 -->
-              <div class="flex flex-col gap-1.5">
-                <label class="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border border-gray-200 cursor-pointer hover:bg-gray-100 self-start" style="background:#fff;">
-                  <span class="material-symbols-outlined" style="font-size:14px;color:#6b7280;">upload_file</span>
-                  <span x-text="itemEditPopup.purchaseImage ? '이미지 변경' : '파일 첨부'"></span>
-                  <input type="file" accept="image/*" class="hidden" @change="uploadItemEditImage($event)">
-                </label>
-                <div style="font-size:10px;color:#9ca3af;display:flex;align-items:center;gap:8px;">
-                  <span style="display:flex;align-items:center;gap:2px;">
-                    <span class="material-symbols-outlined" style="font-size:12px;">content_paste</span> Ctrl+V 붙여넣기
-                  </span>
-                  <span>·</span>
-                  <span style="display:flex;align-items:center;gap:2px;">
-                    <span class="material-symbols-outlined" style="font-size:12px;">drag_pan</span> 드래그 드롭
-                  </span>
-                </div>
-              </div>
-              <button x-show="itemEditPopup.purchaseImage" @click="itemEditPopup.purchaseImage=''"
-                class="ml-auto text-xs text-red-400 hover:text-red-600 flex items-center gap-1">
-                <span class="material-symbols-outlined" style="font-size:13px;">delete</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- 이 품목의 기존 매입 이력 (저장된 quoteItems 중 동일 categoryId) -->
-        <template x-if="itemEditPopup.categoryId">
-          <div>
-            <p class="text-[11px] font-bold text-gray-500 mb-2 flex items-center gap-1">
-              <span class="material-symbols-outlined" style="font-size:14px;">history</span>
-              이 품목의 과거 매입 이력
-            </p>
-            <div class="text-[10px] text-gray-400">
-              <template x-if="savedQuotes.length === 0">
-                <p>저장된 견적서가 없습니다.</p>
-              </template>
-              <template x-if="savedQuotes.length > 0">
-                <div>
-                  <p class="text-gray-400 mb-2">동일 품목이 포함된 최근 견적서의 매입 정보를 적용할 수 있습니다.</p>
-                  <div class="space-y-1.5 max-h-40 overflow-y-auto pr-1">
-                    <template x-for="q in savedQuotes.filter(q => (q.items||[]).some(i => i.categoryId === itemEditPopup.categoryId && (i.purchasePrice||0) > 0)).slice(0, 8)" :key="q.id">
-                      <template x-for="itm in (q.items||[]).filter(i => i.categoryId === itemEditPopup.categoryId && (i.purchasePrice||0) > 0)" :key="itm.spec">
-                        <div class="flex items-center justify-between p-2 bg-white rounded-lg border border-gray-100 hover:border-blue-200 transition-colors">
-                          <div>
-                            <span class="font-semibold text-gray-700" x-text="itm.supplier || '(업체 미기재)'"></span>
-                            <span class="text-gray-400 mx-1">·</span>
-                            <span class="text-blue-600 font-semibold" x-text="(itm.purchasePrice||0).toLocaleString() + '원'"></span>
-                            <span class="text-gray-400 ml-1" x-text="'(' + (q.siteName||'') + ' / ' + (q.quoteDate||'').slice(0,10) + ')'"></span>
-                          </div>
-                          <button @click="itemEditPopup.supplier = itm.supplier||''; itemEditPopup.purchasePrice = itm.purchasePrice||0;"
-                            class="text-[10px] font-semibold px-2 py-1 rounded"
-                            style="background:#eef2ff;color:#4f6ef7;border:1px solid #c7d2fe;">적용</button>
-                        </div>
-                      </template>
-                    </template>
-                  </div>
-                </div>
-              </template>
-            </div>
-          </div>
-        </template>
-      </div>
-
-    </div><!-- /ec-popup-body -->
-
-    <!-- 푸터 -->
-    <div class="ec-popup-footer">
-      <button @click="saveItemEdit()" class="btn-primary btn-sm">
-        <span class="material-symbols-outlined" style="font-size:15px;">check</span>
-        <span x-text="itemEditPopup.idx === -1 ? '추가' : '적용'"></span>
-      </button>
-      <button @click="if(itemEditPopup._quoteWasOpen) quotePopup.open=true; itemEditPopup.open=false;" class="btn-ghost btn-sm">닫기</button>
-    </div>
-
-    <!-- 크기 조절 핸들 -->
-    <div class="ec-resize-r" @mousedown.prevent.stop="startPopupResize(itemEditPopup,'r',$event)"></div>
-    <div class="ec-resize-b" @mousedown.prevent.stop="startPopupResize(itemEditPopup,'b',$event)"></div>
-    <div class="ec-resize-br" @mousedown.prevent.stop="startPopupResize(itemEditPopup,'br',$event)"></div>
-  </div>
-</template>
+<!-- itemEditPopup 제거됨 — 인라인 편집으로 대체 (2026-04-16) -->
 
 <!-- ════════════════════════════════════════════
      이카운트 스타일 팝업 ② : 품목 추가 / 편집
@@ -1121,7 +1034,7 @@
           </div>
           <div>
             <label class="label-base">코드</label>
-            <input x-model="pricingPopup.form.code" class="input-base" placeholder="예: SAFE001">
+            <input x-model="pricingPopup.form.code" class="input-base" placeholder="예: FM, BN, PE">
           </div>
         </div>
         <div class="grid grid-cols-2 gap-3">
@@ -1764,6 +1677,8 @@
             currentTab === 'vendors' ? 'storefront' :
             currentTab === 'admin' ? 'group' :
             currentTab === 'stats' ? 'bar_chart' :
+            currentTab === 'workspace' ? 'edit_document' :
+            currentTab === 'gpsAttendance' ? 'location_on' :
             'settings'
           "></span>
         </div>
@@ -1777,7 +1692,7 @@
     </header>
 
     <!-- CONTENT AREA -->
-    <div class="flex-1 overflow-y-auto p-6 main-scroll" style="background:#eef1f6;">
+    <div class="flex-1 overflow-y-auto main-scroll" :class="currentTab === 'workspace' || currentTab === 'gpsAttendance' ? '' : 'p-6'" :style="currentTab === 'workspace' ? 'background:#f8f9fb;overflow:hidden;' : currentTab === 'gpsAttendance' ? 'background:#f8f9fb;' : 'background:#eef1f6;'">
 
       <!-- QUOTE TAB → history 탭으로만 전환 (팝업 자동 오픈 없음) -->
       <template x-if="currentTab === 'quote'" x-init="$nextTick(()=>{ currentTab='history'; })">
@@ -3584,6 +3499,18 @@
         <!--INCLUDE:tab-orgchart.html-->
       </template>
 
+      <!-- SALES LOOKUP TAB (과거단가조회) -->
+      <!--INCLUDE:tab-sales-lookup.html-->
+
+      <!-- WORKSPACE TAB (워크스페이스) -->
+      <template x-if="currentTab === 'workspace'">
+        <!--INCLUDE:tab-workspace.html-->
+      </template>
+
+      <template x-if="currentTab === 'gpsAttendance'">
+        <!--INCLUDE:tab-gps-attendance.html-->
+      </template>
+
       <!-- CONTACTS TAB (연락처) - 업체 > 현장 > 사람 3단 구조 -->
       <template x-if="currentTab === 'contacts'">
         <div class="fade-in" x-data="contactsApp()">
@@ -5092,7 +5019,9 @@ function app() {
       { id: 'orgchart', label: '조직도' },
       { id: 'notices', label: '공지사항' },
       { id: 'settings', label: '설정' },
-      { id: 'admin', label: '사용자 관리' }
+      { id: 'admin', label: '사용자 관리' },
+      { id: 'workspace', label: '워크스페이스' },
+      { id: 'gpsAttendance', label: 'GPS 출퇴근' }
     ],
     // 권한 그룹 프리셋 (서버에서 로드)
     permPresets: [],
@@ -5104,6 +5033,7 @@ function app() {
       { group: '업무', icon: 'work', items: [
         { id: 'quote', label: '견적 작성', icon: 'edit_note' },
         { id: 'history', label: '견적 목록', icon: 'folder_open' },
+        { id: 'salesLookup', label: '과거단가조회', icon: 'manage_search' },
         { id: 'stats', label: '통계', icon: 'bar_chart' },
       ]},
       { group: '관리', icon: 'inventory_2', items: [
@@ -5114,6 +5044,7 @@ function app() {
       { group: '인사', icon: 'badge', items: [
         { id: 'salary', label: '급여 관리', icon: 'payments' },
         { id: 'attendance', label: '출퇴근 기록부', icon: 'schedule' },
+        { id: 'gpsAttendance', label: 'GPS 출퇴근', icon: 'location_on' },
         { id: 'leave', label: '연차 관리', icon: 'event_available' },
         { id: 'approval', label: '결재', icon: 'approval' },
         { id: 'orgchart', label: '조직도', icon: 'account_tree' },
@@ -5123,8 +5054,11 @@ function app() {
         { id: 'notices', label: '공지사항', icon: 'campaign' },
         { id: 'settings', label: '설정', icon: 'settings' },
       ]},
+      { group: '나만의 공간', icon: 'auto_awesome', items: [
+        { id: 'workspace', label: '워크스페이스', icon: 'edit_document' },
+      ]},
     ],
-    expandedMenuGroups: JSON.parse(sessionStorage.getItem('expandedMenuGroups') || '{"업무":true,"관리":true,"인사":true,"기타":true}'),
+    expandedMenuGroups: JSON.parse(sessionStorage.getItem('expandedMenuGroups') || '{"업무":true,"관리":true,"인사":true,"기타":true,"나만의 공간":true}'),
     toggleMenuGroup(g) {
       this.expandedMenuGroups[g] = !this.expandedMenuGroups[g];
       sessionStorage.setItem('expandedMenuGroups', JSON.stringify(this.expandedMenuGroups));
@@ -5139,12 +5073,15 @@ function app() {
           { id: 'salary', label: '급여 관리' },
           { id: 'attendance', label: '출퇴근 기록부' }, { id: 'leave', label: '연차 관리' },
           { id: 'approval', label: '결재' }, { id: 'orgchart', label: '조직도' },
+          { id: 'salesLookup', label: '과거단가조회' },
           { id: 'stats', label: '통계' }, { id: 'design', label: '시안 검색' },
-          { id: 'contacts', label: '연락처' }, { id: 'calendar', label: '캘린더' }, { id: 'notices', label: '공지사항' }, { id: 'settings', label: '설정' }
+          { id: 'contacts', label: '연락처' }, { id: 'calendar', label: '캘린더' }, { id: 'notices', label: '공지사항' }, { id: 'settings', label: '설정' },
+          { id: 'workspace', label: '워크스페이스' },
+          { id: 'gpsAttendance', label: 'GPS 출퇴근' }
         ];
       }
       const perms = this.auth.permissions || [];
-      const defaultMenus = ['quote', 'history'];
+      const defaultMenus = ['quote', 'history', 'salesLookup', 'workspace', 'gpsAttendance'];
       const allowed = perms.length > 0 ? perms : defaultMenus;
       const t = [];
       const hasPricing = allowed.includes('pricing_view') || allowed.includes('pricing_edit');
@@ -5187,8 +5124,27 @@ function app() {
     categories: [], options: [], vendors: [], departments: [], newDeptName: '',
 
     // ════ 팝업 상태 ════
-    quotePopup: { open: false, x: 80, y: 40, dragging: false, _ox: 0, _oy: 0, minimized: false, tab: 'form',
-      width: 920, height: 680, resizing: false, _rEdge: '', _rx: 0, _ry: 0, _rw: 0, _rh: 0 },
+    quotePopup: { open: false, x: 20, y: 20, dragging: false, _ox: 0, _oy: 0, minimized: false, tab: 'form', width: Math.round(window.innerWidth * 0.95), height: Math.round(window.innerHeight * 0.9), resizing: false, _rEdge: '', _rx: 0, _ry: 0, _rw: 0, _rh: 0 },
+    // 과거단가 탭 데이터
+    pastPriceKeyword: '',
+    pastPriceResults: [],
+    pastPriceOthers: [],
+    pastPriceLoading: false,
+    pastPriceSearched: false,
+    pastPriceVendorName: '',
+    pastPriceShowOthers: false,
+    // 인라인 품목 편집 상태
+    inlineEdit: {
+      activeRow: -1,
+      accordionRow: -1,
+    },
+    newRow: {
+      categoryId: '', categoryType: 'QTY', catSearch: '', catOpen: false, catHighlight: -1,
+      widthMm: 0, heightMm: 0, qty: 1, unitType: 'area',
+      manualPrice: false, manualUnitPrice: 0,
+      selectedOptions: [], optionQtys: {}, optionVariants: {},
+      customName: '', customSpec: '',
+    },
     itemEditPopup: { open: false, x: 120, y: 70, dragging: false, _ox: 0, _oy: 0, tab: 'spec',
       idx: -1, categoryId: '', categoryType: 'QTY',
       widthMm: 0, heightMm: 0, qty: 1,
@@ -5254,10 +5210,14 @@ function app() {
         };
         this.quoteItems = [];  // 우선 빈 배열 (로딩 중)
         this.editingQuoteId = quote.id;
-        this.quotePopup.x = Math.max(20, Math.round((window.innerWidth - (this.quotePopup.width||920)) / 2));
-        this.quotePopup.y = 40;
+        this.quotePopup.width = Math.round(window.innerWidth * 0.95);
+        this.quotePopup.height = Math.round(window.innerHeight * 0.9);
+        this.quotePopup.x = Math.round(window.innerWidth * 0.025);
+        this.quotePopup.y = Math.round(window.innerHeight * 0.05);
         this.quotePopup.minimized = false;
         this.quotePopup.tab = 'form';
+        this.inlineEdit = { activeRow: -1, accordionRow: -1 };
+        this.newRow = { categoryId: '', categoryType: 'QTY', catSearch: '', catOpen: false, catHighlight: -1, widthMm: 0, heightMm: 0, qty: 1, unitType: 'area', manualPrice: false, manualUnitPrice: 0, selectedOptions: [], optionQtys: {}, optionVariants: {}, customName: '', customSpec: '' };
         this.quotePopup.open = true;
         // 전체 데이터(items 포함) 비동기 로드
         try {
@@ -5267,6 +5227,11 @@ function app() {
             this.quoteItems = JSON.parse(JSON.stringify(full.items || []));
             // 헤더에 누락된 필드 보완
             if (full.vendorId && !this.quoteHeader.vendorId) this.quoteHeader.vendorId = full.vendorId;
+            // vendorId 없지만 vendorName 있으면 이름으로 매칭
+            if (!this.quoteHeader.vendorId && full.vendorName) {
+              const mv = this.vendors.find(v => v.name === full.vendorName);
+              if (mv) this.quoteHeader.vendorId = mv.id;
+            }
             if (full.manager && !this.quoteHeader.manager) this.quoteHeader.manager = full.manager;
           }
         } catch(e) { console.warn('견적 로드 실패', e); }
@@ -5277,10 +5242,14 @@ function app() {
         this.newItem = { categoryId: '', widthMm: 0, heightMm: 0, qty: 1, selectedOptions: [], optionQtys: {}, optionVariants: {}, customName: '', customSpec: '', selectedSpecIdx: -1 };
         this.catSearch = '';
         this.calcPreview = {};
-        this.quotePopup.x = Math.max(20, Math.round((window.innerWidth - (this.quotePopup.width||920)) / 2));
-        this.quotePopup.y = 40;
+        this.quotePopup.width = Math.round(window.innerWidth * 0.95);
+        this.quotePopup.height = Math.round(window.innerHeight * 0.9);
+        this.quotePopup.x = Math.round(window.innerWidth * 0.025);
+        this.quotePopup.y = Math.round(window.innerHeight * 0.05);
         this.quotePopup.minimized = false;
         this.quotePopup.tab = 'form';
+        this.inlineEdit = { activeRow: -1, accordionRow: -1 };
+        this.newRow = { categoryId: '', categoryType: 'QTY', catSearch: '', catOpen: false, catHighlight: -1, widthMm: 0, heightMm: 0, qty: 1, unitType: 'area', manualPrice: false, manualUnitPrice: 0, selectedOptions: [], optionQtys: {}, optionVariants: {}, customName: '', customSpec: '' };
         this.quotePopup.open = true;
       }
     },
@@ -5304,11 +5273,16 @@ function app() {
       if (cat) {
         this.pricingPopup.editMode = true;
         this.pricingPopup.editId = cat.id;
-        this.pricingPopup.form = { name: cat.name || '', code: cat.code || '', pricingType: cat.pricingType || 'SIZE', unit: cat.unit || '㎡' };
+        this.pricingPopup.form = {
+          name: cat.name || '', code: cat.code || '',
+          pricingType: cat.pricingType || 'SIZE', unit: cat.unit || '㎡'
+        };
       } else {
         this.pricingPopup.editMode = false;
         this.pricingPopup.editId = null;
-        this.pricingPopup.form = { name: '', code: '', pricingType: 'SIZE', unit: '㎡' };
+        this.pricingPopup.form = {
+          name: '', code: '', pricingType: 'SIZE', unit: '㎡'
+        };
       }
       this.pricingPopup.x = Math.max(20, Math.round((window.innerWidth - 720) / 2));
       this.pricingPopup.y = 60;
@@ -5399,7 +5373,9 @@ function app() {
     get filteredPricingCategories() {
       if (!this.pricingSearch) return this.categories;
       const kw = this.pricingSearch.toLowerCase();
-      return this.categories.filter(c => c.name.toLowerCase().includes(kw) || (c.code||'').toLowerCase().includes(kw));
+      return this.categories.filter(c =>
+        c.name.toLowerCase().includes(kw) || (c.code||'').toLowerCase().includes(kw)
+      );
     },
     // 옵션
     showAddOption: false, newOpt: { code: '', name: '', price: 0, unit: '개', categoryIds: [], pricingType: 'fixed', variants: [] },
@@ -6224,7 +6200,13 @@ function app() {
     setOptionQty(id,v) { this.newItem.optionQtys[id]=Math.max(1,Number(v)||1); this.debouncePreview(); },
     getOptionVariant(id) { return this.newItem.optionVariants ? (this.newItem.optionVariants[id]||0) : 0; },
     setOptionVariant(id,v) { if(!this.newItem.optionVariants) this.newItem.optionVariants={}; this.newItem.optionVariants[id]=Number(v)||0; },
-    onCategoryChange() { this.newItem.selectedOptions=[]; this.newItem.optionQtys={}; this.newItem.optionVariants={}; this.newItem.optionAreas={}; this.newItem.widthMm=0; this.newItem.heightMm=0; this.newItem.qty=1; this.newItem.variantIdx=-1; this.newItem.customName=''; this.newItem.customSpec=''; this.calcPreview={}; },
+    onCategoryChange() { this.newItem.selectedOptions=[]; this.newItem.optionQtys={}; this.newItem.optionVariants={}; this.newItem.optionAreas={}; this.newItem.widthMm=0; this.newItem.heightMm=0; this.newItem.qty=1; this.newItem.variantIdx=-1; this.newItem.customName=''; this.newItem.customSpec=''; this.calcPreview={};
+      // 품목 선택 시 자동으로 과거단가 검색
+      if (this.newItem.categoryId) {
+        const cat = this.categories?.find(c => c.id === this.newItem.categoryId);
+        if (cat) { this.pastPriceKeyword = cat.name; this.searchPastPrices(); }
+      }
+    },
 
     // ── 카테고리 필드 헬퍼 ──
     getCatField(catId, field) {
@@ -6416,6 +6398,7 @@ function app() {
     },
 
     // ── 항목 편집 팝업 ──
+    /* REMOVED: replaced by inline editing
     openItemEdit(idx) {
       if (idx === -1) {
         // 새 항목 추가 모드
@@ -6465,7 +6448,9 @@ function app() {
       var self = this;
       this.$nextTick(function() { self.itemEditRecalc(); });
     },
+    */
 
+    /* REMOVED: replaced by inline editing
     async itemEditRecalc() {
       const p = this.itemEditPopup;
       if (!p.categoryId || p.manualPrice) { this.itemEditCalc = {}; return; }
@@ -6490,7 +6475,9 @@ function app() {
         if (r.ok) this.itemEditCalc = await r.json();
       } catch(e) { this.itemEditCalc = {}; }
     },
+    */
 
+    /* REMOVED: replaced by inline editing
     async saveItemEdit() {
       await this.itemEditRecalc();
       const p = this.itemEditPopup;
@@ -6546,6 +6533,7 @@ function app() {
       this.itemEditPopup.open = false;
       this.showToast('항목이 ' + (p.idx === -1 ? '추가' : '수정') + '되었습니다');
     },
+    */
 
     async uploadItemEditImage(event) {
       const file = event.target.files[0];
@@ -6557,6 +6545,155 @@ function app() {
       this.showToast('이미지 업로드 중...');
       const url = await this._uploadImageFile(file, 'item_buy_' + Date.now());
       if (url) { this.itemEditPopup.purchaseImage = url; this.showToast('이미지 업로드 완료'); }
+    },
+
+    // ── 인라인 품목: 카테고리 선택 ──
+    selectNewRowCategory(cat) {
+      this.newRow.categoryId = cat.id;
+      this.newRow.catSearch = cat.name;
+      this.newRow.catOpen = false;
+      this.newRow.categoryType = cat.pricingType || 'QTY';
+      this.newRow.customName = cat.name;
+      if (cat.pricingType === 'SIZE') this.newRow.unitType = 'area';
+      else if (cat.pricingType === 'LENGTH') this.newRow.unitType = 'length';
+      else this.newRow.unitType = 'qty';
+      this.pastPriceKeyword = cat.name;
+      this.searchPastPrices();
+    },
+
+    // ── 인라인 품목: 행 추가 ──
+    async addInlineItem() {
+      const nr = this.newRow;
+      if (!nr.categoryId) return;
+      const cat = this.categories.find(c => c.id === nr.categoryId);
+      if (!cat) return;
+
+      const catType = nr.categoryType || cat.pricingType || 'QTY';
+      let name = nr.customName || cat.name;
+      let spec = '';
+      let unitPrice = 0;
+      let amount = 0;
+
+      if (catType === 'QTY' || catType === 'FIXED' || nr.manualPrice) {
+        unitPrice = Number(nr.manualUnitPrice) || 0;
+        amount = unitPrice * (Number(nr.qty) || 1);
+        spec = nr.customSpec || '';
+      } else {
+        try {
+          const r = await fetch('/api/quote/calculate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+              categoryId: nr.categoryId,
+              widthMm: Number(nr.widthMm) || 0,
+              heightMm: Number(nr.heightMm) || 0,
+              qty: Number(nr.qty) || 1,
+              variantIdx: -1,
+              optionSelections: [],
+              vendorId: this.quoteHeader.vendorId || ''
+            })
+          });
+          if (r.ok) {
+            const calc = await r.json();
+            amount = calc.totalExVat || 0;
+            unitPrice = Math.round(amount / Math.max(1, Number(nr.qty) || 1));
+          }
+        } catch(e) { console.error('calc error', e); }
+
+        if (catType === 'SIZE') spec = (nr.widthMm||0) + '×' + (nr.heightMm||0) + 'mm';
+        else if (catType === 'LENGTH') spec = (nr.heightMm||0) + '×' + (nr.widthMm||0) + 'mm';
+      }
+
+      const itemUnit = (catType === 'SIZE' || catType === 'LENGTH') ? 'ea' : (cat.unit || '개');
+
+      this.quoteItems.push({
+        name, spec, unit: itemUnit, qty: Number(nr.qty)||1, unitPrice, amount,
+        remark: '', supplier: '', purchasePrice: 0, purchaseMemo: '', purchaseImage: '',
+        categoryId: nr.categoryId, categoryType: catType,
+        widthMm: Number(nr.widthMm)||0, heightMm: Number(nr.heightMm)||0,
+        variantIdx: -1,
+        selectedOptions: [], optionQtys: {}, optionVariants: {}, optionAreas: {},
+        customName: name, customSpec: spec,
+        manualPrice: (catType === 'QTY' || catType === 'FIXED'),
+        purchaseQuotes: [], designImage: ''
+      });
+
+      this.newRow = {
+        categoryId: '', categoryType: 'QTY', catSearch: '', catOpen: false, catHighlight: -1,
+        widthMm: 0, heightMm: 0, qty: 1, unitType: 'area',
+        manualPrice: false, manualUnitPrice: 0,
+        selectedOptions: [], optionQtys: {}, optionVariants: {},
+        customName: '', customSpec: ''
+      };
+
+      this.showToast('항목이 추가되었습니다');
+    },
+
+    // ── 인라인 품목: 재계산 ──
+    async recalcInlineItem(idx) {
+      const item = this.quoteItems[idx];
+      if (!item) return;
+      if (item.manualPrice || item.categoryType === 'QTY' || item.categoryType === 'FIXED') {
+        item.amount = (item.unitPrice || 0) * (item.qty || 1);
+        if (item.categoryType === 'SIZE') item.spec = (item.widthMm||0) + '×' + (item.heightMm||0) + 'mm';
+        return;
+      }
+      try {
+        const os = (item.selectedOptions || []).map(id => {
+          const a = (item.optionAreas||{})[id];
+          return {
+            optionId: id,
+            qty: (item.optionQtys||{})[id] || 1,
+            variantIdx: (item.optionVariants||{})[id] !== undefined ? (item.optionVariants||{})[id] : 0,
+            areaOverride: (a && a.useCustom) ? { widthMm: Number(a.widthMm)||0, heightMm: Number(a.heightMm)||0 } : null
+          };
+        });
+        const r = await fetch('/api/quote/calculate', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            categoryId: item.categoryId,
+            widthMm: Number(item.widthMm) || 0,
+            heightMm: Number(item.heightMm) || 0,
+            qty: Number(item.qty) || 1,
+            variantIdx: item.variantIdx !== undefined ? Number(item.variantIdx) : -1,
+            optionSelections: os,
+            vendorId: this.quoteHeader.vendorId || ''
+          })
+        });
+        if (r.ok) {
+          const calc = await r.json();
+          item.amount = calc.totalExVat || 0;
+          item.unitPrice = Math.round(item.amount / Math.max(1, item.qty || 1));
+          item.remark = calc.optionRemark || '';
+          if (item.categoryType === 'SIZE') item.spec = (item.widthMm||0) + '×' + (item.heightMm||0) + 'mm';
+          else if (item.categoryType === 'LENGTH') item.spec = (item.heightMm||0) + '×' + (item.widthMm||0) + 'mm';
+        }
+      } catch(e) { console.error('recalc error', e); }
+    },
+
+    // ── 과거단가 검색 (견적 팝업 내) ──
+    async searchPastPrices() {
+      // 현재 선택된 거래처 이름 가져오기
+      const vendorObj = this.vendors?.find(v => v.id === this.quoteHeader?.vendorId);
+      this.pastPriceVendorName = vendorObj?.name || '';
+      if (!this.pastPriceKeyword && !this.pastPriceVendorName) return;
+      this.pastPriceLoading = true;
+      this.pastPriceSearched = true;
+      this.pastPriceShowOthers = false;
+      try {
+        const params = new URLSearchParams();
+        if (this.pastPriceVendorName) params.set('vendor', this.pastPriceVendorName);
+        if (this.pastPriceKeyword) params.set('keyword', this.pastPriceKeyword);
+        params.set('limit', '30');
+        const res = await fetch('/api/sales-history/search?' + params);
+        const data = await res.json();
+        this.pastPriceResults = data.vendor_results || [];
+        this.pastPriceOthers = data.other_results || [];
+      } catch (e) {
+        console.error('past price search error:', e);
+      }
+      this.pastPriceLoading = false;
     },
 
     // ── 견적 저장 ──

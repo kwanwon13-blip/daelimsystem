@@ -16,6 +16,7 @@ try { multer = require('multer'); } catch(e) { multer = null; }
 const salaryDb = require('../db-salary');
 const db = require('../db');
 const { requireSalaryAccess, requireAuth, requireAdmin, logSalaryAccess } = require('../middleware/auth');
+const { safeBody } = require('../middleware/sanitize');
 
 // ── 이메일 발송 헬퍼 (기존 SMTP 설정 재활용) ────────────────────────────────
 async function sendMail({ to, subject, html }) {
@@ -142,6 +143,235 @@ async function getAttendanceWorkDays(userId, companyId, yearMonth) {
   return null;
 }
 
+// ── CAPS 출퇴근 데이터 집계 (공용 헬퍼) ────────────────────────────────────────
+// /attendance-import 라우트와 /calculate 라우트에서 공통으로 사용.
+// 반환: { employees: [{userId, name, workDays, totalOvertimeH, ...}], note?, warn? }
+//
+// 대림에스엠: CAPS 지문인식 데이터 (attendance-store 캐시) → 실측 workDays + 연장시간
+// 대림컴퍼니: CAPS 미연동 → 월 평일 수 자동, 연장시간 0
+async function fetchAttendanceData(companyId, yearMonth) {
+  const [year, mon] = yearMonth.split('-');
+  const from = `${year}-${String(mon).padStart(2,'0')}-01`;
+  const lastDay = new Date(+year, +mon, 0).getDate();
+  const to = `${year}-${String(mon).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+
+  // 이름 → userId 매핑 구축
+  const nameToId = {};
+  const nameMap = {};
+  try {
+    const uData = db.loadUsers();
+    (uData.users || []).forEach(u => {
+      if (u.name) nameToId[u.name] = u.id;
+      if (u.capsName && u.capsName !== u.name) {
+        nameToId[u.capsName] = u.id;
+        nameMap[u.capsName] = u.name;
+      }
+    });
+  } catch(e) {}
+  const cfgs = salaryDb.configs.getAll(companyId);
+  cfgs.forEach(c => {
+    if (c.name && !nameToId[c.name]) nameToId[c.name] = c.userId;
+  });
+
+  // 대림컴퍼니: CAPS 없음 → 평일 수 자동 적용
+  const attendanceStoreDir = path.join(__dirname, '..', 'data', 'attendance-store');
+  const cacheKeyRaw = `sum_${from}_${to}_all`;
+  const cacheFile = path.join(attendanceStoreDir,
+    Buffer.from(cacheKeyRaw, 'utf8').toString('hex') + '.json');
+
+  if (companyId === 'dalim-company' || !fs.existsSync(cacheFile)) {
+    const weekdays = calcWeekdaysInMonth(yearMonth);
+    if (companyId === 'dalim-company') {
+      const nameMapLocal = getNameMap(companyId);
+      const empList = cfgs.map(c => ({
+        userId: c.userId,
+        name: c.name || nameMapLocal[c.userId] || c.userId,
+        workDays: weekdays,
+        annualDays: 0, absentDays: 0, lateCount: 0, totalOvertimeH: 0,
+        _autoCalc: true,
+      }));
+      return {
+        employees: empList,
+        note: `대림컴퍼니: CAPS 미연동 — ${yearMonth.slice(5)}월 평일 수(${weekdays}일) 자동 적용`,
+      };
+    }
+    return { employees: [], warn: 'CAPS 출퇴근 데이터 없음 — 출퇴근 탭에서 해당 월 먼저 조회/동기화 필요' };
+  }
+
+  // 대림에스엠: CAPS 캐시 읽기
+  const raw = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+  const payload = (raw && typeof raw === 'object' && 'data' in raw) ? raw.data : raw;
+  let records = [];
+  if (Array.isArray(payload)) records = payload;
+  else if (payload && Array.isArray(payload.records)) records = payload.records;
+  else if (payload && typeof payload === 'object') {
+    for (const v of Object.values(payload)) {
+      if (Array.isArray(v)) records.push(...v);
+    }
+  }
+
+  const byName = {};
+  for (const r of records) {
+    const name = r.employeeName || r.employeeId;
+    if (!name) continue;
+    if (!byName[name]) byName[name] = { normalDays:0, halfAM:0, halfPM:0, annualDays:0, absentDays:0, lateCount:0, totalOvertimeMin:0 };
+    const e = byName[name];
+    if (r.leaveType === 'normal')   e.normalDays++;
+    else if (r.leaveType === 'halfAM') e.halfAM++;
+    else if (r.leaveType === 'halfPM') e.halfPM++;
+    else if (r.leaveType === 'annual') e.annualDays++;
+    else if (r.leaveType === 'absent') e.absentDays++;
+    if (r.late) e.lateCount++;
+    e.totalOvertimeMin += (r.overtime || 0);
+  }
+
+  const result = [];
+  for (const [empName, stats] of Object.entries(byName)) {
+    const userId = nameToId[empName];
+    if (!userId) continue;
+    const cfg = cfgs.find(c => c.userId === userId);
+    if (!cfg) continue;
+
+    const workDays = stats.normalDays + stats.halfAM * 0.5 + stats.halfPM * 0.5;
+    result.push({
+      userId,
+      name: nameMap[empName] || empName,
+      workDays: Math.round(workDays * 2) / 2,
+      annualDays: stats.annualDays + stats.halfAM * 0.5 + stats.halfPM * 0.5,
+      absentDays: stats.absentDays,
+      lateCount: stats.lateCount,
+      totalOvertimeH: Math.round((stats.totalOvertimeMin / 60) * 10) / 10,
+    });
+  }
+  return { employees: result };
+}
+
+// ── 퇴사 경과 월수 계산 ─────────────────────────────────────────────
+// null: 재직 중 or 데이터 없음
+// 0: 퇴사한 달
+// 1: 퇴사 다음달 (1개월 경과)
+// 2: 2개월 경과 등...
+function calcMonthsSinceResign(user, yearMonth) {
+  if (!user || user.status !== 'resigned' || !user.resignDate) return null;
+  const [ry, rm] = user.resignDate.slice(0, 7).split('-').map(Number);
+  const [py, pm] = yearMonth.split('-').map(Number);
+  if (!ry || !rm || !py || !pm) return null;
+  return (py - ry) * 12 + (pm - rm);
+}
+
+// ── 중도 입/퇴사자 일할계산용 ratio 산출 ────────────────────────────
+// 엑셀 급여계산설정 F11 정산기간(monthly / prev20_curr19) 대응.
+// 반환:
+//   { ratio: 0~1, activeDays: number, totalDays: number, periodStart/End }
+//   일할계산 필요 없으면 { ratio: 1, ... } 반환.
+function calcProrateRatio(user, yearMonth, periodType) {
+  const [y, m] = yearMonth.split('-').map(Number);
+  if (!y || !m) return { ratio: 1, activeDays: 0, totalDays: 0 };
+  let periodStart, periodEnd;
+  if (periodType === 'prev20_curr19') {
+    // 전월 20일 ~ 당월 19일
+    periodStart = new Date(y, m - 2, 20);
+    periodEnd   = new Date(y, m - 1, 19);
+  } else {
+    // 당월 1일 ~ 말일
+    periodStart = new Date(y, m - 1, 1);
+    periodEnd   = new Date(y, m, 0);
+  }
+  const dayMs = 24 * 3600 * 1000;
+  const totalDays = Math.round((periodEnd - periodStart) / dayMs) + 1;
+
+  const hireDate = user?.hireDate ? new Date(user.hireDate) : null;
+  const resignDate = user?.resignDate ? new Date(user.resignDate) : null;
+
+  // 재직 구간: max(periodStart, hireDate) ~ min(periodEnd, resignDate)
+  const effStart = hireDate && hireDate > periodStart ? hireDate : periodStart;
+  const effEnd   = resignDate && resignDate < periodEnd ? resignDate : periodEnd;
+
+  if (effEnd < effStart) {
+    // 해당 월에 아예 재직 없음
+    return { ratio: 0, activeDays: 0, totalDays, periodStart, periodEnd };
+  }
+  const activeDays = Math.round((effEnd - effStart) / dayMs) + 1;
+  const ratio = Math.min(1, activeDays / totalDays);
+  return { ratio, activeDays, totalDays, periodStart, periodEnd };
+}
+
+// ── 자동 드래프트 대상 포함 여부 (관대하게) ────────────────────────────────
+// 급여 작성 시 자동으로 후보에 넣을지 판정.
+// 과거 규칙: 퇴사월 + 1개월까지만 자동 포함 → 2개월차 정산 누락 위험.
+// 새 규칙 (2026-04-17): 재직자 + 퇴사 3개월 이내까지 자동 포함.
+// 그 이후는 관리자가 [+ 사람 추가] 모달에서 수동 추가.
+// 퇴사자는 노출되더라도 프론트에서 [퇴사 N개월] 배지로 표시 → 관리자가 판단해서 뺌.
+function isActiveForMonth(user, yearMonth) {
+  if (!user) return true; // ERP 미등록 (대림컴퍼니 등) → 일단 포함
+  if (user.status !== 'resigned') return true;
+  const months = calcMonthsSinceResign(user, yearMonth);
+  if (months === null) return false;
+  return months >= 0 && months <= 3; // 퇴사월~3개월까지
+}
+
+// 조직관리 users를 userId → user 객체로 매핑
+// 조회 키는 3가지:
+//   - u.id              (UUID 기반 기존 계정 — 남관원/한윤호/장은지 등)
+//   - "companyId:sabun" (엑셀 사번 기반 신규 계정 — ws-001 등)
+//   - sabun (lowercase) (fallback, 회사 중복 시 마지막에 저장)
+function getOrgUserMap() {
+  try {
+    const org = db.조직관리.load();
+    const map = {};
+    (org.users || []).forEach(u => {
+      if (u.id) map[u.id] = u;
+      if (u.sabun && u.companyId) {
+        map[`${u.companyId}:${String(u.sabun).toLowerCase()}`] = u;
+      }
+      if (u.sabun) map[String(u.sabun).toLowerCase()] = u;
+    });
+    return map;
+  } catch (e) {
+    return {};
+  }
+}
+
+// 급여 config/record → 조직관리 user 조회 헬퍼
+function findOrgUser(orgUserMap, companyId, userId) {
+  if (!userId) return null;
+  const key1 = `${companyId}:${String(userId).toLowerCase()}`;
+  return orgUserMap[key1] || orgUserMap[userId] || orgUserMap[String(userId).toLowerCase()] || null;
+}
+
+// 전월 YYYY-MM 계산 (엑셀 "지난달 시트 복제" 방식 지원용)
+function prevYearMonth(ym) {
+  const [Y, M] = String(ym || '').split('-').map(Number);
+  if (!Y || !M) return null;
+  const d = new Date(Y, M - 2, 1); // 전월 1일
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// 전월 record 에서 이번달로 "수동 입력 성격" 필드만 복사해오는 시드
+// 기본급/수당/4대보험/세금은 calcSalary 가 config·settingsRow 로 재계산해야 하므로 시드에서 제외.
+// 복사 대상: 상여/소급/연차수당/extraPay1..8/extraDeduction1..8/기타 공제 (misc 등 관리자 직접 입력 값)
+function buildSeedFromPrev(prevRec) {
+  if (!prevRec) return null;
+  const seed = {};
+  const fields = [
+    'bonusPay', 'retroPay', 'leavePay', 'teamLeaderAllowance',
+    'miscDeduction1', 'miscDeduction2',
+    'healthAnnual', 'ltcAnnual',
+    'healthInstallment', 'ltcInstallment',
+    'healthAprExtra', 'ltcAprExtra',
+    'healthRefundInterest', 'ltcRefundInterest',
+    'incomeTaxAdj', 'localTaxAdj',
+  ];
+  for (const k of fields) {
+    if (prevRec[k] != null) seed[k] = prevRec[k];
+  }
+  for (let i = 1; i <= 8; i++) {
+    if (prevRec[`extraPay${i}`] != null) seed[`extraPay${i}`] = prevRec[`extraPay${i}`];
+    if (prevRec[`extraDeduction${i}`] != null) seed[`extraDeduction${i}`] = prevRec[`extraDeduction${i}`];
+  }
+  return seed;
+}
+
 // ── 모든 라우트에 requireSalaryAccess 적용 ──────────────────────────────────────
 router.use(requireSalaryAccess);
 
@@ -203,6 +433,89 @@ router.delete('/config/:userId/:companyId', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// ──────────────────────────────────────────────────────────────────────────────
+// 입사일/퇴사일 저장 — 조직관리.json 에 쓰기
+// 직원 설정 테이블에서 입사일/퇴사일 인라인 편집 시 호출됨.
+// ERP 미가입자도 처리 가능: 조직관리.json에 없으면 최소 항목으로 신규 생성.
+// ERP 가입자가 퇴사일 들어가면 status='resigned' 로 변경 (로그인 차단).
+// ──────────────────────────────────────────────────────────────────────────────
+router.post('/config/:userId/employment', requireAdmin, (req, res) => {
+  try {
+    const rawId = String(req.params.userId || '').trim();
+    if (!rawId) return res.status(400).json({ error: 'userId 필요' });
+    const { companyId, hireDate, resignDate, name, department, position, birthDate } = req.body || {};
+    if (!companyId) return res.status(400).json({ error: 'companyId 필요' });
+
+    // 날짜 형식 검증 (빈값 허용)
+    const dateOk = v => !v || /^\d{4}-\d{2}-\d{2}$/.test(v);
+    if (!dateOk(hireDate)) return res.status(400).json({ error: '입사일 형식 오류 (YYYY-MM-DD)' });
+    if (!dateOk(resignDate)) return res.status(400).json({ error: '퇴사일 형식 오류 (YYYY-MM-DD)' });
+
+    const org = db.조직관리.load() || {};
+    org.users = org.users || [];
+
+    // 찾기: (1) id == rawId, (2) companyId+sabun 일치
+    const lowered = rawId.toLowerCase();
+    let user = org.users.find(u =>
+      u.id === rawId ||
+      (u.sabun && String(u.sabun).toLowerCase() === lowered && u.companyId === companyId)
+    );
+    const isNew = !user;
+
+    if (!user) {
+      // ERP 미가입자 최소 항목 신규 생성
+      user = {
+        id: 'u_unreg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+        sabun: rawId,
+        companyId: companyId,
+        name: name || '',
+        department: department || '',
+        position: position || '',
+        role: 'none',
+        status: 'unregistered',
+        createdAt: new Date().toISOString(),
+      };
+      org.users.push(user);
+    }
+
+    // 필드 업데이트 (undefined는 건드리지 않음)
+    if (hireDate !== undefined) user.hireDate = hireDate || '';
+    if (resignDate !== undefined) {
+      user.resignDate = resignDate || '';
+      // ERP 가입자 퇴사 처리 / 복귀 처리
+      if (resignDate && user.status === 'approved') user.status = 'resigned';
+      if (!resignDate && user.status === 'resigned') user.status = 'approved';
+    }
+    if (name && !user.name) user.name = name;
+    if (department && !user.department) user.department = department;
+    if (position && !user.position) user.position = position;
+    if (birthDate && !user.birthDate) user.birthDate = birthDate;
+
+    db.조직관리.save(org);
+
+    // 연차관리 동기화 (이름 기준)
+    try {
+      if (db.연차관리 && user.name) {
+        const leaveData = db.연차관리.load() || {};
+        const emp = (leaveData.employees || []).find(e => e.name === user.name);
+        if (emp) {
+          if (hireDate !== undefined) emp.hireDate = hireDate || '';
+          if (resignDate !== undefined) emp.resignDate = resignDate || '';
+          db.연차관리.save(leaveData);
+        }
+      }
+    } catch(e) {}
+
+    logSalaryAccess(req.user.userId, 'EMPLOYMENT_UPDATE',
+      `${user.name || rawId} 입사=${user.hireDate || '-'} 퇴사=${user.resignDate || '-'} (${isNew ? '신규' : '수정'})`);
+
+    res.json({ ok: true, user, isNew });
+  } catch (e) {
+    console.error('employment update error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ══════════════════════════════════════════════════════════════════════════════
 // 자유 항목명
 // ══════════════════════════════════════════════════════════════════════════════
@@ -225,12 +538,59 @@ router.put('/labels', (req, res) => {
 // ══════════════════════════════════════════════════════════════════════════════
 
 // GET /api/salary/records?company=dalim-sm&month=2026-03
+// 퇴사 여부는 자동 제외하지 않고 monthsSinceResign 필드로 프론트가 배지 표시.
+// 관리자가 [− 선택 빼기]로 수동 제거하는 방식.
 router.get('/records', (req, res) => {
   const { company, month } = req.query;
   const recs = salaryDb.records.getByMonth(company, month);
   const labels = salaryDb.itemLabels.get(company, month);
+  const orgUserMap = getOrgUserMap();
+  // 저장된 레코드에 재직상태 + 퇴사 경과월 부착 (프론트 배지용)
+  const enriched = recs.map(r => {
+    const u = findOrgUser(orgUserMap, r.companyId || company, r.userId);
+    return {
+      ...r,
+      resigned: u?.status === 'resigned',
+      resignDate: u?.resignDate || null,
+      monthsSinceResign: calcMonthsSinceResign(u, month),
+    };
+  });
   logSalaryAccess(req.user.userId, 'VIEW', `급여대장 조회 ${company} ${month}`);
-  res.json({ records: recs, labels });
+  res.json({ records: enriched, labels });
+});
+
+// GET /api/salary/resigned-users?company=dalim-sm&month=2026-04
+// 해당 월 기준 퇴사자 목록. [+ 사람 추가] 모달의 "퇴사자" 탭에서 사용.
+// 모든 퇴사자를 노출하되, 경과 개월수로 정렬/분류 (3개월 이내 추천, 그 이상은 과거)
+router.get('/resigned-users', (req, res) => {
+  try {
+    const { company, month } = req.query;
+    const yearMonth = month || new Date().toISOString().slice(0, 7);
+    const org = db.조직관리.load();
+    const users = (org.users || []).filter(u =>
+      u.status === 'resigned' &&
+      (!company || u.companyId === company || (company === 'dalim-sm' && !u.companyId))
+    );
+    const enriched = users.map(u => {
+      const monthsSinceResign = calcMonthsSinceResign(u, yearMonth);
+      // userId는 salary_configs.userId와 매칭되도록 사번(소문자) 우선, 없으면 legacy id
+      // 이게 맞아야 [+ 사람 추가] 모달의 "재직자" 탭에서 퇴사자가 걸러진다.
+      const resolvedId = u.sabun ? String(u.sabun).toLowerCase() : u.id;
+      return {
+        userId: resolvedId,
+        orgId: u.id, // 디버깅/향후 참조용
+        name: u.name,
+        department: u.department || '',
+        resignDate: u.resignDate || '',
+        monthsSinceResign,
+        // 추천 범위: 퇴사월~3개월 이내 (자동 드래프트 포함 범위와 동일)
+        recommendedForMonth: monthsSinceResign !== null && monthsSinceResign >= 0 && monthsSinceResign <= 3,
+      };
+    }).sort((a, b) => (b.resignDate || '').localeCompare(a.resignDate || ''));
+    res.json({ resignedUsers: enriched });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // GET /api/salary/records/:userId/:month
@@ -244,66 +604,275 @@ router.get('/records/:userId/:month', (req, res) => {
 });
 
 // POST /api/salary/calculate — 자동계산 (draft 생성/갱신)
+// 2026-04-17: CAPS 출퇴근 데이터 자동 병합 — 관리자가 연장근무 수동 입력 없이도
+// 급여 작성 시 CAPS 실제 집계(근무일수+연장시간)가 자동 반영됨.
+// 우선순위: 수동입력(salary_overtime) > CAPS 자동 > 0
 router.post('/calculate', async (req, res) => {
   try {
-    const { companyId, yearMonth, userIds, overwrite = false } = req.body;
+    const { companyId, yearMonth, userIds, overwrite = false, purgeStale = false } = req.body;
     const settingsRow = salaryDb.settings.get(companyId);
     if (!settingsRow) return res.status(400).json({ error: '요율 설정이 없습니다.' });
 
-    const targets = userIds?.length
-      ? userIds.map(id => salaryDb.configs.get(id, companyId)).filter(Boolean)
-      : salaryDb.configs.getAll(companyId);
+    // 조직관리 users 매핑 (퇴사자 필터링용)
+    const orgUserMap = getOrgUserMap();
 
-    // ── 회사별 근무일수 자동계산 ────────────────────────────────────────────
-    // 대림컴퍼니: 이 월의 평일 수를 기본값으로 사용
-    // 대림에스엠: CAPS 데이터 없으면 null (기존 레코드 값 유지)
+    // ─ 전월/이번달 records 맵 (엑셀 "지난달 시트 복제" 방식) ─
+    // 자동 모드에서는 "전월에 급여받은 사람 + 이번달 이미 작성된 사람" 만 대상에 포함.
+    // → 퇴사자(전월에 안 받았으면 자동 제외), 아직 입사 전 사람 자동 제외.
+    // → 신규 입사자는 [+ 사람 추가] 모달로 userIds 명시 경로를 타서 포함.
+    const prevYm = prevYearMonth(yearMonth);
+    const prevRecMap = {};
+    if (prevYm) {
+      (salaryDb.records.getByMonth(companyId, prevYm) || []).forEach(r => { prevRecMap[r.userId] = r; });
+    }
+    const thisRecMap = {};
+    (salaryDb.records.getByMonth(companyId, yearMonth) || []).forEach(r => { thisRecMap[r.userId] = r; });
+
+    // ※ userIds가 명시적으로 들어오면 (+ 사람 추가 모달 등) 필터 무시 — 관리자가 직접 고른 것
+    const autoMode = !userIds?.length;
+    const targets = autoMode
+      ? salaryDb.configs.getAll(companyId)
+          .filter(c => isActiveForMonth(findOrgUser(orgUserMap, c.companyId, c.userId), yearMonth))
+          // ★ 자동 모드의 "대상자" 는 엄격하게 "전월에 급여받은 사람" 뿐.
+          //   이번달에만 draft 가 있는 사람은 별도로 userIds 로 들어와야 포함 (+ 사람 추가 경로).
+          //   이렇게 해야 과거 잘못된 로직으로 생성된 잡음이 계속 살아남지 않음.
+          .filter(c => prevRecMap[c.userId])
+      : userIds.map(id => salaryDb.configs.get(id, companyId)).filter(Boolean);
+
+    // ─ 잔여 draft 정리 (purgeStale) ─
+    // 이번달 thisRecMap 에 있지만 "전월에도 없고 이번 targets 에도 없는" draft 레코드는
+    // 과거 잘못된 로직으로 생성된 잡음. 자동 모드에서만 적용.
+    // confirmed/paid 는 절대 건들지 않음.
+    const targetUserIdSet = new Set(targets.map(c => c.userId));
+    const staleDrafts = autoMode
+      ? Object.values(thisRecMap).filter(r =>
+          r.status === 'draft'
+          && !targetUserIdSet.has(r.userId)
+          && !prevRecMap[r.userId]
+        )
+      : [];
+    const staleCount = staleDrafts.length;
+    let staleDeleted = 0;
+    if (purgeStale && autoMode && staleCount > 0) {
+      for (const r of staleDrafts) {
+        try {
+          salaryDb.records.delete(r.id);
+          // thisRecMap 에서도 제거 (아래 계산 루프에 영향 없도록)
+          delete thisRecMap[r.userId];
+          staleDeleted++;
+        } catch (e) {
+          // draft 가 아닌 것은 delete() 가 거부 — 안전장치
+          console.warn('[salary/calculate] stale purge skip:', r.id, e.message);
+        }
+      }
+    }
+
+    // ── 회사별 근무일수 자동계산 (fallback) ─────────────────────────────────
     const autoWorkDays = await getAttendanceWorkDays(null, companyId, yearMonth);
 
-    // 월별 연장/야간/휴일 근무 데이터 일괄 로드 (userId별 맵)
+    // ── CAPS 출퇴근 자동 병합 ──────────────────────────────────────────────
+    // 대림에스엠: CAPS 실측 workDays + 연장시간 집계
+    // 대림컴퍼니: 평일 수 자동, 연장시간 0
+    let attendanceMap = {};
+    let attendanceNote = null;
+    try {
+      const att = await fetchAttendanceData(companyId, yearMonth);
+      (att.employees || []).forEach(e => { attendanceMap[e.userId] = e; });
+      attendanceNote = att.note || att.warn || null;
+    } catch(e) {
+      console.warn('[salary/calculate] CAPS fetch 실패:', e.message);
+    }
+
+    // 수동 입력 연장근무 (관리자가 명시적으로 넣은 값) — CAPS보다 우선
     const overtimeRows = salaryDb.overtime.getByMonth(companyId, yearMonth);
     const overtimeMap = {};
     overtimeRows.forEach(r => { overtimeMap[r.userId] = r; });
 
+    // 라벨 (비과세 플래그 지원)
+    const labels = salaryDb.itemLabels.get(companyId, yearMonth);
+    // 정산기간 타입 (회사 설정)
+    const periodType = settingsRow.periodType || 'monthly';
+
+    let capsAutoCount = 0;
+    let prorateCount = 0;
+    let prevSeedCount = 0;  // 전월 값 시드된 건수 (신규 draft 생성 시)
     const results = [];
     for (const config of targets) {
-      const existing = salaryDb.records.getOne(config.userId, companyId, yearMonth);
+      const existing = thisRecMap[config.userId] || salaryDb.records.getOne(config.userId, companyId, yearMonth);
       if (existing && existing.status !== 'draft' && !overwrite) {
         results.push({ userId: config.userId, skipped: true, reason: '이미 확정/지급됨' });
         continue;
       }
-      // 근무일수: 기존 수동 입력값 있으면 유지, 없으면 회사별 자동값 적용
-      const workDays = (existing?.workDays && existing.workDays > 0)
-        ? existing.workDays
-        : (autoWorkDays ?? existing?.workDays ?? 0);
 
-      const overtimeData = overtimeMap[config.userId] || null;
-      const calc = salaryDb.calcSalary({ config, settingsRow, overtimeData, yearMonth, extraItems: existing || {} });
+      const caps = attendanceMap[config.userId];
+
+      // 근무일수 우선순위: 수동 입력 > CAPS > 회사별 자동(평일) > 기존값
+      const workDays = (existing?.workDays && existing.workDays > 0 && existing._workDaysManual)
+        ? existing.workDays
+        : (caps?.workDays ?? autoWorkDays ?? existing?.workDays ?? 0);
+
+      // 연장근무 우선순위: 수동 입력값(overtime 탭) > CAPS 자동집계 > 0
+      // ※ calcSalary는 overtimeHours/nightHours/... (plural) 키를 읽음
+      let overtimeData = overtimeMap[config.userId] || null;
+      if (!overtimeData && caps && caps.totalOvertimeH > 0) {
+        overtimeData = {
+          userId: config.userId, companyId, yearMonth,
+          overtimeHours: caps.totalOvertimeH,
+          nightHours: 0, holidayHours: 0, holidayOtHours: 0,
+          _source: 'caps',
+        };
+        capsAutoCount++;
+      }
+
+      // 중도 입/퇴사자 일할계산 준비
+      const orgUser = findOrgUser(orgUserMap, companyId, config.userId);
+      let prorate = null;
+      if (orgUser && (orgUser.hireDate || orgUser.resignDate)) {
+        const pr = calcProrateRatio(orgUser, yearMonth, periodType);
+        if (pr.ratio < 1 && pr.ratio >= 0) {
+          prorate = {
+            ratio: pr.ratio,
+            activeDays: pr.activeDays,
+            denom: settingsRow.prorateDenom || 'period_ratio',
+            mode:  settingsRow.prorateMode  || 'base_plus_allow',
+          };
+          if (pr.ratio < 1) prorateCount++;
+        }
+      }
+
+      // extraItems 시드 우선순위:
+      //   1) 이번달에 이미 저장된 레코드 (draft 포함) → 그대로 유지 (관리자가 수정한 값 보존)
+      //   2) 전월 레코드 값 (상여·연차수당·기타 공제 등 수동 입력 성격 필드만) → "지난달 시트 복제" 효과
+      //   3) 빈 객체 (최초 도입 회사)
+      let extraSeed;
+      if (existing) {
+        extraSeed = existing;
+      } else {
+        const prevSeed = buildSeedFromPrev(prevRecMap[config.userId]);
+        if (prevSeed && Object.keys(prevSeed).length) {
+          extraSeed = prevSeed;
+          prevSeedCount++;
+        } else {
+          extraSeed = {};
+        }
+      }
+      const calc = salaryDb.calcSalary({
+        config, settingsRow, overtimeData, yearMonth,
+        extraItems: extraSeed, labels, prorate,
+      });
       const saved = salaryDb.records.upsert({
         ...existing,
         ...calc,
         userId: config.userId,
         companyId,
         yearMonth,
-        workDays, // 근무일수 자동/수동 적용
+        workDays,
+        // CAPS 연동 메타 (프론트에서 "CAPS 자동" 배지 표시용)
+        annualDays: caps?.annualDays ?? existing?.annualDays ?? 0,
+        absentDays: caps?.absentDays ?? existing?.absentDays ?? 0,
+        lateCount: caps?.lateCount ?? existing?.lateCount ?? 0,
       });
-      results.push({ userId: config.userId, record: saved });
+      results.push({
+        userId: config.userId,
+        record: saved,
+        capsAuto: !!(caps && overtimeData?._source === 'caps'),
+        prorate: prorate ? { ratio: prorate.ratio, activeDays: prorate.activeDays } : null,
+      });
     }
-    logSalaryAccess(req.user.userId, 'CALCULATE', `급여계산 ${companyId} ${yearMonth}`);
-    res.json({ ok: true, results, autoWorkDays });
+    logSalaryAccess(req.user.userId, 'CALCULATE',
+      `급여계산 ${companyId} ${yearMonth} (CAPS자동 ${capsAutoCount}건 · 전월시드 ${prevSeedCount}건 · 잔여정리 ${staleDeleted}/${staleCount}건)`);
+    res.json({
+      ok: true,
+      results,
+      autoWorkDays,
+      capsAutoCount,
+      prevSeedCount,    // 전월 값에서 복제된 건수 (UI 에 안내)
+      prevMonth: prevYm,
+      staleCount,       // 자동 대상도 아니고 전월에도 없는 draft 개수 (정리 후보)
+      staleDeleted,     // 실제 삭제된 건수 (purgeStale 이 true 였을 때)
+      attendanceNote,
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
 // PUT /api/salary/records/:id — 수동 수정
+// 값이 바뀔 때 지급합계/공제합계/실지급액을 다시 맞춰주는 헬퍼
+// (엑셀 B~AS 47열 급여대장의 공식과 동일)
+const PAY_SUM_FIELDS = [
+  'baseSalary', 'fixedOvertimePay', 'fixedHolidayPay',
+  'mealAllowance', 'transportAllowance', 'teamLeaderAllowance',
+  'overtimePay', 'nightPay', 'holidayPay', 'holidayOtPay',
+  'bonusPay', 'retroPay', 'leavePay',
+  'extraPay1', 'extraPay2', 'extraPay3', 'extraPay4', 'extraPay5',
+];
+const DEDUCT_SUM_FIELDS = [
+  'nationalPension', 'healthInsurance', 'longTermCare', 'employmentInsurance',
+  'incomeTax', 'localTax',
+  'incomeTaxAdj', 'localTaxAdj',
+  'healthAnnual', 'ltcAnnual',
+  'healthInstallment', 'ltcInstallment',
+  'healthAprExtra', 'ltcAprExtra',
+  'healthRefundInterest', 'ltcRefundInterest',
+  'miscDeduction1', 'miscDeduction2',
+  'extraDed1', 'extraDed2', 'extraDed3',
+];
+function recomputeTotals(rec) {
+  let gross = 0;
+  for (const k of PAY_SUM_FIELDS) gross += +(rec[k] || 0);
+  let totalDed = 0;
+  for (const k of DEDUCT_SUM_FIELDS) totalDed += +(rec[k] || 0);
+  rec.grossPay = gross;
+  rec.totalDeductions = totalDed;
+  rec.netPay = gross - totalDed;
+  return rec;
+}
+
 router.put('/records/:id', (req, res) => {
   try {
+    // Prototype Pollution 차단 + 위조 필드 제거 (status/id는 서버가 관리)
+    req.body = safeBody(req.body, ['id', 'status']);
     const existing = salaryDb.records.getById(req.params.id);
     if (!existing) return res.status(404).json({ error: '없음' });
     if (existing.status !== 'draft') return res.status(400).json({ error: '확정된 급여는 수정 불가' });
-    const updated = salaryDb.records.upsert({ ...existing, ...req.body, id: undefined });
+    // patch 병합 → 합계 재계산
+    const merged = recomputeTotals({ ...existing, ...req.body });
+    const updated = salaryDb.records.upsert({ ...merged, id: undefined });
     logSalaryAccess(req.user.userId, 'EDIT', `급여수정 ${existing.userId} ${existing.yearMonth}`);
     res.json({ ok: true, record: updated });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PUT /api/salary/records/bulk-update — 엑셀 붙여넣기 (여러 행 · 여러 열 일괄 수정)
+// body: { patches: [ { id, patches: {field: val, ...} }, ... ] }
+router.put('/records/bulk-update', (req, res) => {
+  try {
+    // Prototype Pollution 차단 — patches 배열 각 원소 내부까지 정화
+    const sanitizedBody = safeBody(req.body);
+    const patches = Array.isArray(sanitizedBody.patches) ? sanitizedBody.patches : [];
+    if (patches.length === 0) return res.json({ ok: true, updated: 0, skipped: 0 });
+    let updated = 0;
+    let skipped = 0;
+    const errors = [];
+    for (const item of patches) {
+      try {
+        const existing = salaryDb.records.getById(item.id);
+        if (!existing) { skipped++; continue; }
+        if (existing.status !== 'draft') { skipped++; continue; }
+        // 추가로 각 patch 내부의 id/status도 차단
+        const cleanPatch = safeBody(item.patches || {}, ['id', 'status']);
+        const merged = recomputeTotals({ ...existing, ...cleanPatch });
+        salaryDb.records.upsert({ ...merged, id: undefined });
+        updated++;
+      } catch (e) {
+        errors.push({ id: item.id, error: e.message });
+      }
+    }
+    logSalaryAccess(req.user.userId, 'BULK_EDIT', `급여일괄수정 ${updated}건 · 스킵 ${skipped}건`);
+    res.json({ ok: true, updated, skipped, errors });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -395,7 +964,8 @@ router.get('/slip/:userId/:month', (req, res) => {
     const config = salaryDb.configs.get(userId, company);
     const labels = salaryDb.itemLabels.get(company, month);
     const settingsRow = salaryDb.settings.get(company);
-    const companyName = company === 'dalim-sm' ? '대림에스엠' : '대림컴퍼니';
+    let companyName = company === 'dalim-sm' ? '대림에스엠' : company === 'dalim-company' ? '대림컴퍼니' : company;
+    try { const org = db.조직관리.load(); const co = (org.companies||[]).find(c=>c.id===company); if(co) companyName=co.name; } catch(e) {}
 
     // 조직에서 직원 정보 (ERP 미등록 시 salary_configs.name 사용)
     let empInfo = {};
@@ -431,7 +1001,8 @@ router.post('/slip/email/:userId/:month', requireAdmin, async (req, res) => {
     const rec = salaryDb.records.getOne(userId, company, month);
     const labels = salaryDb.itemLabels.get(company, month);
     const settingsRow = salaryDb.settings.get(company);
-    const companyName = company === 'dalim-sm' ? '대림에스엠' : '대림컴퍼니';
+    let companyName = company === 'dalim-sm' ? '대림에스엠' : company === 'dalim-company' ? '대림컴퍼니' : company;
+    try { const org = db.조직관리.load(); const co = (org.companies||[]).find(c=>c.id===company); if(co) companyName=co.name; } catch(e) {}
     let empInfo = {};
     try { const org = db.조직관리.load(); empInfo = (org.users||[]).find(u=>u.id===userId)||{}; } catch(e){}
     if (!empInfo.name && config?.name) empInfo = { name: config.name, ...empInfo };
@@ -484,6 +1055,163 @@ router.post('/slip/email/bulk', requireAdmin, async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
+// 급여명세서 PDF 일괄 생성 (선택 직원 → PDF/ZIP 다운로드, 생년월일 비번 옵션)
+// ══════════════════════════════════════════════════════════════════════════════
+
+// POST /api/salary/slip/pdf/bulk
+// Body: { companyId, yearMonth, userIds: [], withPassword: bool }
+router.post('/slip/pdf/bulk', requireAdmin, async (req, res) => {
+  try {
+    const { companyId, yearMonth, userIds, withPassword } = req.body || {};
+    if (!companyId || !yearMonth || !Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({ error: 'companyId, yearMonth, userIds 필요' });
+    }
+
+    // 의존성 로드
+    let puppeteer, JSZip, muhammara;
+    try { puppeteer = require('puppeteer'); }
+    catch(e) { return res.status(500).json({ error: 'puppeteer 미설치 — 서버에서 npm install 실행 필요' }); }
+    try { JSZip = require('jszip'); }
+    catch(e) { return res.status(500).json({ error: 'jszip 미설치 — 서버에서 npm install 실행 필요' }); }
+    if (withPassword) {
+      try { muhammara = require('muhammara'); }
+      catch(e) { return res.status(500).json({ error: '비번 암호화 모듈(muhammara) 미설치 — 서버에서 npm install 후 재시작 필요' }); }
+    }
+
+    // 공통 설정 로드
+    const labels = salaryDb.itemLabels.get(companyId, yearMonth);
+    const settingsRow = salaryDb.settings.get(companyId);
+    let companyName = companyId === 'dalim-sm' ? '대림에스엠' : companyId === 'dalim-company' ? '대림컴퍼니' : companyId;
+    try { const org = db.조직관리.load(); const co = (org.companies||[]).find(c=>c.id===companyId); if(co) companyName=co.name; } catch(e) {}
+
+    const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+    const results = [];
+    const pdfs = []; // { userId, name, buffer, protected }
+
+    try {
+      for (const userId of userIds) {
+        try {
+          const rec = salaryDb.records.getOne(userId, companyId, yearMonth);
+          if (!rec) { results.push({ userId, ok: false, reason: '급여 데이터 없음' }); continue; }
+          const config = salaryDb.configs.get(userId, companyId);
+          let empInfo = {};
+          try { const org = db.조직관리.load(); empInfo = (org.users||[]).find(u=>u.id===userId)||{}; } catch(e){}
+          if (!empInfo.name && config?.name) empInfo = { name: config.name, ...empInfo };
+          const fmt = n => (n||0).toLocaleString('ko-KR');
+          const html = generateSlipHtml({ rec, config, labels, settingsRow, companyName, empInfo, fmt, month: yearMonth });
+
+          const page = await browser.newPage();
+          await page.setContent(html, { waitUntil: 'networkidle0' });
+          const pdfBuffer = await page.pdf({
+            format: 'A4',
+            printBackground: true,
+            margin: { top: '10mm', bottom: '10mm', left: '10mm', right: '10mm' }
+          });
+          await page.close();
+
+          const name = empInfo.name || config?.name || userId;
+          const birth = (empInfo.birthDate || '').replace(/-/g, '');
+          let finalBuffer = pdfBuffer;
+          let isProtected = false;
+
+          if (withPassword) {
+            if (!birth || !/^\d{8}$/.test(birth)) {
+              results.push({ userId, ok: false, reason: '생년월일 없음 (사원정보 등록 필요)' });
+              continue;
+            }
+            try {
+              finalBuffer = encryptPdfWithPassword(pdfBuffer, birth, muhammara);
+              isProtected = true;
+            } catch (enc) {
+              console.error('[slip/pdf/bulk] 암호화 실패', userId, enc);
+              results.push({ userId, ok: false, reason: `암호화 실패: ${enc.message}` });
+              continue;
+            }
+          }
+
+          pdfs.push({ userId, name, buffer: finalBuffer, protected: isProtected });
+          results.push({ userId, ok: true, protected: isProtected, name });
+          try {
+            salaryDb.issuances.create({ yearMonth, userId, companyId, issuedType: 'pdf', issuedBy: req.user.userId });
+          } catch(e) {}
+        } catch (e) {
+          results.push({ userId, ok: false, reason: e.message });
+        }
+      }
+    } finally {
+      try { await browser.close(); } catch(e) {}
+    }
+
+    logSalaryAccess(req.user.userId, 'SLIP_PDF_BULK',
+      `PDF일괄 ${companyId} ${yearMonth} 요청${userIds.length} 성공${pdfs.length}${withPassword?' (비번O)':''}`);
+
+    if (pdfs.length === 0) {
+      return res.status(400).json({ error: '생성된 PDF 없음', results });
+    }
+
+    const sanitize = (s) => String(s || '').replace(/[\/\\?%*:|"<>]/g, '_').trim() || 'unknown';
+
+    // 실패가 있으면 응답 헤더에 표시
+    const failedCount = results.filter(r => !r.ok).length;
+    if (failedCount > 0) res.setHeader('X-Slip-Failed', String(failedCount));
+
+    if (pdfs.length === 1 && failedCount === 0) {
+      // 단일 PDF
+      const filename = `급여명세서_${yearMonth}_${sanitize(pdfs[0].name)}.pdf`;
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+      return res.send(pdfs[0].buffer);
+    }
+
+    // 여러 명 → ZIP
+    const zip = new JSZip();
+    const nameCount = {};
+    for (const p of pdfs) {
+      const safeName = sanitize(p.name);
+      nameCount[safeName] = (nameCount[safeName] || 0) + 1;
+      const suffix = nameCount[safeName] > 1 ? `_${nameCount[safeName]}` : '';
+      zip.file(`급여명세서_${yearMonth}_${safeName}${suffix}.pdf`, p.buffer);
+    }
+    // 실패 목록이 있으면 결과 요약 텍스트도 포함
+    if (failedCount > 0) {
+      const failLines = results.filter(r => !r.ok).map(r => `${r.userId}\t${r.reason}`);
+      zip.file('실패목록.txt', '급여명세서 생성 실패 목록\n\n' + failLines.join('\n'));
+    }
+    const zipBuf = await zip.generateAsync({ type: 'nodebuffer' });
+    const tag = withPassword ? '비번' : '';
+    const zipName = `급여명세서_${yearMonth}_${pdfs.length}명${tag ? '_' + tag : ''}.zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(zipName)}`);
+    return res.send(zipBuf);
+  } catch (e) {
+    console.error('[slip/pdf/bulk] error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// muhammara를 이용한 PDF 사용자비번 암호화 (tmp 파일 경유)
+function encryptPdfWithPassword(pdfBuffer, password, muhammara) {
+  const os = require('os');
+  const crypto = require('crypto');
+  const tmpDir = os.tmpdir();
+  const id = Date.now() + '_' + crypto.randomBytes(4).toString('hex');
+  const inPath = path.join(tmpDir, `slip_in_${id}.pdf`);
+  const outPath = path.join(tmpDir, `slip_out_${id}.pdf`);
+  fs.writeFileSync(inPath, pdfBuffer);
+  try {
+    muhammara.recrypt(inPath, outPath, {
+      userPassword: password,
+      ownerPassword: password + '_owner',
+      userProtectionFlag: 4  // Print 허용만 (0 = 전체금지, 4 = Print만)
+    });
+    return fs.readFileSync(outPath);
+  } finally {
+    try { fs.unlinkSync(inPath); } catch(e) {}
+    try { fs.unlinkSync(outPath); } catch(e) {}
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // 발급대장
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -503,7 +1231,8 @@ router.get('/export', (req, res) => {
     const { company, month } = req.query;
     const recs = salaryDb.records.getByMonth(company, month);
     const labels = salaryDb.itemLabels.get(company, month);
-    const companyName = company === 'dalim-sm' ? '대림에스엠' : '대림컴퍼니';
+    let companyName = company === 'dalim-sm' ? '대림에스엠' : company === 'dalim-company' ? '대림컴퍼니' : company;
+    try { const org = db.조직관리.load(); const co = (org.companies||[]).find(c=>c.id===company); if(co) companyName=co.name; } catch(e) {}
 
     // 직원 이름 매핑
     let userMap = {};
@@ -519,7 +1248,7 @@ router.get('/export', (req, res) => {
       '과세합계','비과세합계','지급합계',
       '국민연금','건강보험','장기요양','고용보험','소득세','지방소득세',
       '정산소득세','정산지방소득세','건강연말정산','요양연말정산','건강분할납부','요양분할납부',
-      '건강4월추가','요양4월추가','건강환급이자','요양환급이자','잡공제1','잡공제2',
+      '건강정산분','요양정산분','건강환급이자','요양환급이자','잡공제1','잡공제2',
       labels.extraDeduction1Name||'공제1', labels.extraDeduction2Name||'공제2', labels.extraDeduction3Name||'공제3',
       '공제합계','실지급액','상태'];
 
@@ -573,7 +1302,8 @@ router.post('/tax-table', requireAdmin, (req, res) => {
 });
 
 // POST /api/salary/tax-table/upload — CSV 업로드
-router.post('/tax-table/upload', requireAdmin, upload.single('file'), (req, res) => {
+const taxTableUploadMw = upload ? upload.single('file') : (req, res, next) => res.status(503).json({ error: 'multer 미설치 — npm install multer' });
+router.post('/tax-table/upload', requireAdmin, taxTableUploadMw, (req, res) => {
   try {
     const { year } = req.body;
     if (!req.file) return res.status(400).json({ error: '파일 없음' });
@@ -617,7 +1347,9 @@ router.get('/edi', (req, res) => {
 // POST /api/salary/edi — 수동 입력
 router.post('/edi', (req, res) => {
   try {
-    const data = { ...req.body, uploadedBy: req.user.userId, source: 'manual' };
+    // Prototype Pollution 차단 (uploadedBy/source는 서버가 주입)
+    const clean = safeBody(req.body, ['uploadedBy', 'source']);
+    const data = { ...clean, uploadedBy: req.user.userId, source: 'manual' };
     salaryDb.ediRecords.upsert(data);
     res.json({ ok: true });
   } catch (e) {
@@ -626,7 +1358,8 @@ router.post('/edi', (req, res) => {
 });
 
 // POST /api/salary/edi/upload — EDI 파일 업로드 (건강보험공단 xls)
-router.post('/edi/upload', upload.single('file'), (req, res) => {
+const ediUploadMw = upload ? upload.single('file') : (req, res, next) => res.status(503).json({ error: 'multer 미설치 — npm install multer' });
+router.post('/edi/upload', ediUploadMw, (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: '파일 없음' });
     const { companyId, yearMonth } = req.body;
@@ -816,8 +1549,8 @@ function generateSlipHtml({ rec, config, labels, settingsRow, companyName, empIn
     rec.ltcAnnual ? ['장기요양 연말정산', '', fmt(rec.ltcAnnual)] : null,
     rec.healthInstallment ? ['건강보험 분할납부', '', fmt(rec.healthInstallment)] : null,
     rec.ltcInstallment ? ['장기요양 분할납부', '', fmt(rec.ltcInstallment)] : null,
-    rec.healthAprExtra ? ['건강보험 4월추가분', '', fmt(rec.healthAprExtra)] : null,
-    rec.ltcAprExtra ? ['장기요양 4월추가분', '', fmt(rec.ltcAprExtra)] : null,
+    rec.healthAprExtra ? ['건강보험 정산분', '', fmt(rec.healthAprExtra)] : null,
+    rec.ltcAprExtra ? ['장기요양 정산분', '', fmt(rec.ltcAprExtra)] : null,
     rec.healthRefundInterest ? ['건강보험 환급금이자', '', fmt(rec.healthRefundInterest)] : null,
     rec.ltcRefundInterest ? ['요양보험 환급금이자', '', fmt(rec.ltcRefundInterest)] : null,
     rec.miscDeduction1 ? ['과태료 및 주차비', '', fmt(rec.miscDeduction1)] : null,
@@ -832,89 +1565,191 @@ function generateSlipHtml({ rec, config, labels, settingsRow, companyName, empIn
   const dedRowsHtml = rows_ded.map(([label, pct, amt]) => `
     <tr><td>${label}<span style="color:#9ca3af;font-size:10px;margin-left:4px;">${pct}</span></td><td></td><td class="num">${amt}</td></tr>`).join('');
 
+  // ── 엑셀식 2단 레이아웃 (지급 ← | → 공제) ──────────────────────────────
+  // 좌우 행수를 맞춰 빈 행으로 패딩
+  const maxRows = Math.max(rows_pay.length, rows_ded.length);
+  function pad(arr) {
+    const out = arr.slice();
+    while (out.length < maxRows) out.push(['', '', '']);
+    return out;
+  }
+  const padPay = pad(rows_pay);
+  const padDed = pad(rows_ded);
+  const bodyRowsHtml = padPay.map((p, i) => {
+    const d = padDed[i];
+    const pLabel = p[0] || '';
+    const pHours = p[1] || '';
+    const pAmt = p[2] || '';
+    const dLabel = d[0] || '';
+    const dPct = d[1] || '';
+    const dAmt = d[2] || '';
+    return `<tr>
+      <td class="lbl">${pLabel}${pHours ? `<span class="sub">${pHours}</span>` : ''}</td>
+      <td class="num">${pAmt}</td>
+      <td class="lbl">${dLabel}${dPct ? `<span class="sub">${dPct}</span>` : ''}</td>
+      <td class="num">${dAmt}</td>
+    </tr>`;
+  }).join('');
+
+  // ── 산출근거 테이블 (엑셀 명세서 양식 복제) ─────────────────────
+  // [구분, 산출근거, 비고] — 해당 항목이 실제 있을 때만 행을 그림
+  const basisRows = [
+    ['4대보험 / 소득세', '관련 법률·규정에 근거함', '공통 적용'],
+  ];
+  // ─ 지급 항목
+  if (rec.overtimePay > 0)       basisRows.push(['연장수당',      '연장근무시간 × 통상시급 × 1.5배',                     '야간근무 시 +0.5배 가산']);
+  if (rec.nightPay > 0)          basisRows.push(['야간수당',      '야간근무시간 × 통상시급 × 0.5배',                     '22시~06시 근무분']);
+  if (rec.holidayPay > 0)        basisRows.push(['휴일수당',      '휴일기본근무시간 × 통상시급 × 1.5배',                  '연장근무 시 +0.5배 가산']);
+  if (rec.holidayOtPay > 0)      basisRows.push(['휴일연장수당',  '휴일연장근무시간 × 통상시급 × 2.0배',                  '']);
+  if (rec.fixedOvertimePay > 0)  basisRows.push(['고정연장수당',  '월 고정연장근무 약정분',                              '근로계약서 기준']);
+  if (rec.fixedHolidayPay > 0)   basisRows.push(['고정휴일수당',  '월 고정휴일근무 약정분',                              '근로계약서 기준']);
+  if (rec.mealAllowance > 0)     basisRows.push(['식대',          '월 20만원 한도 비과세',                               '소득세법 제12조']);
+  if (rec.transportAllowance>0)  basisRows.push(['차량유지비',    '본인 차량 업무 사용분 월 20만원 한도 비과세',          '소득세법 제12조']);
+  if (rec.teamLeaderAllowance>0) basisRows.push(['팀장수당',      '팀장 직책 추가수당',                                  '']);
+  if (rec.bonusPay > 0)          basisRows.push(['상여',          '설·추석 명절 상여',                                   '']);
+  if (rec.retroPay > 0)          basisRows.push(['소급',          '호봉·직급 인상분 소급 지급',                          '']);
+  if (rec.leavePay > 0)          basisRows.push(['연차수당',      '미사용 연차일수 × 일급',                              '근로기준법 제60조']);
+  // ─ 공제 정산 항목
+  if (rec.incomeTaxAdj)          basisRows.push(['정산소득세',         '전년도 연말정산 결과 정산분 소득세',                    '']);
+  if (rec.localTaxAdj)           basisRows.push(['정산지방소득세',     '전년도 연말정산 결과 정산분 지방소득세',                '']);
+  if (rec.healthAnnual)          basisRows.push(['건강보험 연말정산', '전년도 보수총액 기준 건강보험료 정산분',                '']);
+  if (rec.ltcAnnual)             basisRows.push(['장기요양 연말정산', '전년도 보수총액 기준 장기요양료 정산분',                '']);
+  if (rec.healthAprExtra)        basisRows.push(['건강보험 정산분',   '2026년 건강보험 요율 변경(3.545% → 3.595%) 1~3월 소급 정산', '공단 신요율 납부 / 직원 공제 구요율 적용 차액']);
+  if (rec.ltcAprExtra)           basisRows.push(['장기요양 정산분',   '2026년 장기요양 요율 변경(12.95% → 13.14%) 1~3월 소급 정산', '공단 신요율 납부 / 직원 공제 구요율 적용 차액']);
+  if (rec.healthInstallment)     basisRows.push(['건강보험 분할납부', '연말정산 건강보험료 분할납부 해당월분',                 '']);
+  if (rec.ltcInstallment)        basisRows.push(['장기요양 분할납부', '연말정산 장기요양료 분할납부 해당월분',                 '']);
+  if (rec.healthRefundInterest)  basisRows.push(['건강보험 환급금이자','건강보험 과오납 환급금에 대한 이자(과세소득)',          '']);
+  if (rec.ltcRefundInterest)     basisRows.push(['요양보험 환급금이자','장기요양 과오납 환급금에 대한 이자(과세소득)',          '']);
+  if (rec.miscDeduction1)        basisRows.push(['과태료 및 주차비', '차량 운행 중 발생한 과태료 및 개인차량 주차비',          '']);
+  if (rec.miscDeduction2)        basisRows.push(['기타 공제',       '기타 개별 공제 항목',                                    '']);
+  if (rec.extraDeduction1 && l.extraDeduction1Name) basisRows.push([l.extraDeduction1Name, '회사 내부 규정에 따른 공제', '']);
+  if (rec.extraDeduction2 && l.extraDeduction2Name) basisRows.push([l.extraDeduction2Name, '회사 내부 규정에 따른 공제', '']);
+  if (rec.extraDeduction3 && l.extraDeduction3Name) basisRows.push([l.extraDeduction3Name, '회사 내부 규정에 따른 공제', '']);
+
+  const basisRowsHtml = basisRows.map(([a, b, c]) => `
+    <tr><td class="b-lbl">${a}</td><td class="b-src">${b}</td><td class="b-note">${c || ''}</td></tr>`).join('');
+
   return `<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
 <title>${companyName} ${month} 급여명세서 — ${name}</title>
 <style>
-  @page { margin: 20mm 15mm; size: A4; }
+  @page { margin: 15mm 12mm; size: A4; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Malgun Gothic', sans-serif; font-size: 13px; color: #1f2937; background: #fff; }
-  .slip { max-width: 680px; margin: 0 auto; padding: 24px; }
-  .header { text-align: center; margin-bottom: 20px; }
-  .header h1 { font-size: 22px; font-weight: 700; letter-spacing: 2px; }
-  .header .company { font-size: 15px; color: #4b5563; margin-bottom: 6px; }
-  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 20px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 12px; }
-  .info-grid dt { color: #6b7280; }
-  .info-grid dd { font-weight: 600; }
-  .section { margin-bottom: 14px; }
-  .section-title { font-size: 12px; font-weight: 700; color: #374151; background: #f3f4f6; padding: 6px 10px; border-left: 3px solid #4f6ef7; margin-bottom: 0; }
-  table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  td { padding: 5px 10px; border-bottom: 1px solid #f3f4f6; }
-  td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .subtotal td { background: #f9fafb; font-weight: 600; border-top: 1px solid #d1d5db; }
-  .nettotal { background: #1e3a5f; color: #fff; border-radius: 8px; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; margin-top: 14px; }
-  .nettotal .label { font-size: 15px; font-weight: 700; }
-  .nettotal .amount { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; }
-  .basis { margin-top: 16px; font-size: 11px; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 10px; line-height: 1.8; }
-  @media print { .no-print { display: none !important; } }
-  .print-btn { text-align: center; margin-top: 20px; }
-  .print-btn button { background: #4f6ef7; color: #fff; border: none; padding: 10px 28px; border-radius: 6px; font-size: 14px; cursor: pointer; }
+  body { font-family: 'Malgun Gothic','맑은 고딕',sans-serif; font-size: 12px; color: #111; background: #fff; }
+  .slip { max-width: 760px; margin: 0 auto; padding: 18px; }
+  .title { text-align:center; font-size:22px; font-weight:800; letter-spacing:8px; padding:8px 0 14px; }
+  .company { text-align:center; font-size:14px; font-weight:700; color:#333; margin-bottom:6px; }
+  .period  { text-align:right; font-size:12px; color:#333; margin-bottom:4px; }
+  table.info, table.body { width:100%; border-collapse:collapse; }
+  table.info td { border:1px solid #555; padding:5px 8px; font-size:12px; }
+  table.info td.th { background:#f0f0f0; font-weight:700; width:90px; text-align:center; }
+  table.body { margin-top:0; }
+  table.body th, table.body td { border:1px solid #555; padding:4px 8px; font-size:12px; }
+  table.body thead th { background:#e8eaf0; font-weight:700; text-align:center; height:26px; }
+  table.body td.lbl { background:#fafafa; }
+  table.body td.lbl .sub { color:#888; font-size:10px; margin-left:4px; }
+  table.body td.num { text-align:right; font-variant-numeric:tabular-nums; width:110px; }
+  table.body tr.sub td { background:#f5f5f5; font-weight:600; }
+  table.body tr.sum td { background:#fff3cd; font-weight:700; }
+  table.body tr.net td { background:#1e3a5f; color:#fff; font-size:15px; font-weight:800; height:34px; }
+  table.body tr.net td.num { font-size:16px; }
+  .sign { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; margin-top:18px; font-size:12px; }
+  .sign .box { border:1px solid #555; height:70px; position:relative; padding:6px 8px; }
+  .sign .box .role { font-weight:700; }
+  .sign .box .seal { position:absolute; right:8px; bottom:6px; color:#888; font-size:11px; }
+  table.basis { width:100%; border-collapse:collapse; font-size:11px; margin-top:4px; }
+  table.basis th, table.basis td { border:1px solid #555; padding:4px 8px; vertical-align:middle; }
+  table.basis thead th { background:#e8eaf0; font-weight:700; text-align:center; height:22px; }
+  table.basis td.b-lbl { background:#fafafa; font-weight:600; text-align:center; }
+  table.basis td.b-src { font-size:11px; color:#222; }
+  table.basis td.b-note { font-size:10px; color:#666; }
+  .basis-title { margin-top:14px; font-size:12px; font-weight:700; color:#333; margin-bottom:4px; }
+  .ref-note { margin-top:8px; font-size:10px; color:#555; line-height:1.6; }
+  @media print { .no-print { display: none !important; } body { font-size:11px; } }
+  .print-btn { text-align: center; margin-top: 18px; }
+  .print-btn button { background: #4f6ef7; color: #fff; border: none; padding: 9px 24px; border-radius: 6px; font-size: 13px; cursor: pointer; }
 </style>
 </head>
 <body>
 <div class="slip">
-  <div class="header">
-    <div class="company">${companyName}</div>
-    <h1>급 여 명 세 서</h1>
-  </div>
-  <dl class="info-grid">
-    <dt>귀속연월</dt><dd>${month}</dd>
-    <dt>급여지급일</dt><dd>${rec.payDate || '—'}</dd>
-    <dt>성명</dt><dd>${name}</dd>
-    <dt>부서/직위</dt><dd>${dept}${position ? ' / ' + position : ''}</dd>
-    <dt>입사일</dt><dd>${hireDate || '—'}</dd>
-    <dt>통상시급</dt><dd>${fmt(Math.round(config?.hourlyRate || 0))}원</dd>
-    <dt>근무일수</dt><dd>${rec.workDays || 0}일</dd>
-    <dt>근무시간</dt><dd>${rec.workHours || 0}시간</dd>
-  </dl>
+  <div class="company">${companyName}</div>
+  <div class="title">급 여 명 세 서</div>
+  <div class="period">귀속월: <b>${month}</b> &nbsp;&nbsp; 지급일: <b>${rec.payDate || '—'}</b></div>
 
-  <div class="section">
-    <div class="section-title">지급 내역</div>
-    <table>
-      ${payRowsHtml}
-      <tr class="subtotal">
-        <td>과세합계</td><td></td><td class="num">${fmt(rec.taxableTotal)}</td>
+  <table class="info">
+    <tr>
+      <td class="th">성명</td><td>${name}</td>
+      <td class="th">부서</td><td>${dept || '—'}</td>
+      <td class="th">직위</td><td>${position || '—'}</td>
+    </tr>
+    <tr>
+      <td class="th">입사일</td><td>${hireDate || '—'}</td>
+      <td class="th">통상시급</td><td>${fmt(Math.round(config?.hourlyRate || 0))} 원</td>
+      <td class="th">근무일/시간</td><td>${rec.workDays || 0}일 / ${rec.workHours || 0}h</td>
+    </tr>
+  </table>
+
+  <table class="body">
+    <thead>
+      <tr>
+        <th style="width:38%">지급 내역</th>
+        <th style="width:12%">금액(원)</th>
+        <th style="width:38%">공제 내역</th>
+        <th style="width:12%">금액(원)</th>
       </tr>
-      <tr class="subtotal" style="color:#6b7280;">
-        <td>비과세합계</td><td></td><td class="num">${fmt(rec.nonTaxableTotal)}</td>
+    </thead>
+    <tbody>
+      ${bodyRowsHtml}
+      <tr class="sub">
+        <td class="lbl">과세합계</td>
+        <td class="num">${fmt(rec.taxableTotal)}</td>
+        <td class="lbl">&nbsp;</td>
+        <td class="num">&nbsp;</td>
       </tr>
-      <tr class="subtotal">
-        <td>지급합계</td><td></td><td class="num">${fmt(rec.grossPay)}</td>
+      <tr class="sub">
+        <td class="lbl">비과세합계</td>
+        <td class="num">${fmt(rec.nonTaxableTotal)}</td>
+        <td class="lbl">&nbsp;</td>
+        <td class="num">&nbsp;</td>
       </tr>
-    </table>
+      <tr class="sum">
+        <td class="lbl">지급 합계 (A)</td>
+        <td class="num">${fmt(rec.grossPay)}</td>
+        <td class="lbl">공제 합계 (B)</td>
+        <td class="num">${fmt(rec.totalDeductions)}</td>
+      </tr>
+      <tr class="net">
+        <td class="lbl" colspan="3">실 지 급 액 (A − B)</td>
+        <td class="num">${fmt(rec.netPay)} 원</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="sign">
+    <div class="box"><div class="role">작성자</div><div class="seal">(인)</div></div>
+    <div class="box"><div class="role">확인자</div><div class="seal">(인)</div></div>
+    <div class="box"><div class="role">수령자 / ${name}</div><div class="seal">(인)</div></div>
   </div>
 
-  <div class="section">
-    <div class="section-title">공제 내역</div>
-    <table>
-      ${dedRowsHtml}
-      <tr class="subtotal">
-        <td>공제합계</td><td></td><td class="num">${fmt(rec.totalDeductions)}</td>
+  <div class="basis-title">◎ 산 출 근 거</div>
+  <table class="basis">
+    <thead>
+      <tr>
+        <th style="width:22%">구 분</th>
+        <th style="width:53%">산 출 근 거</th>
+        <th style="width:25%">비 고</th>
       </tr>
-    </table>
-  </div>
+    </thead>
+    <tbody>
+      ${basisRowsHtml}
+    </tbody>
+  </table>
 
-  <div class="nettotal">
-    <span class="label">실 지 급 액</span>
-    <span class="amount">${fmt(rec.netPay)} 원</span>
-  </div>
-
-  <div class="basis">
-    ※ 4대보험: 국민연금 ${s.pensionRate||4.5}% / 건강보험 ${s.healthRate||3.595}% / 장기요양 ${s.ltcRate||13.14}% (건보료 대비) / 고용보험 ${s.employmentRate||0.9}%<br>
-    ※ 비과세: 식대(월 20만원 한도), 차량유지비<br>
-    ※ 소득세: 근로소득 간이세액표 기준 (부양가족 ${config?.dependents||1}명)
+  <div class="ref-note">
+    ※ 4대보험 요율: 국민연금 ${s.pensionRate||4.5}% / 건강보험 ${s.healthRate||3.595}% / 장기요양 ${s.ltcRate||13.14}%(건보료 대비) / 고용보험 ${s.employmentRate||0.9}% &nbsp;|&nbsp;
+    소득세: 근로소득 간이세액표 기준 (부양가족 ${config?.dependents||1}명)
   </div>
 
   <div class="print-btn no-print">
@@ -946,137 +1781,10 @@ router.get('/attendance-import', async (req, res) => {
   const { company, month } = req.query;
   if (!company || !month) return res.status(400).json({ error: 'company, month 필요' });
 
-  const [year, mon] = month.split('-');
-
   try {
-    // ── 1. 이름 → userId 매핑 빌드 ──────────────────────────────────────────
-    const nameToId = {};   // employeeName → userId
-    const nameMap = {};    // employeeName → displayName (after capsName mapping)
-    const uData = db.loadUsers();
-    (uData.users || []).forEach(u => {
-      if (u.name) nameToId[u.name] = u.id;
-      // capsName 처리 (CAPS에 다른 이름으로 등록된 경우)
-      if (u.capsName && u.capsName !== u.name) {
-        nameToId[u.capsName] = u.id;
-        nameMap[u.capsName] = u.name;
-      }
-    });
-    // salary_configs.name으로도 보완 (대림컴퍼니 ERP 미등록 직원)
-    const cfgs = salaryDb.configs.getAll(company);
-    cfgs.forEach(c => {
-      if (c.name && !nameToId[c.name]) nameToId[c.name] = c.userId;
-    });
-
-    // ── 2. 출퇴근 summary API 내부 호출 ────────────────────────────────────
-    // attendance.js의 /api/attendance/summary를 직접 require하는 대신
-    // 같은 로직의 핵심인 attendance-store 캐시 파일을 읽음
-    const attendanceStoreDir = path.join(__dirname, '..', 'data', 'attendance-store');
-
-    const from = `${year}-${String(mon).padStart(2,'0')}-01`;
-    const lastDay = new Date(+year, +mon, 0).getDate();
-    const to = `${year}-${String(mon).padStart(2,'0')}-${lastDay}`;
-    const cacheKeyRaw = `sum_${from}_${to}_all`;
-    const cacheFile = path.join(attendanceStoreDir,
-      Buffer.from(cacheKeyRaw, 'utf8').toString('hex') + '.json');
-
-    // ── 대림컴퍼니: CAPS 없음 → 평일 수 자동계산으로 전 직원 반환 ────────────────
-    if (company === 'dalim-company' || !fs.existsSync(cacheFile)) {
-      const weekdays = calcWeekdaysInMonth(month);
-      const cfgsAll = salaryDb.configs.getAll(company);
-      if (company === 'dalim-company') {
-        const nameMapLocal = getNameMap(company);
-        const empList = cfgsAll.map(c => ({
-          userId: c.userId,
-          name: c.name || nameMapLocal[c.userId] || c.userId,
-          workDays: weekdays,
-          annualDays: 0, absentDays: 0, lateCount: 0, totalOvertimeH: 0,
-          _autoCalc: true,
-        }));
-        return res.json({
-          ok: true,
-          month, company,
-          employees: empList,
-          note: `대림컴퍼니: CAPS 미연동 — ${month.slice(5)}월 평일 수(${weekdays}일) 자동 적용. 추후 자체 ERP 연동 시 실제 데이터로 교체됩니다.`,
-        });
-      }
-      // 대림에스엠인데 CAPS 캐시 없는 경우
-      return res.json({
-        ok: true,
-        warn: '출퇴근 데이터 없음 — 출퇴근 탭에서 해당 월을 먼저 조회/동기화하세요',
-        employees: []
-      });
-    }
-
-    const raw = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
-    // 캐시 파일 포맷: {_key, data, savedAt} 또는 과거 평문 배열
-    const payload = (raw && typeof raw === 'object' && 'data' in raw) ? raw.data : raw;
-    let records = [];
-    if (Array.isArray(payload)) records = payload;
-    else if (payload && Array.isArray(payload.records)) records = payload.records;
-    else if (payload && typeof payload === 'object') {
-      // 날짜별 맵 형태면 flatten
-      for (const v of Object.values(payload)) {
-        if (Array.isArray(v)) records.push(...v);
-      }
-    }
-
-    // ── 3. 직원별 집계 ────────────────────────────────────────────────────
-    // attendance.js의 analyzeRecord 함수와 동일한 로직 (핵심만 추출)
-    const byName = {};
-    for (const r of records) {
-      const name = r.employeeName || r.employeeId;
-      if (!name) continue;
-      if (!byName[name]) byName[name] = { normalDays:0, halfAM:0, halfPM:0, annualDays:0, absentDays:0, lateCount:0, totalOvertimeMin:0 };
-      const e = byName[name];
-      if (r.leaveType === 'normal')   e.normalDays++;
-      else if (r.leaveType === 'halfAM') e.halfAM++;
-      else if (r.leaveType === 'halfPM') e.halfPM++;
-      else if (r.leaveType === 'annual') e.annualDays++;
-      else if (r.leaveType === 'absent') e.absentDays++;
-      if (r.late) e.lateCount++;
-      e.totalOvertimeMin += (r.overtime || 0);
-    }
-
-    // 수동 노트 추가 적용 (attendanceNotes)
-    try {
-      const workData = db.출퇴근관리.load();
-      const notes = workData.attendanceNotes || {};
-      for (const [key, note] of Object.entries(notes)) {
-        const m = key.match(/^(.+)_(\d{4}-\d{2}-\d{2})$/);
-        if (!m) continue;
-        const [, empName, date] = m;
-        if (date < from || date > to) continue;
-        if (!byName[empName]) byName[empName] = { normalDays:0, halfAM:0, halfPM:0, annualDays:0, absentDays:0, lateCount:0, totalOvertimeMin:0 };
-        // 수동 레코드는 이미 위 records에 포함될 수도 있으므로 중복 방지 불필요 — 여기서는 건너뜀
-        // (attendance.js에서 이미 수동+CAPS를 병합한 캐시를 사용하므로 자동 반영됨)
-      }
-    } catch(e) {}
-
-    // ── 4. 이름 → userId 변환 후 결과 빌드 ──────────────────────────────
-    const result = [];
-    for (const [empName, stats] of Object.entries(byName)) {
-      const userId = nameToId[empName];
-      if (!userId) continue; // 급여 미설정 직원 제외
-
-      // salary_configs에 없는 직원도 제외 (해당 회사 소속인지 확인)
-      const cfg = cfgs.find(c => c.userId === userId);
-      if (!cfg) continue;
-
-      const workDays = stats.normalDays + stats.halfAM * 0.5 + stats.halfPM * 0.5;
-      result.push({
-        userId,
-        name: nameMap[empName] || empName,
-        workDays: Math.round(workDays * 2) / 2, // 0.5 단위 반올림
-        annualDays: stats.annualDays + stats.halfAM * 0.5 + stats.halfPM * 0.5,
-        absentDays: stats.absentDays,
-        lateCount: stats.lateCount,
-        totalOvertimeH: Math.round((stats.totalOvertimeMin / 60) * 10) / 10,
-      });
-    }
-
+    const data = await fetchAttendanceData(company, month);
     logSalaryAccess(req.user.userId, 'ATTENDANCE_IMPORT', `출퇴근 연동 조회 ${company} ${month}`);
-    res.json({ ok: true, month, company, employees: result });
-
+    res.json({ ok: true, month, company, ...data });
   } catch (e) {
     console.error('[salary/attendance-import]', e.message);
     res.status(500).json({ error: e.message });
@@ -1084,6 +1792,8 @@ router.get('/attendance-import', async (req, res) => {
 });
 
 // POST /api/salary/attendance-apply — 출퇴근 데이터를 급여 레코드에 일괄 반영
+// 2026-04-17: 연장시간도 함께 반영하도록 확장. CAPS 집계를 급여 레코드에 밀어넣어
+// /calculate를 다시 돌리지 않아도 수동 연장근무 입력값처럼 동작하게 함.
 router.post('/attendance-apply', async (req, res) => {
   const { companyId, yearMonth, employees } = req.body;
   if (!companyId || !yearMonth || !employees?.length) {
@@ -1097,18 +1807,51 @@ router.post('/attendance-apply', async (req, res) => {
         results.push({ userId: emp.userId, skipped: true, reason: existing ? '이미 확정/지급됨' : '급여 레코드 없음' });
         continue;
       }
+
+      // 1. 출퇴근 연동 레코드 업데이트 (workDays + 연차/결근/지각 메타)
       const updated = salaryDb.records.upsert({
         ...existing,
         workDays: emp.workDays,
-        // annualDays, lateCount는 메모로 저장 (별도 필드 없음)
+        annualDays: emp.annualDays ?? existing.annualDays ?? 0,
+        absentDays: emp.absentDays ?? existing.absentDays ?? 0,
+        lateCount: emp.lateCount ?? existing.lateCount ?? 0,
         note: [existing.note, `출퇴근연동: 연차${emp.annualDays}일 지각${emp.lateCount}회`].filter(Boolean).join(' | '),
       });
-      results.push({ userId: emp.userId, ok: true, workDays: emp.workDays });
+
+      // 2. 연장시간 동기화 (salary_overtime 테이블) — 수동 입력이 없는 경우만
+      let overtimeApplied = false;
+      if (emp.totalOvertimeH != null && emp.totalOvertimeH > 0) {
+        const existingOt = salaryDb.overtime.getByMonth(companyId, yearMonth)
+          .find(r => r.userId === emp.userId);
+        // 수동 입력값이 있으면 덮어쓰지 않음 (관리자 의도 존중)
+        if (!existingOt || (existingOt.overtimeH === 0 && !existingOt.memo)) {
+          salaryDb.overtime.upsertSummary({
+            userId: emp.userId,
+            companyId,
+            yearMonth,
+            overtimeH: emp.totalOvertimeH,
+            nightH: existingOt?.nightH || 0,
+            holidayH: existingOt?.holidayH || 0,
+            holidayOtH: existingOt?.holidayOtH || 0,
+            memo: `CAPS 자동: ${emp.totalOvertimeH}h`,
+          });
+          overtimeApplied = true;
+        }
+      }
+
+      results.push({
+        userId: emp.userId,
+        ok: true,
+        workDays: emp.workDays,
+        overtimeH: overtimeApplied ? emp.totalOvertimeH : null,
+        overtimeApplied,
+      });
     } catch (e) {
       results.push({ userId: emp.userId, error: e.message });
     }
   }
-  logSalaryAccess(req.user.userId, 'ATTENDANCE_APPLY', `출퇴근 데이터 반영 ${companyId} ${yearMonth}`);
+  logSalaryAccess(req.user.userId, 'ATTENDANCE_APPLY',
+    `출퇴근 데이터 반영 ${companyId} ${yearMonth} (${employees.length}명)`);
   res.json({ ok: true, results });
 });
 
@@ -1154,6 +1897,56 @@ router.delete('/overtime/:userId/:month', requireAdmin, (req, res) => {
   const { company } = req.query;
   salaryDb.overtime.delete(req.params.userId, company, req.params.month);
   res.json({ ok: true });
+});
+
+// ── 일자별 연장근무 API (엑셀 연장근무 시트 대응) ────────────────────────────
+// GET /api/salary/overtime/daily?company=&month=&userId=
+router.get('/overtime/daily', (req, res) => {
+  const { company, month, userId } = req.query;
+  if (!company || !month || !userId) return res.status(400).json({ error: '파라미터 누락(company,month,userId)' });
+  const rows = salaryDb.overtime.getDetail(userId, company, month).filter(r => r.workDate !== 'TOTAL');
+  res.json({ daily: rows });
+});
+
+// POST /api/salary/overtime/daily — 단건 upsert
+// body: { userId, companyId, yearMonth, workDate(YYYY-MM-DD), overtimeH, nightH, holidayH, holidayOtH, memo }
+router.post('/overtime/daily', (req, res) => {
+  try {
+    const { userId, companyId, yearMonth, workDate, overtimeH=0, nightH=0, holidayH=0, holidayOtH=0, memo='' } = req.body;
+    if (!userId || !companyId || !yearMonth || !workDate) return res.status(400).json({ error: '파라미터 누락' });
+    const row = salaryDb.overtime.upsertDaily({ userId, companyId, yearMonth, workDate,
+      overtimeH: +overtimeH, nightH: +nightH, holidayH: +holidayH, holidayOtH: +holidayOtH, memo });
+    logSalaryAccess(req.user.userId, 'OVERTIME_DAILY_EDIT', `일자별 연장 ${userId} ${workDate}`);
+    res.json({ ok: true, row });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/salary/overtime/daily/bulk — 여러 일자 한번에 upsert
+// body: { rows: [{ userId, companyId, yearMonth, workDate, overtimeH, ... }, ...] }
+router.post('/overtime/daily/bulk', (req, res) => {
+  try {
+    const { rows } = req.body;
+    if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'rows 필요' });
+    salaryDb.overtime.bulkUpsertDaily(rows.map(r => ({
+      ...r,
+      overtimeH: +(r.overtimeH || 0), nightH: +(r.nightH || 0),
+      holidayH: +(r.holidayH || 0), holidayOtH: +(r.holidayOtH || 0),
+    })));
+    logSalaryAccess(req.user.userId, 'OVERTIME_DAILY_BULK', `일자별 연장 일괄 ${rows.length}건`);
+    res.json({ ok: true, count: rows.length });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/salary/overtime/daily/:userId/:month/:workDate?company=
+router.delete('/overtime/daily/:userId/:month/:workDate', (req, res) => {
+  try {
+    const { company } = req.query;
+    const { userId, month, workDate } = req.params;
+    if (!company) return res.status(400).json({ error: 'company 필요' });
+    salaryDb.overtime.deleteDaily(userId, company, month, workDate);
+    logSalaryAccess(req.user.userId, 'OVERTIME_DAILY_DELETE', `일자별 연장 삭제 ${userId} ${workDate}`);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // ══════════════════════════════════════════════════════════════════════════════

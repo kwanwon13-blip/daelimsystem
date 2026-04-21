@@ -61,6 +61,10 @@ try {
 
 const jsonStores = {
   '조직관리': {
+    companies: [
+      { id: 'dalim-sm', name: '대림에스엠', bizNo: '', ceo: '남관원', tel: '', address: '', note: '', sortOrder: 0 },
+      { id: 'dalim-company', name: '대림컴퍼니', bizNo: '', ceo: '남관원', tel: '', address: '', note: '', sortOrder: 1 }
+    ],
     users: [],
     departments: []
   },

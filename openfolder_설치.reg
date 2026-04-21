@@ -1,0 +1,20 @@
+Windows Registry Editor Version 5.00
+
+; ── openfolder:// 프로토콜 등록 ──
+[HKEY_CLASSES_ROOT\openfolder]
+@="URL:Open Folder Protocol"
+"URL Protocol"=""
+
+[HKEY_CLASSES_ROOT\openfolder\shell]
+
+[HKEY_CLASSES_ROOT\openfolder\shell\open]
+
+[HKEY_CLASSES_ROOT\openfolder\shell\open\command]
+@="wscript.exe \"\\\\192.168.0.133\\dd\\price-list-app\\openfolder.vbs\" \"%1\""
+
+; ── Chrome / Edge 자동 허용 ──
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome]
+"AutoLaunchProtocolsFromOrigins"="[{\"protocol\":\"openfolder\",\"allowed_origins\":[\"http://192.168.0.133:3000\"]}]"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Edge]
+"AutoLaunchProtocolsFromOrigins"="[{\"protocol\":\"openfolder\",\"allowed_origins\":[\"http://192.168.0.133:3000\"]}]"

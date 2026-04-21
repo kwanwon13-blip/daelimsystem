@@ -1,0 +1,929 @@
+<!-- tab-workspace.html — 워크스페이스 (노션 스타일 에디터) -->
+<div>
+<style>
+  .ws-container { display:flex; height:calc(100vh - var(--header-h) - 2px); background:#f8f9fb; }
+  .ws-sidebar { width:240px; background:#fff; border-right:1px solid #e5e7eb; display:flex; flex-direction:column; flex-shrink:0; }
+  .ws-sidebar-header { padding:14px 16px 10px; border-bottom:1px solid #f0f1f3; }
+  .ws-sidebar-title { font-family:'Work Sans',sans-serif; font-size:14px; font-weight:700; color:#1a1d23; display:flex; align-items:center; gap:6px; }
+  .ws-search { width:100%; padding:6px 10px; border:1px solid #e5e7eb; border-radius:8px; font-size:12px; background:#f8f9fb; outline:none; margin-top:8px; }
+  .ws-search:focus { border-color:#4f6ef7; background:#fff; }
+  .ws-page-list { flex:1; overflow-y:auto; padding:6px 8px; }
+  .ws-page-group { color:#9ca3af; font-size:11px; font-weight:600; padding:10px 8px 4px; text-transform:uppercase; letter-spacing:0.03em; }
+  .ws-page-item { display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:8px; cursor:pointer; transition:all .15s; }
+  .ws-page-item:hover { background:#f3f4f6; }
+  .ws-page-item.active { background:#eef2ff; color:#4338ca; }
+  .ws-page-item .emoji { font-size:16px; flex-shrink:0; }
+  .ws-page-item .info { flex:1; min-width:0; }
+  .ws-page-item .title { font-size:12.5px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ws-page-item .meta { font-size:10.5px; color:#9ca3af; }
+  .ws-page-item.active .title { color:#4338ca; font-weight:600; }
+
+  .ws-editor-area { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+  .ws-editor-toolbar { background:#fff; border-bottom:1px solid #f0f1f3; padding:8px 20px; display:flex; align-items:center; justify-content:space-between; }
+  .ws-breadcrumb { display:flex; align-items:center; gap:4px; font-size:12px; color:#9ca3af; }
+  .ws-breadcrumb .current { color:#4b5563; font-weight:500; }
+  .ws-editor-content { flex:1; overflow-y:auto; }
+  .ws-editor-inner { max-width:720px; margin:0 auto; padding:32px 40px 120px; }
+
+  /* 에디터 꾸미기 */
+  .ws-page-emoji { font-size:48px; cursor:pointer; width:64px; height:64px; display:flex; align-items:center; justify-content:center; border-radius:12px; transition:background .15s; margin-bottom:8px; }
+  .ws-page-emoji:hover { background:#f3f4f6; }
+  .ws-page-title-input { font-family:'Work Sans',sans-serif; font-size:28px; font-weight:700; border:none; outline:none; width:100%; background:transparent; color:#1a1d23; padding:0; line-height:1.3; }
+  .ws-page-title-input::placeholder { color:#d1d5db; }
+  .ws-author-info { font-size:11.5px; color:#9ca3af; margin:4px 0 20px; }
+
+  /* Editor.js 스타일 오버라이드 */
+  .codex-editor { font-size:14px; line-height:1.7; color:#374151; }
+  .codex-editor .ce-block__content { max-width:100%; }
+  .codex-editor .ce-toolbar__content { max-width:100%; }
+  .ce-block--selected .ce-block__content { background:#eef2ff; }
+  .codex-editor h2 { font-family:'Work Sans',sans-serif; font-size:20px; font-weight:700; margin-top:28px; color:#1a1d23; }
+  .codex-editor h3 { font-family:'Work Sans',sans-serif; font-size:16px; font-weight:600; margin-top:20px; color:#1a1d23; }
+  .codex-editor .ce-paragraph { line-height:1.8; }
+  .cdx-checklist__item-checkbox { border-radius:4px; }
+  .cdx-checklist__item--checked .cdx-checklist__item-text { color:#9ca3af; text-decoration:line-through; }
+
+  /* AI 패널 */
+  .ws-ai-panel { width:300px; background:#fff; border-left:1px solid #e5e7eb; display:flex; flex-direction:column; flex-shrink:0; }
+  .ws-ai-header { padding:14px 16px; border-bottom:1px solid #f0f1f3; display:flex; align-items:center; justify-content:space-between; }
+  .ws-ai-title { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:700; color:#1a1d23; }
+  .ws-ai-dot { width:8px; height:8px; background:linear-gradient(135deg,#4f6ef7,#7c3aed); border-radius:50%; }
+  .ws-ai-body { flex:1; overflow-y:auto; padding:12px 14px; }
+  .ws-ai-actions { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
+  .ws-ai-action-btn { text-align:left; padding:8px 12px; border-radius:8px; font-size:12px; color:#4338ca; background:#eef2ff; border:none; cursor:pointer; transition:background .15s; }
+  .ws-ai-action-btn:hover { background:#e0e7ff; }
+
+  /* AI 템플릿 (블록 생성용) */
+  .ws-ai-tmpl-section { display:flex; flex-direction:column; gap:6px; margin-bottom:14px; padding-bottom:12px; border-bottom:1px dashed #e5e7eb; }
+  .ws-ai-tmpl-btn { text-align:left; padding:10px 12px; border-radius:10px; font-size:12.5px; font-weight:600; color:#1a1d23; background:linear-gradient(135deg,#fef3c7,#fde68a); border:none; cursor:pointer; transition:all .15s; display:flex; align-items:center; gap:8px; }
+  .ws-ai-tmpl-btn:hover { filter:brightness(1.04); transform:translateY(-1px); box-shadow:0 2px 8px rgba(217,119,6,.15); }
+  .ws-ai-tmpl-btn .tmpl-icon { font-size:16px; }
+  .ws-ai-tmpl-btn .tmpl-desc { font-size:10.5px; color:#6b7280; font-weight:400; display:block; margin-top:2px; }
+  .ws-ai-tmpl-btn.active { background:linear-gradient(135deg,#fcd34d,#f59e0b); color:#fff; }
+  .ws-ai-tmpl-box { background:#fff7ed; border:1px solid #fdba74; border-radius:10px; padding:12px; margin-top:4px; }
+  .ws-ai-tmpl-hint { font-size:11px; color:#92400e; font-weight:600; margin-bottom:6px; }
+  .ws-ai-tmpl-textarea { width:100%; min-height:72px; padding:8px 10px; border:1px solid #fed7aa; border-radius:8px; font-size:12px; font-family:inherit; resize:vertical; outline:none; background:#fff; }
+  .ws-ai-tmpl-textarea:focus { border-color:#f59e0b; }
+  .ws-ai-tmpl-actions { display:flex; gap:6px; margin-top:8px; }
+  .ws-ai-tmpl-go { flex:1; padding:8px; background:linear-gradient(135deg,#f59e0b,#d97706); color:#fff; border:none; border-radius:8px; font-size:12px; font-weight:700; cursor:pointer; }
+  .ws-ai-tmpl-go:hover { filter:brightness(1.06); }
+  .ws-ai-tmpl-go:disabled { opacity:.6; cursor:not-allowed; }
+  .ws-ai-tmpl-cancel { padding:8px 12px; background:#fff; color:#6b7280; border:1px solid #e5e7eb; border-radius:8px; font-size:12px; cursor:pointer; }
+  .ws-ai-tmpl-cancel:hover { background:#f3f4f6; }
+  .ws-ai-result { background:#f8f9fb; border:1px solid #e5e7eb; border-radius:10px; padding:12px 14px; font-size:12.5px; color:#374151; line-height:1.7; white-space:pre-wrap; margin-top:8px; }
+  .ws-ai-footer { padding:10px 14px; border-top:1px solid #f0f1f3; }
+  .ws-ai-input-row { display:flex; gap:8px; }
+  .ws-ai-input { flex:1; padding:8px 12px; border:1px solid #e5e7eb; border-radius:8px; font-size:12px; outline:none; }
+  .ws-ai-input:focus { border-color:#4f6ef7; }
+  .ws-ai-send { padding:8px 14px; background:linear-gradient(135deg,#4f6ef7,#3b5ce4); color:#fff; border:none; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; }
+  .ws-ai-send:hover { filter:brightness(1.06); }
+
+  /* 빈 상태 */
+  .ws-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:#9ca3af; text-align:center; }
+  .ws-empty-icon { font-size:48px; margin-bottom:12px; opacity:.4; }
+  .ws-empty-title { font-size:16px; font-weight:600; color:#6b7280; margin-bottom:4px; }
+  .ws-empty-desc { font-size:12.5px; }
+
+  /* 공유 배지 */
+  .ws-shared-badge { font-size:10px; background:#dbeafe; color:#2563eb; padding:1px 6px; border-radius:4px; font-weight:600; }
+
+  /* 이모지 팝업 */
+  .ws-emoji-grid { display:grid; grid-template-columns:repeat(8,1fr); gap:2px; padding:8px; max-height:200px; overflow-y:auto; }
+  .ws-emoji-btn { font-size:20px; padding:4px; border:none; background:none; cursor:pointer; border-radius:6px; transition:background .1s; }
+  .ws-emoji-btn:hover { background:#f3f4f6; }
+
+  /* 공유 모달 */
+  .ws-share-overlay { position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:200; display:flex; align-items:center; justify-content:center; }
+  .ws-share-modal { background:#fff; border-radius:16px; width:420px; max-height:80vh; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,.2); }
+  .ws-share-header { padding:18px 20px 12px; border-bottom:1px solid #f0f1f3; display:flex; align-items:center; justify-content:space-between; }
+  .ws-share-header h3 { font-family:'Work Sans',sans-serif; font-size:15px; font-weight:700; margin:0; color:#1a1d23; }
+  .ws-share-body { padding:16px 20px; max-height:50vh; overflow-y:auto; }
+  .ws-share-section { margin-bottom:16px; }
+  .ws-share-section-title { font-size:11.5px; font-weight:700; color:#6b7280; margin-bottom:8px; text-transform:uppercase; letter-spacing:.03em; }
+  .ws-share-option { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:10px; cursor:pointer; transition:background .15s; }
+  .ws-share-option:hover { background:#f8f9fb; }
+  .ws-share-option.active { background:#eef2ff; }
+  .ws-share-option input[type="radio"] { accent-color:#4f6ef7; }
+  .ws-share-option-icon { width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:16px; }
+  .ws-share-option-text { flex:1; }
+  .ws-share-option-label { font-size:13px; font-weight:600; color:#1a1d23; }
+  .ws-share-option-desc { font-size:11px; color:#9ca3af; }
+  .ws-share-user-list { margin-top:8px; }
+  .ws-share-user { display:flex; align-items:center; gap:10px; padding:6px 12px; border-radius:8px; cursor:pointer; transition:background .12s; }
+  .ws-share-user:hover { background:#f3f4f6; }
+  .ws-share-user-avatar { width:28px; height:28px; border-radius:50%; background:#e0e7ff; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:#4338ca; flex-shrink:0; }
+  .ws-share-user-name { font-size:12.5px; font-weight:500; color:#374151; flex:1; }
+  .ws-share-user-dept { font-size:11px; color:#9ca3af; }
+  .ws-share-user input[type="checkbox"] { accent-color:#4f6ef7; }
+  .ws-share-link-box { display:flex; align-items:center; gap:8px; margin-top:10px; }
+  .ws-share-link-input { flex:1; padding:8px 12px; border:1px solid #e5e7eb; border-radius:8px; font-size:12px; background:#f8f9fb; color:#374151; }
+  .ws-share-link-btn { padding:8px 14px; border-radius:8px; font-size:12px; font-weight:600; border:none; cursor:pointer; transition:all .15s; }
+  .ws-share-link-copy { background:#4f6ef7; color:#fff; }
+  .ws-share-link-copy:hover { filter:brightness(1.06); }
+  .ws-share-link-revoke { background:#fef2f2; color:#dc2626; }
+  .ws-share-link-revoke:hover { background:#fee2e2; }
+  .ws-share-footer { padding:12px 20px; border-top:1px solid #f0f1f3; display:flex; justify-content:flex-end; gap:8px; }
+  .ws-share-copied { color:#16a34a; font-size:11px; font-weight:600; animation:fadeIn .2s; }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
+
+  /* 모바일 전용 버튼 */
+  .ws-mobile-nav { display:none; }
+  .ws-sidebar-overlay { display:none; }
+  .ws-mobile-back { display:none; }
+
+  /* ── 모바일 반응형 (768px 이하) ── */
+  @media (max-width:768px) {
+    .ws-container { flex-direction:column; height:calc(100vh - var(--header-h) - 2px); position:relative; }
+
+    /* 사이드바 → 슬라이드 오버레이 */
+    .ws-sidebar { position:fixed; left:-280px; top:0; bottom:0; width:280px; z-index:150; transition:left .25s ease; box-shadow:none; }
+    .ws-sidebar.open { left:0; box-shadow:4px 0 24px rgba(0,0,0,.15); }
+    .ws-sidebar-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.3); z-index:140; }
+    .ws-sidebar-overlay.show { display:block; }
+
+    /* 모바일 네비 바 */
+    .ws-mobile-nav { display:flex; align-items:center; gap:8px; padding:8px 12px; background:#fff; border-bottom:1px solid #e5e7eb; flex-shrink:0; }
+    .ws-mobile-nav-btn { background:none; border:none; cursor:pointer; padding:6px; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#4b5563; }
+    .ws-mobile-nav-btn:hover { background:#f3f4f6; }
+    .ws-mobile-nav-title { flex:1; font-size:13px; font-weight:600; color:#1a1d23; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+    /* 에디터 영역 */
+    .ws-editor-area { flex:1; min-height:0; }
+    .ws-editor-toolbar { padding:6px 12px; flex-wrap:wrap; gap:4px; }
+    .ws-breadcrumb { display:none; }
+    .ws-editor-inner { padding:20px 16px 100px; }
+    .ws-page-emoji { font-size:36px; width:48px; height:48px; }
+    .ws-page-title-input { font-size:22px; }
+
+    /* AI 패널 → 바닥 시트 */
+    .ws-ai-panel { position:fixed; left:0; right:0; bottom:0; top:auto; width:100% !important; height:60vh; z-index:160; border-radius:16px 16px 0 0; box-shadow:0 -8px 32px rgba(0,0,0,.15); border-left:none; border-top:1px solid #e5e7eb; }
+
+    /* 빈 상태 */
+    .ws-empty { padding:40px 20px; }
+    .ws-empty-icon { font-size:36px; }
+    .ws-empty-title { font-size:14px; }
+
+    /* 공유 모달 */
+    .ws-share-modal { width:calc(100% - 32px); max-width:420px; margin:0 16px; }
+
+    /* Editor.js 툴바 */
+    .codex-editor { font-size:14px; }
+    .ce-toolbar { left:0 !important; }
+    .ce-toolbar__content { max-width:calc(100% - 40px) !important; }
+    .ce-block__content { max-width:100% !important; margin:0 !important; }
+  }
+
+  /* ── 작은 모바일 (480px 이하) ── */
+  @media (max-width:480px) {
+    .ws-editor-inner { padding:16px 12px 80px; }
+    .ws-page-title-input { font-size:20px; }
+    .ws-ai-panel { height:70vh; }
+    .ws-editor-toolbar { padding:6px 8px; }
+    .ws-ai-action-btn { font-size:11px; padding:7px 10px; }
+  }
+</style>
+
+<div class="ws-container" x-data="workspaceApp()" x-init="init()">
+
+  <!-- 모바일: 사이드바 배경 오버레이 -->
+  <div class="ws-sidebar-overlay" :class="mobileSidebar ? 'show' : ''" @click="mobileSidebar=false"></div>
+
+  <!-- 모바일: 상단 네비게이션 -->
+  <div class="ws-mobile-nav">
+    <button class="ws-mobile-nav-btn" @click="mobileSidebar=true">
+      <span class="material-symbols-outlined" style="font-size:20px;">menu</span>
+    </button>
+    <div class="ws-mobile-nav-title" x-text="currentPage ? (currentPage.emoji + ' ' + (currentPage.title || '새 페이지')) : '워크스페이스'"></div>
+    <button class="ws-mobile-nav-btn" x-show="currentPage" @click="showAI=!showAI">
+      <span style="font-size:16px;">✦</span>
+    </button>
+  </div>
+
+  <!-- 왼쪽: 페이지 목록 -->
+  <div class="ws-sidebar" :class="mobileSidebar ? 'open' : ''">
+    <div class="ws-sidebar-header">
+      <div class="ws-sidebar-title">
+        <span style="color:#4f6ef7;">✦</span> 워크스페이스
+        <div style="flex:1;"></div>
+        <button @click="createPage()" title="새 페이지"
+          style="background:#4f6ef7;color:#fff;border:none;width:24px;height:24px;border-radius:6px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;">
+          +
+        </button>
+      </div>
+      <input class="ws-search" placeholder="🔍 페이지 검색..." x-model="search" />
+    </div>
+    <div class="ws-page-list">
+      <!-- 내 페이지 -->
+      <div class="ws-page-group">내 페이지</div>
+      <template x-for="p in myPages" :key="p.id">
+        <div class="ws-page-item" :class="currentPageId === p.id ? 'active' : ''"
+          @click="openPage(p.id)">
+          <span class="emoji" x-text="p.emoji"></span>
+          <div class="info">
+            <div class="title" x-text="p.title || '새 페이지'"></div>
+            <div class="meta" x-text="formatDate(p.updated_at)"></div>
+          </div>
+          <span x-show="p.shared" class="ws-shared-badge">공유</span>
+        </div>
+      </template>
+      <div x-show="myPages.length === 0" style="padding:12px;text-align:center;color:#9ca3af;font-size:12px;">
+        페이지가 없습니다
+      </div>
+
+      <!-- 팀 공유 -->
+      <template x-if="sharedPages.length > 0">
+        <div>
+          <div class="ws-page-group">팀 공유</div>
+          <template x-for="p in sharedPages" :key="p.id">
+            <div class="ws-page-item" :class="currentPageId === p.id ? 'active' : ''"
+              @click="openPage(p.id)">
+              <span class="emoji" x-text="p.emoji"></span>
+              <div class="info">
+                <div class="title" x-text="p.title || '새 페이지'"></div>
+                <div class="meta" x-text="p.author_name + ' · ' + formatDate(p.updated_at)"></div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- 가운데: 에디터 -->
+  <div class="ws-editor-area">
+    <!-- 에디터 있을 때 -->
+    <template x-if="currentPage">
+      <div style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+        <!-- 툴바 -->
+        <div class="ws-editor-toolbar">
+          <div class="ws-breadcrumb">
+            <span>워크스페이스</span>
+            <span>›</span>
+            <span class="current" x-text="currentPage.title || '새 페이지'"></span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button class="btn-ghost btn-sm" @click="openShareModal()"
+              style="display:flex;align-items:center;gap:4px;">
+              <span class="material-symbols-outlined" style="font-size:15px;">share</span>
+              <span x-text="currentPage.shared ? '전체 공유중' : (currentPage.shared_with && currentPage.shared_with.length > 0 ? currentPage.shared_with.length + '명 공유' : '나만 보기')"></span>
+            </button>
+            <button class="btn-ghost btn-sm" style="color:#dc2626;" @click="deletePage()"
+              title="삭제">
+              <span class="material-symbols-outlined" style="font-size:15px;">delete</span>
+            </button>
+            <button class="btn-primary btn-sm" @click="showAI = !showAI">
+              <span style="font-size:13px;">✦</span> Claude AI
+            </button>
+          </div>
+        </div>
+
+        <div style="display:flex;flex:1;overflow:hidden;">
+          <!-- 에디터 본문 -->
+          <div class="ws-editor-content">
+            <div class="ws-editor-inner">
+              <!-- 이모지 -->
+              <div style="position:relative;">
+                <div class="ws-page-emoji" @click="showEmojiPicker = !showEmojiPicker"
+                  x-text="currentPage.emoji || '📄'"></div>
+                <!-- 이모지 선택 팝업 -->
+                <div x-show="showEmojiPicker" @click.away="showEmojiPicker=false"
+                  style="position:absolute;top:70px;left:0;z-index:50;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.1);width:280px;">
+                  <div class="ws-emoji-grid">
+                    <template x-for="e in emojis" :key="e">
+                      <button class="ws-emoji-btn" @click="setEmoji(e)" x-text="e"></button>
+                    </template>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 제목 -->
+              <input class="ws-page-title-input" placeholder="제목 없음"
+                :value="currentPage.title"
+                @input="currentPage.title = $event.target.value; saveDebounced()"
+                @keydown.enter.prevent="focusEditor()" />
+              <div class="ws-author-info"
+                x-text="currentPage.author_name + ' · ' + formatDate(currentPage.updated_at) + ' 수정'"></div>
+
+              <!-- Editor.js 영역 -->
+              <div id="editorjs"></div>
+            </div>
+          </div>
+
+          <!-- AI 패널 -->
+          <div class="ws-ai-panel" x-show="showAI" x-transition>
+            <div class="ws-ai-header">
+              <div class="ws-ai-title">
+                <span class="ws-ai-dot"></span> Claude AI
+              </div>
+              <button @click="showAI=false"
+                style="background:none;border:none;color:#9ca3af;cursor:pointer;font-size:18px;">×</button>
+            </div>
+            <div class="ws-ai-body">
+              <!-- AI 템플릿 (메모 → 블록 자동 작성) -->
+              <div class="ws-ai-tmpl-section">
+                <div style="font-size:11px;color:#9ca3af;font-weight:600;margin-bottom:2px;">AI 템플릿 — 메모만 주세요, 블록으로 만들어 페이지에 넣어줍니다</div>
+                <button class="ws-ai-tmpl-btn" :class="aiTemplateMode==='daily_log' ? 'active' : ''"
+                  @click="selectTemplate('daily_log')">
+                  <span class="tmpl-icon">📝</span>
+                  <span>
+                    일일 업무일지
+                    <span class="tmpl-desc">오늘 한 일/할 일 메모 → 날짜·체크리스트로 정리</span>
+                  </span>
+                </button>
+                <button class="ws-ai-tmpl-btn" :class="aiTemplateMode==='project_checklist' ? 'active' : ''"
+                  @click="selectTemplate('project_checklist')">
+                  <span class="tmpl-icon">✅</span>
+                  <span>
+                    프로젝트 체크리스트
+                    <span class="tmpl-desc">프로젝트명+설명 → 기획/제작/배송/마무리 단계별 To-do</span>
+                  </span>
+                </button>
+                <button class="ws-ai-tmpl-btn" :class="aiTemplateMode==='customer_report' ? 'active' : ''"
+                  @click="selectTemplate('customer_report')">
+                  <span class="tmpl-icon">📧</span>
+                  <span>
+                    고객 보고서/이메일
+                    <span class="tmpl-desc">메모 → 정중한 보고서 + 바로 보낼 수 있는 회신 문구</span>
+                  </span>
+                </button>
+
+                <!-- 입력 박스 -->
+                <div x-show="aiTemplateMode" class="ws-ai-tmpl-box" x-transition>
+                  <div class="ws-ai-tmpl-hint" x-text="templateHints[aiTemplateMode] || ''"></div>
+                  <textarea class="ws-ai-tmpl-textarea" x-model="aiTemplateInput"
+                    placeholder="여기에 메모를 편하게 적어주세요. 완성된 문장 아니어도 됩니다."
+                    :disabled="aiTemplateLoading"></textarea>
+                  <div class="ws-ai-tmpl-actions">
+                    <button class="ws-ai-tmpl-go" @click="applyTemplate()" :disabled="aiTemplateLoading || !aiTemplateInput.trim()">
+                      <span x-show="!aiTemplateLoading">✦ AI로 작성해서 페이지에 추가</span>
+                      <span x-show="aiTemplateLoading">Claude가 작성 중...</span>
+                    </button>
+                    <button class="ws-ai-tmpl-cancel" @click="cancelTemplate()" :disabled="aiTemplateLoading">취소</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="ws-ai-actions">
+                <div style="font-size:11px;color:#9ca3af;font-weight:600;margin-bottom:2px;">빠른 도움 (현재 내용 기반)</div>
+                <button class="ws-ai-action-btn" @click="askAI('이 내용을 깔끔하게 정리해줘')">📋 내용 정리하기</button>
+                <button class="ws-ai-action-btn" @click="askAI('이 내용을 요약해줘')">📝 요약하기</button>
+                <button class="ws-ai-action-btn" @click="askAI('체크리스트 항목을 더 추가 제안해줘')">✅ 항목 추가 제안</button>
+                <button class="ws-ai-action-btn" @click="askAI('이 내용을 영어로 번역해줘')">🌐 영어 번역</button>
+                <button class="ws-ai-action-btn" @click="askAI('이 내용을 더 전문적으로 다듬어줘')">✨ 전문적으로 다듬기</button>
+                <div style="font-size:10px;color:#9ca3af;margin-top:4px;">Claude Pro Max 구독으로 동작합니다</div>
+              </div>
+              <!-- AI 결과 -->
+              <div x-show="aiLoading" class="ws-ai-result" style="color:#4f6ef7;animation:pulse 1.5s infinite;">
+                Claude가 생각하는 중...
+              </div>
+              <div x-show="aiResult && !aiLoading" class="ws-ai-result" x-text="aiResult"></div>
+              <div x-show="aiError" class="ws-ai-result" style="color:#dc2626;background:#fef2f2;border-color:#fecaca;" x-text="aiError"></div>
+            </div>
+            <div class="ws-ai-footer">
+              <div class="ws-ai-input-row">
+                <input class="ws-ai-input" placeholder="무엇을 도와드릴까요?"
+                  x-model="aiPrompt" @keydown.enter="askAI(aiPrompt)" />
+                <button class="ws-ai-send" @click="askAI(aiPrompt)">↑</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- 빈 상태 -->
+    <template x-if="!currentPage">
+      <div class="ws-empty">
+        <div class="ws-empty-icon">✦</div>
+        <div class="ws-empty-title">워크스페이스</div>
+        <div class="ws-empty-desc">페이지를 선택하거나 새 페이지를 만들어보세요</div>
+        <button class="btn-primary" style="margin-top:16px;" @click="createPage()">
+          + 새 페이지 만들기
+        </button>
+      </div>
+    </template>
+  </div>
+</div>
+
+<!-- 공유 설정 모달 -->
+<template x-if="showShareModal">
+  <div class="ws-share-overlay" @click.self="showShareModal=false">
+    <div class="ws-share-modal">
+      <div class="ws-share-header">
+        <h3>공유 설정</h3>
+        <button @click="showShareModal=false" style="background:none;border:none;font-size:20px;color:#9ca3af;cursor:pointer;">×</button>
+      </div>
+      <div class="ws-share-body">
+        <!-- 공유 범위 선택 -->
+        <div class="ws-share-section">
+          <div class="ws-share-section-title">공유 범위</div>
+          <div class="ws-share-option" :class="shareMode==='private' ? 'active' : ''" @click="setShareMode('private')">
+            <input type="radio" name="shareMode" value="private" :checked="shareMode==='private'" />
+            <div class="ws-share-option-icon" style="background:#f3f4f6;">🔒</div>
+            <div class="ws-share-option-text">
+              <div class="ws-share-option-label">나만 보기</div>
+              <div class="ws-share-option-desc">본인만 이 페이지를 볼 수 있습니다</div>
+            </div>
+          </div>
+          <div class="ws-share-option" :class="shareMode==='specific' ? 'active' : ''" @click="setShareMode('specific')">
+            <input type="radio" name="shareMode" value="specific" :checked="shareMode==='specific'" />
+            <div class="ws-share-option-icon" style="background:#dbeafe;">👥</div>
+            <div class="ws-share-option-text">
+              <div class="ws-share-option-label">특정 사람에게 공유</div>
+              <div class="ws-share-option-desc">선택한 직원만 볼 수 있습니다</div>
+            </div>
+          </div>
+          <div class="ws-share-option" :class="shareMode==='all' ? 'active' : ''" @click="setShareMode('all')">
+            <input type="radio" name="shareMode" value="all" :checked="shareMode==='all'" />
+            <div class="ws-share-option-icon" style="background:#dcfce7;">🌐</div>
+            <div class="ws-share-option-text">
+              <div class="ws-share-option-label">전체 공유</div>
+              <div class="ws-share-option-desc">모든 직원이 볼 수 있습니다</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 특정 사람 선택 (shareMode === 'specific') -->
+        <template x-if="shareMode==='specific'">
+          <div class="ws-share-section">
+            <div class="ws-share-section-title">공유 대상 선택</div>
+            <div class="ws-share-user-list">
+              <template x-for="u in shareUserList" :key="u.userId">
+                <label class="ws-share-user" x-show="u.userId !== getAuth().userId">
+                  <div class="ws-share-user-avatar" x-text="u.name.charAt(0)"></div>
+                  <span class="ws-share-user-name" x-text="u.name"></span>
+                  <span class="ws-share-user-dept" x-text="u.dept"></span>
+                  <input type="checkbox" :value="u.userId" :checked="shareSelectedUsers.includes(u.userId)"
+                    @change="toggleShareUser(u.userId)" />
+                </label>
+              </template>
+              <div x-show="shareUserList.length <= 1" style="padding:12px;text-align:center;color:#9ca3af;font-size:12px;">
+                등록된 직원이 없습니다
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- 외부 링크 공유 -->
+        <div class="ws-share-section">
+          <div class="ws-share-section-title">외부 링크 (카톡/메신저 공유용)</div>
+          <div style="font-size:12px;color:#6b7280;margin-bottom:8px;">링크를 받은 사람은 로그인 없이 이 페이지를 읽기 전용으로 볼 수 있습니다.</div>
+          <template x-if="currentPage.share_token">
+            <div>
+              <div class="ws-share-link-box">
+                <input class="ws-share-link-input" readonly
+                  :value="location.origin + '/workspace/view/' + currentPage.share_token" />
+                <button class="ws-share-link-btn ws-share-link-copy" @click="copyShareLink()">복사</button>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;">
+                <span x-show="shareLinkCopied" class="ws-share-copied">링크가 복사되었습니다!</span>
+                <span></span>
+                <button class="ws-share-link-btn ws-share-link-revoke" @click="revokeShareLink()">링크 비활성화</button>
+              </div>
+            </div>
+          </template>
+          <template x-if="!currentPage.share_token">
+            <button class="ws-share-link-btn ws-share-link-copy" @click="createShareLink()" style="width:100%;padding:10px;">
+              🔗 외부 공유 링크 생성
+            </button>
+          </template>
+        </div>
+      </div>
+      <div class="ws-share-footer">
+        <button class="btn-ghost btn-sm" @click="showShareModal=false">취소</button>
+        <button class="btn-primary btn-sm" @click="saveShareSettings()">저장</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+function workspaceApp() {
+  return {
+    pages: [],
+    search: '',
+    currentPageId: null,
+    currentPage: null,
+    editor: null,
+    showAI: false,
+    showEmojiPicker: false,
+    mobileSidebar: false,
+    showShareModal: false,
+    shareMode: 'private',        // 'private' | 'specific' | 'all'
+    shareUserList: [],            // 전체 직원 목록
+    shareSelectedUsers: [],       // 특정 공유 대상 userId 배열
+    shareLinkCopied: false,
+    aiPrompt: '',
+    aiResult: '',
+    aiError: '',
+    aiLoading: false,
+    aiTemplateMode: null,       // 'daily_log' | 'project_checklist' | 'customer_report' | null
+    aiTemplateInput: '',
+    aiTemplateLoading: false,
+    templateHints: {
+      daily_log: '오늘 한 일/할 일을 메모처럼 적어주세요. 예: "공장 작업 3건, 배송 2건, 철판 간판 제작 중 / 내일 현대리바트 납품"',
+      project_checklist: '프로젝트명과 핵심 정보를 적어주세요. 예: "현대리바트 안전현장 / 현수막 10장 + 포맥스 5개 / 납기 다음 주 금요일"',
+      customer_report: '고객에게 전달할 내용을 적어주세요. 예: "김사장님, 어제 납품 완료. 3번 간판은 다음 주 월요일 시공 예정. 잔금 안내."'
+    },
+    _saveTimer: null,
+
+    emojis: ['📄','📋','📝','📌','📎','💡','🔥','⭐','🎯','🚀','📦','🔧','💬','📞','📊','📈','🗂️','🗓️','✅','❤️','🏗️','🏭','🚚','⚠️','🛡️','🔍','💰','🎨','📸','🌐','🏢','👥','📢','🎉','🧹','🔑'],
+
+    get myPages() {
+      const userId = this.$root.__x_refs?.app?._x_dataStack?.[0]?.auth?.userId || this.getAuth().userId;
+      return this.pages
+        .filter(p => p.author_id === userId && (this.search === '' || p.title.includes(this.search)))
+        .sort((a,b) => (b.pinned||0)-(a.pinned||0) || new Date(b.updated_at)-new Date(a.updated_at));
+    },
+    get sharedPages() {
+      const userId = this.getAuth().userId;
+      return this.pages
+        .filter(p => {
+          if (p.author_id === userId) return false; // 내 페이지는 제외
+          if (this.search && !p.title.includes(this.search)) return false;
+          if (p.shared) return true; // 전체 공유
+          const sw = Array.isArray(p.shared_with) ? p.shared_with : [];
+          if (sw.includes(userId)) return true; // 나에게 공유된 것
+          return false;
+        })
+        .sort((a,b) => new Date(b.updated_at)-new Date(a.updated_at));
+    },
+
+    getAuth() {
+      // Alpine 앱의 auth 데이터에 접근
+      try {
+        const appEl = document.querySelector('[x-data="app()"]');
+        if (appEl && appEl.__x) return appEl.__x.$data.auth;
+        if (appEl && appEl._x_dataStack) return appEl._x_dataStack[0].auth;
+      } catch(e) {}
+      return { userId: 'admin', name: '관리자' };
+    },
+
+    async init() {
+      await this.loadPages();
+    },
+
+    async loadPages() {
+      try {
+        const auth = this.getAuth();
+        const res = await fetch(`/api/workspace/pages?userId=${auth.userId}`);
+        const data = await res.json();
+        if (data.ok) this.pages = data.pages;
+      } catch(e) { console.error('[workspace] loadPages:', e); }
+    },
+
+    async createPage() {
+      try {
+        const auth = this.getAuth();
+        const res = await fetch('/api/workspace/pages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: auth.userId, userName: auth.name, title: '새 페이지', emoji: '📄' })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          await this.loadPages();
+          this.openPage(data.id);
+        }
+      } catch(e) { console.error('[workspace] createPage:', e); }
+    },
+
+    async openPage(id) {
+      // 모바일: 사이드바 닫기
+      this.mobileSidebar = false;
+      // 현재 에디터 저장 후 파괴
+      if (this.editor) {
+        await this.saveNow();
+        this.editor.destroy();
+        this.editor = null;
+      }
+      this.currentPageId = id;
+      this.aiResult = '';
+      this.aiError = '';
+
+      try {
+        const res = await fetch(`/api/workspace/pages/${id}`);
+        const data = await res.json();
+        if (data.ok) {
+          this.currentPage = data.page;
+          // Editor.js 초기화 (DOM 업데이트 후)
+          this.$nextTick(() => this.initEditor());
+        }
+      } catch(e) { console.error('[workspace] openPage:', e); }
+    },
+
+    initEditor() {
+      const el = document.getElementById('editorjs');
+      if (!el) return;
+      el.innerHTML = '';
+
+      const content = this.currentPage.content;
+      const editorData = (content && content.blocks && content.blocks.length > 0) ? content : {
+        blocks: [{ type: 'paragraph', data: { text: '' } }]
+      };
+
+      const self = this; // uploader 콜백에서 쓰기 위해 바인딩
+      this.editor = new EditorJS({
+        holder: 'editorjs',
+        placeholder: "'/' 를 눌러 블록을 추가하세요...",
+        data: editorData,
+        tools: {
+          header: { class: Header, config: { levels: [2, 3], defaultLevel: 2 }, shortcut: 'CMD+SHIFT+H' },
+          checklist: { class: Checklist, shortcut: 'CMD+SHIFT+L' },
+          list: { class: List, inlineToolbar: true },
+          delimiter: Delimiter,
+          quote: { class: Quote, shortcut: 'CMD+SHIFT+O' },
+          marker: { class: Marker, shortcut: 'CMD+SHIFT+M' },
+          image: {
+            class: ImageTool,
+            config: {
+              // custom uploader — multer 없이 base64 JSON 으로 업로드
+              uploader: {
+                uploadByFile: (file) => self._uploadImageFile(file),
+                uploadByUrl: (url) => Promise.resolve({ success: 1, file: { url } })
+              },
+              captionPlaceholder: '이미지 설명 (선택)',
+              buttonContent: '📷 이미지 선택'
+            }
+          }
+        },
+        onChange: () => { this.saveDebounced(); },
+        i18n: {
+          messages: {
+            ui: { blockTunes: { toggler: { 'Click to tune': '블록 설정' } } },
+            toolNames: { 'Text': '텍스트', 'Heading': '제목', 'Checklist': '체크리스트', 'List': '목록', 'Delimiter': '구분선', 'Quote': '인용', 'Marker': '형광펜', 'Bold': '굵게', 'Italic': '기울임', 'Image': '이미지' },
+            tools: {
+              header: { 'Heading 2': '중제목', 'Heading 3': '소제목' },
+              image: { 'Select an Image': '이미지 선택', 'With border': '테두리', 'Stretch image': '넓게', 'With background': '배경' }
+            },
+            blockTunes: { delete: { 'Delete': '삭제' }, moveUp: { 'Move up': '위로' }, moveDown: { 'Move down': '아래로' } }
+          }
+        }
+      });
+    },
+
+    saveDebounced() {
+      clearTimeout(this._saveTimer);
+      this._saveTimer = setTimeout(() => this.saveNow(), 1500);
+    },
+
+    async saveNow() {
+      if (!this.editor || !this.currentPageId) return;
+      try {
+        const content = await this.editor.save();
+        await fetch(`/api/workspace/pages/${this.currentPageId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: this.currentPage.title,
+            emoji: this.currentPage.emoji,
+            content: content
+          })
+        });
+        // 목록 갱신
+        const pg = this.pages.find(p => p.id === this.currentPageId);
+        if (pg) {
+          pg.title = this.currentPage.title;
+          pg.emoji = this.currentPage.emoji;
+          pg.updated_at = new Date().toISOString().replace('T',' ').slice(0,19);
+        }
+      } catch(e) { console.error('[workspace] save:', e); }
+    },
+
+    async setEmoji(e) {
+      this.currentPage.emoji = e;
+      this.showEmojiPicker = false;
+      this.saveDebounced();
+    },
+
+    async openShareModal() {
+      if (!this.currentPage) return;
+      // 현재 상태 반영
+      const sw = this.currentPage.shared_with || [];
+      if (this.currentPage.shared) {
+        this.shareMode = 'all';
+      } else if (sw.length > 0) {
+        this.shareMode = 'specific';
+      } else {
+        this.shareMode = 'private';
+      }
+      this.shareSelectedUsers = [...sw];
+      this.shareLinkCopied = false;
+      // 직원 목록 로드
+      try {
+        const res = await fetch('/api/workspace/users');
+        const data = await res.json();
+        if (data.ok) this.shareUserList = data.users;
+      } catch(e) {}
+      this.showShareModal = true;
+    },
+
+    setShareMode(mode) { this.shareMode = mode; },
+
+    toggleShareUser(userId) {
+      const idx = this.shareSelectedUsers.indexOf(userId);
+      if (idx >= 0) this.shareSelectedUsers.splice(idx, 1);
+      else this.shareSelectedUsers.push(userId);
+    },
+
+    async saveShareSettings() {
+      if (!this.currentPage) return;
+      let shared = 0, shared_with = [];
+      if (this.shareMode === 'all') { shared = 1; shared_with = []; }
+      else if (this.shareMode === 'specific') { shared = 0; shared_with = this.shareSelectedUsers; }
+      else { shared = 0; shared_with = []; }
+
+      await fetch(`/api/workspace/pages/${this.currentPageId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shared, shared_with })
+      });
+      this.currentPage.shared = shared;
+      this.currentPage.shared_with = shared_with;
+      const pg = this.pages.find(p => p.id === this.currentPageId);
+      if (pg) { pg.shared = shared; pg.shared_with = shared_with; }
+      this.showShareModal = false;
+    },
+
+    async createShareLink() {
+      try {
+        const res = await fetch(`/api/workspace/pages/${this.currentPageId}/share-link`, { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) this.currentPage.share_token = data.share_token;
+      } catch(e) {}
+    },
+
+    async revokeShareLink() {
+      try {
+        await fetch(`/api/workspace/pages/${this.currentPageId}/share-link`, { method: 'DELETE' });
+        this.currentPage.share_token = null;
+      } catch(e) {}
+    },
+
+    async copyShareLink() {
+      const url = location.origin + '/workspace/view/' + this.currentPage.share_token;
+      try { await navigator.clipboard.writeText(url); } catch(e) {
+        const ta = document.createElement('textarea'); ta.value = url; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+      }
+      this.shareLinkCopied = true;
+      setTimeout(() => this.shareLinkCopied = false, 3000);
+    },
+
+    async deletePage() {
+      if (!confirm('이 페이지를 삭제하시겠습니까?')) return;
+      await fetch(`/api/workspace/pages/${this.currentPageId}`, { method: 'DELETE' });
+      if (this.editor) { this.editor.destroy(); this.editor = null; }
+      this.currentPage = null;
+      this.currentPageId = null;
+      await this.loadPages();
+    },
+
+    focusEditor() {
+      if (this.editor) this.editor.focus();
+    },
+
+    // Editor.js ImageTool 용 업로더 — 파일 → base64 → /api/workspace/upload-image
+    _uploadImageFile(file) {
+      return new Promise((resolve) => {
+        if (!file) { resolve({ success: 0 }); return; }
+        if (file.size > 10 * 1024 * 1024) {
+          alert('10MB 이하 이미지만 업로드 가능합니다.');
+          resolve({ success: 0 });
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = async () => {
+          try {
+            const res = await fetch('/api/workspace/upload-image', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                imageData: reader.result,
+                fileName: (file.name || 'img').replace(/\.[^.]+$/, '')
+              })
+            });
+            const data = await res.json();
+            if (data && data.success === 1 && data.file && data.file.url) {
+              resolve(data);
+            } else {
+              console.error('[workspace] upload failed:', data);
+              resolve({ success: 0 });
+            }
+          } catch(e) {
+            console.error('[workspace] upload error:', e);
+            resolve({ success: 0 });
+          }
+        };
+        reader.onerror = () => resolve({ success: 0 });
+        reader.readAsDataURL(file);
+      });
+    },
+
+    async askAI(prompt) {
+      if (!prompt || !prompt.trim()) return;
+      this.aiLoading = true;
+      this.aiError = '';
+      this.aiResult = '';
+
+      // 현재 에디터 내용 가져오기
+      let textContent = '';
+      if (this.editor) {
+        try {
+          const saved = await this.editor.save();
+          textContent = saved.blocks.map(b => {
+            if (b.type === 'header' || b.type === 'paragraph') return b.data.text;
+            if (b.type === 'checklist') return b.data.items.map(i => (i.checked?'✅ ':'☐ ')+i.text).join('\n');
+            if (b.type === 'list') return b.data.items.join('\n');
+            if (b.type === 'quote') return b.data.text;
+            return '';
+          }).filter(Boolean).join('\n');
+        } catch(e) {}
+      }
+
+      try {
+        const res = await fetch('/api/workspace/ai', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: prompt.trim(), content: textContent })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          this.aiResult = data.result;
+        } else {
+          this.aiError = data.error || 'AI 요청 실패';
+        }
+      } catch(e) {
+        this.aiError = '서버 연결 실패';
+      }
+      this.aiLoading = false;
+      this.aiPrompt = '';
+    },
+
+    selectTemplate(mode) {
+      // 같은 템플릿 다시 누르면 닫기 (토글)
+      this.aiTemplateMode = (this.aiTemplateMode === mode) ? null : mode;
+      this.aiTemplateInput = '';
+      this.aiError = '';
+    },
+
+    cancelTemplate() {
+      this.aiTemplateMode = null;
+      this.aiTemplateInput = '';
+    },
+
+    async applyTemplate() {
+      if (!this.aiTemplateMode || !this.aiTemplateInput.trim()) return;
+      if (!this.editor) {
+        this.aiError = '페이지를 먼저 선택해 주세요.';
+        return;
+      }
+      this.aiTemplateLoading = true;
+      this.aiError = '';
+      try {
+        const res = await fetch('/api/workspace/ai', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode: this.aiTemplateMode,
+            prompt: this.aiTemplateInput.trim()
+          })
+        });
+        const data = await res.json();
+        if (data.ok && Array.isArray(data.blocks) && data.blocks.length) {
+          // 현재 에디터 끝에 블록 추가
+          for (const b of data.blocks) {
+            try {
+              await this.editor.blocks.insert(b.type, b.data);
+            } catch(err) {
+              console.warn('[workspace] block insert fail:', b.type, err);
+            }
+          }
+          // 작성 완료 → 템플릿 패널 닫기 + 저장
+          this.aiTemplateMode = null;
+          this.aiTemplateInput = '';
+          this.saveDebounced();
+        } else {
+          this.aiError = data.error || 'AI 응답을 해석할 수 없습니다. 다시 시도해 주세요.';
+        }
+      } catch(e) {
+        console.error('[workspace] applyTemplate:', e);
+        this.aiError = '서버 연결 실패';
+      }
+      this.aiTemplateLoading = false;
+    },
+
+    formatDate(d) {
+      if (!d) return '';
+      const date = new Date(d);
+      const now = new Date();
+      const diff = now - date;
+      if (diff < 60000) return '방금 전';
+      if (diff < 3600000) return Math.floor(diff/60000) + '분 전';
+      if (diff < 86400000) return Math.floor(diff/3600000) + '시간 전';
+      if (diff < 604800000) return Math.floor(diff/86400000) + '일 전';
+      return d.slice(0,10);
+    }
+  };
+}
+</script>
+</div>

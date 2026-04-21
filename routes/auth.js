@@ -90,8 +90,8 @@ router.post('/login', (req, res) => {
   sessions[token] = {
     userId: user.userId, name: user.name, role: user.role,
     position: user.position || '', phone: user.phone || '',
-    department: user.department || '', permissions: perms,
-    loginAt: Date.now()
+    department: user.department || '', companyId: user.companyId || 'dalim-sm',
+    permissions: perms, loginAt: Date.now()
   };
   res.setHeader('Set-Cookie', `session_token=${token}; Path=/; HttpOnly; Max-Age=86400`);
   auditLog(user.userId, '로그인', '시스템');
@@ -105,7 +105,49 @@ router.post('/login', (req, res) => {
 
   res.json({ ok: true, userId: user.userId, name: user.name, role: user.role,
     position: user.position || '', phone: user.phone || '',
-    department: user.department || '', permissions: perms, isTeamLeader });
+    department: user.department || '', companyId: user.companyId || 'dalim-sm',
+    permissions: perms, isTeamLeader,
+    mustChangePassword: !!user.mustChangePassword });
+});
+
+// ── 본인 비밀번호 변경 ────────────────────────────────
+// 현재 비밀번호를 확인한 뒤 새 비밀번호로 교체.
+// 임시 비밀번호 발급 후 최초 로그인 시 반드시 호출되어야 함.
+router.post('/change-password', requireAuth, (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: '현재 비밀번호와 새 비밀번호를 모두 입력해주세요' });
+  }
+  if (String(newPassword).length < 6) {
+    return res.status(400).json({ error: '새 비밀번호는 6자 이상이어야 합니다' });
+  }
+  if (currentPassword === newPassword) {
+    return res.status(400).json({ error: '새 비밀번호는 현재 비밀번호와 달라야 합니다' });
+  }
+  const uData = db.loadUsers();
+  const user = (uData.users || []).find(u => u.userId === req.user.userId);
+  if (!user) return res.status(404).json({ error: '사용자를 찾을 수 없습니다' });
+  if (!verifyPassword(currentPassword, user.password)) {
+    return res.status(401).json({ error: '현재 비밀번호가 일치하지 않습니다' });
+  }
+  user.password = hashPassword(newPassword);
+  user.mustChangePassword = false;
+  user.passwordChangedAt = new Date().toISOString();
+  db.saveUsers(uData);
+
+  // 본인의 다른 기기 세션을 모두 만료시켜 재로그인 유도 (현재 세션은 유지)
+  const currentCookies = parseCookies(req);
+  const currentToken = currentCookies.session_token || req.headers['x-session-token'];
+  let killed = 0;
+  for (const token of Object.keys(sessions)) {
+    if (token === currentToken) continue;
+    if (sessions[token] && sessions[token].userId === user.userId) {
+      delete sessions[token];
+      killed++;
+    }
+  }
+  auditLog(user.userId, '비밀번호 변경', user.name, { otherSessionsInvalidated: killed });
+  res.json({ ok: true, otherSessionsInvalidated: killed });
 });
 
 // ── 급여 PIN 인증 ──────────────────────────────────────
@@ -117,6 +159,16 @@ router.post('/login', (req, res) => {
 router.post('/salary-pin', requireAuth, (req, res) => {
   const { pin } = req.body;
   if (!pin) return res.status(400).json({ error: 'PIN을 입력해주세요' });
+
+  // 브루트포스 방어: 사용자별 + IP별 잠금 키
+  const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+  const lockKeyUser = `salary_u_${req.user.userId}`;
+  const lockKeyIp = `salary_ip_${ip}`;
+  if (isLocked(lockKeyUser) || isLocked(lockKeyIp)) {
+    const mins = Math.max(getRemainingLockMinutes(lockKeyUser), getRemainingLockMinutes(lockKeyIp));
+    logSalaryAccess(req.user.userId, 'PIN_LOCKED', `${mins}분 잠금`);
+    return res.status(429).json({ error: `PIN 시도가 너무 많습니다. ${mins}분 후 다시 시도해주세요.`, code: 'PIN_LOCKED' });
+  }
 
   const uData = db.loadUsers();
   const user  = (uData.users || []).find(u => u.userId === req.user.userId);
@@ -136,12 +188,18 @@ router.post('/salary-pin', requireAuth, (req, res) => {
     return res.status(403).json({ error: '급여 PIN이 설정되어 있지 않습니다. 관리자에게 문의하세요.', code: 'NO_PIN_SET' });
   }
 
-  // PIN 검증
+  // PIN 검증 (PBKDF2 — 내부적으로 timing-safe 비교)
   const { ok } = verifyPassword(pin, user.salaryPin);
   if (!ok) {
+    recordFailure(lockKeyUser);
+    recordFailure(lockKeyIp);
     logSalaryAccess(req.user.userId, 'PIN_FAIL', 'PIN 불일치');
     return res.status(401).json({ error: 'PIN이 틀렸습니다', code: 'PIN_WRONG' });
   }
+
+  // 성공 시 잠금 카운터 초기화
+  clearFailures(lockKeyUser);
+  clearFailures(lockKeyIp);
 
   // 급여 세션 발급
   const salaryToken = createSalarySession(req.user.userId);
@@ -212,12 +270,13 @@ router.post('/register', (req, res) => {
     userId, name,
     position: position || '', phone: phone || '', hireDate: hireDate || '',
     password: hashPassword(password),  // PBKDF2
-    role: 'user', status: 'approved',
+    // 외부 노출 대비: 신규 가입은 반드시 '대기' 상태로 진입 → 관리자가 승인해야 로그인 가능
+    role: 'user', status: 'pending',
     createdAt: new Date().toISOString(), lastLogin: null
   });
   db.saveUsers(uData);
-  auditLog(userId, '회원가입 완료', name);
-  res.json({ ok: true, message: '가입이 완료되었습니다. 바로 로그인할 수 있습니다.' });
+  auditLog(userId, '회원가입 신청', name);
+  res.json({ ok: true, message: '가입 신청이 완료되었습니다. 관리자 승인 후 로그인할 수 있습니다.' });
 });
 
 // ── 로그아웃 ──────────────────────────────────────────
@@ -250,19 +309,24 @@ router.get('/me', (req, res) => {
     Date.now() < salarySessions[salaryToken].expiresAt);
 
   let isTeamLeader = false;
+  let mustChangePassword = false;
   try {
     const uData = db.loadUsers();
     const me = (uData.users || []).find(u => u.userId === s.userId);
-    if (me && me.department) {
-      const dept = (uData.departments || []).find(d => d.id === me.department);
-      if (dept && dept.leaderId === me.id) isTeamLeader = true;
+    if (me) {
+      mustChangePassword = !!me.mustChangePassword;
+      if (me.department) {
+        const dept = (uData.departments || []).find(d => d.id === me.department);
+        if (dept && dept.leaderId === me.id) isTeamLeader = true;
+      }
     }
   } catch(e) {}
 
   res.json({ loggedIn: true, userId: s.userId, name: s.name, role: s.role,
     position: s.position || '', phone: s.phone || '',
-    department: s.department || '', permissions: s.permissions || [],
-    isTeamLeader, salaryActive });
+    department: s.department || '', companyId: s.companyId || 'dalim-sm',
+    permissions: s.permissions || [], isTeamLeader, salaryActive,
+    mustChangePassword });
 });
 
 module.exports = router;
