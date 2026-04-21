@@ -128,6 +128,25 @@ function getRemainingLockMinutes(key) {
 // ── 기본 인증 미들웨어 ────────────────────────────────
 
 function requireAuth(req, res, next) {
+  // ── 데몬 모드: 프록시 헤더 신뢰 ──
+  if (process.env.SALARY_DAEMON_MODE === '1') {
+    const userId = req.headers['x-proxy-user-id'];
+    const role = req.headers['x-proxy-user-role'];
+    if (!userId || !role) {
+      return res.status(403).json({ error: '프록시 사용자 정보 누락', code: 'DAEMON_USER_MISSING' });
+    }
+    let decodedName = req.headers['x-proxy-user-name'] || '';
+    try { decodedName = decodeURIComponent(decodedName); } catch(e) {}
+    req.user = {
+      userId: String(userId),
+      name: decodedName,
+      role,
+      permissions: (req.headers['x-proxy-user-permissions'] || '').split(',').filter(Boolean)
+    };
+    req.sessionToken = 'daemon-proxy';
+    return next();
+  }
+
   const cookies = parseCookies(req);
   const token = cookies.session_token || req.headers['x-session-token'];
   if (!token || !sessions[token]) {
@@ -153,8 +172,41 @@ function requireAdmin(req, res, next) {
  * requireSalaryAccess
  * 조건: 로그인 + 관리자(admin) + 급여 PIN 재인증 완료
  * 급여는 보안이 매우 중요하므로 관리자만 접근 가능 (2026-04-17 강화)
+ *
+ * 데몬 모드 (process.env.SALARY_DAEMON_MODE === '1'):
+ *   서버 PC가 프록시로 호출하므로 세션/쿠키/PIN 검증은 서버 PC에서 이미 완료됨.
+ *   이 프로세스는 x-proxy-secret / x-proxy-user-* 헤더만 신뢰하면 됨.
+ *   (헤더 1차 검증은 salary-daemon.js 진입 미들웨어에서 수행)
  */
 function requireSalaryAccess(req, res, next) {
+  // ── 데몬 모드: 프록시 헤더로부터 req.user 재구성 ──
+  if (process.env.SALARY_DAEMON_MODE === '1') {
+    const userId = req.headers['x-proxy-user-id'];
+    const role = req.headers['x-proxy-user-role'];
+    const name = req.headers['x-proxy-user-name'] || '';
+    const permRaw = req.headers['x-proxy-user-permissions'] || '';
+
+    if (!userId || !role) {
+      return res.status(403).json({ error: '프록시 사용자 정보 누락', code: 'DAEMON_USER_MISSING' });
+    }
+    // 관리자만 데몬 요청 처리
+    if (role !== 'admin') {
+      return res.status(403).json({ error: '급여 모듈은 관리자만 접근할 수 있습니다', code: 'ADMIN_ONLY' });
+    }
+
+    let decodedName = name;
+    try { decodedName = decodeURIComponent(name); } catch(e) {}
+
+    req.user = {
+      userId: String(userId),
+      name: decodedName,
+      role,
+      permissions: permRaw ? String(permRaw).split(',').filter(Boolean) : []
+    };
+    req.sessionToken = 'daemon-proxy';
+    return next();
+  }
+
   // 1. 로그인 확인
   const cookies = parseCookies(req);
   const token = cookies.session_token || req.headers['x-session-token'];

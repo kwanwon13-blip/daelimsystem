@@ -5122,6 +5122,9 @@ function app() {
   return {
     // 인증
     auth: { loggedIn: false, userId: '', name: '', role: '', position: '', phone: '', permissions: [] },
+    // 급여 탭 가용성 (false이면 메뉴 자체를 숨김 — 관리자 PC 외에서는 존재조차 노출 안 함)
+    salaryAvailable: false,
+    salaryMode: 'local',
     loginForm: { userId: '', password: '', error: '', loading: false },
     showRegister: false,
     registerForm: { name: '', userId: '', password: '', passwordConfirm: '', position: '', phone: '', hireDate: '', error: '', success: '', loading: false },
@@ -5204,11 +5207,10 @@ function app() {
     get tabs() {
       // 플랫 리스트 (하위 호환용) — 권한 필터링된 탭 목록
       if (this.auth.role === 'admin') {
-        return [
+        const adminTabs = [
           { id: 'quote', label: '견적 작성' }, { id: 'history', label: '견적 목록' },
           { id: 'pricing', label: '품목 관리' }, { id: 'options', label: '옵션 관리' },
           { id: 'vendors', label: '업체 관리' }, { id: 'admin', label: '사용자 관리' },
-          { id: 'salary', label: '급여 관리' },
           { id: 'attendance', label: '출퇴근 기록부' }, { id: 'leave', label: '연차 관리' },
           { id: 'approval', label: '결재' }, { id: 'orgchart', label: '조직도' },
           { id: 'salesLookup', label: '과거단가조회' },
@@ -5217,6 +5219,13 @@ function app() {
           { id: 'workspace', label: '워크스페이스' },
           { id: 'gpsAttendance', label: 'GPS 출퇴근' }
         ];
+        // 급여 탭은 salaryAvailable일 때만 노출 (관리자 PC 외엔 존재 자체 비공개)
+        if (this.salaryAvailable) {
+          // 사용자 관리 다음에 끼워넣기
+          const idx = adminTabs.findIndex(t => t.id === 'admin');
+          adminTabs.splice(idx + 1, 0, { id: 'salary', label: '급여 관리' });
+        }
+        return adminTabs;
       }
       const perms = this.auth.permissions || [];
       const defaultMenus = ['quote', 'history', 'salesLookup', 'workspace', 'gpsAttendance'];
@@ -5782,6 +5791,15 @@ function app() {
         if (me.loggedIn) {
           this.auth = { loggedIn: true, userId: me.userId, name: me.name||me.userId, role: me.role||'user', position: me.position||'', phone: me.phone||'', permissions: me.permissions||[], isTeamLeader: me.isTeamLeader||false };
           this.quoteHeader.vendorManager = this.auth.name + (this.auth.position ? ' ' + this.auth.position : '') + (this.auth.phone ? ' ' + this.auth.phone : '');
+          // 급여 탭 가용성 체크 (관리자 PC 외엔 메뉴 자체를 숨김)
+          try {
+            const sa = await fetch('/api/salary-availability');
+            if (sa.ok) {
+              const sj = await sa.json();
+              this.salaryAvailable = !!sj.available;
+              this.salaryMode = sj.mode || 'local';
+            }
+          } catch(e) { this.salaryAvailable = false; }
           await this.loadData();
           if (!this.tabs.find(t => t.id === this.currentTab)) this.currentTab = 'quote';
           // 알림 폴링 시작

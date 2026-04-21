@@ -281,8 +281,28 @@ app.use('/api', require('./routes/design'));
 // ── 출퇴근/연차 관리 (routes/attendance.js) ──
 app.use('/api', require('./routes/attendance'));
 
-// ── 급여 모듈 (routes/salary.js) ──────────────────────────────────────────────
-app.use('/api/salary', require('./routes/salary'));
+// ── 급여 모듈 ───────────────────────────────────────────────────────────────
+// SALARY_MODE=proxy  → 관리자 PC 데몬으로 프록시 (서버 PC에는 데이터 없음)
+// SALARY_MODE=local  → 로컬 DB 직결 (단일 PC 개발 환경, 기본)
+const SALARY_MODE = (process.env.SALARY_MODE || 'local').toLowerCase();
+if (SALARY_MODE === 'proxy') {
+  console.log('[salary] 모드: proxy → 관리자 PC 데몬 호출');
+  app.use('/api/salary', require('./routes/salary-proxy'));
+} else {
+  console.log('[salary] 모드: local → 로컬 DB 직결');
+  app.use('/api/salary', require('./routes/salary'));
+}
+
+// ── 급여 가용성 체크 (프론트엔드용) ──
+// proxy 모드: 현재 요청자 IP == SALARY_SOURCE_IP 일 때만 true
+// local  모드: 항상 true (기존 동작)
+app.get('/api/salary-availability', (req, res) => {
+  const SOURCE_IP = process.env.SALARY_SOURCE_IP || '192.168.0.30';
+  const raw = req.ip || req.socket?.remoteAddress || '';
+  const clientIp = raw.startsWith('::ffff:') ? raw.slice(7) : (raw === '::1' ? '127.0.0.1' : raw);
+  const available = SALARY_MODE === 'proxy' ? (clientIp === SOURCE_IP) : true;
+  res.json({ available, mode: SALARY_MODE });
+});
 
 // ══════════════════════════════════════════════════════
 // 감사 로그 API
