@@ -74,6 +74,55 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// ── 주소 → 좌표 변환 (Geocoding) ──
+// 1순위: Kakao 로컬 API (process.env.KAKAO_REST_KEY 설정 시)
+// 2순위: OpenStreetMap Nominatim (키 불필요, 한국 정확도 다소 낮음)
+async function geocodeAddress(address) {
+  const kakaoKey = process.env.KAKAO_REST_KEY;
+  if (kakaoKey) {
+    try {
+      const url = 'https://dapi.kakao.com/v2/local/search/address.json?query=' + encodeURIComponent(address);
+      const r = await fetch(url, { headers: { Authorization: 'KakaoAK ' + kakaoKey } });
+      if (r.ok) {
+        const data = await r.json();
+        const results = (data.documents || []).map(d => ({
+          latitude: parseFloat(d.y),
+          longitude: parseFloat(d.x),
+          displayName: d.address_name || d.road_address_name || address,
+          source: 'kakao'
+        })).filter(r => !isNaN(r.latitude) && !isNaN(r.longitude));
+        if (results.length > 0) return results;
+      }
+    } catch (e) {
+      console.warn('[GPS geocode] Kakao 실패, Nominatim fallback:', e.message);
+    }
+  }
+  // Nominatim (키리스)
+  const url = 'https://nominatim.openstreetmap.org/search?format=json&countrycodes=kr&addressdetails=1&limit=5&q=' + encodeURIComponent(address);
+  const r = await fetch(url, { headers: { 'User-Agent': 'daelim-sm-erp/1.0 (kwanwon13@gmail.com)' } });
+  if (!r.ok) throw new Error('Nominatim ' + r.status);
+  const data = await r.json();
+  return (data || []).map(d => ({
+    latitude: parseFloat(d.lat),
+    longitude: parseFloat(d.lon),
+    displayName: d.display_name,
+    source: 'nominatim',
+    importance: d.importance
+  })).filter(r => !isNaN(r.latitude) && !isNaN(r.longitude));
+}
+
+router.get('/geocode', requireAuth, async (req, res) => {
+  try {
+    const address = (req.query.address || '').trim();
+    if (!address) return res.status(400).json({ error: '주소를 입력하세요' });
+    const results = await geocodeAddress(address);
+    res.json({ ok: true, results });
+  } catch (e) {
+    console.error('[GPS geocode]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── 사업장 위치 관리 (관리자) ──
 
 // 사업장 위치 목록

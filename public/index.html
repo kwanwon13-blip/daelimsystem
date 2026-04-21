@@ -2277,6 +2277,144 @@
             </div>
           </div>
 
+          <!-- GPS 사업장 관리 -->
+          <div class="card" style="padding:0;overflow:hidden;" x-data="gpsLocationAdmin()" x-init="load()">
+            <div style="padding:10px 14px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border-bottom:1px solid #bfdbfe;">
+              <div class="flex items-center justify-between">
+                <h3 class="font-work text-[13px] font-bold text-gray-800 flex items-center gap-2 m-0">
+                  <span class="material-symbols-outlined" style="font-size:16px;color:#2563eb;">location_on</span> GPS 사업장 관리
+                  <span class="text-xs font-medium px-2.5 py-1 rounded-full" style="background:rgba(37,99,235,.1);color:#2563eb;" x-text="locations.length + '개소'"></span>
+                </h3>
+                <button @click="showAdd = !showAdd; if(showAdd) resetForm()" class="btn-primary text-xs py-1.5 px-3 flex items-center gap-1">
+                  <span class="material-symbols-outlined" style="font-size:16px;" x-text="showAdd ? 'close' : 'add'"></span>
+                  <span x-text="showAdd ? '닫기' : '새 사업장'"></span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 추가/수정 폼 -->
+            <template x-if="showAdd">
+              <div style="padding:12px 14px;background:#f8fafc;border-bottom:1px solid #e2e8f0;">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+                  <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">사업장명</label>
+                    <input x-model="form.name" class="input-base py-1.5 text-xs w-full" placeholder="예: 대림컴퍼니 공장">
+                  </div>
+                  <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">회사</label>
+                    <select x-model="form.companyId" class="input-base py-1.5 text-xs w-full">
+                      <option value="dalim-sm">대림에스엠</option>
+                      <option value="dalim-company">대림컴퍼니</option>
+                      <option value="__all__">전체 공통</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="mb-2">
+                  <label class="block text-xs font-semibold text-gray-600 mb-1">주소 검색</label>
+                  <div class="flex gap-2">
+                    <input x-model="form.addressQuery" @keydown.enter.prevent="searchAddress()" class="input-base py-1.5 text-xs flex-1" placeholder="예: 시흥시 과림동 1-8">
+                    <button @click="searchAddress()" :disabled="searching" class="btn-primary text-xs py-1.5 px-3 flex items-center gap-1">
+                      <span class="material-symbols-outlined" style="font-size:14px;" x-text="searching ? 'hourglass_empty' : 'search'"></span>
+                      <span x-text="searching ? '검색 중' : '주소 검색'"></span>
+                    </button>
+                  </div>
+                  <template x-if="searchResults.length > 0">
+                    <div style="margin-top:6px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;max-height:180px;overflow-y:auto;">
+                      <template x-for="(r, i) in searchResults" :key="i">
+                        <div @click="pickResult(r)" style="padding:8px 10px;border-bottom:1px solid #f3f4f6;cursor:pointer;font-size:11px;" class="hover:bg-blue-50">
+                          <div style="font-weight:600;color:#1f2937;" x-text="r.displayName"></div>
+                          <div style="font-size:10px;color:#6b7280;margin-top:2px;" x-text="'좌표: ' + r.latitude.toFixed(6) + ', ' + r.longitude.toFixed(6) + ' · ' + (r.source === 'kakao' ? '카카오' : 'OSM')"></div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                  <p x-show="searchError" class="text-xs text-red-600 mt-1" x-text="searchError"></p>
+                </div>
+
+                <div class="grid grid-cols-3 gap-2 mb-2">
+                  <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">위도 (Latitude)</label>
+                    <input x-model.number="form.latitude" type="number" step="0.000001" class="input-base py-1.5 text-xs w-full" placeholder="37.444">
+                  </div>
+                  <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">경도 (Longitude)</label>
+                    <input x-model.number="form.longitude" type="number" step="0.000001" class="input-base py-1.5 text-xs w-full" placeholder="126.812">
+                  </div>
+                  <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">반경 (m)</label>
+                    <input x-model.number="form.radius" type="number" min="20" max="2000" class="input-base py-1.5 text-xs w-full" placeholder="100">
+                  </div>
+                </div>
+
+                <!-- 지도 미리보기 -->
+                <template x-if="form.latitude && form.longitude">
+                  <div style="margin-bottom:8px;">
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">지도 미리보기</label>
+                    <iframe
+                      :src="'https://www.openstreetmap.org/export/embed.html?bbox=' + (form.longitude - 0.003) + ',' + (form.latitude - 0.0015) + ',' + (form.longitude + 0.003) + ',' + (form.latitude + 0.0015) + '&layer=mapnik&marker=' + form.latitude + ',' + form.longitude"
+                      style="width:100%;height:220px;border:1px solid #e5e7eb;border-radius:8px;"
+                      loading="lazy"></iframe>
+                    <div style="font-size:10px;color:#6b7280;margin-top:4px;">
+                      <a :href="'https://www.openstreetmap.org/?mlat=' + form.latitude + '&mlon=' + form.longitude + '#map=18/' + form.latitude + '/' + form.longitude" target="_blank" style="color:#2563eb;">🔗 큰 지도로 보기</a>
+                      · 반경 <span x-text="form.radius || 100"></span>m 이내 출퇴근 인정
+                    </div>
+                  </div>
+                </template>
+
+                <div class="flex justify-end gap-2">
+                  <button @click="showAdd = false" class="btn-secondary text-xs py-1.5 px-3">취소</button>
+                  <button @click="save()" :disabled="saving || !form.name || !form.latitude || !form.longitude" class="btn-primary text-xs py-1.5 px-3">
+                    <span x-text="saving ? '저장 중...' : (form.id ? '수정' : '등록')"></span>
+                  </button>
+                </div>
+              </div>
+            </template>
+
+            <!-- 등록된 사업장 목록 -->
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs" style="border-collapse:collapse;">
+                <thead>
+                  <tr style="background:#f8fafb;">
+                    <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">사업장</th>
+                    <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">회사</th>
+                    <th style="padding:6px 10px;text-align:center;font-size:10px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">위도 / 경도</th>
+                    <th style="padding:6px 10px;text-align:center;font-size:10px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">반경</th>
+                    <th style="padding:6px 10px;text-align:center;font-size:10px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">상태</th>
+                    <th style="padding:6px 10px;text-align:center;font-size:10px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">관리</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="loc in locations" :key="loc.id">
+                    <tr style="border-bottom:1px solid #f3f4f6;">
+                      <td style="padding:6px 10px;font-weight:600;color:#1f2937;" x-text="loc.name"></td>
+                      <td style="padding:6px 10px;color:#6b7280;" x-text="companyLabel(loc.companyId)"></td>
+                      <td style="padding:6px 10px;text-align:center;font-family:'Work Sans',sans-serif;font-size:10.5px;color:#1f2937;">
+                        <span x-text="Number(loc.latitude).toFixed(5) + ', ' + Number(loc.longitude).toFixed(5)"></span>
+                        <a :href="'https://www.openstreetmap.org/?mlat=' + loc.latitude + '&mlon=' + loc.longitude + '#map=18/' + loc.latitude + '/' + loc.longitude" target="_blank" style="color:#2563eb;margin-left:6px;">🔗</a>
+                      </td>
+                      <td style="padding:6px 10px;text-align:center;color:#1f2937;" x-text="loc.radius + 'm'"></td>
+                      <td style="padding:6px 10px;text-align:center;">
+                        <span x-show="loc.active" style="font-size:10px;padding:2px 8px;border-radius:4px;background:#dcfce7;color:#16a34a;font-weight:600;">활성</span>
+                        <span x-show="!loc.active" style="font-size:10px;padding:2px 8px;border-radius:4px;background:#f3f4f6;color:#6b7280;font-weight:600;">비활성</span>
+                      </td>
+                      <td style="padding:6px 10px;text-align:center;white-space:nowrap;">
+                        <button @click="edit(loc)" style="font-size:10px;color:#2563eb;margin-right:6px;">수정</button>
+                        <button @click="toggleActive(loc)" style="font-size:10px;color:#d97706;margin-right:6px;" x-text="loc.active ? '비활성' : '활성'"></button>
+                        <button @click="remove(loc)" style="font-size:10px;color:#dc2626;">삭제</button>
+                      </td>
+                    </tr>
+                  </template>
+                  <tr x-show="locations.length === 0">
+                    <td colspan="6" style="padding:18px;text-align:center;color:#9ca3af;font-size:11px;">
+                      등록된 사업장이 없습니다. "새 사업장" 버튼으로 추가하세요. (예: 시흥시 과림동 1-8 반경 100m)
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div class="card" style="padding:0;overflow:hidden;">
             <div style="padding:10px 14px;background:linear-gradient(135deg,#fdf2f8,#fce7f3);border-bottom:1px solid #fbcfe8;">
               <div class="flex items-center justify-between">
@@ -8656,6 +8794,151 @@ function app() {
       };
     },
 
+  };
+}
+
+// ── GPS 사업장 관리 (관리자) ──
+function gpsLocationAdmin() {
+  return {
+    locations: [],
+    showAdd: false,
+    saving: false,
+    searching: false,
+    searchError: '',
+    searchResults: [],
+    form: { id: null, name: '', companyId: 'dalim-sm', addressQuery: '', latitude: null, longitude: null, radius: 100 },
+
+    companyLabel(id) {
+      if (id === 'dalim-sm') return '대림에스엠';
+      if (id === 'dalim-company') return '대림컴퍼니';
+      if (id === '__all__') return '전체 공통';
+      return id || '';
+    },
+
+    resetForm() {
+      this.form = { id: null, name: '', companyId: 'dalim-sm', addressQuery: '', latitude: null, longitude: null, radius: 100 };
+      this.searchResults = [];
+      this.searchError = '';
+    },
+
+    async load() {
+      try {
+        const r = await fetch('/api/gps-attendance/locations');
+        const d = await r.json();
+        if (d.ok) this.locations = d.locations || [];
+      } catch (e) { console.error('GPS locations load:', e); }
+    },
+
+    async searchAddress() {
+      const q = (this.form.addressQuery || '').trim();
+      if (!q) { this.searchError = '주소를 입력하세요'; return; }
+      this.searching = true;
+      this.searchError = '';
+      this.searchResults = [];
+      try {
+        const r = await fetch('/api/gps-attendance/geocode?address=' + encodeURIComponent(q));
+        const d = await r.json();
+        if (d.ok) {
+          this.searchResults = d.results || [];
+          if (this.searchResults.length === 0) {
+            this.searchError = '검색 결과가 없습니다. 다른 주소로 시도하거나 위도/경도를 직접 입력하세요.';
+          } else if (this.searchResults.length === 1) {
+            // 결과가 하나면 자동 선택
+            this.pickResult(this.searchResults[0]);
+          }
+        } else {
+          this.searchError = d.error || '검색 실패';
+        }
+      } catch (e) {
+        this.searchError = e.message || '검색 오류';
+      }
+      this.searching = false;
+    },
+
+    pickResult(r) {
+      this.form.latitude = Number(r.latitude);
+      this.form.longitude = Number(r.longitude);
+      if (!this.form.name) this.form.name = r.displayName.split(',')[0] || '';
+      this.searchResults = [];
+    },
+
+    edit(loc) {
+      this.form = {
+        id: loc.id,
+        name: loc.name,
+        companyId: loc.companyId,
+        addressQuery: '',
+        latitude: Number(loc.latitude),
+        longitude: Number(loc.longitude),
+        radius: loc.radius
+      };
+      this.searchResults = [];
+      this.showAdd = true;
+    },
+
+    async save() {
+      if (!this.form.name || this.form.latitude == null || this.form.longitude == null) return;
+      this.saving = true;
+      try {
+        let r;
+        if (this.form.id) {
+          r = await fetch('/api/gps-attendance/locations/' + this.form.id, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: this.form.name,
+              latitude: this.form.latitude,
+              longitude: this.form.longitude,
+              radius: this.form.radius || 100
+            })
+          });
+        } else {
+          r = await fetch('/api/gps-attendance/locations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              companyId: this.form.companyId,
+              name: this.form.name,
+              latitude: this.form.latitude,
+              longitude: this.form.longitude,
+              radius: this.form.radius || 100
+            })
+          });
+        }
+        const d = await r.json();
+        if (d.ok) {
+          this.locations = d.locations || [];
+          this.showAdd = false;
+          this.resetForm();
+        } else {
+          alert(d.error || '저장 실패');
+        }
+      } catch (e) {
+        alert('저장 오류: ' + e.message);
+      }
+      this.saving = false;
+    },
+
+    async toggleActive(loc) {
+      try {
+        const r = await fetch('/api/gps-attendance/locations/' + loc.id, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ active: loc.active ? 0 : 1 })
+        });
+        const d = await r.json();
+        if (d.ok) this.locations = d.locations || [];
+      } catch (e) { alert(e.message); }
+    },
+
+    async remove(loc) {
+      if (!confirm('"' + loc.name + '" 사업장을 삭제할까요? 기존 출퇴근 기록은 유지됩니다.')) return;
+      try {
+        const r = await fetch('/api/gps-attendance/locations/' + loc.id, { method: 'DELETE' });
+        const d = await r.json();
+        if (d.ok) this.locations = d.locations || [];
+      } catch (e) { alert(e.message); }
+    }
   };
 }
 </script>
