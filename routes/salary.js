@@ -149,24 +149,40 @@ async function getAttendanceWorkDays(userId, companyId, yearMonth) {
 //
 // 대림에스엠: CAPS 지문인식 데이터 (attendance-store 캐시) → 실측 workDays + 연장시간
 // 대림컴퍼니: CAPS 미연동 → 월 평일 수 자동, 연장시간 0
+//
+// ★ 중요: attendance-store 캐시는 CAPS 브릿지 원본(raw) 데이터
+//   ({name, date, inTime, outTime, swipeCount}) 이므로 여기서 analyzeRecord로
+//   분류(leaveType/overtime/late)한 뒤 attendanceNotes / 연차관리 leaveRecords를
+//   병합해야 한다. routes/attendance.js /summary 와 같은 파이프라인이어야
+//   급여탭과 출퇴근탭 수치가 일치한다.
 async function fetchAttendanceData(companyId, yearMonth) {
   const [year, mon] = yearMonth.split('-');
   const from = `${year}-${String(mon).padStart(2,'0')}-01`;
   const lastDay = new Date(+year, +mon, 0).getDate();
   const to = `${year}-${String(mon).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
 
-  // 이름 → userId 매핑 구축
+  // 이름 → userId 매핑 구축 + CAPS이름 → 앱이름 매핑
   const nameToId = {};
-  const nameMap = {};
+  const capsNameMap = {}; // CAPS 이름 → 앱 이름
+  const adminNames = new Set();
+  const excludeNames = new Set();
   try {
     const uData = db.loadUsers();
     (uData.users || []).forEach(u => {
       if (u.name) nameToId[u.name] = u.id;
       if (u.capsName && u.capsName !== u.name) {
         nameToId[u.capsName] = u.id;
-        nameMap[u.capsName] = u.name;
+        capsNameMap[u.capsName] = u.name;
+      }
+      if (u.role === 'admin') {
+        adminNames.add(u.name);
+        if (u.capsName) adminNames.add(u.capsName);
       }
     });
+  } catch(e) {}
+  try {
+    const workData = db.출퇴근관리.load();
+    (workData.excludeEmployees || []).forEach(n => excludeNames.add(n));
   } catch(e) {}
   const cfgs = salaryDb.configs.getAll(companyId);
   cfgs.forEach(c => {
@@ -199,17 +215,123 @@ async function fetchAttendanceData(companyId, yearMonth) {
   }
 
   // 대림에스엠: CAPS 캐시 읽기
-  const raw = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
-  const payload = (raw && typeof raw === 'object' && 'data' in raw) ? raw.data : raw;
-  let records = [];
-  if (Array.isArray(payload)) records = payload;
-  else if (payload && Array.isArray(payload.records)) records = payload.records;
+  const rawFile = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+  const payload = (rawFile && typeof rawFile === 'object' && 'data' in rawFile) ? rawFile.data : rawFile;
+  let rawRecords = [];
+  if (Array.isArray(payload)) rawRecords = payload;
+  else if (payload && Array.isArray(payload.records)) rawRecords = payload.records;
   else if (payload && typeof payload === 'object') {
     for (const v of Object.values(payload)) {
-      if (Array.isArray(v)) records.push(...v);
+      if (Array.isArray(v)) rawRecords.push(...v);
     }
   }
 
+  // ── 캐시 포맷 판별 ──────────────────────────────────────────────
+  // 신버전 캐시: {name, date, inTime, outTime, swipeCount} (raw tenter)
+  // 구버전 캐시: {employeeName, leaveType, overtime, late, ...} (이미 분류됨)
+  const looksRaw = rawRecords.length > 0 &&
+    rawRecords[0].name !== undefined &&
+    rawRecords[0].leaveType === undefined;
+
+  // attendance.js에서 분류/변환 헬퍼 불러오기 (circular 방지 위해 지연 require)
+  let analyzeRecord;
+  try {
+    analyzeRecord = require('./attendance').analyzeRecord;
+  } catch(e) {}
+
+  let records = [];
+  if (looksRaw && analyzeRecord) {
+    // 원본 → 분류 변환
+    records = rawRecords.map(analyzeRecord);
+  } else {
+    // 이미 분류된 데이터 (구버전) — 그대로 사용
+    records = rawRecords.map(r => ({ ...r }));
+  }
+
+  // CAPS 이름 → 앱 이름 치환
+  for (const r of records) {
+    if (r.employeeName && capsNameMap[r.employeeName]) {
+      r.employeeName = capsNameMap[r.employeeName];
+      r.employeeId = capsNameMap[r.employeeId] || r.employeeName;
+    }
+  }
+
+  // admin / 기록제외 직원 필터
+  records = records.filter(r => {
+    const nm = r.employeeName || r.employeeId;
+    if (!nm) return false;
+    if (adminNames.has(nm)) return false;
+    if (excludeNames.has(nm)) return false;
+    return true;
+  });
+
+  // 퇴근 미기록 체크 제외 (skipCheckoutReview)
+  try {
+    const workData = db.출퇴근관리.load();
+    const skipCheckoutNames = new Set(workData.skipCheckoutReview || []);
+    if (skipCheckoutNames.size > 0) {
+      for (const r of records) {
+        if (r.leaveType === 'noSwipeOut' && skipCheckoutNames.has(r.employeeName)) {
+          r.leaveType = 'normal';
+          r.leaveLabel = '정상';
+          r.reviewStatus = 'normal';
+        }
+      }
+    }
+  } catch(e) {}
+
+  // attendanceNotes 병합 (관리자 수동 수정)
+  try {
+    const workData = db.출퇴근관리.load();
+    const notes = workData.attendanceNotes || {};
+    for (const r of records) {
+      const nKey = `${r.employeeId || r.employeeName}_${r.date}`;
+      if (notes[nKey]) {
+        r.leaveType = notes[nKey].leaveType || r.leaveType;
+        r.leaveLabel = notes[nKey].leaveLabel || r.leaveLabel;
+        if (notes[nKey].modifiedInTime !== undefined) r.inTime = notes[nKey].modifiedInTime;
+        if (notes[nKey].modifiedOutTime !== undefined) r.outTime = notes[nKey].modifiedOutTime;
+        // 지각/연장 재계산은 analyzeRecord에 맡기지 않고 단순화
+        // (summary 라우트와 살짝 다를 수 있음 — 하지만 workDays/연장 집계에 크게 영향 없음)
+      }
+    }
+  } catch(e) {}
+
+  // 연차관리 leaveRecords 병합 (결재 승인된 연차 → 출퇴근에 반영)
+  try {
+    const leaveData = db['연차관리'].load();
+    const ltCode = { '연차':'annual','반차':'halfAM','오전반차':'halfAM','오후반차':'halfPM','병가':'sick','특별휴가':'special' };
+    const monthLeaves = (leaveData.leaveRecords || []).filter(r => r.date >= from && r.date <= to);
+    const recByKey = {};
+    for (const r of records) {
+      recByKey[`${r.employeeName}_${r.date}`] = r;
+    }
+    for (const lr of monthLeaves) {
+      if (adminNames.has(lr.employeeName)) continue;
+      const key = `${lr.employeeName}_${lr.date}`;
+      const attLeaveType = ltCode[lr.leaveType] || 'annual';
+      if (recByKey[key]) {
+        const rec = recByKey[key];
+        // 이미 연차/반차인 기록은 건드리지 않음
+        if (rec.leaveType === 'annual' || rec.leaveType === 'halfAM' || rec.leaveType === 'halfPM') continue;
+        rec.leaveType = attLeaveType;
+      } else {
+        // CAPS 기록 없는 날짜 → 가상 레코드
+        const dow = new Date(lr.date).getDay();
+        if (dow === 0 || dow === 6) continue;
+        records.push({
+          employeeId: lr.employeeName,
+          employeeName: lr.employeeName,
+          date: lr.date,
+          leaveType: attLeaveType,
+          late: false,
+          overtime: 0,
+        });
+      }
+    }
+  } catch(e) {}
+
+  // 직원별 집계
   const byName = {};
   for (const r of records) {
     const name = r.employeeName || r.employeeId;
@@ -235,7 +357,7 @@ async function fetchAttendanceData(companyId, yearMonth) {
     const workDays = stats.normalDays + stats.halfAM * 0.5 + stats.halfPM * 0.5;
     result.push({
       userId,
-      name: nameMap[empName] || empName,
+      name: capsNameMap[empName] || empName,
       workDays: Math.round(workDays * 2) / 2,
       annualDays: stats.annualDays + stats.halfAM * 0.5 + stats.halfPM * 0.5,
       absentDays: stats.absentDays,

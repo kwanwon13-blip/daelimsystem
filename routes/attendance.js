@@ -2121,3 +2121,13 @@ setInterval(() => {
 
 
 module.exports = router;
+
+// ─── 외부 모듈(routes/salary.js 등)에서 재사용할 헬퍼 노출 ───────────
+// routes/salary.js의 fetchAttendanceData가 같은 캐시(raw CAPS 데이터)를
+// 읽어서 leaveType/overtime/late로 분류해야 하므로 공용으로 노출.
+module.exports.analyzeRecord = analyzeRecord;
+module.exports.isKoreanHoliday = isKoreanHoliday;
+module.exports.timeToMin = timeToMin;
+module.exports.minToHHMM = minToHHMM;
+module.exports.minToDecimalHours = minToDecimalHours;
+
