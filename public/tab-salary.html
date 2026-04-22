@@ -1352,20 +1352,27 @@
     <div style="display:flex;gap:18px;">
       <!-- 지급 8슬롯 (비과세 플래그 포함) -->
       <div style="flex:1;">
-        <div style="font-weight:600;color:#0891b2;font-size:12.5px;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
-          💰 지급 항목 <span style="color:#6b7280;font-weight:400;">(8슬롯)</span>
+        <div style="font-weight:600;color:#0891b2;font-size:12.5px;margin-bottom:8px;display:flex;align-items:center;gap:6px;justify-content:space-between;">
+          <span style="display:flex;align-items:center;gap:6px;">
+            💰 지급 항목 <span style="color:#6b7280;font-weight:400;">(8슬롯)</span>
+            <span style="background:#ecfeff;color:#0891b2;font-weight:700;font-size:11px;padding:2px 7px;border-radius:10px;" x-text="activeExtraPayCount()+'/8 활성'"></span>
+          </span>
+          <span style="display:flex;gap:4px;">
+            <button type="button" @click="toggleAllExtraPay(true)" style="padding:2px 6px;background:#e0f2fe;color:#0891b2;border:1px solid #bae6fd;border-radius:4px;font-size:10.5px;cursor:pointer;">전체✓</button>
+            <button type="button" @click="toggleAllExtraPay(false)" style="padding:2px 6px;background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;border-radius:4px;font-size:10.5px;cursor:pointer;">전체✗</button>
+          </span>
         </div>
         <div style="display:grid;grid-template-columns:18px 14px 1fr 54px 54px;gap:4px 4px;font-size:11px;color:#9ca3af;align-items:center;margin-bottom:2px;">
-          <span></span><span></span><span></span><span title="비과세 체크">비과</span><span title="비과세 한도(원)">한도</span>
+          <span title="급여대장 노출">노출</span><span></span><span></span><span title="비과세 체크">비과</span><span title="비과세 한도(원)">한도</span>
         </div>
-        <div style="display:grid;gap:5px;font-size:12.5px;">
+        <div style="display:grid;gap:3px;font-size:12.5px;">
           <template x-for="i in [1,2,3,4,5,6,7,8]" :key="'p'+i">
-            <div style="display:grid;grid-template-columns:18px 14px 1fr 54px 54px;gap:4px;align-items:center;">
+            <div :style="'display:grid;grid-template-columns:18px 14px 1fr 54px 54px;gap:4px;align-items:center;padding:3px 4px;border-radius:4px;'+(isSlotVisible(\u0027extraPay\u0027+i) && labelModal.form[\u0027extraPay\u0027+i+\u0027Name\u0027] ? \u0027background:#ecfeff;border:1px solid #a5f3fc;\u0027 : \u0027border:1px solid transparent;\u0027)">
               <input type="checkbox" :checked="isSlotVisible('extraPay'+i)" @change="toggleSlotVisibility('extraPay'+i, $event.target.checked)" title="급여대장에 노출" style="width:14px;height:14px;">
-              <span style="color:#6b7280;font-size:11px;" x-text="i"></span>
-              <input type="text" x-model="labelModal.form['extraPay'+i+'Name']" :placeholder="i===1?'예: 명절상여':(i===2?'예: 하계휴가비':(i===3?'예: 성과급':''))" style="padding:6px 8px;border:1px solid #d1d5db;border-radius:5px;font-size:12.5px;min-width:0;">
+              <span :style="'font-size:11px;font-weight:600;'+(isSlotVisible(\u0027extraPay\u0027+i) && labelModal.form[\u0027extraPay\u0027+i+\u0027Name\u0027] ? \u0027color:#0891b2;\u0027 : \u0027color:#9ca3af;\u0027)" x-text="i"></span>
+              <input type="text" x-model="labelModal.form['extraPay'+i+'Name']" :placeholder="i===1?'예: 명절상여':(i===2?'예: 하계휴가비':(i===3?'예: 성과급':''))" style="padding:6px 8px;border:1px solid #d1d5db;border-radius:5px;font-size:12.5px;min-width:0;background:#fff;">
               <input type="checkbox" :checked="isExtraNonTaxable(i)" @change="toggleExtraNonTax(i, $event.target.checked)" title="비과세 처리" style="width:14px;height:14px;justify-self:center;">
-              <input type="number" :value="extraNonTaxLimit(i)" @input="setExtraNonTaxLimit(i, $event.target.value)" placeholder="0" title="비과세 한도(원). 0이면 전액" style="padding:4px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;min-width:0;text-align:right;">
+              <input type="number" :value="extraNonTaxLimit(i)" @input="setExtraNonTaxLimit(i, $event.target.value)" placeholder="0" title="비과세 한도(원). 0이면 전액" style="padding:4px;border:1px solid #d1d5db;border-radius:4px;font-size:11px;min-width:0;text-align:right;background:#fff;">
             </div>
           </template>
         </div>
@@ -1373,16 +1380,26 @@
 
       <!-- 공제 8슬롯 -->
       <div style="flex:1;">
-        <div style="font-weight:600;color:#dc2626;font-size:12.5px;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
-          💸 공제 항목 <span style="color:#6b7280;font-weight:400;">(8슬롯)</span>
+        <div style="font-weight:600;color:#dc2626;font-size:12.5px;margin-bottom:8px;display:flex;align-items:center;gap:6px;justify-content:space-between;">
+          <span style="display:flex;align-items:center;gap:6px;">
+            💸 공제 항목 <span style="color:#6b7280;font-weight:400;">(8슬롯)</span>
+            <span style="background:#fef2f2;color:#dc2626;font-weight:700;font-size:11px;padding:2px 7px;border-radius:10px;" x-text="activeExtraDedCount()+'/8 활성'"></span>
+          </span>
+          <span style="display:flex;gap:4px;">
+            <button type="button" @click="toggleAllExtraDed(true)" style="padding:2px 6px;background:#fee2e2;color:#dc2626;border:1px solid #fecaca;border-radius:4px;font-size:10.5px;cursor:pointer;">전체✓</button>
+            <button type="button" @click="toggleAllExtraDed(false)" style="padding:2px 6px;background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;border-radius:4px;font-size:10.5px;cursor:pointer;">전체✗</button>
+          </span>
         </div>
-        <div style="display:grid;gap:7px;font-size:12.5px;">
+        <div style="display:grid;grid-template-columns:18px 14px 1fr;gap:4px 4px;font-size:11px;color:#9ca3af;align-items:center;margin-bottom:2px;">
+          <span title="급여대장 노출">노출</span><span></span><span></span>
+        </div>
+        <div style="display:grid;gap:3px;font-size:12.5px;">
           <template x-for="i in [1,2,3,4,5,6,7,8]" :key="'d'+i">
-            <label style="display:flex;align-items:center;gap:6px;">
+            <div :style="'display:grid;grid-template-columns:18px 14px 1fr;gap:4px;align-items:center;padding:3px 4px;border-radius:4px;'+(isSlotVisible(\u0027extraDeduction\u0027+i) && labelModal.form[\u0027extraDeduction\u0027+i+\u0027Name\u0027] ? \u0027background:#fef2f2;border:1px solid #fecaca;\u0027 : \u0027border:1px solid transparent;\u0027)">
               <input type="checkbox" :checked="isSlotVisible('extraDeduction'+i)" @change="toggleSlotVisibility('extraDeduction'+i, $event.target.checked)" title="급여대장에 노출" style="width:14px;height:14px;">
-              <span style="width:20px;color:#6b7280;font-size:11px;" x-text="i"></span>
-              <input type="text" x-model="labelModal.form['extraDeduction'+i+'Name']" :placeholder="i===1?'예: 과태료':(i===2?'예: 주차비':'')" style="flex:1;padding:6px 8px;border:1px solid #d1d5db;border-radius:5px;font-size:12.5px;">
-            </label>
+              <span :style="'font-size:11px;font-weight:600;'+(isSlotVisible(\u0027extraDeduction\u0027+i) && labelModal.form[\u0027extraDeduction\u0027+i+\u0027Name\u0027] ? \u0027color:#dc2626;\u0027 : \u0027color:#9ca3af;\u0027)" x-text="i"></span>
+              <input type="text" x-model="labelModal.form['extraDeduction'+i+'Name']" :placeholder="i===1?'예: 과태료':(i===2?'예: 주차비':'')" style="padding:6px 8px;border:1px solid #d1d5db;border-radius:5px;font-size:12.5px;min-width:0;background:#fff;">
+            </div>
           </template>
         </div>
       </div>
@@ -1390,18 +1407,27 @@
     <div style="font-size:11px;color:#6b7280;background:#fffbeb;padding:8px 10px;border-radius:6px;margin-top:12px;line-height:1.55;">
       💡 <strong>비과세(비과)</strong> 체크 시 해당 지급항목은 4대보험·소득세 계산에서 제외됩니다.
       <strong>한도</strong>에 금액 입력 시 그 금액까지만 비과세 (예: 식대 200,000).
+      체크된 슬롯 + 이름 입력된 슬롯만 급여대장/명세서에 표시됩니다.
     </div>
 
     <!-- 47열 급여대장 컬럼 표시 설정 -->
     <div style="margin-top:18px;padding-top:14px;border-top:1px dashed #e5e7eb;">
-      <div style="font-weight:600;color:#374151;font-size:12.5px;margin-bottom:8px;">
-        🧾 급여대장 공제 컬럼 표시 <span style="color:#6b7280;font-weight:400;font-size:11px;">(체크 해제하면 대장에서 숨김. 값은 보존됨)</span>
+      <div style="font-weight:600;color:#374151;font-size:12.5px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;">
+        <span style="display:flex;align-items:center;gap:6px;">
+          🧾 급여대장 공제 컬럼 표시
+          <span style="background:#f3f4f6;color:#374151;font-weight:700;font-size:11px;padding:2px 7px;border-radius:10px;" x-text="activeColCount()+'/'+colToggleList.length+' 표시'"></span>
+          <span style="color:#6b7280;font-weight:400;font-size:11px;">(체크 해제하면 숨김. 값은 보존)</span>
+        </span>
+        <span style="display:flex;gap:4px;">
+          <button type="button" @click="toggleAllCols(true)" style="padding:2px 6px;background:#e5e7eb;color:#374151;border:1px solid #d1d5db;border-radius:4px;font-size:10.5px;cursor:pointer;">전체✓</button>
+          <button type="button" @click="toggleAllCols(false)" style="padding:2px 6px;background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;border-radius:4px;font-size:10.5px;cursor:pointer;">전체✗</button>
+        </span>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px 12px;font-size:12px;">
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:4px 10px;font-size:12px;">
         <template x-for="c in colToggleList" :key="c.key">
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <label :style="'display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 8px;border-radius:4px;'+(isColShown(c.key) ? \u0027background:#f0f9ff;border:1px solid #bae6fd;\u0027 : \u0027background:#fff;border:1px solid #e5e7eb;\u0027)">
             <input type="checkbox" :checked="isColShown(c.key)" @change="toggleColShown(c.key, $event.target.checked)" style="width:14px;height:14px;">
-            <span x-text="c.label" style="color:#374151;"></span>
+            <span x-text="c.label" :style="isColShown(c.key) ? \u0027color:#0c4a6e;font-weight:500;\u0027 : \u0027color:#6b7280;\u0027"></span>
           </label>
         </template>
       </div>
@@ -2020,13 +2046,27 @@ function salaryApp() {
       const startX = ev.clientX;
       const startW = this._colW(colKey);
       const self = this;
+      // rAF 스로틀링: 매 mousemove마다 Alpine reactive 업데이트하면 전체 테이블 재렌더 → 버벅임
+      // DOM에는 즉시 반영(고스트 col 스타일 직접 쓰기), Alpine 상태는 rAF로 묶어서 60fps 제한
+      let latestW = startW;
+      let pendingFrame = null;
+      const colEls = document.querySelectorAll('col[data-col="' + colKey + '"]');
       const onMove = (e) => {
-        const w = Math.max(40, Math.min(500, startW + (e.clientX - startX)));
-        self.colWidths = Object.assign({}, self.colWidths, { [colKey]: w });
+        latestW = Math.max(40, Math.min(500, startW + (e.clientX - startX)));
+        // 즉시 DOM 반영 (시각적 피드백) — Alpine 건드리지 않음
+        colEls.forEach(el => { el.style.width = latestW + 'px'; });
+        if (pendingFrame) return;
+        pendingFrame = requestAnimationFrame(() => {
+          pendingFrame = null;
+          self.colWidths = Object.assign({}, self.colWidths, { [colKey]: latestW });
+        });
       };
       const onUp = () => {
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
+        if (pendingFrame) { cancelAnimationFrame(pendingFrame); pendingFrame = null; }
+        // 마지막 값을 확실히 반영
+        self.colWidths = Object.assign({}, self.colWidths, { [colKey]: latestW });
         try {
           localStorage.setItem('ledgerCW:' + self.company, JSON.stringify(self.colWidths));
         } catch(e) {}
@@ -2426,6 +2466,47 @@ function salaryApp() {
         this.labelModal.form.visibility = {};
       }
       this.labelModal.form.visibility['col_' + key] = !!val;
+    },
+    // 지급/공제 활성 슬롯 수 카운트 (이름 + visible 둘 다 충족)
+    activeExtraPayCount() {
+      let n = 0;
+      for (let i = 1; i <= 8; i++) {
+        const name = this.labelModal.form?.['extraPay'+i+'Name'];
+        if (name && String(name).trim() && this.isSlotVisible('extraPay'+i)) n++;
+      }
+      return n;
+    },
+    activeExtraDedCount() {
+      let n = 0;
+      for (let i = 1; i <= 8; i++) {
+        const name = this.labelModal.form?.['extraDeduction'+i+'Name'];
+        if (name && String(name).trim() && this.isSlotVisible('extraDeduction'+i)) n++;
+      }
+      return n;
+    },
+    activeColCount() {
+      let n = 0;
+      for (const c of this.colToggleList) if (this.isColShown(c.key)) n++;
+      return n;
+    },
+    // 전체 선택 / 전체 해제 (이름이 있는 슬롯만 대상. 전체해제는 모든 슬롯)
+    toggleAllExtraPay(val) {
+      for (let i = 1; i <= 8; i++) {
+        const name = this.labelModal.form?.['extraPay'+i+'Name'];
+        // 전체 체크 시 이름 없는 슬롯은 건드리지 않음 (어차피 숨김)
+        if (val && !(name && String(name).trim())) continue;
+        this.toggleSlotVisibility('extraPay'+i, !!val);
+      }
+    },
+    toggleAllExtraDed(val) {
+      for (let i = 1; i <= 8; i++) {
+        const name = this.labelModal.form?.['extraDeduction'+i+'Name'];
+        if (val && !(name && String(name).trim())) continue;
+        this.toggleSlotVisibility('extraDeduction'+i, !!val);
+      }
+    },
+    toggleAllCols(val) {
+      for (const c of this.colToggleList) this.toggleColShown(c.key, !!val);
     },
     get payFields() {
       const l = this.labels;

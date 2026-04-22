@@ -478,7 +478,7 @@ router.post('/ai', async (req, res) => {
     // - 프롬프트는 argv 가 아닌 stdin 으로 전달해서 cmd 이스케이프 문제 원천 차단
     //   (한국어/줄바꿈/특수문자 안전)
     const aiText = await new Promise((resolve, reject) => {
-      const child = spawn('claude', ['-p', '--no-input'], {
+      const child = spawn('claude', ['-p'], {
         shell: true,  // Windows claude.cmd 호환
         env: { ...process.env, LANG: 'ko_KR.UTF-8' },
         windowsHide: true
@@ -580,7 +580,7 @@ router.get('/ai-health', async (req, res) => {
   }
 
   // 2단계: 실제 프롬프트로 인증 확인
-  const p = await run(['-p', '--no-input'], 'ping');
+  const p = await run(['-p'], 'ping');
   const authenticated = p.code === 0 && p.out.length > 0;
 
   res.json({
