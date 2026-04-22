@@ -465,8 +465,14 @@
 
         <!-- 외부 링크 공유 -->
         <div class="ws-share-section">
-          <div class="ws-share-section-title">외부 링크 (카톡/메신저 공유용)</div>
-          <div style="font-size:12px;color:#6b7280;margin-bottom:8px;">링크를 받은 사람은 로그인 없이 이 페이지를 읽기 전용으로 볼 수 있습니다.</div>
+          <div class="ws-share-section-title">🔗 비밀 링크 (로그인 없이 읽기 전용)</div>
+          <div style="font-size:12px;color:#6b7280;margin-bottom:6px;line-height:1.55;">
+            링크를 받은 사람은 로그인 없이 이 페이지를 읽기 전용으로 볼 수 있습니다.
+          </div>
+          <div style="font-size:11px;color:#b45309;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;padding:7px 10px;margin-bottom:8px;line-height:1.5;">
+            ⚠️ <b>현재는 회사 내부 네트워크(같은 와이파이/LAN)에서만 열립니다.</b><br>
+            외부(집·카페·LTE)에서 열 수 있게 하려면 별도 터널 설정이 필요합니다 — 추후 Cloudflare Tunnel 연동 예정.
+          </div>
           <template x-if="currentPage.share_token">
             <div>
               <div class="ws-share-link-box">
