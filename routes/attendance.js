@@ -802,7 +802,26 @@ router.get('/attendance/summary', requireAuth, async (req, res) => {
     }
   }
 
-  let records = raw.map(analyzeRecord);
+  // ── raw 포맷 자동 감지: 배열/{records}/{data}/기타 오브젝트 모두 수용 ──
+  // (CAPS 브릿지 버전 바뀌거나 캐시 포맷 섞여 있어도 안전)
+  let rawArray;
+  if (Array.isArray(raw)) {
+    rawArray = raw;
+  } else if (raw && typeof raw === 'object') {
+    if (Array.isArray(raw.records)) rawArray = raw.records;
+    else if (Array.isArray(raw.data)) rawArray = raw.data;
+    else if (raw.data && Array.isArray(raw.data.records)) rawArray = raw.data.records;
+    else {
+      // 마지막 수단: 오브젝트 값 중 배열 찾아서 합침
+      rawArray = [];
+      for (const v of Object.values(raw)) if (Array.isArray(v)) rawArray.push(...v);
+    }
+  } else {
+    rawArray = [];
+  }
+  _lap(`raw 정규화 완료 (원본타입=${Array.isArray(raw)?'array':typeof raw}, 추출=${rawArray.length}건)`);
+
+  let records = rawArray.map(analyzeRecord);
   _lap(`analyzeRecord 완료 (${records.length}건)`);
 
   // CAPS 이름 → 앱 이름 매핑 (capsName 필드 설정된 경우)
