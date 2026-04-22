@@ -2103,54 +2103,113 @@
             </div>
           </div>
 
-          <!-- 주요 숫자 카드 4종 -->
-          <div class="grid gap-4" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));">
-            <!-- 이번달 매출 -->
-            <button @click="currentTab='stats'" class="card text-left" style="padding:18px 20px;cursor:pointer;border:1px solid #e5eaf4;transition:all .15s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(0,0,0,.08)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
-              <div class="flex items-center gap-2" style="color:#64748b;">
-                <span class="material-symbols-outlined" style="font-size:18px;color:#4f6ef7;">trending_up</span>
-                <span class="text-xs font-semibold">이번달 매출</span>
-              </div>
-              <p class="text-2xl font-bold mt-2" style="color:#1e293b;letter-spacing:-0.03em;"
-                 x-text="homeDashboard.loading ? '...' : ((homeDashboard.stats.이번달매출||0).toLocaleString() + '원')"></p>
-              <p class="text-[11px] mt-1" style="color:#64748b;">
-                견적 <span x-text="homeDashboard.stats.이번달견적||0"></span>건
-              </p>
-            </button>
-            <!-- 결재 대기 -->
-            <button @click="currentTab='approval'" class="card text-left" style="padding:18px 20px;cursor:pointer;border:1px solid #e5eaf4;transition:all .15s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(0,0,0,.08)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
-              <div class="flex items-center gap-2" style="color:#64748b;">
-                <span class="material-symbols-outlined" style="font-size:18px;color:#f59e0b;">approval</span>
-                <span class="text-xs font-semibold">결재 대기</span>
-              </div>
-              <p class="text-2xl font-bold mt-2" style="color:#1e293b;letter-spacing:-0.03em;"
-                 x-text="homeDashboard.loading ? '...' : ((homeDashboard.stats.미처리결재||0) + '건')"></p>
-              <p class="text-[11px] mt-1" style="color:#64748b;">클릭하면 결재함으로 이동</p>
-            </button>
-            <!-- 오늘 출근 -->
-            <button @click="currentTab='attendance'" class="card text-left" style="padding:18px 20px;cursor:pointer;border:1px solid #e5eaf4;transition:all .15s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(0,0,0,.08)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
-              <div class="flex items-center gap-2" style="color:#64748b;">
-                <span class="material-symbols-outlined" style="font-size:18px;color:#10b981;">schedule</span>
-                <span class="text-xs font-semibold">오늘 출근</span>
-              </div>
-              <p class="text-2xl font-bold mt-2" style="color:#1e293b;letter-spacing:-0.03em;"
-                 x-text="homeDashboard.todayAttendees === null ? '-' : (homeDashboard.todayAttendees + '명')"></p>
-              <p class="text-[11px] mt-1" style="color:#64748b;"
-                 x-text="homeDashboard.todayAttendees === null ? 'CAPS 데이터 대기' : '오늘 체크 인원'"></p>
-            </button>
-            <!-- 업체/품목 현황 -->
-            <button @click="currentTab='vendors'" class="card text-left" style="padding:18px 20px;cursor:pointer;border:1px solid #e5eaf4;transition:all .15s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(0,0,0,.08)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
-              <div class="flex items-center gap-2" style="color:#64748b;">
-                <span class="material-symbols-outlined" style="font-size:18px;color:#8b5cf6;">storefront</span>
-                <span class="text-xs font-semibold">등록 현황</span>
-              </div>
-              <p class="text-2xl font-bold mt-2" style="color:#1e293b;letter-spacing:-0.03em;"
-                 x-text="homeDashboard.loading ? '...' : ((homeDashboard.stats.업체수||0) + '개')"></p>
-              <p class="text-[11px] mt-1" style="color:#64748b;">
-                품목 <span x-text="homeDashboard.stats.품목수||0"></span>개
-              </p>
-            </button>
-          </div>
+          <!-- 주요 숫자 카드 4종: 관리자용 -->
+          <template x-if="auth.role === 'admin'">
+            <div class="grid gap-4" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));">
+              <!-- 이번달 매출 -->
+              <button @click="currentTab='stats'" class="card text-left" style="padding:18px 20px;cursor:pointer;border:1px solid #e5eaf4;transition:all .15s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(0,0,0,.08)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+                <div class="flex items-center gap-2" style="color:#64748b;">
+                  <span class="material-symbols-outlined" style="font-size:18px;color:#4f6ef7;">trending_up</span>
+                  <span class="text-xs font-semibold">이번달 매출</span>
+                </div>
+                <p class="text-2xl font-bold mt-2" style="color:#1e293b;letter-spacing:-0.03em;"
+                   x-text="homeDashboard.loading ? '...' : ((homeDashboard.stats.이번달매출||0).toLocaleString() + '원')"></p>
+                <p class="text-[11px] mt-1" style="color:#64748b;">
+                  견적 <span x-text="homeDashboard.stats.이번달견적||0"></span>건
+                </p>
+              </button>
+              <!-- 결재 대기 (전사) -->
+              <button @click="currentTab='approval'" class="card text-left" style="padding:18px 20px;cursor:pointer;border:1px solid #e5eaf4;transition:all .15s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(0,0,0,.08)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+                <div class="flex items-center gap-2" style="color:#64748b;">
+                  <span class="material-symbols-outlined" style="font-size:18px;color:#f59e0b;">approval</span>
+                  <span class="text-xs font-semibold">결재 대기 (전사)</span>
+                </div>
+                <p class="text-2xl font-bold mt-2" style="color:#1e293b;letter-spacing:-0.03em;"
+                   x-text="homeDashboard.loading ? '...' : ((homeDashboard.stats.미처리결재||0) + '건')"></p>
+                <p class="text-[11px] mt-1" style="color:#64748b;">클릭하면 결재함으로 이동</p>
+              </button>
+              <!-- 오늘 출근 -->
+              <button @click="currentTab='attendance'" class="card text-left" style="padding:18px 20px;cursor:pointer;border:1px solid #e5eaf4;transition:all .15s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(0,0,0,.08)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+                <div class="flex items-center gap-2" style="color:#64748b;">
+                  <span class="material-symbols-outlined" style="font-size:18px;color:#10b981;">schedule</span>
+                  <span class="text-xs font-semibold">오늘 출근</span>
+                </div>
+                <p class="text-2xl font-bold mt-2" style="color:#1e293b;letter-spacing:-0.03em;"
+                   x-text="homeDashboard.todayAttendees === null ? '-' : (homeDashboard.todayAttendees + '명')"></p>
+                <p class="text-[11px] mt-1" style="color:#64748b;"
+                   x-text="homeDashboard.todayAttendees === null ? 'CAPS 데이터 대기' : '오늘 체크 인원'"></p>
+              </button>
+              <!-- 업체/품목 현황 -->
+              <button @click="currentTab='vendors'" class="card text-left" style="padding:18px 20px;cursor:pointer;border:1px solid #e5eaf4;transition:all .15s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(0,0,0,.08)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+                <div class="flex items-center gap-2" style="color:#64748b;">
+                  <span class="material-symbols-outlined" style="font-size:18px;color:#8b5cf6;">storefront</span>
+                  <span class="text-xs font-semibold">등록 현황</span>
+                </div>
+                <p class="text-2xl font-bold mt-2" style="color:#1e293b;letter-spacing:-0.03em;"
+                   x-text="homeDashboard.loading ? '...' : ((homeDashboard.stats.업체수||0) + '개')"></p>
+                <p class="text-[11px] mt-1" style="color:#64748b;">
+                  품목 <span x-text="homeDashboard.stats.품목수||0"></span>개
+                </p>
+              </button>
+            </div>
+          </template>
+
+          <!-- 주요 숫자 카드 4종: 직원용 (본인 데이터만) -->
+          <template x-if="auth.role !== 'admin'">
+            <div class="grid gap-4" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));">
+              <!-- 내 이번달 출근 -->
+              <button @click="currentTab='attendance'" class="card text-left" style="padding:18px 20px;cursor:pointer;border:1px solid #e5eaf4;transition:all .15s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(0,0,0,.08)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+                <div class="flex items-center gap-2" style="color:#64748b;">
+                  <span class="material-symbols-outlined" style="font-size:18px;color:#10b981;">schedule</span>
+                  <span class="text-xs font-semibold">내 이번달 출근</span>
+                </div>
+                <p class="text-2xl font-bold mt-2" style="color:#1e293b;letter-spacing:-0.03em;"
+                   x-text="homeDashboard.loading ? '...' : ((homeDashboard.myAttendance.normalDays||0) + '일')"></p>
+                <p class="text-[11px] mt-1" style="color:#64748b;">
+                  지각 <span :style="(homeDashboard.myAttendance.lateDays||0) > 0 ? 'color:#ef4444;font-weight:600' : ''"
+                          x-text="homeDashboard.myAttendance.lateDays||0"></span>일
+                  · 연차 <span x-text="homeDashboard.myAttendance.annualDays||0"></span>일
+                </p>
+              </button>
+              <!-- 내 잔여 연차 -->
+              <button @click="currentTab='attendance'" class="card text-left" style="padding:18px 20px;cursor:pointer;border:1px solid #e5eaf4;transition:all .15s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(0,0,0,.08)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+                <div class="flex items-center gap-2" style="color:#64748b;">
+                  <span class="material-symbols-outlined" style="font-size:18px;color:#4f6ef7;">event_available</span>
+                  <span class="text-xs font-semibold">내 잔여 연차</span>
+                </div>
+                <p class="text-2xl font-bold mt-2" style="color:#1e293b;letter-spacing:-0.03em;"
+                   x-text="homeDashboard.loading ? '...' : ((homeDashboard.myLeave.remainingDays !== undefined ? homeDashboard.myLeave.remainingDays : '-') + '일')"></p>
+                <p class="text-[11px] mt-1" style="color:#64748b;">
+                  총 <span x-text="homeDashboard.myLeave.totalLeave||0"></span>일 중
+                  <span x-text="homeDashboard.myLeave.usedDays||0"></span>일 사용
+                </p>
+              </button>
+              <!-- 내 결재 진행 -->
+              <button @click="currentTab='approval'" class="card text-left" style="padding:18px 20px;cursor:pointer;border:1px solid #e5eaf4;transition:all .15s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(0,0,0,.08)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+                <div class="flex items-center gap-2" style="color:#64748b;">
+                  <span class="material-symbols-outlined" style="font-size:18px;color:#f59e0b;">description</span>
+                  <span class="text-xs font-semibold">내가 올린 결재</span>
+                </div>
+                <p class="text-2xl font-bold mt-2" style="color:#1e293b;letter-spacing:-0.03em;"
+                   x-text="homeDashboard.loading ? '...' : ((homeDashboard.myApprovals.pending||0) + '건 대기')"></p>
+                <p class="text-[11px] mt-1" style="color:#64748b;">
+                  승인 <span x-text="homeDashboard.myApprovals.approved||0"></span>건
+                  · 반려 <span x-text="homeDashboard.myApprovals.rejected||0"></span>건
+                </p>
+              </button>
+              <!-- 내 결재 대기 (내가 승인해야 할) -->
+              <button @click="currentTab='approval'" class="card text-left" style="padding:18px 20px;cursor:pointer;border:1px solid #e5eaf4;transition:all .15s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(0,0,0,.08)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+                <div class="flex items-center gap-2" style="color:#64748b;">
+                  <span class="material-symbols-outlined" style="font-size:18px;color:#8b5cf6;">approval</span>
+                  <span class="text-xs font-semibold">내가 결재할 문서</span>
+                </div>
+                <p class="text-2xl font-bold mt-2" style="color:#1e293b;letter-spacing:-0.03em;"
+                   x-text="homeDashboard.loading ? '...' : ((homeDashboard.pendingApprovals||[]).length + '건')"></p>
+                <p class="text-[11px] mt-1" style="color:#64748b;"
+                   x-text="(homeDashboard.pendingApprovals||[]).length > 0 ? '처리 필요' : '대기 중인 결재 없음'"></p>
+              </button>
+            </div>
+          </template>
 
           <!-- 하단 2단: 최근 공지 / 결재 대기 목록 -->
           <div class="grid gap-4" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));">
@@ -5487,6 +5546,10 @@ function app() {
       pendingApprovals: [],
       todayAttendees: null,
       lastLoadedAt: 0,
+      // 직원용 (본인 데이터)
+      myAttendance: { normalDays: 0, lateDays: 0, annualDays: 0, halfAM: 0, halfPM: 0, absentDays: 0 },
+      myLeave: { totalLeave: 0, usedDays: 0, remainingDays: 0 },
+      myApprovals: { pending: 0, approved: 0, rejected: 0 },
     },
     // 홈 바로가기 (권한 있는 것만 자동 필터됨)
     get homeShortcuts() {
@@ -6188,31 +6251,93 @@ function app() {
         const mm = String(today.getMonth() + 1).padStart(2, '0');
         const dd = String(today.getDate()).padStart(2, '0');
         const todayStr = `${yyyy}-${mm}-${dd}`;
+        const isAdmin = this.auth.role === 'admin';
 
-        // 1) /api/dashboard (매출/결재/공지/품목) + /api/attendance/records (오늘 출근자) 병렬
-        const [dashR, attR] = await Promise.allSettled([
+        // ── 공통: 공지 + 내가 결재해야 할 문서(pending) ──
+        // 직원이어도 본인에게 온 결재 대기 목록은 보여줘야 함
+        const commonTasks = [
           fetch('/api/dashboard').then(r => r.ok ? r.json() : null),
-          fetch(`/api/attendance/records?from=${todayStr}&to=${todayStr}`).then(r => r.ok ? r.json() : null),
-        ]);
+          fetch('/api/approvals/?filter=pending').then(r => r.ok ? r.json() : null),
+        ];
 
-        // 대시보드 응답
-        if (dashR.status === 'fulfilled' && dashR.value) {
-          this.homeDashboard.stats = dashR.value.stats || {};
-          this.homeDashboard.recentNotices = dashR.value.recentNotices || [];
-          this.homeDashboard.pendingApprovals = dashR.value.pendingApprovals || [];
-        }
-        // 오늘 출근자 수 (고유 이름 기준)
-        if (attR.status === 'fulfilled' && attR.value) {
-          const recs = attR.value.records || attR.value.data || (Array.isArray(attR.value) ? attR.value : []);
-          const names = new Set();
-          for (const r of recs) {
-            const n = r.name || r.Name || r.employeeName;
-            if (n) names.add(n);
+        if (isAdmin) {
+          // ── 관리자: 전사 KPI + 오늘 출근자 수 ──
+          commonTasks.push(fetch(`/api/attendance/records?from=${todayStr}&to=${todayStr}`).then(r => r.ok ? r.json() : null));
+          const [dashR, pendR, attR] = await Promise.allSettled(commonTasks);
+
+          if (dashR.status === 'fulfilled' && dashR.value) {
+            this.homeDashboard.stats = dashR.value.stats || {};
+            this.homeDashboard.recentNotices = dashR.value.recentNotices || [];
           }
-          this.homeDashboard.todayAttendees = names.size;
+          if (pendR.status === 'fulfilled' && Array.isArray(pendR.value)) {
+            this.homeDashboard.pendingApprovals = pendR.value.slice(0, 5);
+            // 관리자는 전사 미처리결재 숫자를 stats.미처리결재 에서 쓰지만
+            // 본인이 승인해야 할 건도 알려주려면 pendingApprovals.length 사용
+          }
+          if (attR.status === 'fulfilled' && attR.value) {
+            const recs = attR.value.records || attR.value.data || (Array.isArray(attR.value) ? attR.value : []);
+            const names = new Set();
+            for (const r of recs) {
+              const n = r.name || r.Name || r.employeeName;
+              if (n) names.add(n);
+            }
+            this.homeDashboard.todayAttendees = names.size;
+          } else {
+            this.homeDashboard.todayAttendees = null;
+          }
         } else {
-          this.homeDashboard.todayAttendees = null;
+          // ── 일반 직원: 내 출근/연차/결재 + 공지 + 내가 결재할 문서 ──
+          commonTasks.push(
+            fetch(`/api/attendance/summary?year=${yyyy}&month=${today.getMonth() + 1}`).then(r => r.ok ? r.json() : null),
+            fetch(`/api/leave/summary?year=${yyyy}`).then(r => r.ok ? r.json() : null),
+            fetch('/api/approvals/?filter=mine').then(r => r.ok ? r.json() : null),
+          );
+          const [dashR, pendR, attSumR, leaveR, mineR] = await Promise.allSettled(commonTasks);
+
+          // 공지 (전사 공통)
+          if (dashR.status === 'fulfilled' && dashR.value) {
+            this.homeDashboard.recentNotices = dashR.value.recentNotices || [];
+            // stats 는 직원에게 노출하지 않음 (매출/전사결재 등 포함)
+            this.homeDashboard.stats = {};
+          }
+          // 내가 결재할 문서
+          if (pendR.status === 'fulfilled' && Array.isArray(pendR.value)) {
+            this.homeDashboard.pendingApprovals = pendR.value.slice(0, 5);
+          }
+          // 내 이번달 출근 집계 (summary 는 [{employeeName, normalDays, lateDays, annualDays, halfAM, halfPM, absentDays}] 배열)
+          if (attSumR.status === 'fulfilled' && Array.isArray(attSumR.value)) {
+            const mine = attSumR.value.find(r => r.employeeName === this.auth.name) || attSumR.value[0] || {};
+            this.homeDashboard.myAttendance = {
+              normalDays: mine.normalDays || 0,
+              lateDays: mine.lateDays || 0,
+              annualDays: mine.annualDays || 0,
+              halfAM: mine.halfAM || 0,
+              halfPM: mine.halfPM || 0,
+              absentDays: mine.absentDays || 0,
+            };
+          }
+          // 내 연차 잔여
+          if (leaveR.status === 'fulfilled' && Array.isArray(leaveR.value)) {
+            const mineL = leaveR.value.find(r => r.name === this.auth.name) || leaveR.value[0] || {};
+            this.homeDashboard.myLeave = {
+              totalLeave: mineL.totalLeave || 0,
+              usedDays: mineL.usedDays || 0,
+              remainingDays: mineL.remainingDays !== undefined ? mineL.remainingDays : 0,
+            };
+          }
+          // 내가 올린 결재 (mine) → 상태별 카운트
+          if (mineR.status === 'fulfilled' && Array.isArray(mineR.value)) {
+            const counts = { pending: 0, approved: 0, rejected: 0 };
+            for (const d of mineR.value) {
+              const st = d.status || 'pending';
+              if (st === 'pending') counts.pending++;
+              else if (st === 'approved') counts.approved++;
+              else if (st === 'rejected') counts.rejected++;
+            }
+            this.homeDashboard.myApprovals = counts;
+          }
         }
+
         this.homeDashboard.lastLoadedAt = Date.now();
       } catch (e) {
         console.warn('[home] loadHomeDashboard 실패:', e);
