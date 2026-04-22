@@ -378,7 +378,7 @@
         </template>
       </div>
     </template>
-    <button @click="currentTab='approval'; localStorage.setItem('currentTab','approval'); approvalNotif.show=false; clearTimeout(approvalNotif._timer)"
+    <button @click="currentTab='approval'; approvalNotif.show=false; clearTimeout(approvalNotif._timer)"
       style="width:100%;padding:9px;background:linear-gradient(135deg,#4f6ef7,#6c5ce7);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;"
       onmouseover="this.style.opacity='.9'" onmouseout="this.style.opacity='1'">
       <span class="material-symbols-outlined" style="font-size:15px;">approval</span>
@@ -1574,7 +1574,7 @@
   <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="px-5 pt-6 pb-4">
-      <button @click="currentTab = 'home'; localStorage.setItem('currentTab','home')"
+      <button @click="currentTab = 'home'"
         class="flex items-center gap-3 w-full text-left cursor-pointer rounded-xl transition-all p-1 -m-1"
         style="background:transparent;border:none;"
         onmouseover="this.style.background='rgba(255,255,255,.05)'" onmouseout="this.style.background='transparent'"
@@ -1593,7 +1593,7 @@
 
     <nav class="flex-1 py-1 overflow-y-auto" style="scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.1) transparent;">
       <!-- 홈 메뉴 (그룹 없이 최상단 고정) -->
-      <button @click="currentTab = 'home'; localStorage.setItem('currentTab','home')"
+      <button @click="currentTab = 'home'"
         :class="currentTab === 'home' ? 'active' : ''"
         class="sidebar-nav-item w-full text-left" style="margin-bottom:6px;">
         <span class="material-symbols-outlined" style="font-size:17px">home</span>
@@ -1615,7 +1615,7 @@
           <div x-show="expandedMenuGroups[group.group]" x-collapse>
             <template x-for="item in group.items" :key="item.id">
               <button
-                @click="item.id === 'quote' ? (currentTab='history', localStorage.setItem('currentTab','history'), openQuotePopup(null)) : (currentTab = item.id, localStorage.setItem('currentTab', item.id))"
+                @click="item.id === 'quote' ? (currentTab='history', openQuotePopup(null)) : (currentTab = item.id)"
                 :class="(currentTab === item.id || (item.id === 'quote' && quotePopup.open)) ? 'active' : ''"
                 class="sidebar-nav-item w-full text-left" style="padding-left:28px;">
                 <span class="material-symbols-outlined" style="font-size:17px" x-text="item.icon"></span>
@@ -1634,7 +1634,7 @@
       <!-- 독립 메뉴: 시안검색, 연락처 -->
       <div style="margin-top:4px;border-top:1px solid rgba(255,255,255,.06);padding-top:4px;">
         <template x-if="tabs.find(t=>t.id==='design')">
-          <button @click="currentTab = 'design'; localStorage.setItem('currentTab','design')"
+          <button @click="currentTab = 'design'"
             :class="currentTab === 'design' ? 'active' : ''"
             class="sidebar-nav-item w-full text-left">
             <span class="material-symbols-outlined" style="font-size:17px">image_search</span>
@@ -1642,7 +1642,7 @@
           </button>
         </template>
         <template x-if="tabs.find(t=>t.id==='contacts')">
-          <button @click="currentTab = 'contacts'; localStorage.setItem('currentTab','contacts')"
+          <button @click="currentTab = 'contacts'"
             :class="currentTab === 'contacts' ? 'active' : ''"
             class="sidebar-nav-item w-full text-left">
             <span class="material-symbols-outlined" style="font-size:17px">contacts</span>
@@ -2269,7 +2269,7 @@
             <h3 class="text-sm font-bold mb-3" style="color:#1e293b;">자주 쓰는 기능</h3>
             <div class="grid gap-2" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));">
               <template x-for="sc in homeShortcuts" :key="sc.id">
-                <button @click="sc.action ? sc.action() : (currentTab = sc.id, localStorage.setItem('currentTab', sc.id))"
+                <button @click="sc.action ? sc.action() : (currentTab = sc.id)"
                         class="flex items-center gap-2 p-3 rounded-lg transition-all"
                         style="background:#f8fafc;border:1px solid #e5eaf4;cursor:pointer;text-align:left;"
                         onmouseover="this.style.background='#eff6ff';this.style.borderColor='#bfdbfe'" onmouseout="this.style.background='#f8fafc';this.style.borderColor='#e5eaf4'">
@@ -2969,11 +2969,26 @@
           },
           onInput(){clearTimeout(this.searchTimer);var self=this;this.searchTimer=setTimeout(function(){self.doSearch();},500);},
           get keywords(){return this.q.trim().split(/\s+/).filter(Boolean);},
+          // fileType 없을 때 확장자로 유추 (구 인덱스 호환)
+          itemType(item){
+            if(!item)return '';
+            if(item.fileType)return item.fileType;
+            var name=(item.name||item.path||'').toLowerCase();
+            if(/\.(jpe?g|png|bmp|gif|webp)$/.test(name))return 'image';
+            if(/\.pdf$/.test(name))return 'pdf';
+            if(/\.ai$/.test(name))return 'ai';
+            if(/\.psd$/.test(name))return 'psd';
+            if(/\.(xlsx?|xlsm|xlsb|csv)$/.test(name))return 'excel';
+            if(/\.hwpx?$/.test(name))return 'hwp';
+            if(/\.docx?$/.test(name))return 'word';
+            return '';
+          },
+          canPreview(item){var t=this.itemType(item);return t==='image'||t==='pdf';},
           openPreview(idx){
             var item=this.results[idx];
             if(!item)return;
             // 원본보기 가능 파일만 (이미지, PDF)
-            if(item.fileType!=='image'&&item.fileType!=='pdf')return;
+            if(!this.canPreview(item))return;
             this.preview={open:true,index:idx};
           },
           showPrev(dir){
@@ -2983,7 +2998,7 @@
             for(var i=0;i<n;i++){
               idx=(idx+dir+n)%n;
               var it=this.results[idx];
-              if(it&&(it.fileType==='image'||it.fileType==='pdf')){
+              if(it&&this.canPreview(it)){
                 this.preview.index=idx;
                 return;
               }
@@ -3103,15 +3118,15 @@
                 <template x-for="(item, idx) in results" :key="item.path">
                   <div class="card" style="padding:0;overflow:hidden;transition:transform .15s,box-shadow .15s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 24px rgba(0,0,0,.12)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
                     <div @click="openPreview(idx)"
-                      :style="'height:'+Math.round(thumbSize*0.75)+'px;background:#f1f5f9;overflow:hidden;position:relative;'+((item.fileType==='image'||item.fileType==='pdf')?'cursor:zoom-in;':'cursor:default;')"
-                      :title="(item.fileType==='image'||item.fileType==='pdf')?'클릭하면 원본 크게 보기':''">
+                      :style="'height:'+Math.round(thumbSize*0.75)+'px;background:#f1f5f9;overflow:hidden;position:relative;'+(canPreview(item)?'cursor:zoom-in;':'cursor:default;')"
+                      :title="canPreview(item)?'클릭하면 원본 크게 보기':''">
                       <img :src="'/api/design/thumb?path='+encodeURIComponent(item.path)" style="width:100%;height:100%;object-fit:cover;" loading="lazy" decoding="async" onerror="this.style.display='none';this.parentElement.innerHTML='<div style=&quot;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#94a3b8;gap:4px&quot;><span class=&quot;material-symbols-outlined&quot; style=&quot;font-size:28px&quot;>image</span><span style=&quot;font-size:10px&quot;>미리보기 없음</span></div>'">
                       <!-- 파일종류 뱃지 (이미지 아닌 경우) -->
-                      <template x-if="item.fileType&&item.fileType!=='image'">
-                        <div style="position:absolute;top:4px;left:4px;background:rgba(0,0,0,.55);color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;" x-text="item.ext.toUpperCase().replace('.','')"></div>
+                      <template x-if="itemType(item)&&itemType(item)!=='image'">
+                        <div style="position:absolute;top:4px;left:4px;background:rgba(0,0,0,.55);color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;" x-text="(item.ext||item.name.slice(item.name.lastIndexOf('.'))||'').toUpperCase().replace('.','')"></div>
                       </template>
                       <!-- 원본보기 힌트 (이미지/PDF) -->
-                      <template x-if="item.fileType==='image'||item.fileType==='pdf'">
+                      <template x-if="canPreview(item)">
                         <div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,.55);color:#fff;font-size:10px;padding:2px 5px;border-radius:4px;display:flex;align-items:center;gap:2px;">
                           <span class="material-symbols-outlined" style="font-size:11px;">zoom_in</span>
                         </div>
@@ -3214,10 +3229,10 @@
 
             <!-- 컨텐츠 영역 -->
             <div @click.stop class="flex flex-col items-center justify-center" style="max-width:92vw;max-height:92vh;">
-              <template x-if="preview.index>=0 && results[preview.index] && results[preview.index].fileType==='image'">
+              <template x-if="preview.index>=0 && results[preview.index] && itemType(results[preview.index])==='image'">
                 <img :src="previewUrl()" class="rounded-xl shadow-2xl object-contain" style="max-width:92vw;max-height:82vh;">
               </template>
-              <template x-if="preview.index>=0 && results[preview.index] && results[preview.index].fileType==='pdf'">
+              <template x-if="preview.index>=0 && results[preview.index] && itemType(results[preview.index])==='pdf'">
                 <iframe :src="previewUrl()" class="rounded-xl shadow-2xl bg-white" style="width:92vw;height:82vh;border:none;"></iframe>
               </template>
               <!-- 정보 바 -->
