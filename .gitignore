@@ -10,5 +10,17 @@ data/
 *.vbs
 *.ps1
 *.zip
+
+# Exception: Server-PC용 proxy 실행 bat 3종은 서버 PC에 git pull 로 전파돼야 함
+# (관리자 PC에서 수정 → push → 서버 PC git-pull-server.bat 이 받아감)
+!proxy-watchdog.bat
+!서버_프록시모드_와치독.bat
+!서버_프록시모드실행.bat
+!git-pull-server.bat
 package-lock.json
 *.bak
+
+# 환경변수: .env = 실제 비밀번호 (git 제외), .env.example = 템플릿 (git 포함)
+.env
+.env.local
+.env.server

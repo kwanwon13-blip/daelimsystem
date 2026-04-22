@@ -1,5 +1,48 @@
 # Project Environment Rules
 
+## ⚠️ 실수 방지 — PC 2대 구성 (반드시 먼저 읽을 것)
+
+이 프로젝트는 **2대의 Windows PC**에서 운영된다. Claude는 자주 두 PC를 혼동하므로 아래 표를 항상 참조할 것.
+
+| 구분 | PC 이름 | IP | 실제 경로 | 역할 |
+|------|---------|----|-----------|----|
+| **로컬 PC** | 남관원(admin) PC, "내 컴터" | `192.168.0.30` | `C:\Users\NAMGW\Documents\Claude\Projects\업체별 단가표 만들기!!!\price-list-app` | 코드 편집 + Cowork 샌드박스 마운트 위치 + salary-daemon 실행 |
+| **서버 PC** | "서버" | `192.168.0.133` | `D:\price-list-app` | 메인 서버(포트 3000) + 트레이 + control-daemon(포트 3002) 실행 |
+
+### Claude 샌드박스 마운트
+- `/sessions/tender-great-thompson/mnt/price-list-app` ← **로컬 PC** 의 위 경로에 마운트됨 (Cowork가 선택한 폴더)
+- 서버 PC의 `D:\price-list-app`은 **직접 접근 불가**. 오직 원격 배포(git push/pull 또는 수동 복사)로만 반영됨
+- 따라서 내가 파일을 수정/생성하면 → **로컬 PC**에 먼저 반영됨 → 그 다음 서버 PC로 전송돼야 실제 서비스에 반영
+
+### 배포 흐름 (배포순서.md 참고)
+1. 로컬 PC에서 코드 수정
+2. 로컬 PC에서 `git-setup.bat` 실행 → GitHub에 push
+3. 서버 PC에서 `git-pull-server.bat` 실행 → GitHub에서 pull + 서버 재시작
+4. **주의**: `*.bat`, `*.vbs`, `*.ps1`은 `.gitignore`에 등록돼 있어서 git으로 동기화 안 됨 → 이 파일들은 네트워크 공유 복사 또는 gitignore 예외 추가 필요
+
+### PowerShell/bat 명령을 사용자가 보여줄 때 PC 구분법
+- 프롬프트가 `PS D:\price-list-app>` → **서버 PC**
+- 프롬프트가 `C:\Users\NAMGW\...>` 또는 로컬 PC 경로 → **로컬 PC**
+- `New-NetFirewallRule`, `taskkill /im node.exe` 같은 관리자 권한 명령이 서버에서 실행되면 서버 PC의 서비스에 영향
+
+### 서버 PC에서 실행되는 백그라운드 프로세스 (포트별)
+| 포트 | 프로세스 | 파일 | 용도 |
+|------|----------|------|------|
+| 3000 | 메인 서버 (node server.js) | `proxy-watchdog.bat` → `proxy-hidden-start.vbs` → `server.js` | ERP 전체 |
+| 3002 | control-daemon | `control-daemon-watchdog.bat` → `control-daemon-hidden.vbs` → `control-daemon.js` | 원격 start/stop/restart |
+
+### 로컬 PC(관리자 PC, 192.168.0.30)에서 실행되는 백그라운드 프로세스
+| 포트 | 프로세스 | 용도 |
+|------|----------|------|
+| 3001 | **CAPS Bridge** (caps-bridge/caps-bridge.js) | CAPS ACCESS.mdb → REST API. 출퇴근 원본 데이터 제공 (`/api/attendance`) |
+| 3002 | salary-daemon (salary-daemon.js) | 급여 DB 전용 (CAPS 격리) — 서버 PC가 프록시로 호출 |
+
+> **⚠️ 포트 3001은 반드시 CAPS Bridge 전용**. salary-daemon 자동시작 bat이
+> 과거에 `netstat :3001` 으로 CAPS Bridge를 죽이는 사고를 냈으므로, salary-daemon은 3002 고정.
+> 서버 PC(192.168.0.133)의 3002(control-daemon)와는 IP가 달라 충돌하지 않음.
+
+---
+
 ## 실행 환경: Windows 10/11 (한국어)
 - 이 프로젝트는 **Windows** 환경에서 실행됨
 - Claude 샌드박스는 Linux이지만, 최종 실행은 반드시 Windows
