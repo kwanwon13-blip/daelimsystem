@@ -652,4 +652,179 @@ router.post('/upload-image', (req, res) => {
   }
 });
 
+// ── AI 이미지 생성 (Gemini CLI + nanobanana MCP) ──────────
+// 요청: { prompt: '이미지 설명' }
+// 응답: { success: 1, file: { url, caption } }  ← Editor.js ImageTool 호환
+router.post('/ai-image', async (req, res) => {
+  try {
+    const { prompt } = req.body || {};
+    if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+      return res.status(400).json({ success: 0, error: 'prompt 필수' });
+    }
+
+    const { spawn } = require('child_process');
+    const crypto = require('crypto');
+
+    // 임시 작업 폴더 (gemini 의 cwd 로 지정해서 파일 저장 위치 강제)
+    const workId = Date.now() + '_' + crypto.randomBytes(4).toString('hex');
+    const workDir = path.join(IMG_DIR, 'ai-temp-' + workId);
+    fs.mkdirSync(workDir, { recursive: true });
+
+    // Gemini 에게 전달할 프롬프트
+    // - nanobanana MCP 로 이미지 생성 요청
+    // - 현재 폴더(workDir) 에 output.png 로 저장하도록 명시
+    // - 다른 설명 없이 이미지만 생성
+    const fullPrompt = [
+      '다음 이미지를 생성해서 반드시 현재 폴더에 "output.png" 파일로 저장해주세요.',
+      '다른 파일은 만들지 말고 이미지 하나만 생성하세요.',
+      '',
+      '이미지 설명:',
+      prompt.trim()
+    ].join('\n');
+
+    // Gemini CLI 실행 (-y = yolo, MCP 툴 자동 승인)
+    const aiOutput = await new Promise((resolve, reject) => {
+      const child = spawn('gemini', ['-y', '-p', '-'], {
+        shell: true,                  // Windows gemini.cmd 호환
+        cwd: workDir,                 // 이미지 저장 기준 폴더
+        env: { ...process.env, LANG: 'ko_KR.UTF-8' },
+        windowsHide: true
+      });
+      let out = '', err = '';
+      const timer = setTimeout(() => {
+        try { child.kill('SIGTERM'); } catch(_) {}
+        reject(new Error('timeout'));
+      }, 180000);  // 이미지 생성은 최대 3분까지 기다림
+      child.stdout.on('data', d => { out += d.toString('utf8'); });
+      child.stderr.on('data', d => { err += d.toString('utf8'); });
+      child.on('error', e => { clearTimeout(timer); reject(e); });
+      child.on('close', code => {
+        clearTimeout(timer);
+        if (code !== 0) {
+          const msg = (err || '').trim() || `gemini CLI exited with code ${code}`;
+          return reject(new Error(msg));
+        }
+        resolve({ out, err });
+      });
+      // 프롬프트를 stdin 으로 전달 (cmd 이스케이프 회피)
+      child.stdin.write(fullPrompt, 'utf8');
+      child.stdin.end();
+    });
+
+    // 생성된 이미지 파일 탐색
+    let generatedFiles = [];
+    try {
+      generatedFiles = fs.readdirSync(workDir).filter(f => /\.(png|jpe?g|webp|gif)$/i.test(f));
+    } catch (e) {
+      console.error('[workspace/ai-image] workDir 읽기 실패:', e.message);
+    }
+
+    if (generatedFiles.length === 0) {
+      try { fs.rmSync(workDir, { recursive: true, force: true }); } catch(_) {}
+      console.error('[workspace/ai-image] 이미지 미생성. stdout(앞 500자):', aiOutput.out.slice(0, 500));
+      return res.status(500).json({
+        success: 0,
+        error: 'Gemini가 이미지를 생성하지 않았습니다. 프롬프트를 다시 작성하거나 잠시 후 다시 시도해주세요.',
+        hint: aiOutput.out.slice(0, 500)
+      });
+    }
+
+    // 첫 이미지를 영구 폴더로 이동
+    const srcName = generatedFiles[0];
+    const srcFile = path.join(workDir, srcName);
+    const ext = (path.extname(srcName) || '.png').toLowerCase();
+    const finalName = `ai_${workId}${ext}`;
+    const destFile = path.join(IMG_DIR, finalName);
+
+    try {
+      fs.renameSync(srcFile, destFile);
+    } catch (e) {
+      // rename 실패 시 복사+삭제 폴백 (드라이브 경계 차이 등)
+      try {
+        fs.copyFileSync(srcFile, destFile);
+        fs.unlinkSync(srcFile);
+      } catch (e2) {
+        console.error('[workspace/ai-image] 파일 이동 실패:', e2.message);
+      }
+    }
+
+    // 임시 폴더 정리 (생성된 다른 파일까지 함께 삭제)
+    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch(_) {}
+
+    const publicUrl = `/data/workspace-images/${finalName}`;
+    return res.json({
+      success: 1,
+      file: { url: publicUrl },
+      caption: prompt.trim().slice(0, 100)
+    });
+
+  } catch (e) {
+    console.error('[workspace/ai-image] 오류:', e.message);
+
+    if (e.message.includes('ENOENT') || e.message.includes('not found') || e.message.includes('is not recognized')) {
+      return res.status(500).json({ success: 0, error: 'Gemini CLI가 서버에 설치되지 않았거나 PATH 에 없습니다.' });
+    }
+    if (e.message.includes('timeout')) {
+      return res.status(500).json({ success: 0, error: '이미지 생성 시간 초과 (3분). 더 단순한 프롬프트로 다시 시도해주세요.' });
+    }
+
+    return res.status(500).json({ success: 0, error: e.message });
+  }
+});
+
+// ── AI 이미지 기능 진단 (Gemini CLI 설치 + nanobanana 확장 체크) ──
+// GET /api/workspace/ai-image-health
+router.get('/ai-image-health', async (req, res) => {
+  const { spawn } = require('child_process');
+
+  function run(args, timeoutMs) {
+    return new Promise((resolve) => {
+      try {
+        const child = spawn('gemini', args, {
+          shell: true,
+          env: { ...process.env, LANG: 'ko_KR.UTF-8' },
+          windowsHide: true
+        });
+        let out = '', err = '';
+        const timer = setTimeout(() => {
+          try { child.kill('SIGTERM'); } catch(_) {}
+          resolve({ code: -1, out, err: err + '\n[timeout]' });
+        }, timeoutMs || 10000);
+        child.stdout.on('data', d => { out += d.toString('utf8'); });
+        child.stderr.on('data', d => { err += d.toString('utf8'); });
+        child.on('error', e => { clearTimeout(timer); resolve({ code: -1, out, err: e.message }); });
+        child.on('close', code => { clearTimeout(timer); resolve({ code, out: out.trim(), err: err.trim() }); });
+      } catch (e) {
+        resolve({ code: -1, out: '', err: e.message });
+      }
+    });
+  }
+
+  // 1. gemini --version
+  const v = await run(['--version'], 8000);
+  const cliAvailable = v.code === 0 && /\d/.test(v.out);
+  if (!cliAvailable) {
+    return res.json({
+      ok: false,
+      cliAvailable: false,
+      nanobananaInstalled: false,
+      error: 'Gemini CLI 미설치 또는 PATH 에 없음',
+      detail: (v.err || v.out || '').slice(0, 300)
+    });
+  }
+
+  // 2. gemini extensions list → nanobanana 포함 여부
+  const ext = await run(['extensions', 'list'], 15000);
+  const nanobananaInstalled = /nanobanana/i.test(ext.out);
+
+  res.json({
+    ok: cliAvailable && nanobananaInstalled,
+    cliAvailable: true,
+    nanobananaInstalled,
+    version: v.out,
+    extensions: ext.out.slice(0, 500),
+    error: nanobananaInstalled ? null : 'nanobanana 확장이 설치되지 않았습니다.'
+  });
+});
+
 module.exports = router;

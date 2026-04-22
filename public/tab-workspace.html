@@ -372,6 +372,25 @@
                 <button class="ws-ai-action-btn" @click="askAI('이 내용을 더 전문적으로 다듬어줘')">✨ 전문적으로 다듬기</button>
                 <div style="font-size:10px;color:#9ca3af;margin-top:4px;">Claude Pro Max 구독으로 동작합니다</div>
               </div>
+
+              <!-- AI 이미지 생성 (Gemini + nanobanana) -->
+              <div class="ws-ai-tmpl-section" style="margin-top:10px;border-top:1px dashed #e5e7eb;padding-top:10px;">
+                <div style="font-size:11px;color:#9ca3af;font-weight:600;margin-bottom:4px;">🎨 이미지 생성 — 설명을 쓰면 이미지를 만들어 페이지에 넣어줍니다</div>
+                <textarea class="ws-ai-tmpl-textarea" x-model="aiImagePrompt"
+                  placeholder="예: 밝고 깔끔한 사무실 책상에 노트북과 커피. 미니멀 스타일."
+                  :disabled="aiImageLoading"
+                  style="min-height:64px;"></textarea>
+                <div class="ws-ai-tmpl-actions">
+                  <button class="ws-ai-tmpl-go" @click="generateAIImage()"
+                    :disabled="aiImageLoading || !aiImagePrompt.trim() || !editor">
+                    <span x-show="!aiImageLoading">🎨 이미지 생성해서 페이지에 삽입</span>
+                    <span x-show="aiImageLoading">Gemini가 그리는 중... (최대 3분)</span>
+                  </button>
+                  <button class="ws-ai-tmpl-cancel" @click="aiImagePrompt=''"
+                    :disabled="aiImageLoading">지우기</button>
+                </div>
+                <div style="font-size:10px;color:#9ca3af;margin-top:4px;">Gemini CLI + nanobanana 로 동작합니다</div>
+              </div>
               <!-- AI 결과 -->
               <div x-show="aiLoading" class="ws-ai-result" style="color:#4f6ef7;animation:pulse 1.5s infinite;">
                 Claude가 생각하는 중...
@@ -523,6 +542,8 @@ function workspaceApp() {
     aiResult: '',
     aiError: '',
     aiLoading: false,
+    aiImagePrompt: '',          // 이미지 생성용 프롬프트
+    aiImageLoading: false,      // 이미지 생성 진행 중 여부
     aiTemplateMode: null,       // 'daily_log' | 'project_checklist' | 'customer_report' | null
     aiTemplateInput: '',
     aiTemplateLoading: false,
@@ -863,6 +884,48 @@ function workspaceApp() {
       }
       this.aiLoading = false;
       this.aiPrompt = '';
+    },
+
+    // Gemini + nanobanana 로 이미지 생성 → Editor.js 이미지 블록 삽입
+    async generateAIImage() {
+      const prompt = (this.aiImagePrompt || '').trim();
+      if (!prompt) return;
+      if (!this.editor) {
+        this.aiError = '페이지를 먼저 선택해 주세요.';
+        return;
+      }
+      this.aiImageLoading = true;
+      this.aiError = '';
+      try {
+        const res = await fetch('/api/workspace/ai-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt })
+        });
+        const data = await res.json();
+        if (data && data.success === 1 && data.file && data.file.url) {
+          // Editor.js 이미지 블록 삽입
+          try {
+            await this.editor.blocks.insert('image', {
+              file: { url: data.file.url },
+              caption: data.caption || prompt.slice(0, 80),
+              withBorder: false,
+              withBackground: false,
+              stretched: false
+            });
+          } catch (e) {
+            console.error('[workspace] 이미지 블록 삽입 실패:', e);
+            this.aiError = '이미지는 생성됐지만 페이지 삽입에 실패했습니다: ' + e.message;
+          }
+          this.aiImagePrompt = '';   // 성공 시 입력 비우기
+        } else {
+          this.aiError = (data && data.error) || '이미지 생성 실패';
+          if (data && data.hint) console.warn('[workspace] ai-image hint:', data.hint);
+        }
+      } catch (e) {
+        this.aiError = '서버 연결 실패: ' + e.message;
+      }
+      this.aiImageLoading = false;
     },
 
     selectTemplate(mode) {
