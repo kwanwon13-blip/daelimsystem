@@ -5594,7 +5594,7 @@ function app() {
   // - history 는 제외: 항상 견적목록으로만 튀는 문제 때문
   const REMEMBERED_TABS = ['workspace'];
 
-  return {
+  const _appData = {
     // 기억할 탭 목록을 data에도 노출 (Alpine 내부에서 참조 가능)
     _rememberedTabs: REMEMBERED_TABS,
     // 인증
@@ -9570,6 +9570,8 @@ function app() {
     },
 
   };
+
+  return _appData;
 }
 
 // ── GPS 사업장 관리 (관리자) ──

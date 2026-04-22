@@ -325,6 +325,9 @@ app.use('/api/gps-attendance', require('./routes/gps-attendance'));
 // ── 워크스페이스 (routes/workspace.js) ──
 app.use('/api/workspace', require('./routes/workspace'));
 
+// ── AI 히스토리/프로젝트/템플릿/첨부 (routes/ai-history.js) ──
+app.use('/api/ai', require('./routes/ai-history'));
+
 app.listen(PORT, '0.0.0.0', () => {
   const nets = require('os').networkInterfaces();
   let localIP = 'localhost';
