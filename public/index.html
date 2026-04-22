@@ -4571,6 +4571,49 @@
             </div>
           </div>
 
+          <!-- 서버 제어 (관리자 전용) -->
+          <div class="card" x-show="auth.role === 'admin'" style="padding:0;overflow:hidden;">
+            <div style="padding:10px 14px;background:linear-gradient(135deg,#fef2f2,#fee2e2);border-bottom:1px solid #fecaca;">
+              <h3 class="font-work text-[13px] font-bold text-gray-800 flex items-center gap-2 m-0">
+                <span class="material-symbols-outlined" style="font-size:16px;color:#dc2626;">dns</span> 서버 제어
+                <span class="text-xs font-medium px-2.5 py-1 rounded-full" style="background:rgba(220,38,38,.1);color:#dc2626;">관리자 전용</span>
+              </h3>
+            </div>
+            <div style="padding:12px 14px;">
+              <!-- 상태 -->
+              <div x-show="serverCtl.status" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px;line-height:1.7;">
+                <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 12px;">
+                  <span style="color:#6b7280;">PID</span>
+                  <span style="font-family:monospace;" x-text="serverCtl.status?.pid"></span>
+                  <span style="color:#6b7280;">가동 시간</span>
+                  <span x-text="serverCtl.status?.uptimeText"></span>
+                  <span style="color:#6b7280;">메모리</span>
+                  <span x-text="serverCtl.status?.memoryMB + ' MB'"></span>
+                  <span style="color:#6b7280;">Node 버전</span>
+                  <span style="font-family:monospace;" x-text="serverCtl.status?.nodeVersion"></span>
+                  <span style="color:#6b7280;">급여 모드</span>
+                  <span x-text="serverCtl.status?.salaryMode"></span>
+                </div>
+              </div>
+              <!-- 버튼 -->
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button @click="loadServerStatus()" class="btn-secondary" :disabled="serverCtl.loading">
+                  <span class="material-symbols-outlined" style="font-size:14px;vertical-align:-2px;">refresh</span> 상태 새로고침
+                </button>
+                <button @click="restartServer()" class="btn-primary" :disabled="serverCtl.loading" style="background:#d97706;">
+                  <span class="material-symbols-outlined" style="font-size:14px;vertical-align:-2px;">restart_alt</span> 서버 재시작
+                </button>
+                <button @click="stopServer()" class="btn-secondary" :disabled="serverCtl.loading" style="background:#991b1b;color:#fff;border-color:#991b1b;">
+                  <span class="material-symbols-outlined" style="font-size:14px;vertical-align:-2px;">power_settings_new</span> 서버 정지
+                </button>
+              </div>
+              <p style="font-size:11px;color:#6b7280;margin-top:10px;line-height:1.5;">
+                <strong>재시작</strong>: 서버가 스스로 종료되면 와치독이 3초 뒤 자동 재기동.<br>
+                <strong>정지</strong>: stop.flag 생성 → 와치독까지 완전히 내림. 다시 켜려면 서버 PC에서 트레이 또는 원격 컨트롤 필요.
+              </p>
+            </div>
+          </div>
+
           <div class="card" style="padding:0;overflow:hidden;">
             <div style="padding:10px 14px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border-bottom:1px solid #bfdbfe;">
               <h3 class="font-work text-[13px] font-bold text-gray-800 flex items-center gap-2 m-0">
@@ -5260,7 +5303,7 @@ function app() {
       if (this.auth.role === 'admin') return true;
       return (this.auth.permissions || []).includes('pricing_edit');
     },
-    // 출퇴근 전체 조회 가능 여부: admin 또는 attendance_all 권한 또는 조직도 부서 리더
+    // 출퇴근 전체 조회 가능 여부: 관리자 / attendance_all 권한 / 팀장
     get canViewAllAttendance() {
       if (this.auth.role === 'admin') return true;
       if ((this.auth.permissions || []).includes('attendance_all')) return true;
@@ -5549,6 +5592,8 @@ function app() {
     // 시안 → 사양 가져오기 모달
     specSearchModal: { open: false, catId: null, specIdx: null, query: '', results: [], loading: false },
     smtpSettings: { host: 'smtp.naver.com', port: 465, user: '', pass: '', from: '' },
+    // 서버 제어 (관리자 전용)
+    serverCtl: { status: null, loading: false },
     registrationClosed: false,
     // 결재 대리/위임
     approvalDelegates: [],
@@ -7000,6 +7045,62 @@ function app() {
     async saveSmtpSettings() {
       const r=await fetch('/api/mail/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(this.smtpSettings)});
       if(r.ok) this.showToast('메일 설정이 저장되었습니다'); else this.showToast('저장에 실패했습니다','error');
+    },
+    // ── 서버 제어 (관리자 전용) ─────────────────────────────
+    async loadServerStatus() {
+      this.serverCtl.loading = true;
+      try {
+        const r = await fetch('/api/admin/server/status');
+        if (r.ok) {
+          this.serverCtl.status = await r.json();
+        } else if (r.status === 401 || r.status === 403) {
+          this.showToast('관리자 권한이 필요합니다', 'error');
+        } else {
+          this.showToast('상태 조회 실패', 'error');
+        }
+      } catch (e) {
+        this.showToast('서버 응답 없음 (꺼져있을 수 있음)', 'error');
+      } finally {
+        this.serverCtl.loading = false;
+      }
+    },
+    async restartServer() {
+      if (!confirm('서버를 재시작하시겠습니까?\n약 3~5초간 연결이 끊깁니다.')) return;
+      this.serverCtl.loading = true;
+      try {
+        const r = await fetch('/api/admin/server/restart', { method: 'POST' });
+        if (r.ok) {
+          this.showToast('재시작 요청됨. 5초 뒤 상태 재확인...');
+          setTimeout(() => {
+            this.loadServerStatus();
+            this.showToast('서버가 다시 올라왔다면 상태가 갱신됩니다');
+          }, 5500);
+        } else {
+          this.showToast('재시작 실패 (' + r.status + ')', 'error');
+        }
+      } catch (e) {
+        // 재시작 도중 연결 끊김은 정상
+        this.showToast('재시작 진행 중... 5초 뒤 확인');
+        setTimeout(() => this.loadServerStatus(), 5500);
+      } finally {
+        this.serverCtl.loading = false;
+      }
+    },
+    async stopServer() {
+      if (!confirm('서버를 완전히 정지하시겠습니까?\n와치독도 함께 종료됩니다.\n다시 켜려면 서버 PC 트레이에서 Start Server를 눌러야 합니다.')) return;
+      this.serverCtl.loading = true;
+      try {
+        const r = await fetch('/api/admin/server/stop', { method: 'POST' });
+        if (r.ok) {
+          this.showToast('정지 요청됨. 서버가 내려갑니다.');
+        } else {
+          this.showToast('정지 실패 (' + r.status + ')', 'error');
+        }
+      } catch (e) {
+        this.showToast('정지 진행 중...');
+      } finally {
+        this.serverCtl.loading = false;
+      }
     },
 
     // ── 결재 대리/위임 ──

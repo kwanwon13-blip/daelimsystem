@@ -1093,7 +1093,8 @@
         <button @click="detailModal.open=false" style="padding:7px 12px;background:#f3f4f6;border:none;border-radius:6px;font-size:13px;cursor:pointer;">✕</button>
       </div>
     </div>
-    <div style="padding:20px 24px;" x-show="detailModal.rec">
+    <template x-if="detailModal.rec">
+    <div style="padding:20px 24px;">
       <!-- 2단 레이아웃 -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
         <!-- 지급 -->
@@ -1161,6 +1162,7 @@
         </label>
       </div>
     </div>
+    </template>
   </div>
 </div>
 
