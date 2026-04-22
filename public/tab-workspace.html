@@ -183,7 +183,8 @@
   }
 </style>
 
-<div class="ws-container" x-data="workspaceApp()" x-init="init()">
+<div class="ws-container" x-data="workspaceApp()"
+     x-init="init(); $watch('currentPageId', () => _persistCurrentPageId())">
 
   <!-- 모바일: 사이드바 배경 오버레이 -->
   <div class="ws-sidebar-overlay" :class="mobileSidebar ? 'show' : ''" @click="mobileSidebar=false"></div>
@@ -588,6 +589,28 @@ function workspaceApp() {
 
     async init() {
       await this.loadPages();
+      // 마지막으로 열었던 페이지 자동 복원
+      // - 탭 전환 시엔 x-show 로 DOM이 유지돼서 currentPageId 가 살아있지만
+      // - F5 새로고침 / 브라우저 재시작 / 로그인 재접속 시엔 초기화되므로
+      //   sessionStorage 에서 마지막 페이지 ID 를 읽어와 복원
+      try {
+        const savedId = sessionStorage.getItem('ws:lastPageId');
+        if (savedId && this.pages.some(p => String(p.id) === String(savedId))) {
+          this.openPage(savedId);
+        }
+      } catch (e) { /* sessionStorage 접근 불가 환경에선 무시 */ }
+    },
+
+    // currentPageId 가 바뀔 때마다 sessionStorage 에 저장
+    // (x-init 내부의 $watch 로 호출됨 — HTML 측 <div x-init> 참조)
+    _persistCurrentPageId() {
+      try {
+        if (this.currentPageId) {
+          sessionStorage.setItem('ws:lastPageId', String(this.currentPageId));
+        } else {
+          sessionStorage.removeItem('ws:lastPageId');
+        }
+      } catch (e) { /* 무시 */ }
     },
 
     async loadPages() {
@@ -917,7 +940,8 @@ function workspaceApp() {
             console.error('[workspace] 이미지 블록 삽입 실패:', e);
             this.aiError = '이미지는 생성됐지만 페이지 삽입에 실패했습니다: ' + e.message;
           }
-          this.aiImagePrompt = '';   // 성공 시 입력 비우기
+          // 프롬프트는 일부러 비우지 않는다 — 같은 프롬프트로 바로 다시 생성하거나
+          // 약간만 수정해서 재생성할 수 있도록. 완전히 지우려면 "지우기" 버튼 사용.
         } else {
           this.aiError = (data && data.error) || '이미지 생성 실패';
           if (data && data.hint) console.warn('[workspace] ai-image hint:', data.hint);

@@ -3641,9 +3641,10 @@
       <!--INCLUDE:tab-sales-lookup.html-->
 
       <!-- WORKSPACE TAB (워크스페이스) -->
-      <template x-if="currentTab === 'workspace'">
+      <!-- x-show 로 고정해서 탭 전환 시에도 에디터/currentPageId/스크롤 등 상태 보존 -->
+      <div x-show="currentTab === 'workspace'" style="height:100%;">
         <!--INCLUDE:tab-workspace.html-->
-      </template>
+      </div>
 
       <template x-if="currentTab === 'gpsAttendance'">
         <!--INCLUDE:tab-gps-attendance.html-->
