@@ -709,6 +709,39 @@ router.post('/attendance/purge-cache', requireAdmin, (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────
+// API: CAPS 브릿지 원본 응답 진단 (관리자 전용)
+// GET /api/attendance/debug-caps?year=2026&month=4
+// CAPS 브릿지가 실제로 돌려주는 JSON 그대로 확인
+// ─────────────────────────────────────────────────────────
+router.get('/attendance/debug-caps', requireAdmin, async (req, res) => {
+  const { year, month } = req.query;
+  if (!year || !month) return res.status(400).json({ error: 'year, month 필요' });
+  const y = parseInt(year), m = parseInt(month);
+  const from = `${y}-${String(m).padStart(2,'0')}-01`;
+  const lastDay = new Date(y, m, 0).getDate();
+  const to = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
+  try {
+    const raw = await capsGet(`/api/attendance?from=${from}&to=${to}`, 15000);
+    const arr = normalizeRawRecords(raw);
+    const withIn = arr.filter(r => r && (r.inTime || r.in_time || r.IN_TIME));
+    const allFieldSets = new Set();
+    arr.slice(0, 5).forEach(r => { if (r && typeof r === 'object') allFieldSets.add(Object.keys(r).sort().join('|')); });
+    res.json({
+      ok: true,
+      topType: Array.isArray(raw) ? 'array' : typeof raw,
+      topKeys: !Array.isArray(raw) && raw && typeof raw === 'object' ? Object.keys(raw) : null,
+      totalRecords: arr.length,
+      withInTimeCount: withIn.length,
+      uniqueFieldSets: Array.from(allFieldSets),
+      first3Raw: arr.slice(0, 3),
+      last3Raw: arr.slice(-3),
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────
 // API: 월별 요약
 // GET /api/attendance/summary?year=2025&month=3[&employeeId=]
 // ─────────────────────────────────────────────────────────
