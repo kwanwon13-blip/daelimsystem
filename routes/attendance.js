@@ -147,6 +147,21 @@ if (fs.existsSync(OLD_CACHE_FILE)) {
   }
 }
 
+// ── raw 포맷 자동 감지: 배열/{records}/{data}/기타 오브젝트 모두 수용 ──
+// CAPS 브릿지 버전 달라서 응답이 배열 대신 {records:[...]} 등으로 올 때 대비
+function normalizeRawRecords(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (raw && typeof raw === 'object') {
+    if (Array.isArray(raw.records)) return raw.records;
+    if (Array.isArray(raw.data)) return raw.data;
+    if (raw.data && Array.isArray(raw.data.records)) return raw.data.records;
+    const out = [];
+    for (const v of Object.values(raw)) if (Array.isArray(v)) out.push(...v);
+    return out;
+  }
+  return [];
+}
+
 // CAPS bridge HTTP GET helper (외부 모듈 없이 내장 http 사용)
 function capsGet(path, timeoutMs) {
   const socketTimeout = timeoutMs || 5000;   // 기본 5초 (기존 8초에서 단축)
@@ -608,7 +623,7 @@ router.get('/attendance/records', requireAuth, async (req, res) => {
     }
   }
 
-  const analyzed = raw.map(analyzeRecord);
+  const analyzed = normalizeRawRecords(raw).map(analyzeRecord);
   // 수동 노트 병합
   const dbData = db.출퇴근관리.load();
   const notes = dbData.attendanceNotes || {};
@@ -802,23 +817,7 @@ router.get('/attendance/summary', requireAuth, async (req, res) => {
     }
   }
 
-  // ── raw 포맷 자동 감지: 배열/{records}/{data}/기타 오브젝트 모두 수용 ──
-  // (CAPS 브릿지 버전 바뀌거나 캐시 포맷 섞여 있어도 안전)
-  let rawArray;
-  if (Array.isArray(raw)) {
-    rawArray = raw;
-  } else if (raw && typeof raw === 'object') {
-    if (Array.isArray(raw.records)) rawArray = raw.records;
-    else if (Array.isArray(raw.data)) rawArray = raw.data;
-    else if (raw.data && Array.isArray(raw.data.records)) rawArray = raw.data.records;
-    else {
-      // 마지막 수단: 오브젝트 값 중 배열 찾아서 합침
-      rawArray = [];
-      for (const v of Object.values(raw)) if (Array.isArray(v)) rawArray.push(...v);
-    }
-  } else {
-    rawArray = [];
-  }
+  const rawArray = normalizeRawRecords(raw);
   _lap(`raw 정규화 완료 (원본타입=${Array.isArray(raw)?'array':typeof raw}, 추출=${rawArray.length}건)`);
 
   let records = rawArray.map(analyzeRecord);
@@ -1251,7 +1250,7 @@ router.get('/attendance/monthly-summary', requireAuth, async (req, res) => {
       return res.status(404).json({ error: '저장된 출퇴근 데이터가 없습니다' });
     }
 
-    let records = raw.map(analyzeRecord);
+    let records = normalizeRawRecords(raw).map(analyzeRecord);
     const uData = db.loadUsers();
 
     // 직원별 집계
@@ -1340,7 +1339,7 @@ router.get('/attendance/export-excel', requireAdmin, async (req, res) => {
     catch (err) { raw = getCacheEntry(`sum_${from}_${to}_all`); if (!raw) return res.status(502).json({ error: 'CAPS 연결 실패 (캐시 없음)' }); }
   }
 
-  const records = raw.map(analyzeRecord);
+  const records = normalizeRawRecords(raw).map(analyzeRecord);
   const dbData = db.출퇴근관리.load();
   const notes = dbData.attendanceNotes || {};
   const existingKeys = new Set(records.map(r => `${r.employeeId}_${r.date}`));
@@ -2074,7 +2073,7 @@ router.post('/leave/sync-from-attendance', requireAuth, async (req, res) => {
     return res.status(502).json({ error: 'CAPS 데이터 가져오기 실패: ' + err.message });
   }
 
-  const records = raw.map(analyzeRecord);
+  const records = normalizeRawRecords(raw).map(analyzeRecord);
 
   // 수동 노트 병합
   const attData = db.출퇴근관리.load();
