@@ -7596,6 +7596,9 @@ function app() {
       // 브릿지 체크는 CAPS 동기화(forceRefresh) 시에만 수행
       if (forceRefresh && this.auth.role === 'admin' && !this.attendance.bridgeOk) { await this.checkCapsbridge(); if (!this.attendance.bridgeOk) return; }
       this.attendance.loading = true;
+      // ── 클라이언트 타임아웃: 서버가 응답 안 주면 25초 뒤 강제 중단 (무한 스피너 방지) ──
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 25000);
       try {
         let url = `/api/attendance/summary?year=${year}&month=${month}`;
         if (!this.canViewAllAttendance) {
@@ -7604,7 +7607,8 @@ function app() {
           url += `&employeeId=${encodeURIComponent(filterEmpId)}`;
         }
         if (forceRefresh) url += '&refresh=true';
-        const r = await fetch(url);
+        const r = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
         if (!r.ok) throw new Error(await r.text());
         const data = await r.json();
         this.attendance.summary = data;
@@ -7621,8 +7625,12 @@ function app() {
           }).catch(() => {});
         }
       } catch(e) {
+        clearTimeout(timeoutId);
         const msg = e.message || '';
-        if (msg.includes('저장된') || msg.includes('404') || msg.includes('CAPS 동기화')) {
+        // AbortError: 클라이언트 타임아웃 (25초)
+        if (e.name === 'AbortError') {
+          this.showToast('⚠️ 서버가 25초 내 응답하지 않아 조회를 중단했습니다. CAPS 브릿지를 확인하거나 "캐시 초기화" 버튼을 눌러주세요.', 'error');
+        } else if (msg.includes('저장된') || msg.includes('404') || msg.includes('CAPS 동기화')) {
           // 자동 로드(탭 전환 등)에서는 토스트 없이 조용히 빈 화면 표시
           if (forceRefresh) this.showToast('해당 월의 출퇴근 데이터가 없습니다. CAPS 동기화를 실행해주세요.', 'warning');
         } else {

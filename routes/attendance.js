@@ -706,6 +706,35 @@ router.get('/attendance/summary', requireAuth, async (req, res) => {
   const lastDay = new Date(y, m, 0).getDate();
   const to = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
 
+  // ── 디버그 타이머: 각 단계 시간 측정 (무한대기 원인 추적용) ──
+  const _t0 = Date.now();
+  const _tag = `[summary ${y}-${m}${employeeId?' '+employeeId:''}]`;
+  const _lap = (label) => console.log(`${_tag} ${label}: +${Date.now()-_t0}ms`);
+
+  // ── 최상위 안전망: 어떤 일이 있어도 20초 이내 응답 보장 ──
+  let _responded = false;
+  const _safetyTimer = setTimeout(() => {
+    if (!_responded && !res.headersSent) {
+      _responded = true;
+      console.error(`${_tag} ⚠️ 20초 안전 타임아웃 발동 - 후처리 도중 멈춤`);
+      try { res.status(504).json({ error: '서버 처리 시간초과 (20초). 캐시 초기화 후 다시 시도하거나 CAPS 브릿지 상태를 확인하세요.' }); } catch(_) {}
+    }
+  }, 20000);
+  const _sendJson = (payload) => {
+    if (_responded || res.headersSent) return;
+    _responded = true;
+    clearTimeout(_safetyTimer);
+    res.json(payload);
+  };
+  const _sendError = (code, payload) => {
+    if (_responded || res.headersSent) return;
+    _responded = true;
+    clearTimeout(_safetyTimer);
+    res.status(code).json(payload);
+  };
+
+  try {
+
   // ── 권한별 필터: admin=전체, 팀장=부서원, 일반=본인 ──
   let teamMemberNames = null; // null이면 전체, 배열이면 해당 이름만
   const userPerms = req.user.permissions || [];
@@ -744,29 +773,37 @@ router.get('/attendance/summary', requireAuth, async (req, res) => {
   if (req.user.role !== 'admin') {
     const allCacheKey = `sum_${from}_${to}_all`;
     raw = getCacheEntry(allCacheKey);
-    if (!raw) return res.status(404).json({ error: '저장된 출퇴근 데이터가 없습니다. 관리자가 해당 월을 먼저 조회해야 합니다.' });
+    if (!raw) return _sendError(404, { error: '저장된 출퇴근 데이터가 없습니다. 관리자가 해당 월을 먼저 조회해야 합니다.' });
     fromCache = true;
+    _lap(`직원 캐시 로드 (${Array.isArray(raw)?raw.length:'?'}건)`);
   } else {
     // admin: 항상 캐시 우선, refresh=true일 때만 CAPS 요청
     const forceRefresh = req.query.refresh === 'true';
     const cached = getCacheEntry(cacheKey);
+    _lap(`캐시 확인 완료 (cached=${!!cached}, forceRefresh=${forceRefresh})`);
     if (forceRefresh) {
       try {
+        console.log(`${_tag} CAPS 요청 시작: ${url}`);
         raw = await capsGet(url);
+        _lap(`CAPS 응답 받음 (${Array.isArray(raw)?raw.length:'?'}건)`);
         setCacheEntry(cacheKey, raw);
+        _lap(`캐시 저장 완료`);
       } catch (err) {
+        _lap(`CAPS 실패: ${err.message}`);
         if (cached) { raw = cached; fromCache = true; }
-        else return res.status(502).json({ error: 'CAPS 브릿지 연결 실패 (캐시 없음): ' + err.message });
+        else return _sendError(502, { error: 'CAPS 브릿지 연결 실패 (캐시 없음): ' + err.message });
       }
     } else if (cached) {
       raw = cached;
       fromCache = true;
+      _lap(`캐시 사용 (${Array.isArray(raw)?raw.length:'?'}건)`);
     } else {
-      return res.status(404).json({ error: '저장된 데이터가 없습니다. CAPS 동기화를 먼저 실행해주세요.' });
+      return _sendError(404, { error: '저장된 데이터가 없습니다. CAPS 동기화를 먼저 실행해주세요.' });
     }
   }
 
   let records = raw.map(analyzeRecord);
+  _lap(`analyzeRecord 완료 (${records.length}건)`);
 
   // CAPS 이름 → 앱 이름 매핑 (capsName 필드 설정된 경우)
   // 예: CAPS에 "관리자"로 등록됐지만 앱 이름이 "남관원"인 경우 통합
@@ -890,6 +927,8 @@ router.get('/attendance/summary', requireAuth, async (req, res) => {
     e.totalOvertimeMin += (r.overtime || 0);
   }
 
+  _lap(`byEmp 집계 완료 (${Object.keys(byEmp).length}명)`);
+
   // ── 연차관리 leaveRecords 병합 ──────────────────────────────
   // 결재로 승인된 연차가 CAPS에 미반영된 경우에도 출퇴근 기록부에 표시되도록 함
   // (attendanceNotes와 이중 적용되지 않도록 manuallySet 여부 확인)
@@ -974,6 +1013,7 @@ router.get('/attendance/summary', requireAuth, async (req, res) => {
       }
     }
   } catch(e) { console.error('leaveRecords 병합 실패:', e.message); }
+  _lap(`leaveRecords 병합 완료`);
 
   let summary = Object.values(byEmp).map(e => ({
     ...e,
@@ -1079,6 +1119,8 @@ router.get('/attendance/summary', requireAuth, async (req, res) => {
       }
     }
   }
+  _lap(`부서/순서/플래그 적용 완료 (${summary.length}명)`);
+
   // ── 과거 근무일 중 CAPS 기록이 없는 날 → noRecord 가상 레코드 생성 ──
   // (근태면제 부서 제외, 퇴근 미기록(noSwipeOut)은 기존 레코드로 처리되므로 해당 없음)
   {
@@ -1159,7 +1201,14 @@ router.get('/attendance/summary', requireAuth, async (req, res) => {
   if (fromCache) {
     res.set('X-Data-Source', 'cache');
   }
-  res.json(summary);
+  _lap(`응답 전송 (최종 ${summary.length}명)`);
+  _sendJson(summary);
+
+  } catch (err) {
+    // 후처리 중 예외 발생 시 응답 전송 보장 (무응답 방지)
+    console.error(`${_tag} ❌ 후처리 예외:`, err.stack || err.message);
+    _sendError(500, { error: '서버 처리 중 오류: ' + (err.message || err) });
+  }
 });
 
 // ─── 월간 근무시간 집계 ───
