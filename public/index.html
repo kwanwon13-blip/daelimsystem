@@ -7643,6 +7643,52 @@ function app() {
       }
     },
 
+    // ── 응급 복구: 서버 캐시 강제 삭제 ──
+    // "데이터 조회 중..." 에 계속 걸려 있을 때 admin이 화면에서 직접 복구할 수 있게 해주는 버튼용
+    // 서버 data/attendance-store/ 의 해당 월 캐시(sum_/rec_) 파일만 삭제 → 다음 조회 때 CAPS에서 재조회
+    // ⚠ 연차/급여/직원/사업장 등 다른 데이터는 전혀 건드리지 않음 (캐시만!)
+    async purgeAttendanceCache() {
+      if (this.auth.role !== 'admin') {
+        this.showToast('관리자만 사용할 수 있습니다.', 'error');
+        return;
+      }
+      const { year, month } = this.attendance;
+      const msg = `${year}년 ${month}월 출퇴근 캐시를 강제로 초기화할까요?\n\n` +
+                  `- 해당 월의 CAPS 캐시 파일만 삭제됩니다.\n` +
+                  `- 연차 세팅 / 급여 / 직원 정보 등은 영향 없음.\n` +
+                  `- 삭제 후 자동으로 CAPS에서 다시 불러옵니다.`;
+      if (!confirm(msg)) return;
+
+      try {
+        this.attendance.loading = true;
+        const r = await fetch('/api/attendance/purge-cache', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ year: Number(year), month: Number(month) })
+        });
+        if (!r.ok) {
+          const txt = await r.text();
+          throw new Error(txt || `HTTP ${r.status}`);
+        }
+        const data = await r.json();
+
+        // 브라우저 메모리 캐시도 같이 비우기 (해당 월 + 전체 월 모두)
+        // 어느 월이 오염됐는지 모를 수 있으니 전체 메모리 캐시 초기화가 안전
+        this.attendance._cache = {};
+        this.attendance.summary = [];
+
+        this.showToast(`✅ 캐시 초기화 완료 (${data.deletedCount || 0}건 삭제). CAPS에서 다시 불러옵니다...`, 'success');
+
+        // CAPS 브릿지 재체크 후 강제 재조회
+        await this.checkCapsbridge();
+        await this.loadAttendanceSummary(true);
+      } catch (e) {
+        this.showToast('캐시 초기화 실패: ' + (e.message || e), 'error');
+      } finally {
+        this.attendance.loading = false;
+      }
+    },
+
     // ── 모아보기 ──
     initMultiMonthView() {
       if (this.attendance.filterEmpId) this.attendance.multiEmpId = this.attendance.filterEmpId;

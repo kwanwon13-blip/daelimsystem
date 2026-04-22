@@ -153,6 +153,15 @@
             CAPS 동기화
           </button>
         </template>
+        <!-- 응급 복구: 서버가 해당 월 캐시에 행 걸릴 때 강제 초기화 -->
+        <template x-if="auth.role==='admin'">
+          <button x-show="attendance.viewMode !== 'multi'" @click="purgeAttendanceCache()"
+            style="height:30px;padding:0 12px;font-size:10px;background:#fef2f2;border:1px solid #fecaca;color:#dc2626;border-radius:6px;cursor:pointer;"
+            title="서버가 응답 안 할 때 눌러주세요. 해당 월 캐시를 강제 삭제 후 CAPS에서 다시 가져옵니다.">
+            <span class="material-symbols-outlined" style="font-size:13px;vertical-align:-2px;">delete_sweep</span>
+            캐시 초기화
+          </button>
+        </template>
         <!-- 뷰 모드 -->
         <div class="ml-auto flex rounded-lg border border-gray-200 overflow-hidden" style="height:30px;">
           <button @click="attendance.viewMode='summary'"

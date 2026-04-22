@@ -657,6 +657,43 @@ router.get('/attendance/records', requireAuth, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────
+// API: 특정 월 캐시 강제 삭제 (응급 복구용)
+// POST /api/attendance/purge-cache  body: { year, month }
+// 출퇴근 요약 조회가 서버에서 행 걸릴 때 관리자가 UI에서 눌러 캐시를 지운다.
+// 삭제 대상: sum_YYYY-MM-01_...__all, rec_YYYY-MM-01_...__all (+ employeeId별)
+// ─────────────────────────────────────────────────────────
+router.post('/attendance/purge-cache', requireAdmin, (req, res) => {
+  const { year, month } = req.body || {};
+  if (!year || !month) return res.status(400).json({ error: 'year, month 필요' });
+  const y = parseInt(year), m = parseInt(month);
+  const from = `${y}-${String(m).padStart(2,'0')}-01`;
+  const lastDay = new Date(y, m, 0).getDate();
+  const to = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
+  // 삭제할 키 접두어: sum_YYYY-MM-01_YYYY-MM-LL_ / rec_YYYY-MM-01_YYYY-MM-LL_
+  const prefixes = [ `sum_${from}_${to}_`, `rec_${from}_${to}_` ];
+  const deleted = [];
+  const errors = [];
+  try {
+    const files = fs.readdirSync(ATTENDANCE_STORE_DIR).filter(f => f.endsWith('.json'));
+    for (const f of files) {
+      const filePath = path.join(ATTENDANCE_STORE_DIR, f);
+      try {
+        const d = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        const key = d._key || '';
+        if (prefixes.some(p => key.startsWith(p))) {
+          fs.unlinkSync(filePath);
+          deleted.push(key);
+        }
+      } catch(e) { errors.push({ file: f, err: e.message }); }
+    }
+    console.log(`[캐시 강제삭제] admin=${req.user.name} ${from}~${to} 삭제=${deleted.length}건`);
+    return res.json({ ok: true, deletedCount: deleted.length, deleted, errors });
+  } catch (e) {
+    return res.status(500).json({ error: '캐시 삭제 실패: ' + e.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────
 // API: 월별 요약
 // GET /api/attendance/summary?year=2025&month=3[&employeeId=]
 // ─────────────────────────────────────────────────────────
