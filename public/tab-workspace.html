@@ -183,8 +183,7 @@
   }
 </style>
 
-<div class="ws-container" x-data="workspaceApp()"
-     x-init="init(); $watch('currentPageId', () => _persistCurrentPageId())">
+<div class="ws-container" x-data="workspaceApp()" x-init="init()">
 
   <!-- 모바일: 사이드바 배경 오버레이 -->
   <div class="ws-sidebar-overlay" :class="mobileSidebar ? 'show' : ''" @click="mobileSidebar=false"></div>
@@ -595,22 +594,15 @@ function workspaceApp() {
       //   sessionStorage 에서 마지막 페이지 ID 를 읽어와 복원
       try {
         const savedId = sessionStorage.getItem('ws:lastPageId');
+        console.log('[workspace] init - sessionStorage ws:lastPageId =', savedId, '/ pages loaded:', this.pages.length);
         if (savedId && this.pages.some(p => String(p.id) === String(savedId))) {
+          console.log('[workspace] init - restoring page', savedId);
           this.openPage(savedId);
-        }
-      } catch (e) { /* sessionStorage 접근 불가 환경에선 무시 */ }
-    },
-
-    // currentPageId 가 바뀔 때마다 sessionStorage 에 저장
-    // (x-init 내부의 $watch 로 호출됨 — HTML 측 <div x-init> 참조)
-    _persistCurrentPageId() {
-      try {
-        if (this.currentPageId) {
-          sessionStorage.setItem('ws:lastPageId', String(this.currentPageId));
-        } else {
+        } else if (savedId) {
+          console.log('[workspace] init - saved page no longer exists, removing');
           sessionStorage.removeItem('ws:lastPageId');
         }
-      } catch (e) { /* 무시 */ }
+      } catch (e) { console.warn('[workspace] init restore failed:', e); }
     },
 
     async loadPages() {
@@ -650,6 +642,11 @@ function workspaceApp() {
       this.currentPageId = id;
       this.aiResult = '';
       this.aiError = '';
+      // sessionStorage 에 현재 페이지 저장 (F5 / 재접속 시 복원용)
+      try {
+        sessionStorage.setItem('ws:lastPageId', String(id));
+        console.log('[workspace] openPage - saved to sessionStorage:', id);
+      } catch (e) { /* 무시 */ }
 
       try {
         const res = await fetch(`/api/workspace/pages/${id}`);
@@ -825,6 +822,7 @@ function workspaceApp() {
       if (this.editor) { this.editor.destroy(); this.editor = null; }
       this.currentPage = null;
       this.currentPageId = null;
+      try { sessionStorage.removeItem('ws:lastPageId'); } catch(e) {}
       await this.loadPages();
     },
 
