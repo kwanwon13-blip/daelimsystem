@@ -1706,8 +1706,10 @@
     <!-- CONTENT AREA -->
     <div class="flex-1 overflow-y-auto main-scroll" :class="currentTab === 'workspace' || currentTab === 'gpsAttendance' ? '' : 'p-6'" :style="currentTab === 'workspace' ? 'background:#f8f9fb;overflow:hidden;' : currentTab === 'gpsAttendance' ? 'background:#f8f9fb;' : 'background:#eef1f6;'">
 
-      <!-- QUOTE TAB → history 탭으로만 전환 (팝업 자동 오픈 없음) -->
-      <template x-if="currentTab === 'quote'" x-init="$nextTick(()=>{ currentTab='history'; })">
+      <!-- QUOTE TAB → history 탭으로만 전환 (팝업은 버튼으로만 열기)
+           x-init는 <template>에 걸면 x-if 값과 상관없이 항상 실행되므로 제거.
+           대신 app().init() 에서 currentTab === 'quote' 체크로 처리. -->
+      <template x-if="currentTab === 'quote'">
         <div></div>
       </template>
       <!-- (구) QUOTE TAB 인라인 폼 – 팝업으로 이전됨 / 아래 내용 주석처리 -->
@@ -5594,7 +5596,7 @@ function app() {
   // - history 는 제외: 항상 견적목록으로만 튀는 문제 때문
   const REMEMBERED_TABS = ['workspace'];
 
-  const _appData = {
+  return {
     // 기억할 탭 목록을 data에도 노출 (Alpine 내부에서 참조 가능)
     _rememberedTabs: REMEMBERED_TABS,
     // 인증
@@ -9570,8 +9572,6 @@ function app() {
     },
 
   };
-
-  return _appData;
 }
 
 // ── GPS 사업장 관리 (관리자) ──
