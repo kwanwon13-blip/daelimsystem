@@ -378,7 +378,7 @@
         </template>
       </div>
     </template>
-    <button @click="currentTab='approval'; sessionStorage.setItem('currentTab','approval'); approvalNotif.show=false; clearTimeout(approvalNotif._timer)"
+    <button @click="currentTab='approval'; localStorage.setItem('currentTab','approval'); approvalNotif.show=false; clearTimeout(approvalNotif._timer)"
       style="width:100%;padding:9px;background:linear-gradient(135deg,#4f6ef7,#6c5ce7);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;"
       onmouseover="this.style.opacity='.9'" onmouseout="this.style.opacity='1'">
       <span class="material-symbols-outlined" style="font-size:15px;">approval</span>
@@ -1574,7 +1574,11 @@
   <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="px-5 pt-6 pb-4">
-      <div class="flex items-center gap-3">
+      <button @click="currentTab = 'home'; localStorage.setItem('currentTab','home')"
+        class="flex items-center gap-3 w-full text-left cursor-pointer rounded-xl transition-all p-1 -m-1"
+        style="background:transparent;border:none;"
+        onmouseover="this.style.background='rgba(255,255,255,.05)'" onmouseout="this.style.background='transparent'"
+        title="홈으로 이동">
         <div class="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style="display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#4f6ef7,#6c5ce7);">
           <span class="material-symbols-outlined" style="font-size:18px;color:white;">receipt_long</span>
         </div>
@@ -1582,12 +1586,19 @@
           <h1 class="text-base font-bold leading-tight" style="color:#e2e8f0;font-family:'Work Sans',sans-serif;">대림에스엠</h1>
           <p class="text-[10px] font-medium leading-tight" style="color:rgba(255,255,255,.35);">대림에스엠ERP v2.0</p>
         </div>
-      </div>
+      </button>
     </div>
 
     <div class="divider" style="margin:0 20px 8px;"></div>
 
     <nav class="flex-1 py-1 overflow-y-auto" style="scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.1) transparent;">
+      <!-- 홈 메뉴 (그룹 없이 최상단 고정) -->
+      <button @click="currentTab = 'home'; localStorage.setItem('currentTab','home')"
+        :class="currentTab === 'home' ? 'active' : ''"
+        class="sidebar-nav-item w-full text-left" style="margin-bottom:6px;">
+        <span class="material-symbols-outlined" style="font-size:17px">home</span>
+        <span style="font-size:12px;">홈</span>
+      </button>
       <template x-for="group in filteredMenuGroups" :key="group.group">
         <div style="margin-bottom:2px;">
           <!-- 그룹 헤더 -->
@@ -1604,7 +1615,7 @@
           <div x-show="expandedMenuGroups[group.group]" x-collapse>
             <template x-for="item in group.items" :key="item.id">
               <button
-                @click="item.id === 'quote' ? (currentTab='history', sessionStorage.setItem('currentTab','history'), openQuotePopup(null)) : (currentTab = item.id, sessionStorage.setItem('currentTab', item.id))"
+                @click="item.id === 'quote' ? (currentTab='history', localStorage.setItem('currentTab','history'), openQuotePopup(null)) : (currentTab = item.id, localStorage.setItem('currentTab', item.id))"
                 :class="(currentTab === item.id || (item.id === 'quote' && quotePopup.open)) ? 'active' : ''"
                 class="sidebar-nav-item w-full text-left" style="padding-left:28px;">
                 <span class="material-symbols-outlined" style="font-size:17px" x-text="item.icon"></span>
@@ -1623,7 +1634,7 @@
       <!-- 독립 메뉴: 시안검색, 연락처 -->
       <div style="margin-top:4px;border-top:1px solid rgba(255,255,255,.06);padding-top:4px;">
         <template x-if="tabs.find(t=>t.id==='design')">
-          <button @click="currentTab = 'design'; sessionStorage.setItem('currentTab','design')"
+          <button @click="currentTab = 'design'; localStorage.setItem('currentTab','design')"
             :class="currentTab === 'design' ? 'active' : ''"
             class="sidebar-nav-item w-full text-left">
             <span class="material-symbols-outlined" style="font-size:17px">image_search</span>
@@ -1631,7 +1642,7 @@
           </button>
         </template>
         <template x-if="tabs.find(t=>t.id==='contacts')">
-          <button @click="currentTab = 'contacts'; sessionStorage.setItem('currentTab','contacts')"
+          <button @click="currentTab = 'contacts'; localStorage.setItem('currentTab','contacts')"
             :class="currentTab === 'contacts' ? 'active' : ''"
             class="sidebar-nav-item w-full text-left">
             <span class="material-symbols-outlined" style="font-size:17px">contacts</span>
@@ -1670,6 +1681,7 @@
       <div class="flex items-center gap-3">
         <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,#eef2ff,#e0e7ff);">
           <span class="material-symbols-outlined" style="font-size:18px;color:#4f6ef7;" x-text="
+            currentTab === 'home' ? 'home' :
             currentTab === 'quote' ? 'edit_note' :
             currentTab === 'history' ? 'folder_open' :
             currentTab === 'pricing' ? 'payments' :
@@ -2069,6 +2081,147 @@
         </div>
       </template>
       <!-- /구버전 인라인 폼 끝 -->
+
+      <!-- HOME TAB (대시보드) -->
+      <template x-if="currentTab === 'home'">
+        <div class="space-y-5 fade-in" x-init="loadHomeDashboard()">
+          <!-- 인사말 -->
+          <div class="card" style="padding:18px 22px;background:linear-gradient(135deg,#eef2ff,#ede9fe);border:1px solid #e0e7ff;">
+            <div class="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <p class="text-lg font-bold" style="color:#1e293b;letter-spacing:-0.02em;">
+                  <span x-text="(()=>{ const h=new Date().getHours(); return h<6?'늦은 밤이에요':h<12?'좋은 아침입니다':h<18?'좋은 오후에요':'수고 많으셨어요'; })()"></span>,
+                  <span x-text="auth.name + (auth.position?' '+auth.position:'')"></span> 님
+                </p>
+                <p class="text-xs mt-1" style="color:#64748b;" x-text="new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',weekday:'long'})"></p>
+              </div>
+              <div class="flex items-center gap-2">
+                <button @click="loadHomeDashboard(true)" class="btn-ghost flex items-center gap-1" style="font-size:12px;">
+                  <span class="material-symbols-outlined" style="font-size:15px;">refresh</span> 새로고침
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 주요 숫자 카드 4종 -->
+          <div class="grid gap-4" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));">
+            <!-- 이번달 매출 -->
+            <button @click="currentTab='stats'" class="card text-left" style="padding:18px 20px;cursor:pointer;border:1px solid #e5eaf4;transition:all .15s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(0,0,0,.08)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+              <div class="flex items-center gap-2" style="color:#64748b;">
+                <span class="material-symbols-outlined" style="font-size:18px;color:#4f6ef7;">trending_up</span>
+                <span class="text-xs font-semibold">이번달 매출</span>
+              </div>
+              <p class="text-2xl font-bold mt-2" style="color:#1e293b;letter-spacing:-0.03em;"
+                 x-text="homeDashboard.loading ? '...' : ((homeDashboard.stats.이번달매출||0).toLocaleString() + '원')"></p>
+              <p class="text-[11px] mt-1" style="color:#64748b;">
+                견적 <span x-text="homeDashboard.stats.이번달견적||0"></span>건
+              </p>
+            </button>
+            <!-- 결재 대기 -->
+            <button @click="currentTab='approval'" class="card text-left" style="padding:18px 20px;cursor:pointer;border:1px solid #e5eaf4;transition:all .15s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(0,0,0,.08)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+              <div class="flex items-center gap-2" style="color:#64748b;">
+                <span class="material-symbols-outlined" style="font-size:18px;color:#f59e0b;">approval</span>
+                <span class="text-xs font-semibold">결재 대기</span>
+              </div>
+              <p class="text-2xl font-bold mt-2" style="color:#1e293b;letter-spacing:-0.03em;"
+                 x-text="homeDashboard.loading ? '...' : ((homeDashboard.stats.미처리결재||0) + '건')"></p>
+              <p class="text-[11px] mt-1" style="color:#64748b;">클릭하면 결재함으로 이동</p>
+            </button>
+            <!-- 오늘 출근 -->
+            <button @click="currentTab='attendance'" class="card text-left" style="padding:18px 20px;cursor:pointer;border:1px solid #e5eaf4;transition:all .15s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(0,0,0,.08)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+              <div class="flex items-center gap-2" style="color:#64748b;">
+                <span class="material-symbols-outlined" style="font-size:18px;color:#10b981;">schedule</span>
+                <span class="text-xs font-semibold">오늘 출근</span>
+              </div>
+              <p class="text-2xl font-bold mt-2" style="color:#1e293b;letter-spacing:-0.03em;"
+                 x-text="homeDashboard.todayAttendees === null ? '-' : (homeDashboard.todayAttendees + '명')"></p>
+              <p class="text-[11px] mt-1" style="color:#64748b;"
+                 x-text="homeDashboard.todayAttendees === null ? 'CAPS 데이터 대기' : '오늘 체크 인원'"></p>
+            </button>
+            <!-- 업체/품목 현황 -->
+            <button @click="currentTab='vendors'" class="card text-left" style="padding:18px 20px;cursor:pointer;border:1px solid #e5eaf4;transition:all .15s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(0,0,0,.08)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+              <div class="flex items-center gap-2" style="color:#64748b;">
+                <span class="material-symbols-outlined" style="font-size:18px;color:#8b5cf6;">storefront</span>
+                <span class="text-xs font-semibold">등록 현황</span>
+              </div>
+              <p class="text-2xl font-bold mt-2" style="color:#1e293b;letter-spacing:-0.03em;"
+                 x-text="homeDashboard.loading ? '...' : ((homeDashboard.stats.업체수||0) + '개')"></p>
+              <p class="text-[11px] mt-1" style="color:#64748b;">
+                품목 <span x-text="homeDashboard.stats.품목수||0"></span>개
+              </p>
+            </button>
+          </div>
+
+          <!-- 하단 2단: 최근 공지 / 결재 대기 목록 -->
+          <div class="grid gap-4" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));">
+            <!-- 최근 공지 -->
+            <div class="card" style="padding:16px 18px;">
+              <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                  <span class="material-symbols-outlined" style="font-size:18px;color:#f59e0b;">campaign</span>
+                  <h3 class="text-sm font-bold" style="color:#1e293b;">최근 공지</h3>
+                </div>
+                <button @click="currentTab='notices'" class="text-[11px] font-medium" style="color:#4f6ef7;background:none;border:none;cursor:pointer;">전체 보기 →</button>
+              </div>
+              <template x-if="homeDashboard.loading">
+                <p class="text-xs py-4 text-center" style="color:#94a3b8;">불러오는 중...</p>
+              </template>
+              <template x-if="!homeDashboard.loading && (!homeDashboard.recentNotices || homeDashboard.recentNotices.length === 0)">
+                <p class="text-xs py-4 text-center" style="color:#94a3b8;">최근 공지가 없습니다</p>
+              </template>
+              <div class="space-y-2">
+                <template x-for="notice in (homeDashboard.recentNotices||[])" :key="notice.id || notice.createdAt">
+                  <button @click="currentTab='notices'" class="w-full text-left p-2 rounded-lg transition-all" style="background:#f8fafc;border:1px solid #e5eaf4;" onmouseover="this.style.background='#eff6ff'" onmouseout="this.style.background='#f8fafc'">
+                    <p class="text-xs font-semibold truncate" style="color:#1e293b;" x-text="notice.title || notice.제목 || '(제목 없음)'"></p>
+                    <p class="text-[10px] mt-1" style="color:#64748b;" x-text="(notice.createdAt||notice.작성일||'').slice(0,10) + (notice.author?' · '+notice.author:'')"></p>
+                  </button>
+                </template>
+              </div>
+            </div>
+
+            <!-- 결재 대기 목록 -->
+            <div class="card" style="padding:16px 18px;">
+              <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                  <span class="material-symbols-outlined" style="font-size:18px;color:#4f6ef7;">approval</span>
+                  <h3 class="text-sm font-bold" style="color:#1e293b;">내 결재 대기</h3>
+                </div>
+                <button @click="currentTab='approval'" class="text-[11px] font-medium" style="color:#4f6ef7;background:none;border:none;cursor:pointer;">전체 보기 →</button>
+              </div>
+              <template x-if="homeDashboard.loading">
+                <p class="text-xs py-4 text-center" style="color:#94a3b8;">불러오는 중...</p>
+              </template>
+              <template x-if="!homeDashboard.loading && (!homeDashboard.pendingApprovals || homeDashboard.pendingApprovals.length === 0)">
+                <p class="text-xs py-4 text-center" style="color:#94a3b8;">대기 중인 결재가 없습니다</p>
+              </template>
+              <div class="space-y-2">
+                <template x-for="ap in (homeDashboard.pendingApprovals||[])" :key="ap.id">
+                  <button @click="currentTab='approval'" class="w-full text-left p-2 rounded-lg transition-all" style="background:#f8fafc;border:1px solid #e5eaf4;" onmouseover="this.style.background='#eff6ff'" onmouseout="this.style.background='#f8fafc'">
+                    <p class="text-xs font-semibold truncate" style="color:#1e293b;" x-text="(ap.type || ap.유형 || '결재') + ' · ' + (ap.title || ap.제목 || ap.requestorName || '')"></p>
+                    <p class="text-[10px] mt-1" style="color:#64748b;" x-text="(ap.createdAt||'').slice(0,10) + (ap.requestorName?' · '+ap.requestorName:'')"></p>
+                  </button>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <!-- 자주 쓰는 기능 바로가기 -->
+          <div class="card" style="padding:16px 18px;">
+            <h3 class="text-sm font-bold mb-3" style="color:#1e293b;">자주 쓰는 기능</h3>
+            <div class="grid gap-2" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));">
+              <template x-for="sc in homeShortcuts" :key="sc.id">
+                <button @click="sc.action ? sc.action() : (currentTab = sc.id, localStorage.setItem('currentTab', sc.id))"
+                        class="flex items-center gap-2 p-3 rounded-lg transition-all"
+                        style="background:#f8fafc;border:1px solid #e5eaf4;cursor:pointer;text-align:left;"
+                        onmouseover="this.style.background='#eff6ff';this.style.borderColor='#bfdbfe'" onmouseout="this.style.background='#f8fafc';this.style.borderColor='#e5eaf4'">
+                  <span class="material-symbols-outlined" :style="'font-size:18px;color:'+sc.color" x-text="sc.icon"></span>
+                  <span class="text-xs font-medium" style="color:#1e293b;" x-text="sc.label"></span>
+                </button>
+              </template>
+            </div>
+          </div>
+        </div>
+      </template>
 
       <!-- HISTORY TAB -->
       <template x-if="currentTab === 'history'">
@@ -5188,6 +5341,7 @@ function app() {
 
     // 메뉴 목록 (권한 설정용)
     allMenus: [
+      { id: 'home', label: '홈' },
       { id: 'quote', label: '견적 작성' },
       { id: 'history', label: '견적 목록' },
       { id: 'stats', label: '통계' },
@@ -5252,6 +5406,7 @@ function app() {
       // 플랫 리스트 (하위 호환용) — 권한 필터링된 탭 목록
       if (this.auth.role === 'admin') {
         const adminTabs = [
+          { id: 'home', label: '홈' },
           { id: 'quote', label: '견적 작성' }, { id: 'history', label: '견적 목록' },
           { id: 'pricing', label: '품목 관리' }, { id: 'options', label: '옵션 관리' },
           { id: 'vendors', label: '업체 관리' }, { id: 'admin', label: '사용자 관리' },
@@ -5272,8 +5427,8 @@ function app() {
         return adminTabs;
       }
       const perms = this.auth.permissions || [];
-      const defaultMenus = ['quote', 'history', 'salesLookup', 'workspace', 'gpsAttendance'];
-      const allowed = perms.length > 0 ? perms : defaultMenus;
+      const defaultMenus = ['home', 'quote', 'history', 'salesLookup', 'workspace', 'gpsAttendance'];
+      const allowed = perms.length > 0 ? ['home', ...perms] : defaultMenus;
       const t = [];
       const hasPricing = allowed.includes('pricing_view') || allowed.includes('pricing_edit');
       for (const menu of this.allMenus) {
@@ -5311,7 +5466,44 @@ function app() {
       if (this.auth.isTeamLeader) return true;
       return false;
     },
-    currentTab: (()=>{ const _t=sessionStorage.getItem('currentTab'); if(['attendance_all','attendance_my'].includes(_t)) return 'attendance'; if(!_t||_t==='quote') return 'history'; return _t; })(),
+    currentTab: (()=>{
+      // sessionStorage(레거시) → localStorage 마이그레이션 후 localStorage만 사용
+      let _t = localStorage.getItem('currentTab');
+      if (!_t) {
+        const _legacy = sessionStorage.getItem('currentTab');
+        if (_legacy) { _t = _legacy; localStorage.setItem('currentTab', _legacy); }
+      }
+      console.log('[app] initial currentTab from storage:', _t);
+      if (['attendance_all','attendance_my'].includes(_t)) return 'attendance';
+      if (!_t) return 'home'; // 처음 접속 시 홈 랜딩
+      if (_t === 'quote') return 'history';
+      return _t;
+    })(),
+    // 홈 대시보드 상태
+    homeDashboard: {
+      loading: true,
+      stats: {},
+      recentNotices: [],
+      pendingApprovals: [],
+      todayAttendees: null,
+      lastLoadedAt: 0,
+    },
+    // 홈 바로가기 (권한 있는 것만 자동 필터됨)
+    get homeShortcuts() {
+      const all = [
+        { id: 'quote',        label: '견적 작성',     icon: 'edit_note',      color: '#4f6ef7', action: () => this.openQuotePopup(null) },
+        { id: 'history',      label: '견적 목록',     icon: 'folder_open',    color: '#6c5ce7' },
+        { id: 'salesLookup',  label: '과거단가조회', icon: 'manage_search',  color: '#10b981' },
+        { id: 'salary',       label: '급여 관리',     icon: 'payments',       color: '#f59e0b' },
+        { id: 'attendance',   label: '출퇴근 기록부',icon: 'schedule',       color: '#0ea5e9' },
+        { id: 'notices',      label: '공지사항',      icon: 'campaign',       color: '#ef4444' },
+        { id: 'workspace',    label: '워크스페이스', icon: 'edit_document',  color: '#8b5cf6' },
+        { id: 'settings',     label: '설정',          icon: 'settings',       color: '#64748b' },
+      ];
+      const allowedIds = new Set(this.tabs.map(t => t.id));
+      // 견적 작성은 history 권한 있으면 노출
+      return all.filter(sc => allowedIds.has(sc.id) || (sc.id === 'quote' && allowedIds.has('history')));
+    },
     categories: [], options: [], vendors: [], departments: [], newDeptName: '',
 
     // ════ 팝업 상태 ════
@@ -5811,13 +6003,16 @@ function app() {
     },
 
     async init() {
-      // 탭 변경 시 sessionStorage에 저장 (F5 새로고침 후 복원용)
+      // 탭 변경 시 localStorage에 저장 (F5 새로고침 / 창 재오픈 시 복원용)
       this.$watch('currentTab', (val) => {
         // '견적 작성' 탭은 history로 리다이렉트 (팝업은 버튼으로만 열기)
         if (val === 'quote') {
           this.$nextTick(() => { this.currentTab = 'history'; });
         } else {
-          sessionStorage.setItem('currentTab', val);
+          try {
+            localStorage.setItem('currentTab', val);
+            console.log('[app] $watch currentTab -> saved to localStorage:', val);
+          } catch(e) { console.warn('[app] $watch save failed:', e); }
         }
         // 공지사항 탭 진입 시 뱃지 초기화
         if (val === 'notices') this.navBadges.notices = 0;
@@ -5847,7 +6042,9 @@ function app() {
             }
           } catch(e) { this.salaryAvailable = false; }
           await this.loadData();
-          if (!this.tabs.find(t => t.id === this.currentTab)) this.currentTab = 'quote';
+          if (!this.tabs.find(t => t.id === this.currentTab)) this.currentTab = 'home';
+          // 홈 탭이 현재 보이면 즉시 대시보드 데이터 로드
+          if (this.currentTab === 'home') { try { this.loadHomeDashboard(); } catch(e) {} }
           // 알림 폴링 시작
           this.startNotificationPolling();
         }
@@ -5969,10 +6166,59 @@ function app() {
         this.quoteHeader.vendorManager = this.auth.name + (this.auth.position ? ' ' + this.auth.position : '') + (this.auth.phone ? ' ' + this.auth.phone : '');
         localStorage.setItem('login_userId', this.loginForm.userId);
         await this.loadData();
-        // 현재 탭이 허용되지 않으면 견적 작성으로 이동
-        if (!this.tabs.find(t => t.id === this.currentTab)) this.currentTab = 'quote';
+        // 로그인 직후 홈으로 (홈 탭이 없는 권한이면 첫 허용 탭)
+        if (!this.tabs.find(t => t.id === this.currentTab)) this.currentTab = (this.tabs.find(t=>t.id==='home') ? 'home' : (this.tabs[0]?.id || 'history'));
+        else this.currentTab = 'home'; // 로그인 직후 매번 홈 랜딩
+        if (this.currentTab === 'home') { try { this.loadHomeDashboard(); } catch(e) {} }
       } catch(e) { this.loginForm.error = '연결 오류: ' + e.message; }
       finally { this.loginForm.loading = false; }
+    },
+
+    // ══════════════════════════════════════════════════════
+    // 홈 대시보드 데이터 로드 (dashboard API + 오늘 출근자 병렬)
+    // ══════════════════════════════════════════════════════
+    async loadHomeDashboard(force = false) {
+      // 캐시: 30초 이내 재호출이면 skip (force=true 면 강제)
+      if (!force && this.homeDashboard.lastLoadedAt && (Date.now() - this.homeDashboard.lastLoadedAt < 30_000)) return;
+      this.homeDashboard.loading = true;
+      try {
+        // 오늘 날짜 (YYYY-MM-DD)
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        const todayStr = `${yyyy}-${mm}-${dd}`;
+
+        // 1) /api/dashboard (매출/결재/공지/품목) + /api/attendance/records (오늘 출근자) 병렬
+        const [dashR, attR] = await Promise.allSettled([
+          fetch('/api/dashboard').then(r => r.ok ? r.json() : null),
+          fetch(`/api/attendance/records?from=${todayStr}&to=${todayStr}`).then(r => r.ok ? r.json() : null),
+        ]);
+
+        // 대시보드 응답
+        if (dashR.status === 'fulfilled' && dashR.value) {
+          this.homeDashboard.stats = dashR.value.stats || {};
+          this.homeDashboard.recentNotices = dashR.value.recentNotices || [];
+          this.homeDashboard.pendingApprovals = dashR.value.pendingApprovals || [];
+        }
+        // 오늘 출근자 수 (고유 이름 기준)
+        if (attR.status === 'fulfilled' && attR.value) {
+          const recs = attR.value.records || attR.value.data || (Array.isArray(attR.value) ? attR.value : []);
+          const names = new Set();
+          for (const r of recs) {
+            const n = r.name || r.Name || r.employeeName;
+            if (n) names.add(n);
+          }
+          this.homeDashboard.todayAttendees = names.size;
+        } else {
+          this.homeDashboard.todayAttendees = null;
+        }
+        this.homeDashboard.lastLoadedAt = Date.now();
+      } catch (e) {
+        console.warn('[home] loadHomeDashboard 실패:', e);
+      } finally {
+        this.homeDashboard.loading = false;
+      }
     },
 
     async loadHolidays() {
