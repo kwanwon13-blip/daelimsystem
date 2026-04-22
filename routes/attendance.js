@@ -552,28 +552,7 @@ router.get('/attendance/employees', requireAuth, async (req, res) => {
     }
   }
 
-  // 팀장 부서 필터: admin 아닌 attendance_all 권한자 또는 조직도 리더는 같은 부서 팀원만
-  const userPerms = req.user.permissions || [];
-  let canViewTeamEmp = userPerms.includes('attendance_all');
-  let userDeptIdEmp = req.user.department;
-  if (!canViewTeamEmp && req.user.role !== 'admin') {
-    const uData2 = db.loadUsers();
-    const me2 = (uData2.users || []).find(u => u.userId === req.user.userId);
-    if (me2 && me2.department) {
-      userDeptIdEmp = me2.department;
-      const myDept = (uData2.departments || []).find(d => d.id === me2.department);
-      if (myDept && myDept.leaderId === me2.id) canViewTeamEmp = true;
-    }
-  }
-  if (req.user.role !== 'admin' && canViewTeamEmp && userDeptIdEmp) {
-    const uData = db.loadUsers();
-    const teamNames = (uData.users || [])
-      .filter(u => u.department === userDeptIdEmp && u.status === 'approved')
-      .map(u => u.name);
-    if (!teamNames.includes(req.user.name)) teamNames.push(req.user.name);
-    data = data.filter(emp => teamNames.includes(emp.name || emp.id));
-  }
-
+  // 전직원 공개: 인증된 모든 사용자가 전체 직원 목록 조회 가능 (CEO 요청 2026-04-22)
   res.json(data);
 });
 
@@ -669,32 +648,9 @@ router.get('/attendance/summary', requireAuth, async (req, res) => {
   const lastDay = new Date(y, m, 0).getDate();
   const to = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
 
-  // ── 권한별 필터: admin=전체, 팀장=부서원, 일반=본인 ──
-  let teamMemberNames = null; // null이면 전체, 배열이면 해당 이름만
-  const userPerms = req.user.permissions || [];
-  // attendance_all 권한이 있거나, 조직도에서 부서 리더인 경우 팀 전체 조회 가능
-  let canViewTeam = userPerms.includes('attendance_all');
-  let userDeptId = req.user.department;
+  // 전직원 공개 (CEO 요청 2026-04-22): 모든 사용자 전체 출퇴근 조회 가능
+  let teamMemberNames = null; // null이면 전체
   const uDataOnce = (req.user.role !== 'admin') ? db.loadUsers() : null;
-  if (!canViewTeam && req.user.role !== 'admin') {
-    // 조직도에서 리더인지 자동 감지
-    const me2 = (uDataOnce.users || []).find(u => u.userId === req.user.userId);
-    if (me2 && me2.department) {
-      userDeptId = me2.department;
-      const myDept = (uDataOnce.departments || []).find(d => d.id === me2.department);
-      if (myDept && myDept.leaderId === me2.id) canViewTeam = true;
-    }
-  }
-  if (req.user.role !== 'admin' && canViewTeam && userDeptId) {
-    // 팀장: 같은 부서 팀원만
-    teamMemberNames = (uDataOnce.users || [])
-      .filter(u => u.department === userDeptId && u.status === 'approved')
-      .map(u => u.name);
-    if (!teamMemberNames.includes(req.user.name)) teamMemberNames.push(req.user.name);
-  } else if (req.user.role !== 'admin' && !canViewTeam) {
-    // 일반 직원: 본인만
-    teamMemberNames = [req.user.name];
-  }
 
   let url = `/api/attendance?from=${from}&to=${to}`;
   if (employeeId) url += `&employeeId=${encodeURIComponent(employeeId)}`;
@@ -1202,28 +1158,8 @@ router.get('/attendance/export-excel', requireAdmin, async (req, res) => {
   const lastDay = new Date(y, m, 0).getDate();
   const to = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
 
+  // 전직원 공개 (CEO 요청 2026-04-22): 엑셀 다운로드도 전체 직원 포함
   let teamMemberNames = null;
-  const userPerms = req.user.permissions || [];
-  let canViewTeam2 = userPerms.includes('attendance_all');
-  let userDeptId2 = req.user.department;
-  if (!canViewTeam2 && req.user.role !== 'admin') {
-    const uData2 = db.loadUsers();
-    const me2 = (uData2.users || []).find(u => u.userId === req.user.userId);
-    if (me2 && me2.department) {
-      userDeptId2 = me2.department;
-      const myDept = (uData2.departments || []).find(d => d.id === me2.department);
-      if (myDept && myDept.leaderId === me2.id) canViewTeam2 = true;
-    }
-  }
-  if (req.user.role !== 'admin' && canViewTeam2 && userDeptId2) {
-    const uData = db.loadUsers();
-    teamMemberNames = (uData.users || [])
-      .filter(u => u.department === userDeptId2 && u.status === 'approved')
-      .map(u => u.name);
-    if (!teamMemberNames.includes(req.user.name)) teamMemberNames.push(req.user.name);
-  } else if (req.user.role !== 'admin' && !canViewTeam2) {
-    teamMemberNames = [req.user.name];
-  }
 
   let raw;
   if (req.user.role !== 'admin') {
@@ -1766,21 +1702,7 @@ router.get('/leave/summary', requireAuth, (req, res) => {
       ? (data.employees || [])
       : (data.employees || []).filter(e => !e.resignDate || e.resignDate === '');
 
-    // 팀장 부서 필터: admin 아닌 attendance_all 권한자 → 같은 부서 팀원만
-    const userPerms = req.user.permissions || [];
-    if (req.user.role !== 'admin' && userPerms.includes('attendance_all') && req.user.department) {
-      const uData = db.loadUsers();
-      const myDeptId = req.user.department;
-      const teamNames = (uData.users || [])
-        .filter(u => u.department === myDeptId && u.status === 'approved')
-        .map(u => u.name);
-      if (!teamNames.includes(req.user.name)) teamNames.push(req.user.name);
-      activeEmps = activeEmps.filter(e => teamNames.includes(e.name));
-    }
-    // 일반 직원 (attendance_all 권한 없음) → 본인만
-    else if (req.user.role !== 'admin' && !userPerms.includes('attendance_all')) {
-      activeEmps = activeEmps.filter(e => e.name === req.user.name);
-    }
+    // 전직원 공개 (CEO 요청 2026-04-22): 모든 사용자가 전체 연차 현황 조회 가능
 
     const summary = activeEmps.map(emp => {
       const yearRecords = (data.leaveRecords || []).filter(r =>
