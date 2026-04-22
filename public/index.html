@@ -378,7 +378,7 @@
         </template>
       </div>
     </template>
-    <button @click="currentTab='approval'; approvalNotif.show=false; clearTimeout(approvalNotif._timer)"
+    <button @click="currentTab='approval'; sessionStorage.setItem('currentTab','approval'); approvalNotif.show=false; clearTimeout(approvalNotif._timer)"
       style="width:100%;padding:9px;background:linear-gradient(135deg,#4f6ef7,#6c5ce7);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;"
       onmouseover="this.style.opacity='.9'" onmouseout="this.style.opacity='1'">
       <span class="material-symbols-outlined" style="font-size:15px;">approval</span>
@@ -1604,7 +1604,7 @@
           <div x-show="expandedMenuGroups[group.group]" x-collapse>
             <template x-for="item in group.items" :key="item.id">
               <button
-                @click="item.id === 'quote' ? (currentTab='history', openQuotePopup(null)) : (currentTab = item.id)"
+                @click="item.id === 'quote' ? (currentTab='history', sessionStorage.setItem('currentTab','history'), openQuotePopup(null)) : (currentTab = item.id, sessionStorage.setItem('currentTab', item.id))"
                 :class="(currentTab === item.id || (item.id === 'quote' && quotePopup.open)) ? 'active' : ''"
                 class="sidebar-nav-item w-full text-left" style="padding-left:28px;">
                 <span class="material-symbols-outlined" style="font-size:17px" x-text="item.icon"></span>
@@ -1623,7 +1623,7 @@
       <!-- 독립 메뉴: 시안검색, 연락처 -->
       <div style="margin-top:4px;border-top:1px solid rgba(255,255,255,.06);padding-top:4px;">
         <template x-if="tabs.find(t=>t.id==='design')">
-          <button @click="currentTab = 'design'"
+          <button @click="currentTab = 'design'; sessionStorage.setItem('currentTab','design')"
             :class="currentTab === 'design' ? 'active' : ''"
             class="sidebar-nav-item w-full text-left">
             <span class="material-symbols-outlined" style="font-size:17px">image_search</span>
@@ -1631,7 +1631,7 @@
           </button>
         </template>
         <template x-if="tabs.find(t=>t.id==='contacts')">
-          <button @click="currentTab = 'contacts'"
+          <button @click="currentTab = 'contacts'; sessionStorage.setItem('currentTab','contacts')"
             :class="currentTab === 'contacts' ? 'active' : ''"
             class="sidebar-nav-item w-full text-left">
             <span class="material-symbols-outlined" style="font-size:17px">contacts</span>
