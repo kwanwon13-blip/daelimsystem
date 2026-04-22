@@ -48,6 +48,8 @@
   <script src="https://cdn.jsdelivr.net/npm/@editorjs/quote@2.7.2/dist/quote.umd.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@editorjs/marker@1.4.0/dist/marker.umd.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@editorjs/image@2.9.0/dist/image.umd.js"></script>
+  <!-- 커스텀 블록 (DataTable, Form) -->
+  <script src="/workspace-blocks.js"></script>
   <!-- Alpine.js -->
   <script src="https://unpkg.com/@alpinejs/collapse@3.x.x/dist/cdn.min.js" defer></script>
   <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
@@ -1690,6 +1692,7 @@
             currentTab === 'admin' ? 'group' :
             currentTab === 'stats' ? 'bar_chart' :
             currentTab === 'workspace' ? 'edit_document' :
+            currentTab === 'ai' ? 'smart_toy' :
             currentTab === 'gpsAttendance' ? 'location_on' :
             'settings'
           "></span>
@@ -1704,7 +1707,7 @@
     </header>
 
     <!-- CONTENT AREA -->
-    <div class="flex-1 overflow-y-auto main-scroll" :class="currentTab === 'workspace' || currentTab === 'gpsAttendance' ? '' : 'p-6'" :style="currentTab === 'workspace' ? 'background:#f8f9fb;overflow:hidden;' : currentTab === 'gpsAttendance' ? 'background:#f8f9fb;' : 'background:#eef1f6;'">
+    <div class="flex-1 overflow-y-auto main-scroll" :class="currentTab === 'workspace' || currentTab === 'ai' || currentTab === 'gpsAttendance' ? '' : 'p-6'" :style="(currentTab === 'workspace' || currentTab === 'ai') ? 'background:#f8f9fb;overflow:hidden;' : currentTab === 'gpsAttendance' ? 'background:#f8f9fb;' : 'background:#eef1f6;'">
 
       <!-- QUOTE TAB → history 탭으로만 전환 (팝업은 버튼으로만 열기)
            x-init는 <template>에 걸면 x-if 값과 상관없이 항상 실행되므로 제거.
@@ -4049,6 +4052,12 @@
         <!--INCLUDE:tab-workspace.html-->
       </div>
 
+      <!-- AI 탭 (독립 채팅 공간 · Claude.ai 스타일) -->
+      <!-- x-show 로 유지해서 탭 전환 시에도 현재 스레드/입력/스크롤 보존 -->
+      <div x-show="currentTab === 'ai'" style="height:100%;">
+        <!--INCLUDE:tab-ai.html-->
+      </div>
+
       <template x-if="currentTab === 'gpsAttendance'">
         <!--INCLUDE:tab-gps-attendance.html-->
       </template>
@@ -5594,7 +5603,7 @@ function app() {
   // F5 새로고침 시 복원할 탭 목록 (이 목록에 없는 탭은 새로고침 시 홈으로 이동).
   // - workspace: 편집 중인 견적 작업은 새로고침해도 유지되는 게 실용적
   // - history 는 제외: 항상 견적목록으로만 튀는 문제 때문
-  const REMEMBERED_TABS = ['workspace'];
+  const REMEMBERED_TABS = ['workspace', 'ai'];
 
   return {
     // 기억할 탭 목록을 data에도 노출 (Alpine 내부에서 참조 가능)
@@ -5642,6 +5651,7 @@ function app() {
       { id: 'settings', label: '설정' },
       { id: 'admin', label: '사용자 관리' },
       { id: 'workspace', label: '워크스페이스' },
+      { id: 'ai', label: 'AI 챗' },
       { id: 'gpsAttendance', label: 'GPS 출퇴근' }
     ],
     // 권한 그룹 프리셋 (서버에서 로드)
@@ -5676,6 +5686,7 @@ function app() {
         { id: 'settings', label: '설정', icon: 'settings' },
       ]},
       { group: '나만의 공간', icon: 'auto_awesome', items: [
+        { id: 'ai', label: 'AI 챗', icon: 'smart_toy' },
         { id: 'workspace', label: '워크스페이스', icon: 'edit_document' },
       ]},
     ],
@@ -5698,6 +5709,7 @@ function app() {
           { id: 'stats', label: '통계' }, { id: 'design', label: '시안 검색' },
           { id: 'contacts', label: '연락처' }, { id: 'calendar', label: '캘린더' }, { id: 'notices', label: '공지사항' }, { id: 'settings', label: '설정' },
           { id: 'workspace', label: '워크스페이스' },
+          { id: 'ai', label: 'AI 챗' },
           { id: 'gpsAttendance', label: 'GPS 출퇴근' }
         ];
         // 급여 탭은 salaryAvailable일 때만 노출 (관리자 PC 외엔 존재 자체 비공개)
@@ -5709,7 +5721,7 @@ function app() {
         return adminTabs;
       }
       const perms = this.auth.permissions || [];
-      const defaultMenus = ['home', 'quote', 'history', 'salesLookup', 'workspace', 'gpsAttendance'];
+      const defaultMenus = ['home', 'quote', 'history', 'salesLookup', 'workspace', 'ai', 'gpsAttendance'];
       const allowed = perms.length > 0 ? ['home', ...perms] : defaultMenus;
       const t = [];
       const hasPricing = allowed.includes('pricing_view') || allowed.includes('pricing_edit');

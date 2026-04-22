@@ -225,9 +225,12 @@ router.get('/threads', (req, res) => {
     }
     let scope = uiScope;
     if (scope === 'team' || scope === 'company' || scope === 'invited') scope = 'shared';
-    let projectId = req.query.projectId;
+    // project 또는 projectId 둘 다 허용 (AI 탭은 project, 워크스페이스는 projectId 를 보냄)
+    let projectId = req.query.project !== undefined ? req.query.project : req.query.projectId;
     if (projectId === 'null' || projectId === '') projectId = null;
     else if (projectId !== undefined) projectId = parseInt(projectId, 10);
+    // 프로젝트 지정 시에는 scope 무관하게 본인이 볼 수 있는 모든 스레드를 가져온다
+    if (projectId) scope = isAdmin(req) ? 'all' : 'shared';
 
     const result = ai.threads.list(req.user.userId, {
       projectId, q: req.query.q || '', limit, offset, scope,
@@ -237,7 +240,7 @@ router.get('/threads', (req, res) => {
     // shared 모드일 때 프론트가 넘겨준 구체 scope(team/company/invited) 로 share_mode 매칭
     const projCache = {};
     let items = result.items;
-    if (['team','company','invited'].includes(uiScope)) {
+    if (['team','company','invited'].includes(uiScope) && !projectId) {
       items = items.filter(t => {
         if (!t.project_id) return false;
         if (!projCache[t.project_id]) projCache[t.project_id] = ai.projects.get(t.project_id);
@@ -246,7 +249,7 @@ router.get('/threads', (req, res) => {
       });
     }
 
-    // 각 스레드에 프로젝트 이모지 붙여서 프론트 표시에 사용
+    // 각 스레드에 프로젝트 이모지 + share_mode 붙여서 프론트 표시에 사용
     for (const t of items) {
       if (t.project_id && !projCache[t.project_id]) {
         projCache[t.project_id] = ai.projects.get(t.project_id);
@@ -255,6 +258,9 @@ router.get('/threads', (req, res) => {
       if (pr) {
         t.project_emoji = pr.emoji || '📁';
         t.project_name = pr.name;
+        t.share_mode = pr.share_mode;
+      } else {
+        t.share_mode = 'private';
       }
     }
     res.json({

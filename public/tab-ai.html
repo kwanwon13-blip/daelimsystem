@@ -1,0 +1,987 @@
+<!-- tab-ai.html — AI 전용 탭 (Claude.ai 스타일) -->
+<!-- 좌측: 프로젝트/스레드 목록 + 검색 / 우측: 대화창 + 이미지 생성 -->
+<div>
+<style>
+  .ai-app { display:flex; height:calc(100vh - var(--header-h) - 2px); background:#f8f9fb; overflow:hidden; }
+
+  /* ── 좌측 사이드바 ── */
+  .ai-side { width:280px; background:#fff; border-right:1px solid #e5e7eb; display:flex; flex-direction:column; flex-shrink:0; }
+  .ai-side-head { padding:14px 16px 10px; border-bottom:1px solid #f0f1f3; }
+  .ai-side-title { font-family:'Work Sans',sans-serif; font-size:14px; font-weight:700; color:#1a1d23; display:flex; align-items:center; gap:6px; }
+  .ai-new-btn { margin-top:10px; width:100%; padding:9px 12px; border-radius:10px; background:linear-gradient(135deg,#4f6ef7,#7c3aed); color:#fff; border:none; font-size:12.5px; font-weight:600; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; box-shadow:0 1px 3px rgba(79,110,247,.25); transition:all .15s; }
+  .ai-new-btn:hover { filter:brightness(1.06); transform:translateY(-1px); box-shadow:0 3px 10px rgba(79,110,247,.3); }
+  .ai-side-search { width:100%; margin-top:8px; padding:7px 10px; border:1px solid #e5e7eb; border-radius:8px; font-size:12px; background:#f8f9fb; outline:none; }
+  .ai-side-search:focus { border-color:#4f6ef7; background:#fff; }
+
+  .ai-scope-row { display:flex; flex-wrap:wrap; gap:4px; padding:10px 14px 4px; border-bottom:1px dashed #f0f1f3; }
+  .ai-scope-chip { font-size:10.5px; padding:4px 10px; border:1px solid #e5e7eb; border-radius:99px; background:#fff; cursor:pointer; color:#6b7280; transition:all .12s; white-space:nowrap; font-weight:500; }
+  .ai-scope-chip:hover { background:#f8f9fb; }
+  .ai-scope-chip.active { background:#eef2ff; color:#4338ca; border-color:#c7d2fe; font-weight:600; }
+
+  .ai-side-list { flex:1; overflow-y:auto; padding:6px 8px; }
+  .ai-list-group { color:#9ca3af; font-size:10.5px; font-weight:700; padding:10px 10px 4px; text-transform:uppercase; letter-spacing:0.03em; display:flex; align-items:center; justify-content:space-between; }
+  .ai-list-group .ghost-btn { background:none; border:none; color:#9ca3af; cursor:pointer; font-size:14px; padding:0 4px; border-radius:4px; }
+  .ai-list-group .ghost-btn:hover { color:#4338ca; background:#eef2ff; }
+
+  .ai-thread-item { display:flex; align-items:flex-start; gap:8px; padding:8px 10px; border-radius:8px; cursor:pointer; transition:background .1s; font-size:12px; }
+  .ai-thread-item:hover { background:#f3f4f6; }
+  .ai-thread-item.active { background:#eef2ff; }
+  .ai-thread-item .icon { font-size:13px; margin-top:1px; flex-shrink:0; }
+  .ai-thread-item .info { flex:1; min-width:0; }
+  .ai-thread-item .title { color:#374151; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:500; font-size:12.5px; }
+  .ai-thread-item .meta { font-size:10.5px; color:#9ca3af; }
+  .ai-thread-item.active .title { color:#4338ca; font-weight:600; }
+  .ai-thread-item .scope-badge { font-size:9.5px; padding:1px 6px; border-radius:99px; background:#f3f4f6; color:#6b7280; flex-shrink:0; margin-top:1px; }
+  .ai-thread-item .scope-badge.team { background:#fef3c7; color:#92400e; }
+  .ai-thread-item .scope-badge.company { background:#dcfce7; color:#15803d; }
+  .ai-thread-item .scope-badge.invited { background:#fce7f3; color:#a21caf; }
+
+  .ai-proj-item { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:8px; cursor:pointer; transition:background .1s; font-size:12px; }
+  .ai-proj-item:hover { background:#f3f4f6; }
+  .ai-proj-item.active { background:#eef2ff; }
+  .ai-proj-item .em { font-size:16px; flex-shrink:0; }
+  .ai-proj-item .info { flex:1; min-width:0; }
+  .ai-proj-item .n { color:#374151; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; font-size:12.5px; }
+  .ai-proj-item .s { font-size:10.5px; color:#9ca3af; }
+  .ai-proj-item .badge { font-size:9.5px; padding:1px 6px; border-radius:99px; background:#f3f4f6; color:#6b7280; }
+  .ai-proj-item .badge.team { background:#fef3c7; color:#92400e; }
+  .ai-proj-item .badge.company { background:#dcfce7; color:#15803d; }
+  .ai-proj-item .badge.invited { background:#fce7f3; color:#a21caf; }
+
+  .ai-empty { padding:24px 12px; text-align:center; color:#9ca3af; font-size:11.5px; }
+  .ai-load-more { width:100%; padding:7px; background:#fff; border:1px dashed #e5e7eb; border-radius:8px; font-size:11px; color:#6b7280; cursor:pointer; margin-top:4px; }
+  .ai-load-more:hover { background:#f8f9fb; color:#4338ca; border-color:#c7d2fe; }
+
+  /* ── 우측 메인 대화창 ── */
+  .ai-main { flex:1; display:flex; flex-direction:column; overflow:hidden; min-width:0; }
+  .ai-main-head { padding:12px 20px; background:#fff; border-bottom:1px solid #f0f1f3; display:flex; align-items:center; gap:10px; flex-shrink:0; }
+  .ai-main-head .emj { font-size:20px; }
+  .ai-main-head .titles { flex:1; min-width:0; }
+  .ai-main-head .t { font-family:'Work Sans',sans-serif; font-size:14px; font-weight:700; color:#1a1d23; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ai-main-head .s { font-size:11px; color:#9ca3af; }
+  .ai-main-head .actions { display:flex; gap:6px; align-items:center; }
+  .ai-main-head button { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:5px 10px; font-size:11.5px; color:#6b7280; cursor:pointer; display:inline-flex; align-items:center; gap:4px; }
+  .ai-main-head button:hover { background:#f8f9fb; color:#4338ca; border-color:#c7d2fe; }
+  .ai-main-head button.primary { background:linear-gradient(135deg,#4f6ef7,#3b5ce4); color:#fff; border-color:transparent; }
+  .ai-main-head button.primary:hover { filter:brightness(1.06); color:#fff; }
+
+  .ai-body { flex:1; overflow-y:auto; padding:20px 24px 120px; }
+  .ai-body-inner { max-width:760px; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
+
+  /* 메시지 버블 */
+  .ai-msg { display:flex; gap:10px; align-items:flex-start; }
+  .ai-msg.user { flex-direction:row-reverse; }
+  .ai-msg .avatar { width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0; }
+  .ai-msg.user .avatar { background:#e0e7ff; color:#4338ca; font-weight:700; }
+  .ai-msg.ai .avatar { background:linear-gradient(135deg,#4f6ef7,#7c3aed); color:#fff; }
+  .ai-msg .bubble { padding:12px 14px; border-radius:14px; font-size:13.5px; line-height:1.7; white-space:pre-wrap; max-width:82%; word-break:break-word; }
+  .ai-msg.user .bubble { background:linear-gradient(135deg,#eef2ff,#e0e7ff); color:#1a1d23; border-top-right-radius:4px; }
+  .ai-msg.ai .bubble { background:#fff; color:#374151; border:1px solid #e5e7eb; border-top-left-radius:4px; }
+  .ai-msg.ai.error .bubble { background:#fef2f2; border-color:#fecaca; color:#b91c1c; }
+  .ai-msg .meta { font-size:10px; color:#9ca3af; margin-top:3px; }
+  .ai-msg.user .meta { text-align:right; }
+  .ai-msg .bubble img.ai-img { max-width:100%; border-radius:8px; margin-top:6px; display:block; }
+  .ai-msg .bubble .atts { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+  .ai-msg .bubble .atts .att { font-size:10.5px; padding:3px 8px; background:#f3f4f6; border-radius:99px; color:#4b5563; display:inline-flex; align-items:center; gap:3px; }
+  .ai-msg.user .bubble .atts .att { background:#fff; }
+
+  /* 로딩 애니메이션 */
+  .ai-msg.thinking .bubble { color:#4f6ef7; animation:aiPulse 1.4s ease-in-out infinite; }
+  @keyframes aiPulse { 0%,100%{opacity:.55} 50%{opacity:1} }
+
+  /* 빈 상태 (스레드 없음) */
+  .ai-welcome { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:#6b7280; text-align:center; padding:40px 20px; }
+  .ai-welcome-icon { font-size:56px; margin-bottom:16px; }
+  .ai-welcome-title { font-family:'Work Sans',sans-serif; font-size:22px; font-weight:700; color:#1a1d23; margin-bottom:8px; }
+  .ai-welcome-desc { font-size:13.5px; color:#6b7280; max-width:480px; line-height:1.7; margin-bottom:20px; }
+  .ai-welcome-suggests { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; max-width:560px; width:100%; margin-top:8px; }
+  .ai-welcome-sugg { padding:12px 14px; background:#fff; border:1px solid #e5e7eb; border-radius:12px; font-size:12.5px; color:#374151; cursor:pointer; text-align:left; transition:all .15s; }
+  .ai-welcome-sugg:hover { border-color:#c7d2fe; background:#eef2ff; color:#4338ca; transform:translateY(-1px); box-shadow:0 2px 8px rgba(79,110,247,.1); }
+
+  /* ── 하단 입력 영역 ── */
+  .ai-foot { padding:12px 24px 16px; background:linear-gradient(to top, #f8f9fb 60%, rgba(248,249,251,0)); flex-shrink:0; position:relative; }
+  .ai-foot-inner { max-width:760px; margin:0 auto; }
+  .ai-pending { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:6px; }
+  .ai-pending .chip { font-size:10.5px; padding:3px 9px; background:#fff7ed; border:1px solid #fed7aa; border-radius:99px; color:#92400e; display:inline-flex; align-items:center; gap:4px; }
+  .ai-pending .chip button { background:none; border:none; color:#dc2626; cursor:pointer; padding:0 2px; font-size:11px; }
+
+  .ai-tools { display:flex; gap:6px; margin-bottom:6px; }
+  .ai-tool-btn { padding:5px 10px; background:#fff; border:1px solid #e5e7eb; border-radius:8px; font-size:11.5px; color:#6b7280; cursor:pointer; display:inline-flex; align-items:center; gap:4px; transition:all .1s; }
+  .ai-tool-btn:hover { background:#f8f9fb; border-color:#c7d2fe; color:#4338ca; }
+  .ai-tool-btn.on { background:#eef2ff; color:#4338ca; border-color:#c7d2fe; font-weight:600; }
+  .ai-tool-btn.image-mode.on { background:linear-gradient(135deg,#fef3c7,#fde68a); color:#92400e; border-color:#fcd34d; }
+
+  .ai-input-wrap { position:relative; background:#fff; border:1.5px solid #e5e7eb; border-radius:16px; padding:12px 14px 10px; transition:border-color .15s; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+  .ai-input-wrap:focus-within { border-color:#4f6ef7; box-shadow:0 2px 12px rgba(79,110,247,.12); }
+  .ai-input { width:100%; min-height:36px; max-height:200px; border:none; outline:none; resize:none; font-size:13.5px; line-height:1.6; font-family:inherit; color:#1a1d23; }
+  .ai-input::placeholder { color:#b0b4c1; }
+  .ai-input-actions { display:flex; justify-content:space-between; align-items:center; margin-top:4px; gap:6px; }
+  .ai-input-hint { font-size:10.5px; color:#9ca3af; }
+  .ai-send-btn { padding:8px 16px; background:linear-gradient(135deg,#4f6ef7,#3b5ce4); color:#fff; border:none; border-radius:10px; font-size:12.5px; font-weight:600; cursor:pointer; transition:all .15s; display:inline-flex; align-items:center; gap:4px; }
+  .ai-send-btn:hover { filter:brightness(1.06); transform:translateY(-1px); box-shadow:0 3px 8px rgba(79,110,247,.3); }
+  .ai-send-btn:disabled { opacity:.5; cursor:not-allowed; transform:none; box-shadow:none; }
+  .ai-send-btn.image { background:linear-gradient(135deg,#f59e0b,#d97706); }
+
+  /* ── 프로젝트 모달 ── */
+  .ai-proj-overlay { position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:220; display:flex; align-items:center; justify-content:center; }
+  .ai-proj-modal { background:#fff; border-radius:14px; width:480px; max-width:calc(100vw - 32px); max-height:85vh; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,.2); display:flex; flex-direction:column; }
+  .ai-proj-head { padding:14px 18px; border-bottom:1px solid #f0f1f3; display:flex; align-items:center; justify-content:space-between; }
+  .ai-proj-head h3 { font-family:'Work Sans',sans-serif; font-size:14px; font-weight:700; margin:0; color:#1a1d23; }
+  .ai-proj-body { padding:14px 18px; overflow-y:auto; }
+  .ai-proj-body label { display:block; font-size:11px; font-weight:600; color:#6b7280; margin:10px 0 4px; }
+  .ai-proj-body input[type="text"], .ai-proj-body textarea { width:100%; padding:8px 10px; border:1px solid #e5e7eb; border-radius:8px; font-size:12.5px; outline:none; font-family:inherit; }
+  .ai-proj-body input:focus, .ai-proj-body textarea:focus { border-color:#4f6ef7; }
+  .ai-proj-body textarea { resize:vertical; min-height:60px; }
+  .ai-proj-scope-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:4px; }
+  .ai-proj-scope-grid button { padding:8px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; cursor:pointer; text-align:left; font-size:11.5px; color:#374151; }
+  .ai-proj-scope-grid button.active { background:#eef2ff; border-color:#c7d2fe; color:#4338ca; font-weight:600; }
+  .ai-proj-scope-grid button small { display:block; font-size:10px; color:#9ca3af; font-weight:400; margin-top:1px; }
+  .ai-proj-scope-grid button.active small { color:#6366f1; }
+  .ai-proj-user-list { max-height:220px; overflow-y:auto; margin-top:6px; border:1px solid #f0f1f3; border-radius:8px; padding:4px; }
+  .ai-proj-user { display:flex; align-items:center; gap:8px; padding:6px 10px; border-radius:6px; cursor:pointer; font-size:12px; }
+  .ai-proj-user:hover { background:#f3f4f6; }
+  .ai-proj-user input { accent-color:#4f6ef7; }
+  .ai-proj-user .avatar { width:24px; height:24px; border-radius:50%; background:#e0e7ff; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:#4338ca; }
+  .ai-proj-user .name { flex:1; color:#374151; }
+  .ai-proj-user .dept { font-size:10.5px; color:#9ca3af; }
+  .ai-proj-foot { padding:12px 18px; border-top:1px solid #f0f1f3; display:flex; justify-content:space-between; gap:6px; }
+  .ai-proj-foot .left { display:flex; gap:6px; }
+  .ai-proj-foot button { padding:7px 14px; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; border:1px solid transparent; }
+  .ai-proj-foot button.primary { background:linear-gradient(135deg,#4f6ef7,#3b5ce4); color:#fff; }
+  .ai-proj-foot button.danger { background:#fef2f2; color:#dc2626; border-color:#fecaca; }
+  .ai-proj-foot button.secondary { background:#fff; color:#6b7280; border-color:#e5e7eb; }
+
+  /* 모바일: 사이드바 슬라이드 오버레이 */
+  .ai-mobile-nav { display:none; }
+  .ai-mobile-overlay { display:none; }
+  @media (max-width:768px) {
+    .ai-app { flex-direction:column; position:relative; }
+    .ai-side { position:fixed; left:-300px; top:0; bottom:0; width:280px; z-index:150; transition:left .25s ease; box-shadow:none; }
+    .ai-side.open { left:0; box-shadow:4px 0 24px rgba(0,0,0,.15); }
+    .ai-mobile-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.3); z-index:140; }
+    .ai-mobile-overlay.show { display:block; }
+    .ai-mobile-nav { display:flex; align-items:center; gap:8px; padding:8px 12px; background:#fff; border-bottom:1px solid #e5e7eb; flex-shrink:0; }
+    .ai-mobile-nav button { background:none; border:none; cursor:pointer; padding:6px; border-radius:8px; color:#4b5563; }
+    .ai-mobile-nav-title { flex:1; font-size:13px; font-weight:600; color:#1a1d23; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .ai-body { padding:16px 12px 80px; }
+    .ai-foot { padding:8px 12px 12px; }
+    .ai-main-head { padding:10px 12px; }
+    .ai-welcome-icon { font-size:40px; }
+    .ai-welcome-title { font-size:18px; }
+  }
+</style>
+
+<div class="ai-app" x-data="aiApp()" x-init="init()">
+
+  <!-- 모바일: 사이드바 배경 오버레이 -->
+  <div class="ai-mobile-overlay" :class="mobileSidebar ? 'show' : ''" @click="mobileSidebar=false"></div>
+
+  <!-- 좌측 사이드바 -->
+  <div class="ai-side" :class="mobileSidebar ? 'open' : ''">
+    <div class="ai-side-head">
+      <div class="ai-side-title">
+        <span style="color:#4f6ef7;">🤖</span> AI 챗
+      </div>
+      <button class="ai-new-btn" @click="startNewThread()">
+        <span>+</span> 새 대화
+      </button>
+      <input class="ai-side-search" placeholder="🔍 대화 검색..."
+        x-model="q" @input.debounce.300ms="loadThreads()" />
+    </div>
+
+    <!-- 스코프 칩 -->
+    <div class="ai-scope-row">
+      <button class="ai-scope-chip" :class="scope==='mine' ? 'active' : ''"
+        @click="setScope('mine')">내 대화</button>
+      <button class="ai-scope-chip" :class="scope==='team' ? 'active' : ''"
+        @click="setScope('team')">팀</button>
+      <button class="ai-scope-chip" :class="scope==='company' ? 'active' : ''"
+        @click="setScope('company')">회사</button>
+      <button class="ai-scope-chip" :class="scope==='invited' ? 'active' : ''"
+        @click="setScope('invited')">초대받은</button>
+    </div>
+
+    <div class="ai-side-list">
+      <!-- 프로젝트 섹션 -->
+      <div class="ai-list-group">
+        <span>프로젝트</span>
+        <button class="ghost-btn" @click="openProjectModal()" title="새 프로젝트">+</button>
+      </div>
+      <template x-for="p in projects" :key="p.id">
+        <div class="ai-proj-item" :class="currentProjectId===p.id ? 'active' : ''"
+          @click="selectProject(p.id)">
+          <span class="em" x-text="p.emoji || '📁'"></span>
+          <div class="info">
+            <div class="n" x-text="p.name"></div>
+            <div class="s" x-text="(p.thread_count||0) + '개 대화 · ' + p.owner_name"></div>
+          </div>
+          <span class="badge" :class="p.share_mode" x-text="scopeBadges[p.share_mode] || p.share_mode"></span>
+        </div>
+      </template>
+      <div x-show="projects.length===0" class="ai-empty" style="padding:10px 8px;">
+        프로젝트가 없습니다
+      </div>
+
+      <!-- 스레드 섹션 -->
+      <div class="ai-list-group">
+        <span x-text="'대화 · ' + (scopeLabels[scope] || '')"></span>
+      </div>
+      <template x-for="t in threads" :key="t.id">
+        <div class="ai-thread-item" :class="currentThreadId===t.id ? 'active' : ''"
+          @click="openThread(t.id)">
+          <span class="icon" x-text="t.project_emoji || '💬'"></span>
+          <div class="info">
+            <div class="title" x-text="t.title || '(제목 없음)'"></div>
+            <div class="meta">
+              <span x-text="formatDate(t.last_message_at || t.created_at)"></span>
+              <template x-if="t.project_name">
+                <span> · <span x-text="t.project_name"></span></span>
+              </template>
+            </div>
+          </div>
+          <template x-if="t.share_mode && t.share_mode !== 'private'">
+            <span class="scope-badge" :class="t.share_mode" x-text="scopeBadges[t.share_mode] || t.share_mode"></span>
+          </template>
+        </div>
+      </template>
+      <div x-show="threads.length===0 && !loadingThreads" class="ai-empty">
+        대화가 없습니다
+      </div>
+      <button x-show="hasMore" class="ai-load-more" @click="loadMoreThreads()">더 보기</button>
+    </div>
+  </div>
+
+  <!-- 우측 메인 대화창 -->
+  <div class="ai-main">
+
+    <!-- 모바일 네비 -->
+    <div class="ai-mobile-nav">
+      <button @click="mobileSidebar=true" title="목록">
+        <span class="material-symbols-outlined" style="font-size:20px;">menu</span>
+      </button>
+      <div class="ai-mobile-nav-title"
+        x-text="currentThread ? (currentThread.title || '대화') : '새 대화'"></div>
+      <button @click="startNewThread()" title="새 대화">
+        <span style="font-size:18px;">+</span>
+      </button>
+    </div>
+
+    <!-- 헤더 (스레드 선택됐을 때) -->
+    <div class="ai-main-head" x-show="currentThread">
+      <span class="emj" x-text="currentThread && (currentThread.project_emoji || '💬')"></span>
+      <div class="titles">
+        <div class="t" x-text="currentThread && (currentThread.title || '(제목 없음)')"></div>
+        <div class="s">
+          <span x-text="currentMessages.length + '턴'"></span>
+          <template x-if="currentThread && currentThread.project_name">
+            <span> · 📁 <span x-text="currentThread.project_name"></span></span>
+          </template>
+        </div>
+      </div>
+      <div class="actions">
+        <button @click="startNewThread()">+ 새 대화</button>
+      </div>
+    </div>
+
+    <!-- 본문: 스레드 비어있으면 환영 화면 / 있으면 메시지 버블 목록 -->
+    <div class="ai-body">
+      <template x-if="!currentThread && currentMessages.length === 0">
+        <div class="ai-welcome">
+          <div class="ai-welcome-icon">🤖</div>
+          <div class="ai-welcome-title">무엇을 도와드릴까요?</div>
+          <div class="ai-welcome-desc">
+            질문을 하거나, 파일을 첨부해 분석하거나, 이미지를 생성해 보세요.<br>
+            대화는 자동으로 기록되며 프로젝트별로 분류하거나 팀원과 공유할 수 있습니다.
+          </div>
+          <div class="ai-welcome-suggests">
+            <button class="ai-welcome-sugg" @click="draft='이번 주 업무 일지를 정리해줘'">📝 업무 일지 정리</button>
+            <button class="ai-welcome-sugg" @click="draft='이 엑셀 파일을 요약해줘'; $refs.fileInput.click()">📊 엑셀 분석</button>
+            <button class="ai-welcome-sugg" @click="imageMode=true; draft='밝고 깔끔한 사무실 책상에 노트북과 커피'">🎨 이미지 생성</button>
+            <button class="ai-welcome-sugg" @click="draft='고객에게 납품 완료 안내 메일을 정중하게 써줘'">📧 이메일 작성</button>
+          </div>
+        </div>
+      </template>
+
+      <div class="ai-body-inner" x-show="currentThread || currentMessages.length > 0">
+        <template x-for="(m, mi) in currentMessages" :key="m.id || ('m-'+mi)">
+          <div class="ai-msg" :class="m.role==='user' ? 'user' : (m.status==='error' ? 'ai error' : 'ai')">
+            <div class="avatar">
+              <template x-if="m.role === 'user'"><span x-text="(getAuth().name || '나').charAt(0)"></span></template>
+              <template x-if="m.role !== 'user'"><span>✦</span></template>
+            </div>
+            <div style="flex:1; min-width:0;">
+              <div class="bubble">
+                <template x-if="m.kind==='image' && m.image_url">
+                  <div>
+                    <img class="ai-img" :src="m.image_url" :alt="m.content || 'AI 이미지'" />
+                    <div x-show="m.content" x-text="m.content" style="margin-top:6px;font-size:12px;color:#6b7280;"></div>
+                  </div>
+                </template>
+                <template x-if="m.kind !== 'image'">
+                  <div x-text="m.content"></div>
+                </template>
+                <template x-if="m.attachments_parsed && m.attachments_parsed.length">
+                  <div class="atts">
+                    <template x-for="a in m.attachments_parsed" :key="a.id">
+                      <span class="att">📎 <span x-text="a.original_name || ('#'+a.id)"></span></span>
+                    </template>
+                  </div>
+                </template>
+              </div>
+              <div class="meta" x-text="formatDate(m.created_at)"></div>
+            </div>
+          </div>
+        </template>
+        <div class="ai-msg ai thinking" x-show="loading">
+          <div class="avatar">✦</div>
+          <div class="bubble" x-text="imageMode ? '이미지를 그리고 있어요... (최대 3분)' : 'Claude가 생각하는 중...'"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 하단 입력 -->
+    <div class="ai-foot">
+      <div class="ai-foot-inner">
+        <!-- 첨부 대기 -->
+        <div x-show="pendingAttachments.length > 0" class="ai-pending">
+          <template x-for="a in pendingAttachments" :key="a.id">
+            <span class="chip">
+              <span x-text="'📎 ' + (a.original_name || ('#'+a.id))"></span>
+              <button @click="removeAttachment(a.id)" title="제거">✕</button>
+            </span>
+          </template>
+        </div>
+
+        <!-- 툴바 -->
+        <div class="ai-tools">
+          <input type="file" x-ref="fileInput" style="display:none"
+            @change="uploadAttachment($event)"
+            accept=".xlsx,.xls,.pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.docx,.doc,.csv" />
+          <button class="ai-tool-btn" @click="$refs.fileInput.click()"
+            :disabled="loading" title="엑셀/PDF/이미지/텍스트 첨부">
+            📎 파일
+          </button>
+          <button class="ai-tool-btn image-mode" :class="imageMode ? 'on' : ''"
+            @click="imageMode = !imageMode" title="이미지 생성 모드">
+            🎨 <span x-text="imageMode ? '이미지 모드' : '이미지'"></span>
+          </button>
+          <button class="ai-tool-btn" :class="currentProjectId ? 'on' : ''"
+            @click="showProjectPicker = !showProjectPicker" title="프로젝트 선택">
+            📁 <span x-text="currentProjectId ? (projects.find(p=>p.id===currentProjectId)?.name || '프로젝트') : '프로젝트'"></span>
+          </button>
+        </div>
+
+        <!-- 프로젝트 선택 드롭다운 -->
+        <div x-show="showProjectPicker" x-transition @click.away="showProjectPicker=false"
+          style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:8px;margin-bottom:6px;max-height:240px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.08);">
+          <div class="ai-proj-item" @click="currentProjectId=null; showProjectPicker=false;">
+            <span class="em">❌</span>
+            <div class="info"><div class="n">프로젝트 없음</div></div>
+          </div>
+          <template x-for="p in projects" :key="p.id">
+            <div class="ai-proj-item" :class="currentProjectId===p.id ? 'active' : ''"
+              @click="currentProjectId=p.id; showProjectPicker=false;">
+              <span class="em" x-text="p.emoji || '📁'"></span>
+              <div class="info">
+                <div class="n" x-text="p.name"></div>
+                <div class="s" x-text="p.owner_name || ''"></div>
+              </div>
+              <span class="badge" :class="p.share_mode" x-text="scopeBadges[p.share_mode] || p.share_mode"></span>
+            </div>
+          </template>
+          <div x-show="projects.length===0" class="ai-empty">
+            프로젝트 없음. <a href="#" @click.prevent="openProjectModal(); showProjectPicker=false;" style="color:#4338ca;">+ 만들기</a>
+          </div>
+        </div>
+
+        <!-- 텍스트 입력 -->
+        <div class="ai-input-wrap">
+          <textarea class="ai-input" x-ref="inputArea"
+            :placeholder="imageMode ? '생성할 이미지를 설명해 주세요. 예: 밝고 깔끔한 사무실 책상에 노트북과 커피' : '무엇이든 물어보세요. Shift+Enter 로 줄바꿈.'"
+            x-model="draft"
+            @input="autoGrow($event)"
+            @keydown.enter.prevent="onEnter($event)"
+            rows="1"></textarea>
+          <div class="ai-input-actions">
+            <div class="ai-input-hint">
+              <span x-show="!imageMode">Enter 전송 · Shift+Enter 줄바꿈</span>
+              <span x-show="imageMode">🎨 Gemini + nanobanana 로 그립니다 (최대 3분)</span>
+            </div>
+            <button class="ai-send-btn" :class="imageMode ? 'image' : ''"
+              @click="send()"
+              :disabled="loading || !draft.trim()">
+              <span x-show="!loading && !imageMode">전송 ↑</span>
+              <span x-show="!loading && imageMode">🎨 그리기</span>
+              <span x-show="loading">…</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 프로젝트 편집/생성 모달 -->
+  <template x-if="showProjectModal">
+    <div class="ai-proj-overlay" @click.self="closeProjectModal()">
+      <div class="ai-proj-modal">
+        <div class="ai-proj-head">
+          <h3 x-text="projectForm.id ? '프로젝트 편집' : '새 프로젝트'"></h3>
+          <button @click="closeProjectModal()" style="background:none;border:none;font-size:20px;color:#9ca3af;cursor:pointer;">×</button>
+        </div>
+        <div class="ai-proj-body">
+          <label>이모지</label>
+          <input type="text" x-model="projectForm.emoji" maxlength="4" placeholder="📁"
+            style="width:80px;text-align:center;font-size:22px;" />
+
+          <label>프로젝트명</label>
+          <input type="text" x-model="projectForm.name" placeholder="예: 현대리바트 작업 / 2026년 1분기 견적" />
+
+          <label>설명 (선택)</label>
+          <textarea x-model="projectForm.description" placeholder="이 프로젝트는 어떤 대화를 모아두는 곳인가요?"></textarea>
+
+          <label>공유 범위</label>
+          <div class="ai-proj-scope-grid">
+            <button :class="projectForm.share_mode==='private' ? 'active' : ''"
+              @click="projectForm.share_mode='private'">
+              🔒 나만
+              <small>본인만 접근</small>
+            </button>
+            <button :class="projectForm.share_mode==='team' ? 'active' : ''"
+              @click="projectForm.share_mode='team'">
+              👥 팀
+              <small>같은 부서 사람들</small>
+            </button>
+            <button :class="projectForm.share_mode==='company' ? 'active' : ''"
+              @click="projectForm.share_mode='company'">
+              🏢 회사 전체
+              <small>모든 직원</small>
+            </button>
+            <button :class="projectForm.share_mode==='invited' ? 'active' : ''"
+              @click="projectForm.share_mode='invited'">
+              ✉️ 초대
+              <small>지정한 사람만</small>
+            </button>
+          </div>
+
+          <template x-if="projectForm.share_mode==='invited'">
+            <div>
+              <label>초대할 사람</label>
+              <div class="ai-proj-user-list">
+                <template x-for="u in shareUserList" :key="u.userId">
+                  <label class="ai-proj-user" x-show="u.userId !== getAuth().userId">
+                    <input type="checkbox" :value="u.userId"
+                      :checked="projectForm.member_ids.includes(u.userId)"
+                      @change="toggleProjectMember(u.userId)" />
+                    <div class="avatar" x-text="(u.name || '?').charAt(0)"></div>
+                    <span class="name" x-text="u.name"></span>
+                    <span class="dept" x-text="u.dept || u.department || ''"></span>
+                  </label>
+                </template>
+                <div x-show="shareUserList.length <= 1" style="padding:10px;text-align:center;color:#9ca3af;font-size:11.5px;">
+                  등록된 직원이 없습니다
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+        <div class="ai-proj-foot">
+          <div class="left">
+            <button class="danger" x-show="projectForm.id" @click="deleteProject()">삭제</button>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button class="secondary" @click="closeProjectModal()">취소</button>
+            <button class="primary" @click="saveProject()" :disabled="!projectForm.name.trim()">
+              <span x-text="projectForm.id ? '저장' : '만들기'"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+</div>
+
+<script>
+function aiApp() {
+  return {
+    // 준비 상태
+    aiReady: false,
+
+    // 목록
+    threads: [],
+    projects: [],
+    q: '',
+    scope: 'mine',   // 'mine' | 'team' | 'company' | 'invited'
+    scopeLabels: { mine:'내 대화', team:'팀', company:'회사', invited:'초대받은' },
+    scopeBadges: { private:'나만', team:'팀', company:'회사', invited:'초대' },
+    limit: 30,
+    offset: 0,
+    hasMore: false,
+    loadingThreads: false,
+
+    // 현재 스레드
+    currentThreadId: null,
+    currentThread: null,
+    currentMessages: [],
+
+    // 입력
+    draft: '',
+    imageMode: false,
+    loading: false,
+    pendingAttachments: [],
+    currentProjectId: null,
+    showProjectPicker: false,
+
+    // 프로젝트 모달
+    showProjectModal: false,
+    projectForm: { id:null, name:'', emoji:'📁', description:'', share_mode:'private', member_ids:[] },
+    shareUserList: [],
+
+    // 모바일
+    mobileSidebar: false,
+
+    getAuth() {
+      try {
+        const appEl = document.querySelector('[x-data="app()"]');
+        if (appEl && appEl.__x) return appEl.__x.$data.auth;
+        if (appEl && appEl._x_dataStack) return appEl._x_dataStack[0].auth;
+      } catch(e) {}
+      return { userId: 'admin', name: '관리자' };
+    },
+
+    async init() {
+      // /api/ai/health 체크
+      try {
+        const r = await fetch('/api/ai/health');
+        if (r.ok) {
+          const d = await r.json();
+          this.aiReady = !!d.ready;
+        }
+      } catch(e) { this.aiReady = false; }
+
+      if (!this.aiReady) return;
+
+      await this.loadThreads();
+      await this.loadProjects();
+
+      // 마지막 스레드 복원 (워크스페이스와 별개 키)
+      try {
+        const savedTid = localStorage.getItem('aiTab:lastThreadId');
+        if (savedTid && this.threads.some(t => String(t.id)===String(savedTid))) {
+          await this.openThread(savedTid);
+        }
+      } catch(e) {}
+    },
+
+    async setScope(scope) {
+      this.scope = scope;
+      this.offset = 0;
+      this.threads = [];
+      await this.loadThreads();
+    },
+
+    async loadThreads() {
+      if (!this.aiReady) return;
+      this.loadingThreads = true;
+      try {
+        const params = new URLSearchParams({
+          scope: this.scope,
+          q: this.q || '',
+          limit: String(this.limit),
+          offset: '0'
+        });
+        const r = await fetch('/api/ai/threads?' + params.toString());
+        const d = await r.json();
+        if (d.ok) {
+          this.threads = d.threads || [];
+          this.offset = this.threads.length;
+          this.hasMore = !!d.hasMore;
+        }
+      } catch(e) { console.error('[ai-tab] loadThreads:', e); }
+      this.loadingThreads = false;
+    },
+
+    async loadMoreThreads() {
+      if (!this.aiReady || !this.hasMore) return;
+      try {
+        const params = new URLSearchParams({
+          scope: this.scope,
+          q: this.q || '',
+          limit: String(this.limit),
+          offset: String(this.offset)
+        });
+        const r = await fetch('/api/ai/threads?' + params.toString());
+        const d = await r.json();
+        if (d.ok) {
+          this.threads = this.threads.concat(d.threads || []);
+          this.offset = this.threads.length;
+          this.hasMore = !!d.hasMore;
+        }
+      } catch(e) {}
+    },
+
+    async loadProjects() {
+      if (!this.aiReady) return;
+      try {
+        const r = await fetch('/api/ai/projects');
+        const d = await r.json();
+        if (d.ok) this.projects = d.projects || [];
+      } catch(e) { console.error('[ai-tab] loadProjects:', e); }
+    },
+
+    async openThread(threadId) {
+      if (!this.aiReady) return;
+      try {
+        const r = await fetch('/api/ai/threads/' + encodeURIComponent(threadId));
+        const d = await r.json();
+        if (d.ok) {
+          this.currentThreadId = d.thread.id;
+          this.currentThread = d.thread;
+          this.currentMessages = d.messages || [];
+          // 첨부 hydrated 필드로 통일
+          for (const m of this.currentMessages) {
+            if (!m.attachments_parsed && m.attachments) {
+              try {
+                const a = typeof m.attachments === 'string' ? JSON.parse(m.attachments) : m.attachments;
+                m.attachments_parsed = Array.isArray(a) ? a : [];
+              } catch(e) { m.attachments_parsed = []; }
+            }
+          }
+          try { localStorage.setItem('aiTab:lastThreadId', String(d.thread.id)); } catch(e) {}
+          this.mobileSidebar = false;
+          this.$nextTick(() => this.scrollToBottom());
+        }
+      } catch(e) { console.error('[ai-tab] openThread:', e); }
+    },
+
+    selectProject(projectId) {
+      // 프로젝트 클릭 → 해당 프로젝트의 스레드만 필터링
+      this.currentProjectId = projectId;
+      this.scope = 'mine';  // 스코프 초기화
+      this.offset = 0;
+      this.threads = [];
+      this.loadProjectThreads(projectId);
+    },
+
+    async loadProjectThreads(projectId) {
+      if (!this.aiReady) return;
+      this.loadingThreads = true;
+      try {
+        const params = new URLSearchParams({
+          project: String(projectId),
+          q: this.q || '',
+          limit: String(this.limit),
+          offset: '0'
+        });
+        const r = await fetch('/api/ai/threads?' + params.toString());
+        const d = await r.json();
+        if (d.ok) {
+          this.threads = d.threads || [];
+          this.offset = this.threads.length;
+          this.hasMore = !!d.hasMore;
+        }
+      } catch(e) {}
+      this.loadingThreads = false;
+    },
+
+    startNewThread() {
+      this.currentThreadId = null;
+      this.currentThread = null;
+      this.currentMessages = [];
+      this.pendingAttachments = [];
+      this.draft = '';
+      this.imageMode = false;
+      try { localStorage.removeItem('aiTab:lastThreadId'); } catch(e) {}
+      this.$nextTick(() => { try { this.$refs.inputArea && this.$refs.inputArea.focus(); } catch(e){} });
+    },
+
+    async uploadAttachment(ev) {
+      const file = ev.target.files && ev.target.files[0];
+      if (!file) return;
+      if (file.size > 20 * 1024 * 1024) {
+        alert('20MB 이하 파일만 첨부할 수 있습니다.');
+        ev.target.value = '';
+        return;
+      }
+      try {
+        const form = new FormData();
+        form.append('file', file);
+        const r = await fetch('/api/ai/attachments', { method:'POST', body: form });
+        const d = await r.json();
+        if (d.ok) {
+          this.pendingAttachments.push(d.attachment);
+        } else {
+          alert(d.error || '첨부 업로드 실패');
+        }
+      } catch(e) {
+        alert('첨부 업로드 실패: ' + e.message);
+      }
+      ev.target.value = '';
+    },
+
+    removeAttachment(id) {
+      this.pendingAttachments = this.pendingAttachments.filter(a => a.id !== id);
+    },
+
+    onEnter(e) {
+      if (e.shiftKey) {
+        // 줄바꿈 허용
+        const pos = e.target.selectionStart;
+        this.draft = this.draft.slice(0, pos) + '\n' + this.draft.slice(pos);
+        this.$nextTick(() => {
+          e.target.selectionStart = e.target.selectionEnd = pos + 1;
+          this.autoGrow(e);
+        });
+        return;
+      }
+      this.send();
+    },
+
+    autoGrow(e) {
+      const ta = e.target;
+      ta.style.height = 'auto';
+      ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
+    },
+
+    async send() {
+      const prompt = (this.draft || '').trim();
+      if (!prompt || this.loading) return;
+      if (!this.aiReady) {
+        alert('AI 기능이 서버에서 비활성화 상태입니다. 서버 관리자에게 문의하세요.');
+        return;
+      }
+
+      if (this.imageMode) {
+        return this.sendImage(prompt);
+      }
+
+      this.loading = true;
+
+      // 낙관적 UI: 유저 메시지 즉시 추가
+      const userMsg = {
+        id: 'tmp-' + Date.now(),
+        role: 'user',
+        kind: 'text',
+        content: prompt,
+        created_at: new Date().toISOString().replace('T',' ').slice(0,19),
+        attachments_parsed: this.pendingAttachments.map(a => ({ id:a.id, original_name:a.original_name }))
+      };
+      this.currentMessages.push(userMsg);
+      const attIds = this.pendingAttachments.map(a => a.id);
+      const projectId = this.currentProjectId;
+      this.draft = '';
+      // textarea 높이 초기화
+      this.$nextTick(() => {
+        if (this.$refs.inputArea) this.$refs.inputArea.style.height = 'auto';
+        this.scrollToBottom();
+      });
+
+      try {
+        const res = await fetch('/api/ai/chat', {
+          method:'POST',
+          headers: { 'Content-Type':'application/json' },
+          body: JSON.stringify({
+            threadId: this.currentThreadId || null,
+            projectId: projectId,
+            prompt: prompt,
+            attachmentIds: attIds
+          })
+        });
+        const d = await res.json();
+        if (d.ok) {
+          if (d.threadId) {
+            await this.openThread(d.threadId);
+            try { localStorage.setItem('aiTab:lastThreadId', String(d.threadId)); } catch(e){}
+          }
+          await this.loadThreads();
+          this.pendingAttachments = [];
+        } else {
+          this.currentMessages.push({
+            id: 'err-' + Date.now(),
+            role: 'assistant', kind:'text',
+            content: d.error || 'AI 요청 실패',
+            status: 'error',
+            created_at: new Date().toISOString().replace('T',' ').slice(0,19)
+          });
+        }
+      } catch(e) {
+        this.currentMessages.push({
+          id: 'err-' + Date.now(),
+          role: 'assistant', kind:'text',
+          content: '서버 연결 실패: ' + e.message,
+          status: 'error',
+          created_at: new Date().toISOString().replace('T',' ').slice(0,19)
+        });
+      }
+      this.loading = false;
+      this.$nextTick(() => this.scrollToBottom());
+    },
+
+    async sendImage(prompt) {
+      this.loading = true;
+
+      // 낙관적 UI: 유저 메시지
+      const userMsg = {
+        id: 'tmp-' + Date.now(),
+        role: 'user',
+        kind: 'text',
+        content: '🎨 ' + prompt,
+        created_at: new Date().toISOString().replace('T',' ').slice(0,19)
+      };
+      this.currentMessages.push(userMsg);
+      const projectId = this.currentProjectId;
+      this.draft = '';
+      this.$nextTick(() => {
+        if (this.$refs.inputArea) this.$refs.inputArea.style.height = 'auto';
+        this.scrollToBottom();
+      });
+
+      try {
+        const res = await fetch('/api/ai/chat-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            threadId: this.currentThreadId || null,
+            projectId: projectId,
+            prompt: prompt
+          })
+        });
+        const d = await res.json();
+        if (d.ok) {
+          if (d.threadId) {
+            await this.openThread(d.threadId);
+            try { localStorage.setItem('aiTab:lastThreadId', String(d.threadId)); } catch(e){}
+          }
+          await this.loadThreads();
+        } else {
+          this.currentMessages.push({
+            id: 'err-' + Date.now(),
+            role: 'assistant', kind:'text',
+            content: d.error || '이미지 생성 실패' + (d.hint ? ' — ' + d.hint : ''),
+            status: 'error',
+            created_at: new Date().toISOString().replace('T',' ').slice(0,19)
+          });
+        }
+      } catch(e) {
+        this.currentMessages.push({
+          id: 'err-' + Date.now(),
+          role: 'assistant', kind:'text',
+          content: '이미지 생성 실패: ' + e.message,
+          status: 'error',
+          created_at: new Date().toISOString().replace('T',' ').slice(0,19)
+        });
+      }
+      this.loading = false;
+      this.$nextTick(() => this.scrollToBottom());
+    },
+
+    scrollToBottom() {
+      try {
+        const body = document.querySelector('.ai-body');
+        if (body) body.scrollTop = body.scrollHeight;
+      } catch(e) {}
+    },
+
+    // ── 프로젝트 모달 ──
+    openProjectModal(project) {
+      if (project) {
+        this.projectForm = {
+          id: project.id,
+          name: project.name || '',
+          emoji: project.emoji || '📁',
+          description: project.description || '',
+          share_mode: project.share_mode || 'private',
+          member_ids: Array.isArray(project.member_ids) ? [...project.member_ids] : []
+        };
+      } else {
+        this.projectForm = { id:null, name:'', emoji:'📁', description:'', share_mode:'private', member_ids:[] };
+      }
+      this.loadShareUserList();
+      this.showProjectModal = true;
+    },
+
+    closeProjectModal() {
+      this.showProjectModal = false;
+    },
+
+    async loadShareUserList() {
+      if (this.shareUserList && this.shareUserList.length) return;
+      try {
+        // AI 라우터의 /users 엔드포인트 (기존 /api/workspace/users 와 동일 형식)
+        const r = await fetch('/api/ai/users');
+        const d = await r.json();
+        if (d.ok && Array.isArray(d.users)) { this.shareUserList = d.users; return; }
+      } catch(e) {}
+      // 폴백: 워크스페이스 엔드포인트
+      try {
+        const r = await fetch('/api/workspace/users');
+        const d = await r.json();
+        if (d.ok) this.shareUserList = d.users;
+      } catch(e) {}
+    },
+
+    toggleProjectMember(userId) {
+      const idx = this.projectForm.member_ids.indexOf(userId);
+      if (idx >= 0) this.projectForm.member_ids.splice(idx, 1);
+      else this.projectForm.member_ids.push(userId);
+    },
+
+    async saveProject() {
+      if (!this.projectForm.name.trim()) return;
+      try {
+        const isEdit = !!this.projectForm.id;
+        const url = isEdit ? ('/api/ai/projects/' + this.projectForm.id) : '/api/ai/projects';
+        const method = isEdit ? 'PUT' : 'POST';
+        const r = await fetch(url, {
+          method,
+          headers: { 'Content-Type':'application/json' },
+          body: JSON.stringify({
+            name: this.projectForm.name.trim(),
+            emoji: this.projectForm.emoji || '📁',
+            description: this.projectForm.description || '',
+            share_mode: this.projectForm.share_mode || 'private',
+            member_ids: this.projectForm.member_ids || []
+          })
+        });
+        const d = await r.json();
+        if (d.ok) {
+          this.showProjectModal = false;
+          await this.loadProjects();
+        } else {
+          alert(d.error || '저장 실패');
+        }
+      } catch(e) { alert('저장 실패: ' + e.message); }
+    },
+
+    async deleteProject() {
+      if (!this.projectForm.id) return;
+      if (!confirm('이 프로젝트를 삭제할까요? (소속 대화는 프로젝트 없음으로 이동됩니다)')) return;
+      try {
+        const r = await fetch('/api/ai/projects/' + this.projectForm.id, { method:'DELETE' });
+        const d = await r.json();
+        if (d.ok) {
+          this.showProjectModal = false;
+          if (this.currentProjectId === this.projectForm.id) this.currentProjectId = null;
+          await this.loadProjects();
+          await this.loadThreads();
+        } else {
+          alert(d.error || '삭제 실패');
+        }
+      } catch(e) { alert('삭제 실패: ' + e.message); }
+    },
+
+    formatDate(d) {
+      if (!d) return '';
+      const date = new Date(d);
+      const now = new Date();
+      const diff = now - date;
+      if (diff < 60000) return '방금 전';
+      if (diff < 3600000) return Math.floor(diff/60000) + '분 전';
+      if (diff < 86400000) return Math.floor(diff/3600000) + '시간 전';
+      if (diff < 604800000) return Math.floor(diff/86400000) + '일 전';
+      return String(d).slice(0,10);
+    }
+  };
+}
+</script>
+</div>

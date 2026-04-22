@@ -114,3 +114,138 @@ git-pull-server.bat
 ## 완료 시각: 2026-04-22 22:53 KST
 
 주무세요! 아침에 `_배포.bat` 만 돌리시면 됩니다. 🌙
+
+---
+
+# 2차 개편 — AI 탭 분리 + 워크스페이스 슬림화
+
+**시작**: 2026-04-22 23:40 KST 경
+**범위**: AI를 독립 메뉴로 분리 (Claude.ai 스타일) + 워크스페이스 AI 패널은 "작성 도우미" 전용으로 축소
+
+## 배경 — 사용자 피드백 원문
+> "워크스페이스 / ai 따로 기능 나뉘어야 하는거아냐???? 이미지 생성은 ai 기능에 따로 들어가야 할거같은데 워크스페이스의 클로드는 작성을 요청할려면 필요해서 없어지면 안될거같고 그리고 워크스페이스 기능이 노션처럼 데이터베이스나 폼 이런거 추가 가능하게 되어있어야 하는거아닌가??? 이건 반쪽짜린데"
+
+→ **반쪽짜리 탈출 작전**. AI는 독립된 전용 공간으로, 워크스페이스는 노션스러운 문서/DB 편집기로 각자의 깊이를 가지도록 분리.
+
+## 완료 항목
+
+### [x] AI 탭 신설 (독립 메뉴 · Claude.ai 스타일)
+- `public/tab-ai.html` 신규 (~900줄)
+- 좌측 280px 사이드바: 검색 / 스코프 칩(내·팀·회사·초대·프로젝트) / 프로젝트 목록 / 스레드 목록 / "더 보기"
+- 메인 채팅 영역: 환영 화면(4개 제안 카드) · 말풍선 메시지 · "+ 새 대화" · 첨부 칩 · 이미지 생성 토글(`imageMode`)
+- 프로젝트 편집 모달 (4단계 공유 + 초대 체크리스트)
+- `aiApp()` Alpine 컴포넌트 · 48 키
+- `localStorage: aiTab:lastThreadId` 로 F5 시 마지막 스레드 복원
+- 이미지 생성은 `imageMode` 토글 → send 시 `/api/ai/chat-image` 로 분기
+
+### [x] index.html 메뉴 등록
+- menuGroups "나만의 공간" 에 `{ id:'ai', label:'AI 챗', icon:'smart_toy' }` 추가
+- allMenus · admin tabs · defaultMenus · REMEMBERED_TABS 전부 반영
+- 헤더 아이콘 삼항연산자에 `ai` 추가
+- content area `(workspace || ai) ? 'background:#f8f9fb;overflow:hidden;'`
+- 워크스페이스 SSI 바로 뒤에 `<!--INCLUDE:tab-ai.html-->` 블록
+
+### [x] routes/ai-history.js 확장
+- GET /threads 가 `?project=<id>` 받도록 (기존 `projectId=` 와 양립)
+- 각 스레드에 `share_mode` 필드 부여 (프로젝트에서 상속 · 없으면 'private')
+- shared 모드 필터링은 프로젝트 미지정 시에만 적용
+
+### [x] 워크스페이스 AI 패널 슬림화
+- `tab-workspace.html` : 1473줄 → 990줄 (**-483줄**)
+- **HTML 제거**: ws-ai-hist-bar · 히스토리 패널 · ws-ai-thread-head · 말풍선 · 이미지 생성 섹션 · ws-ai-pending-att · ws-ai-tools · 프로젝트 선택 드롭다운 · 프로젝트 편집 모달 (ws-proj-overlay)
+- **CSS 제거**: ws-ai-hist-* · ws-ai-msgs · ws-ai-msg · ws-ai-tools · ws-ai-pending-att · ws-proj-* 전부
+- **JS 제거**: aiReady / historyPanelOpen / historyScope / threads / currentThreadId / currentThread / currentMessages / projects / currentProjectId / pendingAttachments / showProjectPicker / showProjectModal / projectForm / aiImagePrompt / aiImageLoading + 관련 메서드 (toggleHistoryPanel, setHistoryScope, loadThreads, loadMoreThreads, loadProjects, openThread, startNewThread, uploadAttachment, removeAttachment, openProjectModal, closeProjectModal, toggleProjectMember, saveProject, deleteProject, generateAIImage)
+- **askAI() 단순화**: `/api/ai/chat` 분기 제거 → 순수 `/api/workspace/ai` 만 사용 (현재 페이지 내용을 AI 에게 전달 → 결과 텍스트)
+- **헤더에 🤖 AI 탭 링크**: 패널 상단에서 한 번 클릭으로 AI 탭으로 점프
+- **안내 문구**: "💡 대화 이어가기·파일 첨부·이미지 생성은 상단의 🤖 AI 탭에서 이용하세요."
+- **유지**: 템플릿(일일업무일지/프로젝트체크리스트/고객보고서) · 빠른 도움 5종 · 결과 표시 · 단순 입력+전송
+
+### [x] 구문 검증
+- `node -c routes/ai-history.js` ✓
+- `node -c db-ai.js` ✓
+- `node -c server.js` ✓
+- `tab-workspace.html` script 블록 파싱 ✓ · workspaceApp() 50키
+- `tab-ai.html` script 블록 파싱 ✓ · aiApp() 48키
+- `index.html` script 태그 균형 ✓ (16쌍)
+- 제거 대상 키 30개 전부 코드/HTML에서 사라짐 확인
+
+## 완료 — 노션식 DB/폼 블록 MVP
+
+### [x] 커스텀 Editor.js 블록 2종 추가 (2026-04-23 심야)
+- `public/workspace-blocks.js` 신규 (~580줄) — 공통 스타일 자동 주입 + 2개 클래스
+- `public/index.html` Editor.js 스크립트 뒤에 `<script src="/workspace-blocks.js">` 한 줄 추가
+- `public/tab-workspace.html` initEditor() 의 tools 를 동적 객체로 변경해 안전 등록 (`if (typeof DataTableTool !== 'undefined')`)
+- i18n toolNames 에 '데이터 표' / '입력 폼' 추가
+
+#### 📊 DataTableTool — "데이터 표" (인라인 DB)
+- **컬럼 타입 5종**: 텍스트 / 선택(select) / 날짜 / 숫자 / 체크박스
+- **인라인 편집**: 헤더명·셀 값 모두 클릭 즉시 편집 (contenteditable)
+- **컬럼 메뉴** (⋮ 버튼): 유형 변경 · select 선택지 편집 · 컬럼 삭제
+- **행**: 호버 시 × 버튼 · "+ 행 추가"
+- **컬럼**: 헤더 우측 `+` 버튼으로 추가
+- **저장 구조**: `{ columns: [{id, name, type, options?}], rows: [{colId: value, ...}] }`
+- Editor.js blocks 에 `type: 'dataTable'` 으로 저장됨
+
+#### 📝 FormBlockTool — "입력 폼" (제출 → 로그)
+- **필드 타입 5종**: 한 줄 텍스트 / 긴 글(textarea) / 숫자 / 날짜 / 선택
+- **제출 버튼** → `entries[]` 배열 앞에 `{ at: ISO, values: {fieldId: value} }` 추가
+- 폼 하단에 **최근 제출 5건** 자동 표시 (최대 100건 유지)
+- 필드마다 유형 / 안내문(placeholder) 편집 가능
+- **저장 구조**: `{ title, fields: [{id, label, type, options?, placeholder}], entries: [] }`
+- Editor.js blocks 에 `type: 'formBlock'` 으로 저장됨
+
+### 사용 방법
+1. 워크스페이스에서 페이지 열기 → 본문에서 `/` 입력
+2. 블록 선택기에 "데이터 표" / "입력 폼" 추가됨
+3. 노션처럼 클릭해서 편집, 변경은 자동 저장 (기존 Editor.js onChange 훅)
+
+### 구문 검증
+- `node -c public/workspace-blocks.js` ✓
+- `tab-workspace.html` script 블록 파싱 ✓
+- `DataTableTool` / `FormBlockTool` 모듈 export ✓
+- 두 클래스 toolbox / constructor / save / validate 스모크 통과 ✓
+  - DataTable 기본 3컬럼 × 3행
+  - Form 기본 2필드 (이름·내용)
+
+### 수정/추가 파일
+**추가**
+- `public/workspace-blocks.js` (~580줄)
+
+**수정**
+- `public/index.html` — `<script src="/workspace-blocks.js">` 1줄 추가
+- `public/tab-workspace.html` — initEditor() tools 동적 구성 + i18n 확장
+
+## 배포 방법
+로컬 PC (C:\\Users\\NAMGW\\...\\price-list-app) 에서:
+```
+_배포.bat
+```
+커밋 메시지 제안:
+```
+AI 탭 독립 분리 + 워크스페이스 AI 패널 슬림화
+
+- AI 탭 신설 (Claude.ai 스타일 · 전용 채팅 공간)
+  · 좌측 히스토리/프로젝트 사이드바
+  · 말풍선 메시지 UI · 첨부 · 이미지 생성 통합
+  · localStorage 마지막 스레드 자동 복원
+- 워크스페이스 AI 패널은 "작성 도우미" 로 축소
+  · 템플릿 + 빠른 도움만 남김 (-483 줄)
+  · 히스토리/프로젝트/이미지 생성은 AI 탭으로 이동
+- routes/ai-history.js: /threads 가 ?project= 필터 받도록 확장
+```
+
+서버 PC (192.168.0.133, D:\\price-list-app) 에서:
+```
+git-pull-server.bat
+```
+
+## 수정/추가 파일
+**추가**
+- `public/tab-ai.html` (~900줄)
+
+**수정**
+- `public/index.html` — AI 메뉴/탭 등록 + SSI 포함 (5곳)
+- `public/tab-workspace.html` — 1473 → 990줄 (AI 기능 전부 제거, 작성 도우미만 유지)
+- `routes/ai-history.js` — `/threads` 가 `?project=` 필터 받도록
+
+## 2차 개편 완료 시각: 2026-04-23 00:05 KST 경

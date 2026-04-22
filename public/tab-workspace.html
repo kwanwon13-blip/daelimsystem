@@ -78,94 +78,6 @@
   .ws-ai-send { padding:8px 14px; background:linear-gradient(135deg,#4f6ef7,#3b5ce4); color:#fff; border:none; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; }
   .ws-ai-send:hover { filter:brightness(1.06); }
 
-  /* ── AI 히스토리 미니 바 (접힘/펼침) ── */
-  .ws-ai-hist-bar { border-bottom:1px solid #f0f1f3; background:#fafbfd; }
-  .ws-ai-hist-toggle { width:100%; padding:8px 14px; background:none; border:none; cursor:pointer; display:flex; align-items:center; gap:8px; font-size:11.5px; color:#6b7280; transition:background .1s; }
-  .ws-ai-hist-toggle:hover { background:#f3f4f6; }
-  .ws-ai-hist-toggle .chev { margin-left:auto; font-size:10px; transition:transform .2s; }
-  .ws-ai-hist-toggle.open .chev { transform:rotate(180deg); }
-  .ws-ai-hist-label { font-weight:700; color:#374151; }
-  .ws-ai-hist-scope { font-size:10.5px; color:#9ca3af; padding:2px 7px; background:#fff; border:1px solid #e5e7eb; border-radius:99px; }
-  .ws-ai-hist-panel { padding:10px 14px 14px; border-top:1px dashed #e5e7eb; background:#fff; }
-  .ws-ai-hist-chips { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px; }
-  .ws-ai-hist-chip { font-size:10.5px; padding:3px 9px; border:1px solid #e5e7eb; border-radius:99px; background:#fff; cursor:pointer; color:#6b7280; transition:all .1s; display:inline-flex; align-items:center; gap:3px; }
-  .ws-ai-hist-chip:hover { background:#f8f9fb; }
-  .ws-ai-hist-chip.active { background:#eef2ff; color:#4338ca; border-color:#c7d2fe; font-weight:600; }
-  .ws-ai-hist-search { width:100%; padding:6px 10px; border:1px solid #e5e7eb; border-radius:8px; font-size:11.5px; background:#f8f9fb; outline:none; }
-  .ws-ai-hist-search:focus { background:#fff; border-color:#4f6ef7; }
-  .ws-ai-hist-list { max-height:240px; overflow-y:auto; margin-top:8px; display:flex; flex-direction:column; gap:3px; }
-  .ws-ai-hist-item { display:flex; align-items:flex-start; gap:6px; padding:7px 9px; border-radius:8px; cursor:pointer; transition:background .1s; font-size:11.5px; }
-  .ws-ai-hist-item:hover { background:#f3f4f6; }
-  .ws-ai-hist-item.active { background:#eef2ff; }
-  .ws-ai-hist-item .title { flex:1; color:#374151; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:500; }
-  .ws-ai-hist-item .meta { font-size:10px; color:#9ca3af; white-space:nowrap; }
-  .ws-ai-hist-item .icon { font-size:13px; margin-top:1px; }
-  .ws-ai-hist-empty { padding:20px 12px; text-align:center; color:#9ca3af; font-size:11px; }
-  .ws-ai-hist-more { width:100%; padding:6px; background:#fff; border:1px dashed #e5e7eb; border-radius:8px; font-size:11px; color:#6b7280; cursor:pointer; margin-top:4px; }
-  .ws-ai-hist-more:hover { background:#f8f9fb; color:#4338ca; border-color:#c7d2fe; }
-  .ws-ai-hist-actions { display:flex; gap:6px; margin-top:8px; }
-  .ws-ai-hist-btn { flex:1; padding:6px 8px; font-size:11px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; cursor:pointer; color:#374151; font-weight:600; }
-  .ws-ai-hist-btn:hover { background:#f8f9fb; border-color:#c7d2fe; color:#4338ca; }
-
-  /* ── 현재 스레드 표시 ── */
-  .ws-ai-thread-head { padding:10px 14px; background:linear-gradient(135deg,#eef2ff,#f5f3ff); border-bottom:1px solid #e0e7ff; display:flex; align-items:center; gap:8px; font-size:12px; }
-  .ws-ai-thread-head .title { flex:1; font-weight:600; color:#4338ca; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .ws-ai-thread-head .count { font-size:10.5px; color:#6b7280; }
-  .ws-ai-thread-head button { background:#fff; border:1px solid #c7d2fe; border-radius:6px; padding:3px 8px; font-size:10.5px; color:#4338ca; cursor:pointer; font-weight:600; }
-  .ws-ai-thread-head button:hover { background:#f8f9fb; }
-
-  /* ── 메시지 버블 ── */
-  .ws-ai-msgs { padding:8px 4px; display:flex; flex-direction:column; gap:8px; }
-  .ws-ai-msg { padding:8px 10px; border-radius:10px; font-size:12px; line-height:1.55; white-space:pre-wrap; }
-  .ws-ai-msg.user { background:#eef2ff; color:#374151; align-self:flex-end; max-width:88%; border:1px solid #c7d2fe; }
-  .ws-ai-msg.ai { background:#f8f9fb; color:#374151; align-self:flex-start; max-width:92%; border:1px solid #e5e7eb; }
-  .ws-ai-msg.ai.error { background:#fef2f2; border-color:#fecaca; color:#b91c1c; }
-  .ws-ai-msg-meta { font-size:9.5px; color:#9ca3af; margin-top:2px; }
-  .ws-ai-msg img.attach-img { max-width:100%; border-radius:6px; margin-top:4px; }
-  .ws-ai-msg .atts { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
-  .ws-ai-msg .atts .att { font-size:10px; padding:2px 8px; background:#fff; border:1px solid #e5e7eb; border-radius:99px; color:#4b5563; display:inline-flex; align-items:center; gap:3px; }
-
-  /* ── 첨부/템플릿 툴바 ── */
-  .ws-ai-tools { display:flex; gap:6px; align-items:center; padding:0 0 6px; }
-  .ws-ai-tool-btn { padding:5px 8px; background:#fff; border:1px solid #e5e7eb; border-radius:7px; font-size:11px; color:#6b7280; cursor:pointer; display:inline-flex; align-items:center; gap:3px; }
-  .ws-ai-tool-btn:hover { background:#f8f9fb; border-color:#c7d2fe; color:#4338ca; }
-  .ws-ai-tool-btn.on { background:#eef2ff; color:#4338ca; border-color:#c7d2fe; }
-  .ws-ai-pending-att { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:6px; }
-  .ws-ai-pending-att .chip { font-size:10.5px; padding:3px 8px; background:#fff7ed; border:1px solid #fed7aa; border-radius:99px; color:#92400e; display:inline-flex; align-items:center; gap:4px; }
-  .ws-ai-pending-att .chip button { background:none; border:none; color:#dc2626; cursor:pointer; padding:0 2px; font-size:11px; }
-
-  /* ── 프로젝트 모달 ── */
-  .ws-proj-overlay { position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:220; display:flex; align-items:center; justify-content:center; }
-  .ws-proj-modal { background:#fff; border-radius:14px; width:480px; max-width:calc(100vw - 32px); max-height:85vh; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,.2); display:flex; flex-direction:column; }
-  .ws-proj-head { padding:14px 18px; border-bottom:1px solid #f0f1f3; display:flex; align-items:center; justify-content:space-between; }
-  .ws-proj-head h3 { font-family:'Work Sans',sans-serif; font-size:14px; font-weight:700; margin:0; color:#1a1d23; }
-  .ws-proj-body { padding:14px 18px; overflow-y:auto; }
-  .ws-proj-body label { display:block; font-size:11px; font-weight:600; color:#6b7280; margin:10px 0 4px; }
-  .ws-proj-body input[type="text"], .ws-proj-body textarea { width:100%; padding:8px 10px; border:1px solid #e5e7eb; border-radius:8px; font-size:12.5px; outline:none; font-family:inherit; }
-  .ws-proj-body input:focus, .ws-proj-body textarea:focus { border-color:#4f6ef7; }
-  .ws-proj-body textarea { resize:vertical; min-height:60px; }
-  .ws-proj-scope-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:4px; }
-  .ws-proj-scope-grid button { padding:8px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; cursor:pointer; text-align:left; font-size:11.5px; color:#374151; }
-  .ws-proj-scope-grid button.active { background:#eef2ff; border-color:#c7d2fe; color:#4338ca; font-weight:600; }
-  .ws-proj-scope-grid button small { display:block; font-size:10px; color:#9ca3af; font-weight:400; margin-top:1px; }
-  .ws-proj-scope-grid button.active small { color:#6366f1; }
-  .ws-proj-foot { padding:12px 18px; border-top:1px solid #f0f1f3; display:flex; justify-content:flex-end; gap:6px; }
-  .ws-proj-foot button { padding:7px 14px; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; border:1px solid transparent; }
-  .ws-proj-foot button.primary { background:linear-gradient(135deg,#4f6ef7,#3b5ce4); color:#fff; }
-  .ws-proj-foot button.secondary { background:#fff; color:#6b7280; border-color:#e5e7eb; }
-  .ws-proj-list { margin-top:4px; }
-  .ws-proj-row { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:8px; cursor:pointer; transition:background .1s; }
-  .ws-proj-row:hover { background:#f3f4f6; }
-  .ws-proj-row .em { font-size:18px; }
-  .ws-proj-row .info { flex:1; min-width:0; }
-  .ws-proj-row .info .n { font-size:12.5px; font-weight:600; color:#1a1d23; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .ws-proj-row .info .s { font-size:10.5px; color:#9ca3af; }
-  .ws-proj-row .scope-badge { font-size:10px; padding:2px 7px; border-radius:99px; background:#f3f4f6; color:#6b7280; }
-  .ws-proj-row .scope-badge.team { background:#fef3c7; color:#92400e; }
-  .ws-proj-row .scope-badge.company { background:#dcfce7; color:#15803d; }
-  .ws-proj-row .scope-badge.invited { background:#fce7f3; color:#a21caf; }
-  .ws-proj-row .scope-badge.private { background:#f3f4f6; color:#6b7280; }
-
   /* 빈 상태 */
   .ws-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:#9ca3af; text-align:center; }
   .ws-empty-icon { font-size:48px; margin-bottom:12px; opacity:.4; }
@@ -397,134 +309,25 @@
             </div>
           </div>
 
-          <!-- AI 패널 -->
+          <!-- AI 패널 (작성 도우미 전용 — 히스토리/프로젝트/이미지는 AI 탭으로 이동) -->
           <div class="ws-ai-panel" x-show="showAI" x-transition>
             <div class="ws-ai-header">
               <div class="ws-ai-title">
-                <span class="ws-ai-dot"></span> Claude AI
+                <span class="ws-ai-dot"></span> 작성 도우미
               </div>
-              <button @click="showAI=false"
-                style="background:none;border:none;color:#9ca3af;cursor:pointer;font-size:18px;">×</button>
-            </div>
-
-            <!-- ── AI 히스토리 미니 바 (접힘/펼침) ── -->
-            <div class="ws-ai-hist-bar" x-show="aiReady">
-              <button class="ws-ai-hist-toggle" :class="historyPanelOpen ? 'open' : ''"
-                @click="toggleHistoryPanel()">
-                <span class="ws-ai-hist-label">🕘 히스토리</span>
-                <span class="ws-ai-hist-scope" x-text="scopeLabels[historyScope] || '내 대화'"></span>
-                <span x-show="currentThreadId" class="ws-ai-hist-scope" style="background:#eef2ff;color:#4338ca;border-color:#c7d2fe;" x-text="'· ' + (currentMessages.length) + '턴'"></span>
-                <span class="chev">▾</span>
-              </button>
-              <div class="ws-ai-hist-panel" x-show="historyPanelOpen" x-transition>
-                <div class="ws-ai-hist-chips">
-                  <button class="ws-ai-hist-chip" :class="historyScope==='mine' ? 'active' : ''"
-                    @click="setHistoryScope('mine')">내 대화</button>
-                  <button class="ws-ai-hist-chip" :class="historyScope==='team' ? 'active' : ''"
-                    @click="setHistoryScope('team')">팀</button>
-                  <button class="ws-ai-hist-chip" :class="historyScope==='company' ? 'active' : ''"
-                    @click="setHistoryScope('company')">회사</button>
-                  <button class="ws-ai-hist-chip" :class="historyScope==='invited' ? 'active' : ''"
-                    @click="setHistoryScope('invited')">초대</button>
-                  <button class="ws-ai-hist-chip" :class="historyScope==='projects' ? 'active' : ''"
-                    @click="setHistoryScope('projects')">📁 프로젝트</button>
-                </div>
-
-                <!-- 검색 + 목록 (projects 모드가 아닐 때) -->
-                <template x-if="historyScope !== 'projects'">
-                  <div>
-                    <input class="ws-ai-hist-search" placeholder="🔍 제목 검색..."
-                      x-model="historyQ" @input.debounce.300ms="loadThreads()" />
-                    <div class="ws-ai-hist-list">
-                      <template x-for="t in threads" :key="t.id">
-                        <div class="ws-ai-hist-item" :class="currentThreadId===t.id ? 'active' : ''"
-                          @click="openThread(t.id)">
-                          <span class="icon" x-text="t.project_emoji || '💬'"></span>
-                          <div class="title" x-text="t.title || '(제목 없음)'"></div>
-                          <span class="meta" x-text="formatDate(t.last_message_at || t.created_at)"></span>
-                        </div>
-                      </template>
-                      <div x-show="threads.length===0 && !historyLoading" class="ws-ai-hist-empty">
-                        대화 기록이 없습니다
-                      </div>
-                    </div>
-                    <button x-show="historyHasMore" class="ws-ai-hist-more" @click="loadMoreThreads()">
-                      더 보기
-                    </button>
-                  </div>
-                </template>
-
-                <!-- 프로젝트 목록 -->
-                <template x-if="historyScope === 'projects'">
-                  <div>
-                    <div class="ws-proj-list">
-                      <template x-for="p in projects" :key="p.id">
-                        <div class="ws-proj-row" @click="openProjectModal(p)">
-                          <span class="em" x-text="p.emoji || '📁'"></span>
-                          <div class="info">
-                            <div class="n" x-text="p.name"></div>
-                            <div class="s" x-text="p.owner_name + ' · ' + (p.thread_count||0) + '개 대화'"></div>
-                          </div>
-                          <span class="scope-badge" :class="p.share_mode" x-text="scopeBadges[p.share_mode] || p.share_mode"></span>
-                        </div>
-                      </template>
-                      <div x-show="projects.length===0" class="ws-ai-hist-empty">
-                        프로젝트가 없습니다
-                      </div>
-                    </div>
-                  </div>
-                </template>
-
-                <div class="ws-ai-hist-actions">
-                  <button class="ws-ai-hist-btn" @click="startNewThread()">+ 새 대화</button>
-                  <button class="ws-ai-hist-btn" @click="openProjectModal()">📁 새 프로젝트</button>
-                </div>
+              <div style="display:flex;gap:4px;align-items:center;">
+                <a href="#" @click.prevent="$root._x_dataStack ? ($root._x_dataStack[0].currentTab='ai') : null"
+                  style="font-size:10.5px;color:#6b7280;text-decoration:none;padding:3px 8px;border:1px solid #e5e7eb;border-radius:99px;"
+                  title="히스토리/프로젝트/이미지는 AI 탭에서">🤖 AI 탭</a>
+                <button @click="showAI=false"
+                  style="background:none;border:none;color:#9ca3af;cursor:pointer;font-size:18px;padding:0 4px;">×</button>
               </div>
-            </div>
-
-            <!-- 현재 스레드 표시 -->
-            <div class="ws-ai-thread-head" x-show="currentThreadId && currentThread">
-              <span x-text="currentThread && currentThread.project_emoji || '💬'"></span>
-              <div class="title" x-text="currentThread ? (currentThread.title || '(제목 없음)') : ''"></div>
-              <span class="count" x-text="currentMessages.length + '턴'"></span>
-              <button @click="startNewThread()" title="새 대화 시작">+ 새 대화</button>
             </div>
 
             <div class="ws-ai-body">
-              <!-- 메시지 목록 (현재 스레드) -->
-              <div x-show="currentThreadId && currentMessages.length > 0" class="ws-ai-msgs">
-                <template x-for="(m, mi) in currentMessages" :key="m.id || mi">
-                  <div>
-                    <div class="ws-ai-msg" :class="m.role==='user' ? 'user' : (m.status==='error' ? 'ai error' : 'ai')">
-                      <template x-if="m.kind==='image' && m.image_url">
-                        <div>
-                          <img class="attach-img" :src="m.image_url" alt="AI 이미지" />
-                          <div x-show="m.content" x-text="m.content" style="margin-top:4px;"></div>
-                        </div>
-                      </template>
-                      <template x-if="m.kind !== 'image'">
-                        <div x-text="m.content"></div>
-                      </template>
-                      <template x-if="m.attachments_parsed && m.attachments_parsed.length">
-                        <div class="atts">
-                          <template x-for="a in m.attachments_parsed" :key="a.id">
-                            <span class="att">📎 <span x-text="a.original_name || ('#'+a.id)"></span></span>
-                          </template>
-                        </div>
-                      </template>
-                    </div>
-                    <div class="ws-ai-msg-meta" :style="m.role==='user' ? 'text-align:right' : ''"
-                      x-text="formatDate(m.created_at)"></div>
-                  </div>
-                </template>
-                <div x-show="aiLoading" class="ws-ai-msg ai" style="color:#4f6ef7;animation:pulse 1.5s infinite;">
-                  Claude가 생각하는 중...
-                </div>
-              </div>
-
               <!-- AI 템플릿 (메모 → 블록 자동 작성) -->
               <div class="ws-ai-tmpl-section">
-                <div style="font-size:11px;color:#9ca3af;font-weight:600;margin-bottom:2px;">AI 템플릿 — 메모만 주세요, 블록으로 만들어 페이지에 넣어줍니다</div>
+                <div style="font-size:11px;color:#9ca3af;font-weight:600;margin-bottom:2px;">✦ 템플릿 — 메모만 주면 블록으로 만들어 페이지에 넣어드려요</div>
                 <button class="ws-ai-tmpl-btn" :class="aiTemplateMode==='daily_log' ? 'active' : ''"
                   @click="selectTemplate('daily_log')">
                   <span class="tmpl-icon">📝</span>
@@ -567,33 +370,17 @@
               </div>
 
               <div class="ws-ai-actions">
-                <div style="font-size:11px;color:#9ca3af;font-weight:600;margin-bottom:2px;">빠른 도움 (현재 내용 기반)</div>
+                <div style="font-size:11px;color:#9ca3af;font-weight:600;margin-bottom:2px;">빠른 도움 (현재 페이지 내용을 AI에게 전달)</div>
                 <button class="ws-ai-action-btn" @click="askAI('이 내용을 깔끔하게 정리해줘')">📋 내용 정리하기</button>
                 <button class="ws-ai-action-btn" @click="askAI('이 내용을 요약해줘')">📝 요약하기</button>
                 <button class="ws-ai-action-btn" @click="askAI('체크리스트 항목을 더 추가 제안해줘')">✅ 항목 추가 제안</button>
                 <button class="ws-ai-action-btn" @click="askAI('이 내용을 영어로 번역해줘')">🌐 영어 번역</button>
                 <button class="ws-ai-action-btn" @click="askAI('이 내용을 더 전문적으로 다듬어줘')">✨ 전문적으로 다듬기</button>
-                <div style="font-size:10px;color:#9ca3af;margin-top:4px;">Claude Pro Max 구독으로 동작합니다</div>
+                <div style="font-size:10px;color:#9ca3af;margin-top:4px;line-height:1.5;">
+                  💡 대화 이어가기·파일 첨부·이미지 생성은 상단의 <b>🤖 AI 탭</b>에서 이용하세요.
+                </div>
               </div>
 
-              <!-- AI 이미지 생성 (Gemini + nanobanana) -->
-              <div class="ws-ai-tmpl-section" style="margin-top:10px;border-top:1px dashed #e5e7eb;padding-top:10px;">
-                <div style="font-size:11px;color:#9ca3af;font-weight:600;margin-bottom:4px;">🎨 이미지 생성 — 설명을 쓰면 이미지를 만들어 페이지에 넣어줍니다</div>
-                <textarea class="ws-ai-tmpl-textarea" x-model="aiImagePrompt"
-                  placeholder="예: 밝고 깔끔한 사무실 책상에 노트북과 커피. 미니멀 스타일."
-                  :disabled="aiImageLoading"
-                  style="min-height:64px;"></textarea>
-                <div class="ws-ai-tmpl-actions">
-                  <button class="ws-ai-tmpl-go" @click="generateAIImage()"
-                    :disabled="aiImageLoading || !aiImagePrompt.trim() || !editor">
-                    <span x-show="!aiImageLoading">🎨 이미지 생성해서 페이지에 삽입</span>
-                    <span x-show="aiImageLoading">Gemini가 그리는 중... (최대 3분)</span>
-                  </button>
-                  <button class="ws-ai-tmpl-cancel" @click="aiImagePrompt=''"
-                    :disabled="aiImageLoading">지우기</button>
-                </div>
-                <div style="font-size:10px;color:#9ca3af;margin-top:4px;">Gemini CLI + nanobanana 로 동작합니다</div>
-              </div>
               <!-- AI 결과 -->
               <div x-show="aiLoading" class="ws-ai-result" style="color:#4f6ef7;animation:pulse 1.5s infinite;">
                 Claude가 생각하는 중...
@@ -601,60 +388,10 @@
               <div x-show="aiResult && !aiLoading" class="ws-ai-result" x-text="aiResult"></div>
               <div x-show="aiError" class="ws-ai-result" style="color:#dc2626;background:#fef2f2;border-color:#fecaca;" x-text="aiError"></div>
             </div>
+
             <div class="ws-ai-footer">
-              <!-- 첨부 대기 목록 -->
-              <div x-show="pendingAttachments.length > 0" class="ws-ai-pending-att">
-                <template x-for="a in pendingAttachments" :key="a.id">
-                  <span class="chip">
-                    <span x-text="'📎 ' + (a.original_name || ('#'+a.id))"></span>
-                    <button @click="removeAttachment(a.id)" title="제거">✕</button>
-                  </span>
-                </template>
-              </div>
-
-              <!-- 첨부/프로젝트 도구 바 -->
-              <div class="ws-ai-tools" x-show="aiReady">
-                <input type="file" x-ref="aiFileInput" style="display:none"
-                  @change="uploadAttachment($event)"
-                  accept=".xlsx,.xls,.pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.docx,.doc,.csv" />
-                <button class="ws-ai-tool-btn" @click="$refs.aiFileInput.click()"
-                  :disabled="aiLoading" title="엑셀/PDF/이미지/텍스트 첨부">
-                  📎 파일
-                </button>
-                <button class="ws-ai-tool-btn" :class="currentProjectId ? 'on' : ''"
-                  @click="showProjectPicker = !showProjectPicker"
-                  title="프로젝트 선택">
-                  📁 <span x-text="currentProjectId ? (projects.find(p=>p.id===currentProjectId)?.name || '프로젝트') : '프로젝트'"></span>
-                </button>
-                <button x-show="currentThreadId" class="ws-ai-tool-btn" @click="startNewThread()"
-                  title="새 대화 시작">+ 새</button>
-              </div>
-
-              <!-- 프로젝트 선택 드롭다운 -->
-              <div x-show="showProjectPicker" x-transition @click.away="showProjectPicker=false"
-                style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:8px;margin-bottom:6px;max-height:220px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.08);">
-                <div class="ws-proj-row" @click="currentProjectId=null; showProjectPicker=false;">
-                  <span class="em">❌</span>
-                  <div class="info"><div class="n">프로젝트 없음</div></div>
-                </div>
-                <template x-for="p in projects" :key="p.id">
-                  <div class="ws-proj-row" :class="currentProjectId===p.id ? 'active' : ''"
-                    @click="currentProjectId=p.id; showProjectPicker=false;">
-                    <span class="em" x-text="p.emoji || '📁'"></span>
-                    <div class="info">
-                      <div class="n" x-text="p.name"></div>
-                      <div class="s" x-text="p.owner_name"></div>
-                    </div>
-                    <span class="scope-badge" :class="p.share_mode" x-text="scopeBadges[p.share_mode] || p.share_mode"></span>
-                  </div>
-                </template>
-                <div x-show="projects.length===0" class="ws-ai-hist-empty">
-                  프로젝트 없음. <a href="#" @click.prevent="openProjectModal(); showProjectPicker=false;" style="color:#4338ca;">+ 만들기</a>
-                </div>
-              </div>
-
               <div class="ws-ai-input-row">
-                <input class="ws-ai-input" placeholder="무엇을 도와드릴까요?"
+                <input class="ws-ai-input" placeholder="무엇을 도와드릴까요? (현재 페이지 기준)"
                   x-model="aiPrompt" @keydown.enter="askAI(aiPrompt)" />
                 <button class="ws-ai-send" @click="askAI(aiPrompt)">↑</button>
               </div>
@@ -775,72 +512,6 @@
   </div>
 </template>
 
-<!-- 프로젝트 편집/생성 모달 -->
-<template x-if="showProjectModal">
-  <div class="ws-proj-overlay" @click.self="closeProjectModal()">
-    <div class="ws-proj-modal">
-      <div class="ws-proj-head">
-        <h3 x-text="projectForm.id ? '프로젝트 편집' : '새 프로젝트'"></h3>
-        <button @click="closeProjectModal()" style="background:none;border:none;font-size:20px;color:#9ca3af;cursor:pointer;">×</button>
-      </div>
-      <div class="ws-proj-body">
-        <label>이모지</label>
-        <input type="text" x-model="projectForm.emoji" maxlength="4" placeholder="📁"
-          style="width:80px;text-align:center;font-size:22px;" />
-
-        <label>프로젝트명</label>
-        <input type="text" x-model="projectForm.name" placeholder="예: 현대리바트 작업 / 2026년 1분기 견적" />
-
-        <label>설명 (선택)</label>
-        <textarea x-model="projectForm.description" placeholder="이 프로젝트의 목적이나 메모"></textarea>
-
-        <label>공유 범위</label>
-        <div class="ws-proj-scope-grid">
-          <button :class="projectForm.share_mode==='private' ? 'active' : ''"
-            @click="projectForm.share_mode='private'">
-            🔒 나만<small>본인만 열람/수정</small>
-          </button>
-          <button :class="projectForm.share_mode==='team' ? 'active' : ''"
-            @click="projectForm.share_mode='team'">
-            👥 우리 부서<small>같은 부서원 전원</small>
-          </button>
-          <button :class="projectForm.share_mode==='company' ? 'active' : ''"
-            @click="projectForm.share_mode='company'">
-            🏢 회사 전체<small>모든 직원</small>
-          </button>
-          <button :class="projectForm.share_mode==='invited' ? 'active' : ''"
-            @click="projectForm.share_mode='invited'">
-            ✉️ 초대한 사람<small>선택한 직원만</small>
-          </button>
-        </div>
-
-        <template x-if="projectForm.share_mode==='invited'">
-          <div>
-            <label>초대할 직원</label>
-            <div style="max-height:180px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:8px;padding:4px;">
-              <template x-for="u in shareUserList" :key="u.userId">
-                <label class="ws-share-user" x-show="u.userId !== getAuth().userId">
-                  <div class="ws-share-user-avatar" x-text="u.name.charAt(0)"></div>
-                  <span class="ws-share-user-name" x-text="u.name"></span>
-                  <span class="ws-share-user-dept" x-text="u.dept"></span>
-                  <input type="checkbox" :value="u.userId"
-                    :checked="projectForm.member_ids.includes(u.userId)"
-                    @change="toggleProjectMember(u.userId)" />
-                </label>
-              </template>
-            </div>
-          </div>
-        </template>
-      </div>
-      <div class="ws-proj-foot">
-        <button class="secondary" x-show="projectForm.id" @click="deleteProject()"
-          style="color:#dc2626;border-color:#fecaca;margin-right:auto;">삭제</button>
-        <button class="secondary" @click="closeProjectModal()">취소</button>
-        <button class="primary" @click="saveProject()" :disabled="!projectForm.name.trim()">저장</button>
-      </div>
-    </div>
-  </div>
-</template>
 
 </div>
 
@@ -864,8 +535,6 @@ function workspaceApp() {
     aiResult: '',
     aiError: '',
     aiLoading: false,
-    aiImagePrompt: '',          // 이미지 생성용 프롬프트
-    aiImageLoading: false,      // 이미지 생성 진행 중 여부
     aiTemplateMode: null,       // 'daily_log' | 'project_checklist' | 'customer_report' | null
     aiTemplateInput: '',
     aiTemplateLoading: false,
@@ -875,27 +544,8 @@ function workspaceApp() {
       customer_report: '고객에게 전달할 내용을 적어주세요. 예: "김사장님, 어제 납품 완료. 3번 간판은 다음 주 월요일 시공 예정. 잔금 안내."'
     },
 
-    // ── AI 히스토리 / 프로젝트 / 대화 이어가기 / 첨부 (L0 + L0.5 + L1) ──
-    aiReady: false,                 // ai기록.db 초기화 성공 여부 (/api/ai/* 동작 가능)
-    historyPanelOpen: false,
-    historyScope: 'mine',           // 'mine' | 'team' | 'company' | 'invited' | 'projects'
-    scopeLabels: { mine:'내 대화', team:'팀', company:'회사', invited:'초대', projects:'프로젝트' },
-    scopeBadges: { private:'나만', team:'팀', company:'회사', invited:'초대' },
-    historyQ: '',
-    historyLimit: 20,
-    historyOffset: 0,
-    historyHasMore: false,
-    historyLoading: false,
-    threads: [],                    // 목록
-    currentThreadId: null,
-    currentThread: null,            // { id, title, project_id, project_emoji, ... }
-    currentMessages: [],            // 현재 스레드 메시지
-    projects: [],
-    currentProjectId: null,         // 현재 입력 시 귀속시킬 프로젝트 (nullable)
-    pendingAttachments: [],         // [{id, original_name, mime, ...}]
-    showProjectPicker: false,
-    showProjectModal: false,
-    projectForm: { id:null, name:'', emoji:'📁', description:'', share_mode:'private', member_ids:[] },
+    // NOTE: AI 히스토리/프로젝트/첨부/이미지 생성 기능은 독립된 AI 탭(tab-ai.html)으로 이전됨.
+    //       이 패널은 "작성 도우미" 전용 (현재 페이지 내용을 AI 에게 전달 + 템플릿 블록 삽입).
 
     _saveTimer: null,
 
@@ -933,26 +583,6 @@ function workspaceApp() {
 
     async init() {
       await this.loadPages();
-      // AI 히스토리 기능 활성화 여부 체크 (ai기록.db 초기화 실패 시 503)
-      try {
-        const r = await fetch('/api/ai/health');
-        if (r.ok) {
-          const d = await r.json();
-          this.aiReady = !!d.ready;
-        }
-      } catch(e) { this.aiReady = false; }
-      // AI 데이터 초기 로드
-      if (this.aiReady) {
-        try { await this.loadThreads(); } catch(e) {}
-        try { await this.loadProjects(); } catch(e) {}
-        // 마지막 스레드 복원
-        try {
-          const savedTid = localStorage.getItem('ai:lastThreadId');
-          if (savedTid && this.threads.some(t => String(t.id)===String(savedTid))) {
-            await this.openThread(savedTid);
-          }
-        } catch(e) {}
-      }
       // 마지막으로 열었던 페이지 자동 복원
       // - 탭 전환 시엔 x-show 로 DOM이 유지돼서 currentPageId 가 살아있지만
       // - F5 새로고침 / 브라우저 재시작 / 로그인 재접속 시엔 초기화되므로
@@ -976,141 +606,7 @@ function workspaceApp() {
       } catch (e) { console.warn('[workspace] init restore failed:', e); }
     },
 
-    // ── AI 히스토리 / 스레드 / 프로젝트 / 첨부 ──
-    toggleHistoryPanel() { this.historyPanelOpen = !this.historyPanelOpen; },
-
-    async setHistoryScope(scope) {
-      this.historyScope = scope;
-      this.historyOffset = 0;
-      this.threads = [];
-      if (scope === 'projects') { await this.loadProjects(); }
-      else { await this.loadThreads(); }
-    },
-
-    async loadThreads() {
-      if (!this.aiReady) return;
-      if (this.historyScope === 'projects') return;
-      this.historyLoading = true;
-      try {
-        const params = new URLSearchParams({
-          scope: this.historyScope,
-          q: this.historyQ || '',
-          limit: String(this.historyLimit),
-          offset: '0'
-        });
-        const r = await fetch('/api/ai/threads?' + params.toString());
-        const d = await r.json();
-        if (d.ok) {
-          this.threads = d.threads || [];
-          this.historyOffset = this.threads.length;
-          this.historyHasMore = !!d.hasMore;
-        }
-      } catch(e) { console.error('[ai] loadThreads:', e); }
-      this.historyLoading = false;
-    },
-
-    async loadMoreThreads() {
-      if (!this.aiReady || !this.historyHasMore) return;
-      try {
-        const params = new URLSearchParams({
-          scope: this.historyScope,
-          q: this.historyQ || '',
-          limit: String(this.historyLimit),
-          offset: String(this.historyOffset)
-        });
-        const r = await fetch('/api/ai/threads?' + params.toString());
-        const d = await r.json();
-        if (d.ok) {
-          this.threads = this.threads.concat(d.threads || []);
-          this.historyOffset = this.threads.length;
-          this.historyHasMore = !!d.hasMore;
-        }
-      } catch(e) { console.error('[ai] loadMoreThreads:', e); }
-    },
-
-    async loadProjects() {
-      if (!this.aiReady) return;
-      try {
-        const r = await fetch('/api/ai/projects');
-        const d = await r.json();
-        if (d.ok) this.projects = d.projects || [];
-      } catch(e) { console.error('[ai] loadProjects:', e); }
-    },
-
-    async openThread(threadId) {
-      if (!this.aiReady) return;
-      try {
-        const r = await fetch('/api/ai/threads/' + encodeURIComponent(threadId));
-        const d = await r.json();
-        if (d.ok) {
-          this.currentThreadId = d.thread.id;
-          this.currentThread = d.thread;
-          this.currentMessages = d.messages || [];
-          try { localStorage.setItem('ai:lastThreadId', String(d.thread.id)); } catch(e) {}
-        }
-      } catch(e) { console.error('[ai] openThread:', e); }
-    },
-
-    startNewThread() {
-      this.currentThreadId = null;
-      this.currentThread = null;
-      this.currentMessages = [];
-      this.pendingAttachments = [];
-      this.aiResult = '';
-      this.aiError = '';
-      try { localStorage.removeItem('ai:lastThreadId'); } catch(e) {}
-    },
-
-    async uploadAttachment(ev) {
-      const file = ev.target.files && ev.target.files[0];
-      if (!file) return;
-      if (file.size > 20 * 1024 * 1024) {
-        alert('20MB 이하 파일만 첨부할 수 있습니다.');
-        ev.target.value = '';
-        return;
-      }
-      try {
-        const form = new FormData();
-        form.append('file', file);
-        const r = await fetch('/api/ai/attachments', { method:'POST', body: form });
-        const d = await r.json();
-        if (d.ok) {
-          this.pendingAttachments.push(d.attachment);
-        } else {
-          this.aiError = d.error || '첨부 업로드 실패';
-        }
-      } catch(e) {
-        this.aiError = '첨부 업로드 실패: ' + e.message;
-      }
-      ev.target.value = '';
-    },
-
-    removeAttachment(id) {
-      this.pendingAttachments = this.pendingAttachments.filter(a => a.id !== id);
-    },
-
-    openProjectModal(project) {
-      if (project) {
-        this.projectForm = {
-          id: project.id,
-          name: project.name || '',
-          emoji: project.emoji || '📁',
-          description: project.description || '',
-          share_mode: project.share_mode || 'private',
-          member_ids: Array.isArray(project.member_ids) ? [...project.member_ids] : []
-        };
-      } else {
-        this.projectForm = { id:null, name:'', emoji:'📁', description:'', share_mode:'private', member_ids:[] };
-      }
-      // 공유 범위가 invited 일 때를 대비해 직원 목록 미리 로드
-      this.loadShareUserList();
-      this.showProjectModal = true;
-    },
-
-    closeProjectModal() {
-      this.showProjectModal = false;
-    },
-
+    // 공유 모달에서 재사용하는 직원 목록 로더 (AI 프로젝트 모달은 제거됨)
     async loadShareUserList() {
       if (this.shareUserList && this.shareUserList.length) return;
       try {
@@ -1118,55 +614,6 @@ function workspaceApp() {
         const data = await res.json();
         if (data.ok) this.shareUserList = data.users;
       } catch(e) {}
-    },
-
-    toggleProjectMember(userId) {
-      const idx = this.projectForm.member_ids.indexOf(userId);
-      if (idx >= 0) this.projectForm.member_ids.splice(idx, 1);
-      else this.projectForm.member_ids.push(userId);
-    },
-
-    async saveProject() {
-      if (!this.projectForm.name.trim()) return;
-      try {
-        const isEdit = !!this.projectForm.id;
-        const url = isEdit ? ('/api/ai/projects/' + this.projectForm.id) : '/api/ai/projects';
-        const method = isEdit ? 'PUT' : 'POST';
-        const r = await fetch(url, {
-          method,
-          headers: { 'Content-Type':'application/json' },
-          body: JSON.stringify({
-            name: this.projectForm.name.trim(),
-            emoji: this.projectForm.emoji || '📁',
-            description: this.projectForm.description || '',
-            share_mode: this.projectForm.share_mode || 'private',
-            member_ids: this.projectForm.member_ids || []
-          })
-        });
-        const d = await r.json();
-        if (d.ok) {
-          await this.loadProjects();
-          this.showProjectModal = false;
-        } else {
-          alert(d.error || '프로젝트 저장 실패');
-        }
-      } catch(e) { alert('프로젝트 저장 실패: ' + e.message); }
-    },
-
-    async deleteProject() {
-      if (!this.projectForm.id) return;
-      if (!confirm('이 프로젝트를 삭제하시겠습니까? (프로젝트에 포함된 대화는 "미분류"로 이동됩니다)')) return;
-      try {
-        const r = await fetch('/api/ai/projects/' + this.projectForm.id, { method:'DELETE' });
-        const d = await r.json();
-        if (d.ok) {
-          if (this.currentProjectId === this.projectForm.id) this.currentProjectId = null;
-          await this.loadProjects();
-          this.showProjectModal = false;
-        } else {
-          alert(d.error || '삭제 실패');
-        }
-      } catch(e) { alert('삭제 실패: ' + e.message); }
     },
 
     async loadPages() {
@@ -1234,35 +681,48 @@ function workspaceApp() {
       };
 
       const self = this; // uploader 콜백에서 쓰기 위해 바인딩
+
+      // Editor.js 기본 툴
+      const tools = {
+        header: { class: Header, config: { levels: [2, 3], defaultLevel: 2 }, shortcut: 'CMD+SHIFT+H' },
+        checklist: { class: Checklist, shortcut: 'CMD+SHIFT+L' },
+        list: { class: List, inlineToolbar: true },
+        delimiter: Delimiter,
+        quote: { class: Quote, shortcut: 'CMD+SHIFT+O' },
+        marker: { class: Marker, shortcut: 'CMD+SHIFT+M' },
+        image: {
+          class: ImageTool,
+          config: {
+            // custom uploader — multer 없이 base64 JSON 으로 업로드
+            uploader: {
+              uploadByFile: (file) => self._uploadImageFile(file),
+              uploadByUrl: (url) => Promise.resolve({ success: 1, file: { url } })
+            },
+            captionPlaceholder: '이미지 설명 (선택)',
+            buttonContent: '📷 이미지 선택'
+          }
+        }
+      };
+      // 커스텀 블록 (workspace-blocks.js 로드 성공 시만 등록)
+      // 노션 스타일 인라인 DB (텍스트/선택/날짜/숫자/체크박스 컬럼)
+      if (typeof DataTableTool !== 'undefined') {
+        tools.dataTable = { class: DataTableTool };
+      }
+      // 입력 폼 (제출 시 entries[] 에 누적)
+      if (typeof FormBlockTool !== 'undefined') {
+        tools.formBlock = { class: FormBlockTool };
+      }
+
       this.editor = new EditorJS({
         holder: 'editorjs',
         placeholder: "'/' 를 눌러 블록을 추가하세요...",
         data: editorData,
-        tools: {
-          header: { class: Header, config: { levels: [2, 3], defaultLevel: 2 }, shortcut: 'CMD+SHIFT+H' },
-          checklist: { class: Checklist, shortcut: 'CMD+SHIFT+L' },
-          list: { class: List, inlineToolbar: true },
-          delimiter: Delimiter,
-          quote: { class: Quote, shortcut: 'CMD+SHIFT+O' },
-          marker: { class: Marker, shortcut: 'CMD+SHIFT+M' },
-          image: {
-            class: ImageTool,
-            config: {
-              // custom uploader — multer 없이 base64 JSON 으로 업로드
-              uploader: {
-                uploadByFile: (file) => self._uploadImageFile(file),
-                uploadByUrl: (url) => Promise.resolve({ success: 1, file: { url } })
-              },
-              captionPlaceholder: '이미지 설명 (선택)',
-              buttonContent: '📷 이미지 선택'
-            }
-          }
-        },
+        tools: tools,
         onChange: () => { this.saveDebounced(); },
         i18n: {
           messages: {
             ui: { blockTunes: { toggler: { 'Click to tune': '블록 설정' } } },
-            toolNames: { 'Text': '텍스트', 'Heading': '제목', 'Checklist': '체크리스트', 'List': '목록', 'Delimiter': '구분선', 'Quote': '인용', 'Marker': '형광펜', 'Bold': '굵게', 'Italic': '기울임', 'Image': '이미지' },
+            toolNames: { 'Text': '텍스트', 'Heading': '제목', 'Checklist': '체크리스트', 'List': '목록', 'Delimiter': '구분선', 'Quote': '인용', 'Marker': '형광펜', 'Bold': '굵게', 'Italic': '기울임', 'Image': '이미지', '데이터 표': '데이터 표', '입력 폼': '입력 폼' },
             tools: {
               header: { 'Heading 2': '중제목', 'Heading 3': '소제목' },
               image: { 'Select an Image': '이미지 선택', 'With border': '테두리', 'Stretch image': '넓게', 'With background': '배경' }
@@ -1431,6 +891,8 @@ function workspaceApp() {
       });
     },
 
+    // 작성 도우미 — 현재 페이지 내용을 AI 에게 전달해서 결과 텍스트 받기
+    // (히스토리/첨부/프로젝트/이미지 생성은 AI 탭으로 이전됨)
     async askAI(prompt) {
       if (!prompt || !prompt.trim()) return;
       this.aiLoading = true;
@@ -1452,70 +914,6 @@ function workspaceApp() {
         } catch(e) {}
       }
 
-      // AI 히스토리 기능이 활성화돼 있으면 /api/ai/chat 사용 (스레드/첨부/프로젝트 자동 기록)
-      if (this.aiReady) {
-        // 낙관적 UI: 유저 메시지 즉시 추가
-        const userMsg = {
-          id: 'tmp-' + Date.now(),
-          role: 'user',
-          kind: 'text',
-          content: prompt.trim(),
-          created_at: new Date().toISOString().replace('T',' ').slice(0,19),
-          attachments_parsed: this.pendingAttachments.map(a => ({ id:a.id, original_name:a.original_name }))
-        };
-        this.currentMessages.push(userMsg);
-        const attIds = this.pendingAttachments.map(a => a.id);
-        const projectId = this.currentProjectId;
-        this.aiPrompt = '';
-        try {
-          const res = await fetch('/api/ai/chat', {
-            method:'POST',
-            headers: { 'Content-Type':'application/json' },
-            body: JSON.stringify({
-              threadId: this.currentThreadId || null,
-              projectId: projectId,
-              prompt: prompt.trim(),
-              pageContent: textContent,
-              attachmentIds: attIds,
-              sourcePageId: this.currentPageId || null
-            })
-          });
-          const d = await res.json();
-          if (d.ok) {
-            // 서버가 생성한 정식 메시지들로 교체
-            if (d.threadId) {
-              await this.openThread(d.threadId);
-              try { localStorage.setItem('ai:lastThreadId', String(d.threadId)); } catch(e){}
-            }
-            this.aiResult = d.result || '';
-            // 목록 갱신
-            await this.loadThreads();
-            this.pendingAttachments = [];
-          } else {
-            this.aiError = d.error || 'AI 요청 실패';
-            // 낙관적으로 추가한 user 메시지를 에러 버블로 바꿈
-            this.currentMessages.push({
-              id: 'err-' + Date.now(),
-              role: 'assistant', kind:'text',
-              content: this.aiError,
-              status: 'error',
-              created_at: new Date().toISOString().replace('T',' ').slice(0,19)
-            });
-          }
-        } catch(e) {
-          this.aiError = '서버 연결 실패: ' + e.message;
-          this.currentMessages.push({
-            id: 'err-' + Date.now(),
-            role: 'assistant', kind:'text',
-            content: this.aiError, status:'error',
-            created_at: new Date().toISOString().replace('T',' ').slice(0,19)
-          });
-        }
-        this.aiLoading = false;
-        return;
-      }
-
-      // 폴백: 구 엔드포인트 (히스토리 미지원)
       try {
         const res = await fetch('/api/workspace/ai', {
           method: 'POST',
@@ -1533,49 +931,6 @@ function workspaceApp() {
       }
       this.aiLoading = false;
       this.aiPrompt = '';
-    },
-
-    // Gemini + nanobanana 로 이미지 생성 → Editor.js 이미지 블록 삽입
-    async generateAIImage() {
-      const prompt = (this.aiImagePrompt || '').trim();
-      if (!prompt) return;
-      if (!this.editor) {
-        this.aiError = '페이지를 먼저 선택해 주세요.';
-        return;
-      }
-      this.aiImageLoading = true;
-      this.aiError = '';
-      try {
-        const res = await fetch('/api/workspace/ai-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt })
-        });
-        const data = await res.json();
-        if (data && data.success === 1 && data.file && data.file.url) {
-          // Editor.js 이미지 블록 삽입
-          try {
-            await this.editor.blocks.insert('image', {
-              file: { url: data.file.url },
-              caption: data.caption || prompt.slice(0, 80),
-              withBorder: false,
-              withBackground: false,
-              stretched: false
-            });
-          } catch (e) {
-            console.error('[workspace] 이미지 블록 삽입 실패:', e);
-            this.aiError = '이미지는 생성됐지만 페이지 삽입에 실패했습니다: ' + e.message;
-          }
-          // 프롬프트는 일부러 비우지 않는다 — 같은 프롬프트로 바로 다시 생성하거나
-          // 약간만 수정해서 재생성할 수 있도록. 완전히 지우려면 "지우기" 버튼 사용.
-        } else {
-          this.aiError = (data && data.error) || '이미지 생성 실패';
-          if (data && data.hint) console.warn('[workspace] ai-image hint:', data.hint);
-        }
-      } catch (e) {
-        this.aiError = '서버 연결 실패: ' + e.message;
-      }
-      this.aiImageLoading = false;
     },
 
     selectTemplate(mode) {
