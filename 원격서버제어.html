@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>대림 서버 원격 제어</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Malgun Gothic', sans-serif;
+      background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+      padding: 32px;
+      width: 100%;
+      max-width: 480px;
+    }
+    h1 {
+      margin: 0 0 4px 0;
+      font-size: 22px;
+      color: #1e293b;
+    }
+    .subtitle {
+      color: #64748b;
+      font-size: 13px;
+      margin-bottom: 24px;
+    }
+    .field {
+      margin-bottom: 16px;
+    }
+    .label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #475569;
+      margin-bottom: 6px;
+    }
+    .input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: monospace;
+    }
+    .input:focus {
+      outline: none;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+    .status-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 16px;
+      margin: 20px 0;
+      min-height: 100px;
+    }
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dot.green { background: #22c55e; box-shadow: 0 0 10px rgba(34,197,94,0.5); }
+    .dot.red { background: #ef4444; box-shadow: 0 0 10px rgba(239,68,68,0.5); }
+    .dot.yellow { background: #f59e0b; }
+    .dot.gray { background: #9ca3af; }
+    .status-text {
+      font-weight: 600;
+      font-size: 16px;
+    }
+    .detail {
+      font-size: 12px;
+      color: #64748b;
+      line-height: 1.6;
+      margin-top: 8px;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 4px 12px;
+    }
+    .detail-label {
+      color: #94a3b8;
+    }
+    .detail-value {
+      font-family: monospace;
+      color: #334155;
+    }
+    .btn-row {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .btn {
+      padding: 12px 16px;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: inherit;
+    }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    .btn-primary { background: #3b82f6; color: white; }
+    .btn-primary:hover:not(:disabled) { background: #2563eb; }
+    .btn-warning { background: #f59e0b; color: white; }
+    .btn-warning:hover:not(:disabled) { background: #d97706; }
+    .btn-danger { background: #dc2626; color: white; }
+    .btn-danger:hover:not(:disabled) { background: #b91c1c; }
+    .btn-secondary { background: #e2e8f0; color: #334155; }
+    .btn-secondary:hover:not(:disabled) { background: #cbd5e1; }
+    .btn-full { grid-column: 1 / -1; }
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e293b;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-size: 14px;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+      z-index: 100;
+    }
+    .toast.show { opacity: 1; }
+    .toast.error { background: #dc2626; }
+    details {
+      margin-top: 16px;
+      font-size: 12px;
+    }
+    summary {
+      cursor: pointer;
+      color: #64748b;
+      font-weight: 600;
+      padding: 6px 0;
+    }
+    details[open] summary { color: #334155; }
+    .config-fields {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>대림 서버 원격 제어</h1>
+    <p class="subtitle">로컬 PC에서 서버 PC의 메인 서버를 켜고 끕니다</p>
+
+    <!-- 상태 -->
+    <div class="status-box">
+      <div class="status-row">
+        <div class="dot" id="dot"></div>
+        <div class="status-text" id="statusText">연결 중...</div>
+      </div>
+      <div class="detail" id="detail">
+        <span class="detail-label">컨트롤 데몬</span><span class="detail-value" id="daemonState">—</span>
+        <span class="detail-label">메인 서버</span><span class="detail-value" id="mainState">—</span>
+        <span class="detail-label">마지막 확인</span><span class="detail-value" id="lastCheck">—</span>
+      </div>
+    </div>
+
+    <!-- 버튼 -->
+    <div class="btn-row">
+      <button class="btn btn-primary" id="btnStart" onclick="doAction('start')">▶ 시작</button>
+      <button class="btn btn-warning" id="btnRestart" onclick="doAction('restart')">↻ 재시작</button>
+      <button class="btn btn-danger" id="btnStop" onclick="doAction('stop')">■ 정지</button>
+      <button class="btn btn-secondary" id="btnRefresh" onclick="refresh()">🔄 새로고침</button>
+      <button class="btn btn-secondary btn-full" onclick="openMain()">🌐 메인 서버 열기 (localhost:3000)</button>
+    </div>
+
+    <details id="configSection">
+      <summary>⚙️ 접속 설정</summary>
+      <div class="config-fields">
+        <div class="field">
+          <label class="label">서버 PC 주소</label>
+          <input type="text" id="inputHost" class="input" value="http://192.168.0.133:3002">
+        </div>
+        <div class="field">
+          <label class="label">공유 시크릿</label>
+          <input type="password" id="inputSecret" class="input" placeholder="시크릿 입력">
+        </div>
+        <button class="btn btn-primary" style="width:100%;" onclick="saveConfig()">저장</button>
+      </div>
+    </details>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const CONFIG_KEY = 'daelim_remote_config';
+
+    function loadConfig() {
+      try {
+        const raw = localStorage.getItem(CONFIG_KEY);
+        if (raw) return JSON.parse(raw);
+      } catch(e) {}
+      return { host: 'http://192.168.0.133:3002', secret: '' };
+    }
+    function saveConfig() {
+      const cfg = {
+        host: document.getElementById('inputHost').value.trim().replace(/\/$/, ''),
+        secret: document.getElementById('inputSecret').value.trim(),
+      };
+      localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg));
+      toast('저장됨');
+      document.getElementById('configSection').open = false;
+      refresh();
+    }
+    function applyConfigToInputs() {
+      const cfg = loadConfig();
+      document.getElementById('inputHost').value = cfg.host;
+      document.getElementById('inputSecret').value = cfg.secret;
+    }
+
+    function toast(msg, isError) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.toggle('error', !!isError);
+      t.classList.add('show');
+      clearTimeout(window._toastTimer);
+      window._toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+    }
+
+    function setStatus(dotClass, text, daemonState, mainState) {
+      const dot = document.getElementById('dot');
+      dot.className = 'dot ' + dotClass;
+      document.getElementById('statusText').textContent = text;
+      document.getElementById('daemonState').textContent = daemonState || '—';
+      document.getElementById('mainState').textContent = mainState || '—';
+      document.getElementById('lastCheck').textContent = new Date().toLocaleTimeString();
+    }
+
+    async function refresh() {
+      const cfg = loadConfig();
+      if (!cfg.secret) {
+        setStatus('yellow', '시크릿 미설정', '—', '—');
+        document.getElementById('configSection').open = true;
+        return;
+      }
+      try {
+        const r = await fetch(cfg.host + '/status', {
+          headers: { 'X-Control-Secret': cfg.secret }
+        });
+        if (r.status === 401) {
+          setStatus('yellow', '인증 실패 (시크릿 틀림)', '연결됨', '—');
+          return;
+        }
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        const running = data.mainServer?.running;
+        setStatus(
+          running ? 'green' : 'red',
+          running ? '메인 서버 가동 중' : '메인 서버 정지됨',
+          `PID ${data.daemon?.pid} (${data.daemon?.uptimeSec}s)`,
+          running ? `포트 ${data.mainServer?.port} 열림` : '포트 닫힘'
+        );
+      } catch (e) {
+        setStatus('gray', '컨트롤 데몬 접속 실패', '응답 없음', '—');
+      }
+    }
+
+    async function doAction(action) {
+      const cfg = loadConfig();
+      if (!cfg.secret) { toast('시크릿 설정 먼저', true); return; }
+
+      const labels = { start: '시작', stop: '정지', restart: '재시작' };
+      const btns = ['btnStart', 'btnStop', 'btnRestart', 'btnRefresh'];
+      if (action === 'stop' && !confirm('메인 서버를 정지하시겠습니까?')) return;
+      if (action === 'restart' && !confirm('메인 서버를 재시작하시겠습니까?')) return;
+
+      btns.forEach(id => document.getElementById(id).disabled = true);
+      toast(labels[action] + ' 요청 중...');
+
+      try {
+        const r = await fetch(cfg.host + '/' + action, {
+          method: 'POST',
+          headers: { 'X-Control-Secret': cfg.secret }
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        toast(data.msg || (labels[action] + ' 완료'));
+
+        // 재시작/시작은 몇 초 뒤 상태 재확인
+        const waitMs = action === 'restart' ? 8000 : (action === 'start' ? 3000 : 2000);
+        setTimeout(refresh, waitMs);
+      } catch (e) {
+        toast(labels[action] + ' 실패: ' + e.message, true);
+      } finally {
+        btns.forEach(id => document.getElementById(id).disabled = false);
+      }
+    }
+
+    function openMain() {
+      const cfg = loadConfig();
+      try {
+        const url = new URL(cfg.host);
+        window.open(`${url.protocol}//${url.hostname}:3000`, '_blank');
+      } catch(e) {
+        window.open('http://192.168.0.133:3000', '_blank');
+      }
+    }
+
+    // 초기화
+    applyConfigToInputs();
+    refresh();
+    // 10초마다 자동 새로고침
+    setInterval(refresh, 10000);
+  </script>
+</body>
+</html>

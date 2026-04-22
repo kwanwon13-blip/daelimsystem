@@ -1,3 +1,6 @@
+// ── .env 로드 (없거나 dotenv 미설치여도 안전하게 무시) ──
+try { require('dotenv').config(); } catch (e) { /* dotenv 미설치 — 기본값 사용 */ }
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');

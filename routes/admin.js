@@ -545,4 +545,72 @@ router.post('/admin/users/bulk-company', requireAdmin, (req, res) => {
   res.json({ ok: true, updated: count });
 });
 
+// ══════════════════════════════════════════════════════════
+// ── 서버 제어 (admin-only) — 재시작/정지/상태 ────────────
+// 와치독(proxy-watchdog.bat / 서버_프록시모드_와치독.bat)이 3초 뒤 재기동
+// 정지는 server-stop.flag를 만들어서 와치독도 종료시킴
+// ══════════════════════════════════════════════════════════
+const path = require('path');
+const fs = require('fs');
+
+router.get('/admin/server/status', requireAdmin, (req, res) => {
+  const uptimeSec = Math.floor(process.uptime());
+  const memMB = Math.round(process.memoryUsage().rss / 1024 / 1024);
+  res.json({
+    ok: true,
+    pid: process.pid,
+    port: 3000,
+    uptimeSec,
+    uptimeText: formatUptime(uptimeSec),
+    memoryMB: memMB,
+    nodeVersion: process.version,
+    salaryMode: (process.env.SALARY_MODE || 'local').toLowerCase(),
+    startedAt: new Date(Date.now() - uptimeSec * 1000).toISOString(),
+  });
+});
+
+router.post('/admin/server/restart', requireAdmin, (req, res) => {
+  const by = req.user?.userId || 'unknown';
+  console.log(`[server-ctl] RESTART requested by ${by}`);
+  try { auditLog(by, 'server-restart', null, { ip: req.ip }); } catch(e) {}
+  res.json({ ok: true, msg: '재시작 중... (3초 후 와치독이 서버를 다시 시작합니다)' });
+  // 응답 후 잠깐 기다렸다가 프로세스 종료
+  setTimeout(() => {
+    console.log('[server-ctl] exiting for restart');
+    process.exit(0);
+  }, 500);
+});
+
+router.post('/admin/server/stop', requireAdmin, (req, res) => {
+  const by = req.user?.userId || 'unknown';
+  console.log(`[server-ctl] STOP requested by ${by}`);
+  try { auditLog(by, 'server-stop', null, { ip: req.ip }); } catch(e) {}
+  const flagPath = path.join(__dirname, '..', 'server-stop.flag');
+  try {
+    fs.writeFileSync(flagPath, new Date().toISOString(), 'utf8');
+    console.log('[server-ctl] stop.flag created:', flagPath);
+  } catch (e) {
+    console.error('[server-ctl] stop.flag 생성 실패:', e.message);
+    return res.status(500).json({ error: 'stop.flag 생성 실패: ' + e.message });
+  }
+  res.json({ ok: true, msg: '정지 중... (다시 켜려면 트레이에서 Start Server 클릭 또는 원격 컨트롤 데몬 사용)' });
+  setTimeout(() => {
+    console.log('[server-ctl] exiting for stop');
+    process.exit(0);
+  }, 500);
+});
+
+function formatUptime(sec) {
+  if (sec < 60) return `${sec}초`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  if (m < 60) return `${m}분 ${s}초`;
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  if (h < 24) return `${h}시간 ${mm}분`;
+  const d = Math.floor(h / 24);
+  const hh = h % 24;
+  return `${d}일 ${hh}시간 ${mm}분`;
+}
+
 module.exports = router;

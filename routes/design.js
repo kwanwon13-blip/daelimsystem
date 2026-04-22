@@ -22,7 +22,25 @@ try { sharp = require('sharp'); } catch(e) { /* skip */ }
 // ══════════════════════════════════════════════════════════
 
 const DESIGN_ROOT = process.env.DESIGN_ROOT || 'D:\\';
-const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp']);
+// 파일 종류별 확장자 매핑 (검색 대상 전체)
+const FILE_TYPES = {
+  image: new Set(['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp']),
+  pdf:   new Set(['.pdf']),
+  ai:    new Set(['.ai']),
+  psd:   new Set(['.psd']),
+  excel: new Set(['.xlsx', '.xls', '.xlsm', '.xlsb', '.csv']),
+  hwp:   new Set(['.hwp', '.hwpx']),
+  word:  new Set(['.docx', '.doc']),
+};
+// 확장자 → 파일종류 역매핑
+const EXT_TO_TYPE = (() => {
+  const m = {};
+  for (const [type, exts] of Object.entries(FILE_TYPES)) {
+    for (const ext of exts) m[ext] = type;
+  }
+  return m;
+})();
+const INDEXED_EXTS = new Set(Object.keys(EXT_TO_TYPE));
 // 네트워크 공유 경로 (클라이언트에서 폴더 열기용)
 const NETWORK_SHARE = '\\\\192.168.0.133\\dd';
 function toNetworkPath(localPath) {
@@ -43,8 +61,6 @@ const SKIP_DIRS = new Set([
 async function buildDesignIndexAsync(rootPath) {
   const items = [];
   const queue = [{ dir: rootPath, depth: 0 }];
-  // .ai 파일 존재 여부를 폴더별로 배치 체크 (디스크 I/O 대폭 감소)
-  const aiFileCache = new Map(); // dir -> Set of basenames with .ai
 
   while (queue.length > 0) {
     const { dir, depth } = queue.shift();
@@ -57,7 +73,7 @@ async function buildDesignIndexAsync(rootPath) {
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
     catch (e) { continue; }
 
-    // 해당 폴더의 .ai 파일 목록을 한 번에 수집
+    // 해당 폴더의 .ai 파일 목록을 한 번에 수집 (이미지-AI 연결용)
     const aiSet = new Set();
     for (const e of entries) {
       if (e.isFile() && e.name.toLowerCase().endsWith('.ai')) {
@@ -72,27 +88,33 @@ async function buildDesignIndexAsync(rootPath) {
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         queue.push({ dir: fullPath, depth: depth + 1 });
-      } else if (IMAGE_EXTS.has(path.extname(entry.name).toLowerCase())) {
+      } else {
+        const ext = path.extname(entry.name).toLowerCase();
+        if (!INDEXED_EXTS.has(ext)) continue;
+        const fileType = EXT_TO_TYPE[ext];
         const rel = path.relative(rootPath, fullPath);
         const parts = rel.split(path.sep);
-        const baseName = path.basename(entry.name, path.extname(entry.name));
-        // .ai 파일 존재 여부를 이미 수집한 Set에서 O(1) 조회
-        let hasAi = aiSet.has(baseName.toLowerCase());
-        let aiBaseName = baseName;
-        // -01, -02 등 번호 접미사 제거 후 재탐색 (예: 파일명-01.jpg → 파일명.ai)
-        if (!hasAi) {
-          const stripped = baseName.replace(/-\d+$/, '');
-          if (stripped !== baseName && aiSet.has(stripped.toLowerCase())) {
-            hasAi = true;
-            aiBaseName = stripped;
+        const baseName = path.basename(entry.name, ext);
+        // 이미지 파일일 때만 .ai 연결 파일 찾기 (기존 동작 유지)
+        let aiPath = null;
+        if (fileType === 'image') {
+          let hasAi = aiSet.has(baseName.toLowerCase());
+          let aiBaseName = baseName;
+          if (!hasAi) {
+            const stripped = baseName.replace(/-\d+$/, '');
+            if (stripped !== baseName && aiSet.has(stripped.toLowerCase())) {
+              hasAi = true;
+              aiBaseName = stripped;
+            }
           }
+          if (hasAi) aiPath = path.join(dir, aiBaseName + '.ai');
         }
-        // 수정시간 저장 (최신순 정렬용)
         let mtime = 0;
         try { mtime = fs.statSync(fullPath).mtimeMs; } catch(e) {}
         items.push({
           path: fullPath, rel, parts, name: entry.name,
-          aiPath: hasAi ? path.join(dir, aiBaseName + '.ai') : null,
+          aiPath,
+          fileType, ext,
           mtime,
           searchText: rel.toLowerCase().replace(/\\/g, ' ').replace(/_/g, ' ')
         });
@@ -142,13 +164,27 @@ startDesignIndexer();
 
 router.get('/design/search', requireAuth, (req, res) => {
   const q = (req.query.q || '').toLowerCase().trim();
-  if (!q) return res.json({ items: [], total: 0, status: designIndexStatus });
+  // types 파라미터: 콤마로 구분된 파일종류 목록 (예: "image,pdf")
+  const typesParam = (req.query.types || '').trim();
+  const typeFilter = typesParam ? new Set(typesParam.split(',').filter(Boolean)) : null;
+
+  // 파일종류별 개수 집계 (전체 인덱스 기준 — 필터 UI에서 숫자 표시용)
+  const typeCounts = {};
+  for (const t of Object.keys(FILE_TYPES)) typeCounts[t] = 0;
+  for (const item of designIndex) {
+    if (item.fileType && typeCounts[item.fileType] !== undefined) typeCounts[item.fileType]++;
+  }
+
+  if (!q || q === '__countonly__') return res.json({ items: [], total: 0, typeCounts, status: designIndexStatus });
   const keywords = q.split(/\s+/).filter(Boolean);
-  // 빠른 검색: 첫 키워드로 1차 필터링 후 나머지 키워드 매칭
   const first = keywords[0];
   const rest = keywords.slice(1);
   let matches = designIndex.filter(item => item.searchText.includes(first));
   if (rest.length > 0) matches = matches.filter(item => rest.every(kw => item.searchText.includes(kw)));
+  // 파일종류 필터
+  if (typeFilter && typeFilter.size > 0) {
+    matches = matches.filter(item => typeFilter.has(item.fileType));
+  }
   // 년도 필터
   const yearFilter = parseInt(req.query.year);
   if (yearFilter && yearFilter >= 2000 && yearFilter <= 2100) {
@@ -159,17 +195,41 @@ router.get('/design/search', requireAuth, (req, res) => {
   // 최신 수정일 순으로 정렬
   matches.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
   const total = matches.length;
-  const pageSize = Math.min(200, parseInt(req.query.pageSize) || 100);
+  // 페이지당 기본 40개, 최대 200개
+  const pageSize = Math.min(200, parseInt(req.query.pageSize) || 40);
   const page = Math.max(1, parseInt(req.query.page) || 1);
   const start = (page - 1) * pageSize;
-  // searchText 제외하고 응답 (트래픽 절감) + 네트워크 경로 추가
   const results = matches.slice(start, start + pageSize).map(item => ({
     path: item.path, rel: item.rel, parts: item.parts, name: item.name, aiPath: item.aiPath,
+    fileType: item.fileType, ext: item.ext,
     netPath: toNetworkPath(item.aiPath || item.path),
     netFolder: toNetworkPath(path.dirname(item.aiPath || item.path))
   }));
-  res.json({ items: results, total, page, pageSize, status: designIndexStatus });
+  res.json({ items: results, total, page, pageSize, typeCounts, status: designIndexStatus });
 });
+
+// 파일종류별 아이콘 색/라벨
+const TYPE_ICON = {
+  pdf:   { bg: '#dc2626', fg: '#ffffff', label: 'PDF' },
+  ai:    { bg: '#ea580c', fg: '#ffffff', label: 'AI' },
+  psd:   { bg: '#1e40af', fg: '#ffffff', label: 'PSD' },
+  excel: { bg: '#16a34a', fg: '#ffffff', label: 'XLSX' },
+  hwp:   { bg: '#0284c7', fg: '#ffffff', label: 'HWP' },
+  word:  { bg: '#2563eb', fg: '#ffffff', label: 'DOC' },
+};
+function iconSvg(fileType, ext) {
+  const icon = TYPE_ICON[fileType] || { bg: '#64748b', fg: '#ffffff', label: (ext || '').replace('.', '').toUpperCase() };
+  const label = icon.label;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="180" viewBox="0 0 240 180">
+  <rect width="240" height="180" fill="${icon.bg}"/>
+  <g transform="translate(120, 75)">
+    <rect x="-32" y="-28" width="64" height="56" rx="6" fill="${icon.fg}" opacity="0.15"/>
+    <text x="0" y="8" font-family="-apple-system, Segoe UI, sans-serif" font-size="22" font-weight="700" fill="${icon.fg}" text-anchor="middle">${label}</text>
+  </g>
+  <text x="120" y="150" font-family="-apple-system, Segoe UI, sans-serif" font-size="11" fill="${icon.fg}" opacity="0.7" text-anchor="middle">파일</text>
+</svg>`;
+}
 
 router.get('/design/thumb', requireAuth, async (req, res) => {
   const filePath = req.query.path;
@@ -180,15 +240,22 @@ router.get('/design/thumb', requireAuth, async (req, res) => {
 
   res.set('Cache-Control', 'public, max-age=86400'); // 24시간 캐시
 
-  // sharp 있으면 축소된 썸네일 생성/캐시
+  const ext = path.extname(resolved).toLowerCase();
+  const fileType = EXT_TO_TYPE[ext];
+
+  // 이미지가 아니면 파일종류 아이콘 SVG 반환
+  if (fileType && fileType !== 'image') {
+    res.type('image/svg+xml').send(iconSvg(fileType, ext));
+    return;
+  }
+
+  // 이미지: sharp 있으면 축소된 썸네일 생성/캐시
   if (sharp) {
     const hash = crypto.createHash('md5').update(resolved).digest('hex');
     const thumbPath = path.join(THUMB_DIR, hash + '.jpg');
-    // 캐시된 썸네일 있으면 바로 전송
     if (fs.existsSync(thumbPath)) {
       return res.type('image/jpeg').sendFile(thumbPath);
     }
-    // 없으면 생성
     try {
       await sharp(resolved).resize(240, 180, { fit: 'cover', withoutEnlargement: true }).jpeg({ quality: 60 }).toFile(thumbPath);
       return res.type('image/jpeg').sendFile(thumbPath);
@@ -229,6 +296,32 @@ router.get('/design/file', requireAuth, (req, res) => {
   if (!fs.existsSync(resolved)) return res.status(404).send('not found');
   const filename = path.basename(resolved);
   res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+  res.sendFile(resolved);
+});
+
+// 원본 보기 (inline 전송 — 라이트박스용)
+router.get('/design/view', requireAuth, (req, res) => {
+  const filePath = req.query.path;
+  if (!filePath) return res.status(400).send('path required');
+  const resolved = path.resolve(filePath);
+  if (!resolved.toLowerCase().startsWith(path.resolve(DESIGN_ROOT).toLowerCase())) {
+    return res.status(403).send('forbidden');
+  }
+  if (!fs.existsSync(resolved)) return res.status(404).send('not found');
+  const ext = path.extname(resolved).toLowerCase();
+  // 콘텐츠 타입 지정 (브라우저가 inline 렌더링할 수 있는 타입)
+  const mimeMap = {
+    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+    '.png': 'image/png', '.gif': 'image/gif',
+    '.bmp': 'image/bmp', '.webp': 'image/webp',
+    '.pdf': 'application/pdf',
+  };
+  const mime = mimeMap[ext];
+  if (mime) res.setHeader('Content-Type', mime);
+  // inline 명시 (attachment 아님)
+  const filename = path.basename(resolved);
+  res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(filename)}`);
+  res.setHeader('Cache-Control', 'private, max-age=3600');
   res.sendFile(resolved);
 });
 

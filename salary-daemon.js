@@ -14,6 +14,9 @@
  * 자동시작: bat/급여데몬시작.bat → Windows 시작프로그램 등록
  */
 
+// ── 0. .env 로드 (없거나 dotenv 미설치여도 안전하게 무시) ──
+try { require('dotenv').config(); } catch (e) { /* dotenv 미설치 — 기본값 사용 */ }
+
 // ── 1. 데몬 모드 플래그 먼저 세팅 ─────────────────────────────
 // routes/salary.js가 require하는 middleware/auth.js가 이 값을 읽는다.
 process.env.SALARY_DAEMON_MODE = '1';

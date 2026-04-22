@@ -783,7 +783,8 @@ router.get('/ai-image-health', async (req, res) => {
         const child = spawn('gemini', args, {
           shell: true,
           env: { ...process.env, LANG: 'ko_KR.UTF-8' },
-          windowsHide: true
+          windowsHide: true,
+          stdio: ['pipe', 'pipe', 'pipe']
         });
         let out = '', err = '';
         const timer = setTimeout(() => {
@@ -794,11 +795,18 @@ router.get('/ai-image-health', async (req, res) => {
         child.stderr.on('data', d => { err += d.toString('utf8'); });
         child.on('error', e => { clearTimeout(timer); resolve({ code: -1, out, err: e.message }); });
         child.on('close', code => { clearTimeout(timer); resolve({ code, out: out.trim(), err: err.trim() }); });
+        // stdin 바로 닫기 — gemini 가 stdin 을 대화형 입력으로 대기하지 않도록
+        try { child.stdin.end(); } catch(_) {}
       } catch (e) {
         resolve({ code: -1, out: '', err: e.message });
       }
     });
   }
+
+  // 파일시스템 직접 체크: %USERPROFILE%\.gemini\extensions\nanobanana 폴더 존재 여부
+  const userProfile = process.env.USERPROFILE || process.env.HOME || '';
+  const nanobananaPath = userProfile ? path.join(userProfile, '.gemini', 'extensions', 'nanobanana') : '';
+  const nanobananaDirExists = nanobananaPath ? fs.existsSync(nanobananaPath) : false;
 
   // 1. gemini --version
   const v = await run(['--version'], 8000);
@@ -808,21 +816,35 @@ router.get('/ai-image-health', async (req, res) => {
       ok: false,
       cliAvailable: false,
       nanobananaInstalled: false,
+      nanobananaDirExists,
+      nanobananaPath,
+      userProfile,
       error: 'Gemini CLI 미설치 또는 PATH 에 없음',
+      versionStdout: v.out,
+      versionStderr: v.err,
       detail: (v.err || v.out || '').slice(0, 300)
     });
   }
 
   // 2. gemini extensions list → nanobanana 포함 여부
-  const ext = await run(['extensions', 'list'], 15000);
-  const nanobananaInstalled = /nanobanana/i.test(ext.out);
+  const ext = await run(['extensions', 'list'], 20000);
+  const nanobananaViaCli = /nanobanana/i.test(ext.out) || /nanobanana/i.test(ext.err);
+
+  // 둘 중 하나라도 감지되면 설치된 것으로 간주 (파일시스템이 더 신뢰할 수 있음)
+  const nanobananaInstalled = nanobananaDirExists || nanobananaViaCli;
 
   res.json({
     ok: cliAvailable && nanobananaInstalled,
     cliAvailable: true,
     nanobananaInstalled,
+    nanobananaDirExists,      // fs.existsSync 결과
+    nanobananaViaCli,          // gemini extensions list 결과
+    nanobananaPath,            // 체크한 폴더 경로
+    userProfile,               // 서버 프로세스의 USERPROFILE
     version: v.out,
-    extensions: ext.out.slice(0, 500),
+    extensionsStdout: ext.out.slice(0, 500),
+    extensionsStderr: ext.err.slice(0, 500),
+    extensionsExitCode: ext.code,
     error: nanobananaInstalled ? null : 'nanobanana 확장이 설치되지 않았습니다.'
   });
 });

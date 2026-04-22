@@ -2882,10 +2882,23 @@
       <!-- DESIGN SEARCH TAB -->
       <template x-if="currentTab === 'design'">
         <div class="fade-in" x-data="{
-          q:'',results:[],total:0,loading:false,searched:false,
+          q:'',results:[],total:0,loading:false,loadingMore:false,searched:false,
           indexStatus:{built:false,building:false,count:0,error:null},
-          searchTimer:null, thumbSize:160, pollTimer:null, showCount:40, yearFilter:'',
+          searchTimer:null, thumbSize:160, pollTimer:null, yearFilter:'',
           isInternal:false,
+          currentPage:1, pageSize:40, hasMore:false,
+          typeFilter:[], // 빈 배열 = 전체
+          typeCounts:{image:0,pdf:0,ai:0,psd:0,excel:0,hwp:0,word:0},
+          fileTypes:[
+            {id:'image',label:'이미지',icon:'image',color:'#4f6ef7'},
+            {id:'pdf',label:'PDF',icon:'picture_as_pdf',color:'#dc2626'},
+            {id:'ai',label:'AI',icon:'draw',color:'#ea580c'},
+            {id:'psd',label:'PSD',icon:'layers',color:'#1e40af'},
+            {id:'excel',label:'Excel',icon:'table_chart',color:'#16a34a'},
+            {id:'hwp',label:'한글',icon:'description',color:'#0284c7'},
+            {id:'word',label:'Word',icon:'article',color:'#2563eb'}
+          ],
+          preview:{open:false,index:-1},
           async init(){
             var s=await fetch('/api/design/status').then(function(r){return r.json();}).catch(function(){return {};});
             s.count=s.count||0; s.built=!!s.built; s.building=!!s.building; s.error=s.error||null;
@@ -2893,17 +2906,98 @@
             if(s.building){var self=this;this.pollTimer=setInterval(function(){self.init();},3000);}
             var info=await fetch('/api/session/info').then(function(r){return r.json();}).catch(function(){return {};});
             this.isInternal=!!info.isInternal;
+            // 파일종류별 개수 미리 가져오기 (빈 검색 허용)
+            try{
+              var c=await fetch('/api/design/search?q=__countonly__').then(function(r){return r.json();});
+              if(c.typeCounts)this.typeCounts=c.typeCounts;
+            }catch(e){}
+            // 키보드 이벤트 등록
+            var self2=this;
+            this._keyHandler=function(e){
+              if(!self2.preview.open)return;
+              if(e.key==='ArrowRight')self2.showPrev(1);
+              else if(e.key==='ArrowLeft')self2.showPrev(-1);
+              else if(e.key==='Escape')self2.preview.open=false;
+            };
+            window.addEventListener('keydown',this._keyHandler);
           },
-          destroy(){if(this.pollTimer){clearInterval(this.pollTimer);this.pollTimer=null;}},
+          destroy(){
+            if(this.pollTimer){clearInterval(this.pollTimer);this.pollTimer=null;}
+            if(this._keyHandler){window.removeEventListener('keydown',this._keyHandler);this._keyHandler=null;}
+          },
+          toggleType(typeId){
+            var i=this.typeFilter.indexOf(typeId);
+            if(i>=0)this.typeFilter.splice(i,1);
+            else this.typeFilter.push(typeId);
+            if(this.searched)this.doSearch();
+          },
+          clearTypes(){
+            this.typeFilter=[];
+            if(this.searched)this.doSearch();
+          },
+          buildUrl(page){
+            var url='/api/design/search?q='+encodeURIComponent(this.q)+'&pageSize='+this.pageSize+'&page='+page;
+            if(this.yearFilter)url+='&year='+this.yearFilter;
+            if(this.typeFilter.length>0)url+='&types='+encodeURIComponent(this.typeFilter.join(','));
+            return url;
+          },
           async doSearch(){
-            if(!this.q.trim()){this.results=[];this.searched=false;return;}
-            this.loading=true;this.searched=true;this.showCount=40;
-            try{var url='/api/design/search?q='+encodeURIComponent(this.q)+'&pageSize=100';if(this.yearFilter)url+='&year='+this.yearFilter;var r=await fetch(url).then(function(r){return r.json();});
-            this.results=r.items||[];this.total=r.total||0;if(r.status)this.indexStatus=r.status;}
+            if(!this.q.trim()){this.results=[];this.searched=false;this.hasMore=false;return;}
+            this.loading=true;this.searched=true;this.currentPage=1;
+            try{
+              var r=await fetch(this.buildUrl(1)).then(function(r){return r.json();});
+              this.results=r.items||[];
+              this.total=r.total||0;
+              this.hasMore=this.results.length<this.total;
+              if(r.status)this.indexStatus=r.status;
+              if(r.typeCounts)this.typeCounts=r.typeCounts;
+            }
             finally{this.loading=false;}
+          },
+          async loadMore(){
+            if(this.loadingMore||!this.hasMore)return;
+            this.loadingMore=true;
+            try{
+              var next=this.currentPage+1;
+              var r=await fetch(this.buildUrl(next)).then(function(r){return r.json();});
+              var add=r.items||[];
+              this.results=this.results.concat(add);
+              this.currentPage=next;
+              this.hasMore=this.results.length<this.total;
+            }
+            finally{this.loadingMore=false;}
           },
           onInput(){clearTimeout(this.searchTimer);var self=this;this.searchTimer=setTimeout(function(){self.doSearch();},500);},
           get keywords(){return this.q.trim().split(/\s+/).filter(Boolean);},
+          openPreview(idx){
+            var item=this.results[idx];
+            if(!item)return;
+            // 원본보기 가능 파일만 (이미지, PDF)
+            if(item.fileType!=='image'&&item.fileType!=='pdf')return;
+            this.preview={open:true,index:idx};
+          },
+          showPrev(dir){
+            if(!this.preview.open||this.preview.index<0)return;
+            var n=this.results.length;
+            var idx=this.preview.index;
+            for(var i=0;i<n;i++){
+              idx=(idx+dir+n)%n;
+              var it=this.results[idx];
+              if(it&&(it.fileType==='image'||it.fileType==='pdf')){
+                this.preview.index=idx;
+                return;
+              }
+            }
+          },
+          previewUrl(){
+            var idx=this.preview.index;
+            if(idx<0||!this.results[idx])return '';
+            return '/api/design/view?path='+encodeURIComponent(this.results[idx].path);
+          },
+          typeLabel(typeId){
+            var t=this.fileTypes.find(function(f){return f.id===typeId;});
+            return t?t.label:typeId;
+          },
           copyPath(p){
             if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(p).then(function(){alert('경로가 복사되었습니다:\n'+p);});}
             else{var t=document.createElement('textarea');t.value=p;t.style.cssText='position:fixed;left:-9999px';document.body.appendChild(t);t.select();document.execCommand('copy');document.body.removeChild(t);alert('경로가 복사되었습니다:\n'+p);}
@@ -2974,6 +3068,23 @@
                 <option value="2020">2020</option>
               </select>
             </div>
+            <!-- 파일종류 필터 칩 -->
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center;">
+              <span style="font-size:11px;color:#6b7280;font-weight:600;margin-right:2px;">파일:</span>
+              <!-- 전체 버튼 -->
+              <button @click="clearTypes()"
+                :style="'display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:4px 11px;border-radius:20px;cursor:pointer;border:1px solid '+(typeFilter.length===0?'#4f6ef7':'#e5e7eb')+';background:'+(typeFilter.length===0?'#4f6ef7':'#ffffff')+';color:'+(typeFilter.length===0?'#ffffff':'#64748b')+';'">
+                <span class="material-symbols-outlined" style="font-size:13px;">select_all</span> 전체
+              </button>
+              <template x-for="ft in fileTypes" :key="ft.id">
+                <button @click="toggleType(ft.id)"
+                  :style="'display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:4px 11px;border-radius:20px;cursor:pointer;border:1px solid '+(typeFilter.includes(ft.id)?ft.color:'#e5e7eb')+';background:'+(typeFilter.includes(ft.id)?ft.color:'#ffffff')+';color:'+(typeFilter.includes(ft.id)?'#ffffff':'#64748b')+';'">
+                  <span class="material-symbols-outlined" style="font-size:13px;" x-text="ft.icon"></span>
+                  <span x-text="ft.label"></span>
+                  <span :style="'font-size:10px;opacity:.75;'" x-text="'('+(typeCounts[ft.id]||0).toLocaleString()+')'"></span>
+                </button>
+              </template>
+            </div>
             <!-- 키워드 칩 -->
             <div x-show="q.trim()" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;align-items:center;">
               <span style="font-size:10px;color:#9ca3af;margin-right:2px;">필터:</span>
@@ -2987,12 +3098,24 @@
           <template x-if="!loading && searched && results.length===0"><div class="text-center py-12 text-gray-400"><span class="material-symbols-outlined" style="font-size:40px;display:block;margin-bottom:8px;color:#cbd5e1;">search_off</span>검색 결과가 없습니다</div></template>
           <template x-if="!loading && results.length>0">
             <div>
-              <p class="text-[12px] text-gray-400 mb-3" x-text="total+'개 결과 ('+Math.min(showCount,results.length)+'개 표시)'"></p>
+              <p class="text-[12px] text-gray-400 mb-3" x-text="total+'개 결과 ('+results.length+'개 표시)'"></p>
               <div :style="'display:grid;grid-template-columns:repeat(auto-fill,minmax('+thumbSize+'px,1fr));gap:12px;'">
-                <template x-for="item in results.slice(0, showCount)" :key="item.path">
+                <template x-for="(item, idx) in results" :key="item.path">
                   <div class="card" style="padding:0;overflow:hidden;transition:transform .15s,box-shadow .15s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 24px rgba(0,0,0,.12)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
-                    <div :style="'height:'+Math.round(thumbSize*0.75)+'px;background:#f1f5f9;overflow:hidden;'">
+                    <div @click="openPreview(idx)"
+                      :style="'height:'+Math.round(thumbSize*0.75)+'px;background:#f1f5f9;overflow:hidden;position:relative;'+((item.fileType==='image'||item.fileType==='pdf')?'cursor:zoom-in;':'cursor:default;')"
+                      :title="(item.fileType==='image'||item.fileType==='pdf')?'클릭하면 원본 크게 보기':''">
                       <img :src="'/api/design/thumb?path='+encodeURIComponent(item.path)" style="width:100%;height:100%;object-fit:cover;" loading="lazy" decoding="async" onerror="this.style.display='none';this.parentElement.innerHTML='<div style=&quot;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#94a3b8;gap:4px&quot;><span class=&quot;material-symbols-outlined&quot; style=&quot;font-size:28px&quot;>image</span><span style=&quot;font-size:10px&quot;>미리보기 없음</span></div>'">
+                      <!-- 파일종류 뱃지 (이미지 아닌 경우) -->
+                      <template x-if="item.fileType&&item.fileType!=='image'">
+                        <div style="position:absolute;top:4px;left:4px;background:rgba(0,0,0,.55);color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;" x-text="item.ext.toUpperCase().replace('.','')"></div>
+                      </template>
+                      <!-- 원본보기 힌트 (이미지/PDF) -->
+                      <template x-if="item.fileType==='image'||item.fileType==='pdf'">
+                        <div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,.55);color:#fff;font-size:10px;padding:2px 5px;border-radius:4px;display:flex;align-items:center;gap:2px;">
+                          <span class="material-symbols-outlined" style="font-size:11px;">zoom_in</span>
+                        </div>
+                      </template>
                     </div>
                     <div style="padding:8px 10px;">
                       <p class="text-[11px] font-semibold text-gray-700 truncate" x-text="item.name"></p>
@@ -3045,13 +3168,14 @@
                   </div>
                 </template>
               </div>
-              <template x-if="results.length > showCount">
+              <template x-if="hasMore">
                 <div class="text-center mt-4">
-                  <button @click="showCount += 40" class="text-sm px-6 py-2.5 rounded-xl font-semibold"
+                  <button @click="loadMore()" :disabled="loadingMore"
+                    class="text-sm px-6 py-2.5 rounded-xl font-semibold"
                     style="background:linear-gradient(135deg,#eef2ff,#dbeafe);color:#4f6ef7;border:1px solid #c7d2fe;cursor:pointer;"
                     onmouseover="this.style.background='linear-gradient(135deg,#e0e7ff,#bfdbfe)'" onmouseout="this.style.background='linear-gradient(135deg,#eef2ff,#dbeafe)'">
-                    <span class="material-symbols-outlined" style="font-size:14px;vertical-align:middle;margin-right:4px;">expand_more</span>
-                    더보기 (<span x-text="results.length - showCount"></span>개 남음)
+                    <span class="material-symbols-outlined" style="font-size:14px;vertical-align:middle;margin-right:4px;" x-text="loadingMore?'progress_activity':'expand_more'"></span>
+                    <span x-text="loadingMore?'불러오는 중...':'더보기 ('+(total-results.length).toLocaleString()+'개 남음)'"></span>
                   </button>
                 </div>
               </template>
@@ -3064,6 +3188,56 @@
               <p class="text-[11px] mt-1" x-text="indexStatus.built?'전체 '+indexStatus.count.toLocaleString()+'개 파일에서 검색합니다':'서버 시작 후 자동으로 인덱싱됩니다'"></p>
             </div>
           </template>
+
+          <!-- 원본 보기 라이트박스 -->
+          <div x-show="preview.open" x-cloak @click.self="preview.open=false"
+            class="fixed inset-0 z-[100] flex items-center justify-center cursor-pointer"
+            style="background:rgba(0,0,0,.85);backdrop-filter:blur(6px);">
+            <!-- 이전 버튼 -->
+            <button @click.stop="showPrev(-1)"
+              class="absolute left-4 top-1/2 -translate-y-1/2 text-white rounded-full w-12 h-12 flex items-center justify-center hover:bg-white/20 transition-colors"
+              style="background:rgba(0,0,0,.4);">
+              <span class="material-symbols-outlined" style="font-size:32px;">chevron_left</span>
+            </button>
+            <!-- 다음 버튼 -->
+            <button @click.stop="showPrev(1)"
+              class="absolute right-4 top-1/2 -translate-y-1/2 text-white rounded-full w-12 h-12 flex items-center justify-center hover:bg-white/20 transition-colors"
+              style="background:rgba(0,0,0,.4);">
+              <span class="material-symbols-outlined" style="font-size:32px;">chevron_right</span>
+            </button>
+            <!-- 닫기 버튼 -->
+            <button @click.stop="preview.open=false"
+              class="absolute top-6 right-6 text-white rounded-full w-10 h-10 flex items-center justify-center hover:bg-white/20 transition-colors"
+              style="background:rgba(0,0,0,.4);">
+              <span class="material-symbols-outlined">close</span>
+            </button>
+
+            <!-- 컨텐츠 영역 -->
+            <div @click.stop class="flex flex-col items-center justify-center" style="max-width:92vw;max-height:92vh;">
+              <template x-if="preview.index>=0 && results[preview.index] && results[preview.index].fileType==='image'">
+                <img :src="previewUrl()" class="rounded-xl shadow-2xl object-contain" style="max-width:92vw;max-height:82vh;">
+              </template>
+              <template x-if="preview.index>=0 && results[preview.index] && results[preview.index].fileType==='pdf'">
+                <iframe :src="previewUrl()" class="rounded-xl shadow-2xl bg-white" style="width:92vw;height:82vh;border:none;"></iframe>
+              </template>
+              <!-- 정보 바 -->
+              <div class="mt-3 px-4 py-2 rounded-xl flex items-center gap-3" style="background:rgba(0,0,0,.6);color:#fff;font-size:12px;max-width:92vw;">
+                <span class="material-symbols-outlined" style="font-size:16px;color:#94a3b8;">folder</span>
+                <span class="truncate" style="max-width:60vw;" x-text="preview.index>=0 && results[preview.index] ? results[preview.index].name : ''"></span>
+                <span style="color:#94a3b8;" x-text="'('+(preview.index+1)+' / '+results.length+')'"></span>
+                <template x-if="preview.index>=0 && results[preview.index]">
+                  <a :href="'/api/design/file?path='+encodeURIComponent(results[preview.index].path)"
+                    class="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold"
+                    style="background:#4f6ef7;color:#fff;text-decoration:none;"
+                    @click.stop>
+                    <span class="material-symbols-outlined" style="font-size:14px;">download</span>
+                    다운
+                  </a>
+                </template>
+              </div>
+              <div class="mt-2" style="color:rgba(255,255,255,.4);font-size:10px;">← → 화살표로 넘기기 · ESC로 닫기</div>
+            </div>
+          </div>
         </div>
       </template>
 
@@ -5375,7 +5549,36 @@
 
 <script>
 function app() {
+  // ═══════════════════════════════════════════════════════════════════
+  // 새로고침(F5) 시 "기억할 탭" 목록
+  // ───────────────────────────────────────────────────────────────────
+  // 기본: 새로고침하면 홈으로 리셋
+  // 예외: 이 배열에 포함된 탭은 마지막으로 보고 있던 상태 그대로 복원
+  //
+  // 👉 여기에 탭 id만 추가하면 됩니다 (아래 예시 중에서 원하는 것만 유지)
+  //     'workspace'    = 워크스페이스 (장시간 문서 작성용)
+  //     'history'      = 견적 목록
+  //     'attendance'   = 출퇴근 기록부
+  //     'salary'       = 급여 관리
+  //     'stats'        = 통계
+  //     'approval'     = 결재
+  //     'leave'        = 연차
+  //     'gpsAttendance'= GPS 출퇴근
+  //     'admin'        = 사용자 관리
+  //     'vendors'      = 업체 관리
+  //     'pricing'      = 과거단가조회
+  //     'options'      = 옵션 관리
+  //     'notices'      = 공지사항
+  //     'orgchart'     = 조직도
+  //     'home'         = 홈 (기본값이라 추가할 필요 없음)
+  //
+  // 탭 id 확인: 사이드바 버튼 onclick 의 currentTab='xxx' 부분
+  // ═══════════════════════════════════════════════════════════════════
+  const REMEMBERED_TABS = ['workspace', 'history'];
+
   return {
+    // 기억할 탭 목록을 data에도 노출 (Alpine 내부에서 참조 가능)
+    _rememberedTabs: REMEMBERED_TABS,
     // 인증
     auth: { loggedIn: false, userId: '', name: '', role: '', position: '', phone: '', permissions: [] },
     // 급여 탭 가용성 (false이면 메뉴 자체를 숨김 — 관리자 PC 외에서는 존재조차 노출 안 함)
@@ -5526,16 +5729,21 @@ function app() {
       return false;
     },
     currentTab: (()=>{
-      // sessionStorage(레거시) → localStorage 마이그레이션 후 localStorage만 사용
+      // 새로고침 복원 정책: 기본은 '홈'. 위 REMEMBERED_TABS 에 포함된 탭만 복원.
       let _t = localStorage.getItem('currentTab');
       if (!_t) {
         const _legacy = sessionStorage.getItem('currentTab');
-        if (_legacy) { _t = _legacy; localStorage.setItem('currentTab', _legacy); }
+        if (_legacy && REMEMBERED_TABS.includes(_legacy)) {
+          _t = _legacy;
+          localStorage.setItem('currentTab', _legacy);
+        }
+        sessionStorage.removeItem('currentTab');
       }
-      console.log('[app] initial currentTab from storage:', _t);
-      if (['attendance_all','attendance_my'].includes(_t)) return 'attendance';
-      if (!_t) return 'home'; // 처음 접속 시 홈 랜딩
-      if (_t === 'quote') return 'history';
+      console.log('[app] initial currentTab from storage:', _t, '(remember list:', REMEMBERED_TABS, ')');
+      if (!_t || !REMEMBERED_TABS.includes(_t)) {
+        localStorage.removeItem('currentTab');
+        return 'home';
+      }
       return _t;
     })(),
     // 홈 대시보드 상태
@@ -6066,17 +6274,21 @@ function app() {
     },
 
     async init() {
-      // 탭 변경 시 localStorage에 저장 (F5 새로고침 / 창 재오픈 시 복원용)
+      // 탭 변경 시 localStorage 정책 — 상단 REMEMBERED_TABS 목록 하나로 제어됨
       this.$watch('currentTab', (val) => {
         // '견적 작성' 탭은 history로 리다이렉트 (팝업은 버튼으로만 열기)
         if (val === 'quote') {
           this.$nextTick(() => { this.currentTab = 'history'; });
-        } else {
-          try {
-            localStorage.setItem('currentTab', val);
-            console.log('[app] $watch currentTab -> saved to localStorage:', val);
-          } catch(e) { console.warn('[app] $watch save failed:', e); }
+          return;
         }
+        try {
+          if (REMEMBERED_TABS.includes(val)) {
+            localStorage.setItem('currentTab', val);
+            console.log('[app] $watch currentTab -> remembered:', val);
+          } else {
+            localStorage.removeItem('currentTab');
+          }
+        } catch(e) { console.warn('[app] $watch save failed:', e); }
         // 공지사항 탭 진입 시 뱃지 초기화
         if (val === 'notices') this.navBadges.notices = 0;
         // 결재 탭 진입 시 뱃지 초기화
