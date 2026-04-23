@@ -771,13 +771,26 @@ function extractText(filePath) {
   } catch (e) { return ''; }
 }
 
+// multer 가 파일명을 latin1 로 해석해서 한글이 깨짐 → utf8 로 복원
+function fixKoreanFilename(name) {
+  if (!name) return '';
+  try {
+    // 이미 깨진 latin1 문자열을 utf8 바이트로 되돌림
+    return Buffer.from(name, 'latin1').toString('utf8');
+  } catch (e) {
+    return name;
+  }
+}
+
 router.post('/attachments', (req, res, next) => {
   if (!upload) return res.status(503).json({ error: 'multer 미설치 — npm install multer' });
   upload.single('file')(req, res, async (err) => {
     if (err) return res.status(400).json({ error: err.message });
     if (!req.file) return res.status(400).json({ error: '파일 필요' });
     try {
-      const ext = path.extname(req.file.originalname || '').toLowerCase();
+      // 한글 파일명 인코딩 복원
+      const originalName = fixKoreanFilename(req.file.originalname || '');
+      const ext = path.extname(originalName).toLowerCase();
       const kind = detectKind(req.file.mimetype, ext);
       let excerpt = '';
       const storedPath = req.file.path;
@@ -787,7 +800,7 @@ router.post('/attachments', (req, res, next) => {
       // image/word 는 excerpt 없음 (word 는 mammoth 등 필요하면 추가)
       const att = ai.attachments.create({
         ownerId: req.user.userId,
-        originalName: req.file.originalname,
+        originalName,
         storedName: path.basename(storedPath),
         mime: req.file.mimetype || '',
         size: req.file.size || 0,
