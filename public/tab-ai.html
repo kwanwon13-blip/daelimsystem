@@ -80,6 +80,19 @@
   .ai-msg.ai.error .bubble { background:#fef2f2; border-color:#fecaca; color:#b91c1c; }
   /* 시스템 에러 배너 (AI 답변이 아닌 서버 에러 전용) */
   .ai-system-error { display:flex; align-items:flex-start; gap:10px; margin:12px auto; padding:12px 14px; max-width:560px; background:#fef2f2; border:1px solid #fecaca; border-radius:12px; box-shadow:0 1px 3px rgba(220,38,38,0.08); }
+  /* AI 가 생성한 파일 (엑셀/PDF 등) */
+  .ai-artifacts { display:flex; flex-direction:column; gap:6px; margin-top:10px; }
+  .ai-artifact { display:flex; align-items:center; gap:10px; padding:8px 12px; background:#fff; border:1px solid #e5e7eb; border-radius:10px; text-decoration:none; color:inherit; transition:all 0.15s; }
+  .ai-artifact:hover { background:#f9fafb; border-color:#4f6ef7; box-shadow:0 2px 6px rgba(79,110,247,0.1); }
+  .ai-artifact-icon { font-size:22px; flex-shrink:0; }
+  .ai-artifact-body { flex:1; min-width:0; }
+  .ai-artifact-name { font-size:13px; font-weight:600; color:#1f2937; word-break:break-all; }
+  .ai-artifact-meta { font-size:10px; color:#9ca3af; margin-top:2px; }
+  .ai-artifact-dl { font-size:16px; color:#4f6ef7; flex-shrink:0; }
+  /* 모델 선택 드롭다운 */
+  .ai-model-picker { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; background:#fff; border:1px solid #e5e7eb; border-radius:20px; cursor:pointer; font-size:11px; color:#4b5563; user-select:none; }
+  .ai-model-picker:hover { background:#f9fafb; border-color:#4f6ef7; }
+  .ai-model-picker.active { background:#eff6ff; border-color:#4f6ef7; color:#1d4ed8; }
   .ai-msg .meta { font-size:10px; color:#9ca3af; margin-top:3px; }
   .ai-msg.user .meta { text-align:right; }
   .ai-msg .bubble img.ai-img { max-width:100%; border-radius:8px; margin-top:6px; display:block; }
@@ -344,7 +357,41 @@
           </template>
         </div>
       </div>
-      <div class="actions">
+      <div class="actions" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <!-- 모델 선택 (API 모드에서만 활성) -->
+        <div style="position:relative;" x-show="backendMode === 'api'">
+          <button class="ai-model-picker" :class="modelPickerOpen?'active':''"
+                  @click="modelPickerOpen = !modelPickerOpen"
+                  :title="'현재 모델: ' + (getModelDisplay().name)">
+            <span x-text="getModelDisplay().emoji"></span>
+            <span x-text="getModelDisplay().name"></span>
+            <span style="color:#9ca3af;">▾</span>
+          </button>
+          <div x-show="modelPickerOpen" @click.away="modelPickerOpen=false"
+               style="position:absolute;top:100%;right:0;margin-top:4px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.1);padding:4px;min-width:240px;z-index:50;">
+            <template x-for="opt in modelOptionsVisible" :key="opt.key">
+              <button @click="selectModel(opt.key)"
+                      :class="selectedModel===opt.key?'active':''"
+                      style="display:flex;align-items:flex-start;gap:8px;width:100%;padding:8px 10px;border:none;background:none;cursor:pointer;border-radius:6px;text-align:left;"
+                      :style="selectedModel===opt.key ? 'background:#eff6ff;' : ''">
+                <span style="font-size:16px;flex-shrink:0;margin-top:1px;" x-text="opt.emoji"></span>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-size:12px;font-weight:600;color:#1f2937;"
+                       x-text="opt.name + (opt.adminOnly ? ' (관리자)' : '')"></div>
+                  <div style="font-size:10px;color:#6b7280;margin-top:2px;" x-text="opt.desc"></div>
+                </div>
+                <span x-show="selectedModel===opt.key" style="color:#4f6ef7;">✓</span>
+              </button>
+            </template>
+          </div>
+        </div>
+        <!-- 백엔드 상태 (CLI 모드면 배지 표시) -->
+        <span x-show="backendMode === 'cli'" style="font-size:10px;padding:3px 8px;background:#fef3c7;color:#92400e;border-radius:10px;font-weight:600;" title="CLI 모드 — 동시 사용 제한됨. API 키 설정하면 자동 전환">CLI</span>
+        <!-- 오늘 사용량 (API 모드만) -->
+        <span x-show="backendMode === 'api'"
+              style="font-size:10px;padding:3px 8px;background:#f3f4f6;color:#6b7280;border-radius:10px;"
+              :title="'오늘 ' + usageToday.count + '/' + usageToday.limit + '회 사용'"
+              x-text="'오늘 ' + (usageToday.count || 0) + '/' + (usageToday.limit || 0)"></span>
         <button @click="startNewThread()">+ 새 대화</button>
       </div>
     </div>
@@ -477,8 +524,29 @@
                     </template>
                   </div>
                 </template>
+                <!-- AI 가 생성한 파일 (엑셀/PDF 등) 다운로드 -->
+                <template x-if="m.artifacts_parsed && m.artifacts_parsed.length">
+                  <div class="ai-artifacts">
+                    <template x-for="a in m.artifacts_parsed" :key="a.id">
+                      <a :href="a.url" target="_blank" class="ai-artifact">
+                        <span class="ai-artifact-icon" x-text="artifactIcon(a.kind)"></span>
+                        <div class="ai-artifact-body">
+                          <div class="ai-artifact-name" x-text="a.name || ('#'+a.id)"></div>
+                          <div class="ai-artifact-meta">
+                            <span x-text="(a.kind || 'file').toUpperCase()"></span>
+                            <span x-show="a.size" x-text="' · ' + formatSize(a.size)"></span>
+                          </div>
+                        </div>
+                        <span class="ai-artifact-dl">⬇</span>
+                      </a>
+                    </template>
+                  </div>
+                </template>
               </div>
-              <div class="meta" x-text="formatDate(m.created_at)"></div>
+              <div class="meta">
+                <span x-text="formatDate(m.created_at)"></span>
+                <span x-show="m.metadata_parsed && m.metadata_parsed.model" style="margin-left:8px;color:#9ca3af;font-size:9px;" x-text="'· ' + (m.metadata_parsed && m.metadata_parsed.model || '')"></span>
+              </div>
             </div>
           </div>
             </template>
@@ -728,6 +796,50 @@ function aiApp() {
     // 모바일
     mobileSidebar: false,
 
+    // AI 모델 선택 (API 모드에서만 의미 있음)
+    selectedModel: localStorage.getItem('aiTab:model') || '',   // '' = 서버 기본값
+    modelPickerOpen: false,
+    backendMode: 'cli',   // 'api' | 'cli'
+    backendModel: '',     // 서버가 쓰는 기본 모델
+    MODEL_OPTIONS: [
+      { key: '', name: '기본', emoji: '✦', desc: '서버 기본 모델 사용' },
+      { key: 'claude-haiku-4-5-20251001', name: 'Haiku', emoji: '⚡', desc: '빠르고 저렴. 간단 질문·대화에 최적' },
+      { key: 'claude-sonnet-4-6', name: 'Sonnet', emoji: '✨', desc: '균형. 문서·분석·도구 호출에 권장' },
+      { key: 'claude-opus-4-6', name: 'Opus', emoji: '🧠', desc: '최강. 복잡한 추론·긴 문서 (비쌈)', adminOnly: true },
+    ],
+    get modelOptionsVisible() {
+      const isAdmin = this.getAuth().role === 'admin';
+      return this.MODEL_OPTIONS.filter(m => !m.adminOnly || isAdmin);
+    },
+    selectModel(key) {
+      this.selectedModel = key;
+      try { localStorage.setItem('aiTab:model', key); } catch(e) {}
+      this.modelPickerOpen = false;
+    },
+    getModelDisplay() {
+      const m = this.MODEL_OPTIONS.find(o => o.key === this.selectedModel) || this.MODEL_OPTIONS[0];
+      return m;
+    },
+    async loadBackendInfo() {
+      try {
+        const r = await fetch('/api/ai/health');
+        if (!r.ok) return;
+        const d = await r.json();
+        this.backendMode = d.backend || 'cli';
+        this.backendModel = d.model || '';
+      } catch (e) {}
+    },
+    // 오늘 사용량 표시 (헤더)
+    usageToday: { count: 0, limit: 100, remaining: 100 },
+    async loadUsageToday() {
+      try {
+        const r = await fetch('/api/ai/usage/today');
+        if (!r.ok) return;
+        const d = await r.json();
+        this.usageToday = d;
+      } catch (e) {}
+    },
+
     // ── 업스케일 ──
     upscaleHealth: null,       // { ready, binExists, models: [...], installedCount }
     upscaleModels: [],         // health 응답의 models
@@ -753,16 +865,23 @@ function aiApp() {
     },
 
     async init() {
-      // /api/ai/health 체크
+      // /api/ai/health 체크 + 백엔드 모드/모델 정보 로드
       try {
         const r = await fetch('/api/ai/health');
         if (r.ok) {
           const d = await r.json();
           this.aiReady = !!d.ready;
+          this.backendMode = d.backend || 'cli';
+          this.backendModel = d.model || '';
         }
       } catch(e) { this.aiReady = false; }
 
       if (!this.aiReady) return;
+
+      // API 모드면 오늘 사용량도 로드
+      if (this.backendMode === 'api') {
+        this.loadUsageToday();
+      }
 
       await this.loadThreads();
       await this.loadProjects();
@@ -841,13 +960,22 @@ function aiApp() {
           this.currentThreadId = d.thread.id;
           this.currentThread = d.thread;
           this.currentMessages = d.messages || [];
-          // 첨부 hydrated 필드로 통일
+          // 메시지별 필드 파싱 (첨부/생성파일/메타데이터)
           for (const m of this.currentMessages) {
             if (!m.attachments_parsed && m.attachments) {
               try {
                 const a = typeof m.attachments === 'string' ? JSON.parse(m.attachments) : m.attachments;
                 m.attachments_parsed = Array.isArray(a) ? a : [];
               } catch(e) { m.attachments_parsed = []; }
+            }
+            if (!m.metadata_parsed && m.metadata) {
+              try {
+                m.metadata_parsed = typeof m.metadata === 'string' ? JSON.parse(m.metadata) : m.metadata;
+              } catch(e) { m.metadata_parsed = {}; }
+            }
+            // metadata 에 들어있는 artifacts 를 꺼냄
+            if (!m.artifacts_parsed && m.metadata_parsed && Array.isArray(m.metadata_parsed.artifacts)) {
+              m.artifacts_parsed = m.metadata_parsed.artifacts;
             }
           }
           try { localStorage.setItem('aiTab:lastThreadId', String(d.thread.id)); } catch(e) {}
@@ -984,6 +1112,16 @@ function aiApp() {
       if (n < 1024) return n + 'B';
       if (n < 1024 * 1024) return (n / 1024).toFixed(1).replace(/\.0$/,'') + 'KB';
       return (n / 1024 / 1024).toFixed(1).replace(/\.0$/,'') + 'MB';
+    },
+    // AI 가 만든 파일 아이콘 (kind 별)
+    artifactIcon(kind) {
+      switch ((kind || '').toLowerCase()) {
+        case 'excel': return '📊';
+        case 'pdf': return '📄';
+        case 'image': return '🖼️';
+        case 'text': return '📝';
+        default: return '📁';
+      }
     },
 
     // 간단 토스트 (alert 대체)
@@ -1142,7 +1280,8 @@ function aiApp() {
             threadId: this.currentThreadId || null,
             projectId: projectId,
             prompt: prompt,
-            attachmentIds: attIds
+            attachmentIds: attIds,
+            model: this.selectedModel || undefined,
           })
         });
         const d = await res.json();
@@ -1153,12 +1292,21 @@ function aiApp() {
           }
           await this.loadThreads();
           this.pendingAttachments = [];
+          // 사용량 뱃지 갱신 (API 모드)
+          if (this.backendMode === 'api') this.loadUsageToday();
+          // 파일 생성되면 토스트
+          if (Array.isArray(d.artifacts) && d.artifacts.length > 0) {
+            this._toast(`📎 ${d.artifacts.length}개 파일이 생성되었습니다 — 대화창 하단 확인`);
+          }
         } else {
           // 낙관적으로 추가한 유저 메시지 제거 (서버엔 저장 안됐으므로)
           this.currentMessages = this.currentMessages.filter(m => m.id !== userMsg.id);
           // 권한 에러(403/NOT_OWNER): 토스트 + 입력창 복구로 새 대화 시작 유도
           if (res.status === 403 || d.code === 'NOT_OWNER') {
             if (this._toast) this._toast(d.error || '권한이 없는 대화입니다. 새 대화를 시작해주세요.');
+            this.draft = prompt;
+          } else if (res.status === 429 || d.code === 'DAILY_LIMIT') {
+            if (this._toast) this._toast(d.error || '오늘 AI 사용 한도에 도달했습니다.');
             this.draft = prompt;
           } else {
             // 그 외 에러는 AI 답변이 아닌 시스템 에러 배너로 명확히 표시

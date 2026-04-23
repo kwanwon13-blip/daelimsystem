@@ -94,10 +94,13 @@ router.get('/pages', (req, res) => {
       ORDER BY pinned DESC, updated_at DESC
     `).all();
 
-    // 필터: 내 페이지 OR 전체공유 OR shared_with에 내가 포함
+    // 필터: 내 페이지 OR 전체공유 OR 외부공유링크 있음 OR shared_with에 내가 포함
+    // ⚠️ share_token 이 발급된 페이지는 외부 링크로 접근 가능한 상태이므로,
+    //    내부 직원은 당연히 목록에서도 볼 수 있어야 한다. (외부엔 공개인데 내부에선 안 보이면 안됨)
     const filtered = pages.filter(p => {
       if (p.author_id === userId) return true;
-      if (p.shared === 1) return true;  // 전체 공유
+      if (p.shared === 1) return true;                // 전체 공유
+      if (p.share_token) return true;                 // 외부 공유 링크 있음 → 내부에서도 노출
       try {
         const sharedWith = JSON.parse(p.shared_with || '[]');
         if (sharedWith.includes(userId)) return true;
@@ -116,10 +119,29 @@ router.get('/pages', (req, res) => {
 });
 
 // ── 페이지 상세 조회 ──
+// 목록 필터와 동일한 권한 체크 적용:
+//   내 페이지 OR 전체공유 OR 외부공유링크 있음 OR shared_with에 포함
 router.get('/pages/:id', (req, res) => {
   try {
+    // req.user 는 requireAuth 미들웨어가 세팅. query.userId 는 백워드 호환용.
+    const userId = (req.user && req.user.userId) || req.query.userId || '';
     const page = db.prepare('SELECT * FROM workspace_pages WHERE id = ?').get(req.params.id);
     if (!page) return res.status(404).json({ error: '페이지 없음' });
+
+    // 권한 체크
+    let canView = false;
+    if (page.author_id === userId) canView = true;
+    else if (page.shared === 1) canView = true;
+    else if (page.share_token) canView = true;  // 외부 링크 있으면 내부도 접근 가능
+    else {
+      try {
+        const sharedWith = JSON.parse(page.shared_with || '[]');
+        if (sharedWith.includes(userId)) canView = true;
+      } catch(e) {}
+    }
+    // admin 은 모두 열람 가능 (관리 목적)
+    if (!canView && req.user && req.user.role === 'admin') canView = true;
+    if (!canView) return res.status(403).json({ error: '이 페이지를 볼 권한이 없습니다' });
 
     // content JSON 파싱
     try { page.content = JSON.parse(page.content); } catch(e) { page.content = {}; }
@@ -187,6 +209,257 @@ router.delete('/pages/:id', (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('[workspace] 삭제 오류:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ──────────────────────────────────────────────────────────
+// AI 자연어 → 페이지 블록 생성
+// "협력업체 방문 기록 양식 만들어줘" 같은 요청 → Editor.js 블록 JSON 반환
+// ──────────────────────────────────────────────────────────
+
+// Editor.js 가 이해하는 블록 타입 설명 (Claude 에게 넘겨줄 가이드)
+const WS_AI_SYSTEM_PROMPT = `당신은 대림에스엠 ERP 워크스페이스 페이지 작성 어시스턴트입니다.
+사용자의 자연어 요청을 받아서, 그 요청에 맞는 **업무 페이지 템플릿**을 JSON 블록 배열로 생성하세요.
+
+== 규칙 ==
+1. 출력은 **반드시 순수 JSON** 만. 설명/머릿말/\`\`\`코드블록\`\`\` 절대 금지.
+2. JSON 스키마: { "blocks": [ {type, data}, ... ] }
+3. 사용 가능한 블록 타입만 사용:
+   - header: { "text": "제목", "level": 2 }  (level 은 2 또는 3)
+   - paragraph: { "text": "일반 문단" }
+   - checklist: { "items": [ { "text": "할일", "checked": false }, ... ] }
+   - list: { "style": "unordered" | "ordered", "items": ["항목1", "항목2"] }
+   - quote: { "text": "인용", "caption": "출처" }
+   - delimiter: {}  (구분선)
+   - dataTable: { "columns": [{id, name, type: "text"|"number"|"date"|"select"|"check", options?}], "rows": [{colId: value, ...}] }
+4. 한국어로 작성. 대림에스엠은 단가표/견적/출퇴근/급여 업무를 하는 회사.
+5. **예시 내용을 채워넣기**: 직원이 "아 이렇게 쓰면 되는구나" 하고 바로 이해할 수 있게
+   실제 예시 데이터 한두 줄 미리 넣어주세요 (나중에 수정하라는 식으로).
+6. 블록 개수는 6~20개 사이로. 페이지 첫 줄은 header level 2 (제목) 로 시작.
+7. dataTable 을 만들 땐 columns 각 id 는 짧은 영문/숫자 (col1, col2 등), name 은 한글.
+8. rows 각 객체의 key 는 columns 의 id 와 정확히 일치해야 함.
+
+== 좋은 예시 1 ==
+사용자: "회의록 만들어줘"
+출력:
+{"blocks":[
+{"type":"header","data":{"text":"📝 회의록","level":2}},
+{"type":"paragraph","data":{"text":"일시: 2026-04-23 14:00"}},
+{"type":"paragraph","data":{"text":"참석자: 남관원, 홍길동"}},
+{"type":"header","data":{"text":"안건","level":3}},
+{"type":"list","data":{"style":"unordered","items":["신규 품목 단가 협의","납기 일정 조정"]}},
+{"type":"header","data":{"text":"결정 사항","level":3}},
+{"type":"paragraph","data":{"text":"샘플 발송 후 4/30 재검토"}},
+{"type":"header","data":{"text":"액션 아이템","level":3}},
+{"type":"checklist","data":{"items":[{"text":"샘플 A 발송 (담당: 김대리, 기한: 4/25)","checked":false},{"text":"견적서 재작성 (담당: 이과장, 기한: 4/27)","checked":false}]}}
+]}
+
+== 좋은 예시 2 ==
+사용자: "협력업체 평가표"
+출력:
+{"blocks":[
+{"type":"header","data":{"text":"🏢 협력업체 평가표","level":2}},
+{"type":"paragraph","data":{"text":"작성일: 2026-04-23  |  작성자: [이름]"}},
+{"type":"dataTable","data":{"columns":[{"id":"c1","name":"업체명","type":"text"},{"id":"c2","name":"품질(10)","type":"number"},{"id":"c3","name":"납기(10)","type":"number"},{"id":"c4","name":"가격(10)","type":"number"},{"id":"c5","name":"소통(10)","type":"number"},{"id":"c6","name":"재거래","type":"select","options":["적극","가능","검토","불가"]}],"rows":[{"c1":"(예시) ㈜샘플산업","c2":8,"c3":9,"c4":7,"c5":9,"c6":"적극"}]}},
+{"type":"header","data":{"text":"종합 의견","level":3}},
+{"type":"paragraph","data":{"text":"(종합 평가를 여기에 작성)"}}
+]}
+
+이제 아래 사용자 요청에 맞게 JSON 만 출력하세요. 다른 텍스트는 절대 추가 금지.`;
+
+async function callClaudeForBlocks(userPrompt) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY 미설정');
+  const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 4096,
+      system: WS_AI_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userPrompt }]
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Claude API ${response.status}: ${errText.slice(0, 300)}`);
+  }
+  const data = await response.json();
+  const content = (data.content || []).filter(c => c.type === 'text').map(c => c.text).join('').trim();
+  // JSON 파싱 (앞뒤 markdown 코드블록 제거 방어)
+  let json = content;
+  const mdMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (mdMatch) json = mdMatch[1].trim();
+  // 앞에 설명 섞여있으면 { 부터 시작하는 부분만 추출
+  const braceStart = json.indexOf('{');
+  const braceEnd = json.lastIndexOf('}');
+  if (braceStart >= 0 && braceEnd > braceStart) {
+    json = json.slice(braceStart, braceEnd + 1);
+  }
+  let parsed;
+  try { parsed = JSON.parse(json); }
+  catch (e) { throw new Error('AI 응답 JSON 파싱 실패: ' + e.message + '\n응답 앞부분: ' + content.slice(0, 200)); }
+  if (!parsed || !Array.isArray(parsed.blocks)) throw new Error('AI 응답 형식 오류 (blocks 배열 없음)');
+  return parsed.blocks;
+}
+
+// 블록 검증 + 정제 (안전한 블록만 통과)
+const WS_AI_ALLOWED_TYPES = new Set(['header','paragraph','checklist','list','quote','delimiter','dataTable']);
+function sanitizeBlocks(blocks) {
+  if (!Array.isArray(blocks)) return [];
+  return blocks
+    .filter(b => b && typeof b === 'object' && WS_AI_ALLOWED_TYPES.has(b.type))
+    .slice(0, 50)  // 최대 50블록
+    .map(b => {
+      const d = b.data || {};
+      switch (b.type) {
+        case 'header':
+          return { type: 'header', data: {
+            text: String(d.text || '').slice(0, 200),
+            level: [2,3].includes(d.level) ? d.level : 2
+          }};
+        case 'paragraph':
+          return { type: 'paragraph', data: { text: String(d.text || '').slice(0, 3000) } };
+        case 'checklist': {
+          const items = Array.isArray(d.items) ? d.items.slice(0, 30) : [];
+          return { type: 'checklist', data: {
+            items: items.map(it => ({
+              text: String((it && it.text) || '').slice(0, 500),
+              checked: !!(it && it.checked)
+            }))
+          }};
+        }
+        case 'list': {
+          const items = Array.isArray(d.items) ? d.items.slice(0, 30) : [];
+          const style = d.style === 'ordered' ? 'ordered' : 'unordered';
+          return { type: 'list', data: {
+            style, items: items.map(it => String(it || '').slice(0, 500))
+          }};
+        }
+        case 'quote':
+          return { type: 'quote', data: {
+            text: String(d.text || '').slice(0, 1000),
+            caption: String(d.caption || '').slice(0, 200),
+            alignment: 'left'
+          }};
+        case 'delimiter':
+          return { type: 'delimiter', data: {} };
+        case 'dataTable': {
+          const cols = Array.isArray(d.columns) ? d.columns.slice(0, 12) : [];
+          const rows = Array.isArray(d.rows) ? d.rows.slice(0, 30) : [];
+          return { type: 'dataTable', data: {
+            columns: cols.map((c, i) => ({
+              id: String(c.id || `col${i+1}`).slice(0, 20),
+              name: String(c.name || `컬럼${i+1}`).slice(0, 30),
+              type: ['text','number','date','select','check'].includes(c.type) ? c.type : 'text',
+              options: Array.isArray(c.options) ? c.options.slice(0, 20).map(o => String(o).slice(0, 30)) : undefined
+            })),
+            rows: rows
+          }};
+        }
+      }
+      return null;
+    })
+    .filter(Boolean);
+}
+
+router.post('/ai-generate', async (req, res) => {
+  try {
+    const prompt = String((req.body && req.body.prompt) || '').trim();
+    if (!prompt) return res.status(400).json({ error: '프롬프트가 비어있습니다' });
+    if (prompt.length > 1000) return res.status(400).json({ error: '프롬프트는 1000자 이하로 작성해주세요' });
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return res.status(503).json({ error: 'AI 기능이 비활성화 상태입니다. 관리자에게 ANTHROPIC_API_KEY 설정을 요청하세요.' });
+    }
+
+    const rawBlocks = await callClaudeForBlocks(prompt);
+    const blocks = sanitizeBlocks(rawBlocks);
+    if (blocks.length === 0) {
+      return res.status(502).json({ error: 'AI가 유효한 블록을 생성하지 못했습니다. 다시 시도해주세요.' });
+    }
+    res.json({ ok: true, blocks });
+  } catch (e) {
+    console.error('[workspace] ai-generate 오류:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ──────────────────────────────────────────────────────────
+// 페이지 개선/요약/Action Item 추출 — 기존 페이지 내용 기반
+// ──────────────────────────────────────────────────────────
+const WS_AI_ACTIONS = {
+  summarize: {
+    system: '당신은 대림에스엠 ERP 워크스페이스의 요약 도우미입니다. 주어진 페이지 내용을 핵심만 3~5개 bullet 로 정리하세요. 출력은 순수 JSON만: {"blocks":[{"type":"header","data":{"text":"📌 요약","level":3}},{"type":"list","data":{"style":"unordered","items":["..."]}}]}. 다른 텍스트 금지.',
+    userWrap: (content) => `다음 페이지 내용을 요약해주세요:\n\n${content}`
+  },
+  actionItems: {
+    system: '당신은 대림에스엠 ERP 워크스페이스의 Action Item 추출 도우미입니다. 주어진 페이지 내용에서 "해야 할 일"을 뽑아 checklist 블록으로 만드세요. 담당자/기한 정보가 있으면 같이 포함. 출력은 순수 JSON만: {"blocks":[{"type":"header","data":{"text":"✅ Action Items","level":3}},{"type":"checklist","data":{"items":[{"text":"...","checked":false}]}}]}. 다른 텍스트 금지.',
+    userWrap: (content) => `다음 페이지에서 Action Item을 뽑아주세요:\n\n${content}`
+  },
+  improve: {
+    system: '당신은 대림에스엠 ERP 워크스페이스 페이지 개선 도우미입니다. 주어진 내용에 누락된 섹션/필요한 블록을 보완해주세요. 출력은 순수 JSON만: {"blocks":[...]}. 기존 내용을 유지하면서 필요한 섹션(결정사항/다음 단계/담당자 등)을 추가. 다른 텍스트 금지.',
+    userWrap: (content) => `다음 페이지를 보완해주세요:\n\n${content}`
+  }
+};
+
+router.post('/ai-action', async (req, res) => {
+  try {
+    const action = String((req.body && req.body.action) || '').trim();
+    const pageContent = String((req.body && req.body.content) || '').trim();
+    if (!WS_AI_ACTIONS[action]) return res.status(400).json({ error: '지원하지 않는 action: ' + action });
+    if (!pageContent) return res.status(400).json({ error: '페이지 내용이 비어있습니다' });
+    if (pageContent.length > 20000) return res.status(400).json({ error: '페이지가 너무 깁니다 (20000자 제한)' });
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return res.status(503).json({ error: 'AI 기능이 비활성화 상태입니다.' });
+    }
+
+    const cfg = WS_AI_ACTIONS[action];
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 2048,
+        system: cfg.system,
+        messages: [{ role: 'user', content: cfg.userWrap(pageContent) }]
+      }),
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Claude API ${response.status}: ${errText.slice(0, 300)}`);
+    }
+    const data = await response.json();
+    const content = (data.content || []).filter(c => c.type === 'text').map(c => c.text).join('').trim();
+    let json = content;
+    const mdMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (mdMatch) json = mdMatch[1].trim();
+    const braceStart = json.indexOf('{');
+    const braceEnd = json.lastIndexOf('}');
+    if (braceStart >= 0 && braceEnd > braceStart) {
+      json = json.slice(braceStart, braceEnd + 1);
+    }
+    let parsed;
+    try { parsed = JSON.parse(json); }
+    catch (e) { return res.status(502).json({ error: 'AI 응답 파싱 실패: ' + e.message }); }
+    const blocks = sanitizeBlocks(parsed.blocks || []);
+    if (blocks.length === 0) return res.status(502).json({ error: 'AI가 유효한 블록을 생성하지 못했습니다' });
+    res.json({ ok: true, blocks });
+  } catch (e) {
+    console.error('[workspace] ai-action 오류:', e.message);
     res.status(500).json({ error: e.message });
   }
 });

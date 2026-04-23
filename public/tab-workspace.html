@@ -352,6 +352,15 @@
                     <span class="tmpl-desc">메모 → 정중한 보고서 + 바로 보낼 수 있는 회신 문구</span>
                   </span>
                 </button>
+                <button class="ws-ai-tmpl-btn" :class="aiTemplateMode==='freeform' ? 'active' : ''"
+                  @click="selectTemplate('freeform')"
+                  style="border-top:1px dashed #e5e7eb;margin-top:2px;padding-top:8px;">
+                  <span class="tmpl-icon">💬</span>
+                  <span>
+                    AI에게 직접 요청 (자연어)
+                    <span class="tmpl-desc">"회의록 만들어줘", "협력업체 평가표 만들어줘" 같이 원하는 페이지 설명</span>
+                  </span>
+                </button>
 
                 <!-- 입력 박스 -->
                 <div x-show="aiTemplateMode" class="ws-ai-tmpl-box" x-transition>
@@ -370,9 +379,21 @@
               </div>
 
               <div class="ws-ai-actions">
-                <div style="font-size:11px;color:#9ca3af;font-weight:600;margin-bottom:2px;">빠른 도움 (현재 페이지 내용을 AI에게 전달)</div>
+                <div style="font-size:11px;color:#9ca3af;font-weight:600;margin-bottom:2px;">✦ AI가 블록으로 넣어줌 (페이지 끝에 자동 추가)</div>
+                <button class="ws-ai-action-btn" @click="runAiAction('summarize')" :disabled="aiActionLoading">
+                  <span x-show="!aiActionLoading">📌 요약 블록 추가</span>
+                  <span x-show="aiActionLoading">Claude가 생각 중...</span>
+                </button>
+                <button class="ws-ai-action-btn" @click="runAiAction('actionItems')" :disabled="aiActionLoading">
+                  <span x-show="!aiActionLoading">✅ Action Item 추출</span>
+                  <span x-show="aiActionLoading">Claude가 생각 중...</span>
+                </button>
+                <button class="ws-ai-action-btn" @click="runAiAction('improve')" :disabled="aiActionLoading">
+                  <span x-show="!aiActionLoading">✨ 누락된 섹션 보완</span>
+                  <span x-show="aiActionLoading">Claude가 생각 중...</span>
+                </button>
+                <div style="font-size:11px;color:#9ca3af;font-weight:600;margin:8px 0 2px;">💬 텍스트로 답변 (페이지 아래 표시)</div>
                 <button class="ws-ai-action-btn" @click="askAI('이 내용을 깔끔하게 정리해줘')">📋 내용 정리하기</button>
-                <button class="ws-ai-action-btn" @click="askAI('이 내용을 요약해줘')">📝 요약하기</button>
                 <button class="ws-ai-action-btn" @click="askAI('체크리스트 항목을 더 추가 제안해줘')">✅ 항목 추가 제안</button>
                 <button class="ws-ai-action-btn" @click="askAI('이 내용을 영어로 번역해줘')">🌐 영어 번역</button>
                 <button class="ws-ai-action-btn" @click="askAI('이 내용을 더 전문적으로 다듬어줘')">✨ 전문적으로 다듬기</button>
@@ -535,13 +556,15 @@ function workspaceApp() {
     aiResult: '',
     aiError: '',
     aiLoading: false,
-    aiTemplateMode: null,       // 'daily_log' | 'project_checklist' | 'customer_report' | null
+    aiTemplateMode: null,       // 'daily_log' | 'project_checklist' | 'customer_report' | 'freeform' | null
     aiTemplateInput: '',
     aiTemplateLoading: false,
+    aiActionLoading: false,     // 요약/ActionItem/개선 진행 중 플래그
     templateHints: {
       daily_log: '오늘 한 일/할 일을 메모처럼 적어주세요. 예: "공장 작업 3건, 배송 2건, 철판 간판 제작 중 / 내일 현대리바트 납품"',
       project_checklist: '프로젝트명과 핵심 정보를 적어주세요. 예: "현대리바트 안전현장 / 현수막 10장 + 포맥스 5개 / 납기 다음 주 금요일"',
-      customer_report: '고객에게 전달할 내용을 적어주세요. 예: "김사장님, 어제 납품 완료. 3번 간판은 다음 주 월요일 시공 예정. 잔금 안내."'
+      customer_report: '고객에게 전달할 내용을 적어주세요. 예: "김사장님, 어제 납품 완료. 3번 간판은 다음 주 월요일 시공 예정. 잔금 안내."',
+      freeform: '원하는 페이지를 설명해주세요. 예: "협력업체 방문 기록 양식 만들어줘", "주간 보고서 양식 만들어줘 / 이번주 판매·출퇴근·미수금 섹션 포함", "신제품 출시 체크리스트". 예시 내용까지 AI가 채워줍니다.'
     },
 
     // NOTE: AI 히스토리/프로젝트/첨부/이미지 생성 기능은 독립된 AI 탭(tab-ai.html)으로 이전됨.
@@ -954,13 +977,18 @@ function workspaceApp() {
       this.aiTemplateLoading = true;
       this.aiError = '';
       try {
-        const res = await fetch('/api/workspace/ai', {
+        // 'freeform' 모드는 새 엔드포인트 /ai-generate (자연어 → 블록 생성, 예시 채워줌)
+        // 나머지 프리셋 모드는 기존 /ai (memo → 정리된 블록)
+        const isFreeform = this.aiTemplateMode === 'freeform';
+        const url = isFreeform ? '/api/workspace/ai-generate' : '/api/workspace/ai';
+        const body = isFreeform
+          ? { prompt: this.aiTemplateInput.trim() }
+          : { mode: this.aiTemplateMode, prompt: this.aiTemplateInput.trim() };
+
+        const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            mode: this.aiTemplateMode,
-            prompt: this.aiTemplateInput.trim()
-          })
+          body: JSON.stringify(body)
         });
         const data = await res.json();
         if (data.ok && Array.isArray(data.blocks) && data.blocks.length) {
@@ -984,6 +1012,58 @@ function workspaceApp() {
         this.aiError = '서버 연결 실패';
       }
       this.aiTemplateLoading = false;
+    },
+
+    // ─── AI 액션: 요약 / Action Item 추출 / 페이지 보완 ───
+    async runAiAction(action) {
+      if (this.aiActionLoading) return;
+      if (!this.editor) { this.aiError = '페이지를 먼저 선택해 주세요.'; return; }
+      // 현재 페이지 내용을 텍스트로 수집 (paragraph/header/checklist/list 등에서 추출)
+      let saved;
+      try { saved = await this.editor.save(); } catch(e) { this.aiError = '페이지 내용 읽기 실패'; return; }
+      const textParts = [];
+      for (const b of (saved.blocks || [])) {
+        const d = b.data || {};
+        if (b.type === 'header') textParts.push('# ' + (d.text || ''));
+        else if (b.type === 'paragraph') textParts.push((d.text || '').replace(/<[^>]+>/g, ''));
+        else if (b.type === 'checklist') (d.items || []).forEach(it => textParts.push('- [' + (it.checked?'x':' ') + '] ' + (it.text||'').replace(/<[^>]+>/g, '')));
+        else if (b.type === 'list') (d.items || []).forEach(it => textParts.push('- ' + String(it).replace(/<[^>]+>/g, '')));
+        else if (b.type === 'quote') textParts.push('> ' + (d.text || '').replace(/<[^>]+>/g, ''));
+        else if (b.type === 'dataTable') {
+          const cols = (d.columns || []).map(c => c.name).join(' | ');
+          textParts.push('[표] ' + cols);
+          (d.rows || []).slice(0, 20).forEach(row => {
+            const line = (d.columns || []).map(c => String(row[c.id] ?? '')).join(' | ');
+            textParts.push(line);
+          });
+        }
+      }
+      const content = textParts.join('\n').trim();
+      if (!content) { this.aiError = '페이지에 내용이 없습니다. 먼저 내용을 작성해주세요.'; return; }
+
+      this.aiActionLoading = true;
+      this.aiError = '';
+      try {
+        const res = await fetch('/api/workspace/ai-action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action, content })
+        });
+        const data = await res.json();
+        if (data.ok && Array.isArray(data.blocks) && data.blocks.length) {
+          for (const b of data.blocks) {
+            try { await this.editor.blocks.insert(b.type, b.data); }
+            catch(err) { console.warn('[workspace] action insert fail:', b.type, err); }
+          }
+          this.saveDebounced();
+        } else {
+          this.aiError = data.error || 'AI 응답 처리 실패';
+        }
+      } catch(e) {
+        console.error('[workspace] runAiAction:', e);
+        this.aiError = '서버 연결 실패';
+      }
+      this.aiActionLoading = false;
     },
 
     formatDate(d) {

@@ -2218,6 +2218,74 @@
             </div>
           </template>
 
+          <!-- AI 사용량·비용 카드 (관리자용) -->
+          <template x-if="auth.role === 'admin'">
+            <div class="card" x-data="aiUsageCard()" x-init="load()" style="padding:16px 18px;">
+              <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="material-symbols-outlined" style="font-size:18px;color:#8b5cf6;">smart_toy</span>
+                  <h3 class="text-sm font-bold" style="color:#1e293b;">이번 달 AI 사용량·비용</h3>
+                  <span class="text-[10px]" style="color:#94a3b8;" x-text="month"></span>
+                </div>
+                <button @click="load()" class="btn-ghost flex items-center gap-1" style="font-size:11px;">
+                  <span class="material-symbols-outlined" style="font-size:13px;">refresh</span> 새로고침
+                </button>
+              </div>
+              <template x-if="loading">
+                <p class="text-xs py-4 text-center" style="color:#94a3b8;">불러오는 중...</p>
+              </template>
+              <template x-if="!loading && !hasData">
+                <p class="text-xs py-4 text-center" style="color:#94a3b8;">이번 달 AI 사용 기록이 아직 없습니다<br><span class="text-[10px]">API 모드 활성화 시 자동으로 집계됩니다</span></p>
+              </template>
+              <template x-if="!loading && hasData">
+                <div>
+                  <div class="grid gap-3" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));">
+                    <div class="rounded-lg p-2" style="background:#faf5ff;border:1px solid #e9d5ff;">
+                      <p class="text-[10px]" style="color:#6b21a8;">이번 달 비용</p>
+                      <p class="text-base font-bold mt-1" style="color:#6b21a8;" x-text="'$' + (summary.costUsd||0).toFixed(2)"></p>
+                      <p class="text-[10px]" style="color:#a855f7;" x-text="'≈ ₩' + Math.round((summary.costUsd||0)*1400).toLocaleString()"></p>
+                    </div>
+                    <div class="rounded-lg p-2" style="background:#f8fafc;border:1px solid #e5eaf4;">
+                      <p class="text-[10px]" style="color:#64748b;">요청 수</p>
+                      <p class="text-base font-bold mt-1" style="color:#1e293b;" x-text="(summary.count||0).toLocaleString() + '건'"></p>
+                    </div>
+                    <div class="rounded-lg p-2" style="background:#f8fafc;border:1px solid #e5eaf4;">
+                      <p class="text-[10px]" style="color:#64748b;">입력 토큰</p>
+                      <p class="text-base font-bold mt-1" style="color:#1e293b;" x-text="formatNum(summary.inputTokens||0)"></p>
+                    </div>
+                    <div class="rounded-lg p-2" style="background:#f8fafc;border:1px solid #e5eaf4;">
+                      <p class="text-[10px]" style="color:#64748b;">출력 토큰</p>
+                      <p class="text-base font-bold mt-1" style="color:#1e293b;" x-text="formatNum(summary.outputTokens||0)"></p>
+                    </div>
+                  </div>
+                  <div class="mt-3" x-show="(byUser||[]).length > 0">
+                    <p class="text-xs font-semibold mb-2" style="color:#64748b;">직원별 사용량</p>
+                    <div style="max-height:140px;overflow-y:auto;">
+                      <table class="w-full text-xs" style="border-collapse:collapse;">
+                        <thead>
+                          <tr style="background:#f8fafc;">
+                            <th style="padding:4px 8px;text-align:left;font-size:10px;font-weight:600;color:#64748b;border-bottom:1px solid #e5eaf4;">직원</th>
+                            <th style="padding:4px 8px;text-align:right;font-size:10px;font-weight:600;color:#64748b;border-bottom:1px solid #e5eaf4;">요청</th>
+                            <th style="padding:4px 8px;text-align:right;font-size:10px;font-weight:600;color:#64748b;border-bottom:1px solid #e5eaf4;">비용</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <template x-for="u in byUser" :key="u.user_id">
+                            <tr style="border-bottom:1px solid #f3f4f6;">
+                              <td style="padding:4px 8px;color:#1f2937;font-weight:600;" x-text="u.user_name || u.user_id"></td>
+                              <td style="padding:4px 8px;text-align:right;color:#6b7280;" x-text="u.cnt + '건'"></td>
+                              <td style="padding:4px 8px;text-align:right;color:#6b21a8;font-weight:600;" x-text="'$' + (u.cost||0).toFixed(2)"></td>
+                            </tr>
+                          </template>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+
           <!-- 월별 인건비 추이 그래프 (관리자용) -->
           <template x-if="auth.role === 'admin'">
             <div class="card" style="padding:16px 18px;">
@@ -6673,8 +6741,33 @@ function app() {
     },
 
     async init() {
-      // 탭 변경 시 localStorage 정책 — 상단 REMEMBERED_TABS 목록 하나로 제어됨
-      this.$watch('currentTab', (val) => {
+      // ── 브라우저 히스토리 API 연동 (뒤로가기 버튼이 앱을 나가지 않고 이전 탭으로) ──
+      // popstate 로 복원할 때는 _suppressHashUpdate=true 를 켜서 재push 방지 (무한루프 차단)
+      this._suppressHashUpdate = false;
+
+      // 초기 진입 시 URL hash 가 있으면 그 탭으로 이동 (공유 링크로 바로 들어온 경우)
+      try {
+        const initHashTab = (window.location.hash || '').replace('#', '');
+        if (initHashTab && this.tabs.find(t => t.id === initHashTab)) {
+          this._suppressHashUpdate = true;
+          this.currentTab = initHashTab;
+          setTimeout(() => { this._suppressHashUpdate = false; }, 0);
+        }
+      } catch(e) {}
+
+      // 뒤로가기/앞으로가기 버튼 감지 → URL hash 읽어서 탭 복원
+      window.addEventListener('popstate', () => {
+        const tab = (window.location.hash || '').replace('#', '') || 'home';
+        if (tab !== this.currentTab && this.tabs.find(t => t.id === tab)) {
+          this._suppressHashUpdate = true;
+          this.currentTab = tab;
+          // 다음 틱에 플래그 해제 (watch 발동 후)
+          this.$nextTick(() => { this._suppressHashUpdate = false; });
+        }
+      });
+
+      // 탭 변경 감시: localStorage 저장 + URL hash + 뱃지 초기화
+      this.$watch('currentTab', (val, oldVal) => {
         // '견적 작성' 탭은 history로 리다이렉트 (팝업은 버튼으로만 열기)
         if (val === 'quote') {
           this.$nextTick(() => { this.currentTab = 'history'; });
@@ -6683,11 +6776,21 @@ function app() {
         try {
           if (REMEMBERED_TABS.includes(val)) {
             localStorage.setItem('currentTab', val);
-            console.log('[app] $watch currentTab -> remembered:', val);
           } else {
             localStorage.removeItem('currentTab');
           }
         } catch(e) { console.warn('[app] $watch save failed:', e); }
+
+        // URL hash 업데이트 (popstate 로 인한 변경이 아닐 때만)
+        if (!this._suppressHashUpdate && oldVal !== undefined) {
+          try {
+            const targetHash = (val === 'home') ? '' : '#' + val;
+            if (window.location.hash !== targetHash) {
+              history.pushState({ tab: val }, '', window.location.pathname + window.location.search + targetHash);
+            }
+          } catch(e) {}
+        }
+
         // 공지사항 탭 진입 시 뱃지 초기화
         if (val === 'notices') this.navBadges.notices = 0;
         // 결재 탭 진입 시 뱃지 초기화
@@ -10206,6 +10309,46 @@ function companyAdmin() {
           alert(d.error || '삭제 실패');
         }
       } catch (e) { alert('삭제 오류: ' + e.message); }
+    }
+  };
+}
+
+// ── AI 사용량·비용 카드 (관리자 홈) ──
+function aiUsageCard() {
+  return {
+    loading: false,
+    month: new Date().toISOString().slice(0, 7),
+    hasData: false,
+    summary: { count: 0, costUsd: 0, inputTokens: 0, outputTokens: 0 },
+    byUser: [],
+    byModel: [],
+    async load() {
+      this.loading = true;
+      try {
+        const r = await fetch('/api/ai/usage/summary?month=' + this.month);
+        if (!r.ok) {
+          this.hasData = false;
+          return;
+        }
+        const d = await r.json();
+        if (d.ok && d.summary) {
+          this.summary = d.summary;
+          this.byUser = d.summary.byUser || [];
+          this.byModel = d.summary.byModel || [];
+          this.hasData = (d.summary.count || 0) > 0;
+        }
+      } catch (e) {
+        console.warn('[aiUsageCard] load 실패:', e);
+        this.hasData = false;
+      } finally {
+        this.loading = false;
+      }
+    },
+    formatNum(n) {
+      n = Number(n) || 0;
+      if (n >= 1_000_000) return (n/1_000_000).toFixed(1).replace(/\.0$/,'') + 'M';
+      if (n >= 1_000) return (n/1_000).toFixed(1).replace(/\.0$/,'') + 'K';
+      return n.toLocaleString();
     }
   };
 }

@@ -18,9 +18,11 @@ const fs = require('fs');
 
 const DB_PATH = path.join(__dirname, 'data', 'ai기록.db');
 const UPLOAD_DIR = path.join(__dirname, 'data', 'ai_uploads');
+const OUTPUT_DIR = path.join(__dirname, 'data', 'ai_outputs');
 
-// 업로드 폴더 보장
+// 업로드/출력 폴더 보장
 try { if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true }); } catch(_) {}
+try { if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true }); } catch(_) {}
 
 let db = null;
 let ready = false;
@@ -126,6 +128,42 @@ if (ready) {
       created_at   TEXT    NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_ai_att_owner ON ai_attachments(owner_id, created_at DESC);
+
+    -- Claude API 사용량 기록 (비용 트래킹 + 직원별 일일 한도)
+    CREATE TABLE IF NOT EXISTS ai_api_usage (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id       TEXT    NOT NULL,
+      user_name     TEXT    NOT NULL DEFAULT '',
+      thread_id     INTEGER,
+      model         TEXT    NOT NULL,
+      input_tokens  INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_read_tokens   INTEGER NOT NULL DEFAULT 0,
+      cache_write_tokens  INTEGER NOT NULL DEFAULT 0,
+      cost_usd      REAL    NOT NULL DEFAULT 0,
+      duration_ms   INTEGER NOT NULL DEFAULT 0,
+      turn_count    INTEGER NOT NULL DEFAULT 1,   -- tool use 턴 수
+      tool_names    TEXT    DEFAULT '',           -- 사용된 도구들 (쉼표 구분)
+      created_at    TEXT    NOT NULL,
+      date_ymd      TEXT    NOT NULL              -- YYYY-MM-DD (일일 한도 빠른 조회)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_usage_user_date ON ai_api_usage(user_id, date_ymd);
+    CREATE INDEX IF NOT EXISTS idx_ai_usage_created ON ai_api_usage(created_at DESC);
+
+    -- 생성된 파일 (도구가 만든 엑셀/PDF 등)
+    CREATE TABLE IF NOT EXISTS ai_artifacts (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      owner_id     TEXT    NOT NULL,
+      thread_id    INTEGER,
+      message_id   INTEGER,
+      original_name TEXT   NOT NULL,
+      stored_name  TEXT    NOT NULL,
+      mime         TEXT    NOT NULL DEFAULT '',
+      size         INTEGER NOT NULL DEFAULT 0,
+      kind         TEXT    NOT NULL DEFAULT 'file',  -- excel | pdf | image | text | file
+      created_at   TEXT    NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_artifact_thread ON ai_artifacts(thread_id, created_at DESC);
   `);
 
   // 기본 "(미분류)" 가상 프로젝트는 project_id=NULL 로 표현 → 레코드 불필요
@@ -553,14 +591,130 @@ const attachments = {
   }
 };
 
+// ──────────────────────────────────────────────────────────
+// API 사용량 (비용 트래킹)
+// ──────────────────────────────────────────────────────────
+// Anthropic 가격표 (2026년 기준, USD/1M tokens)
+const MODEL_PRICING = {
+  'claude-haiku-4-5-20251001': { input: 0.80, output: 4.0, cacheRead: 0.08, cacheWrite: 1.0 },
+  'claude-sonnet-4-6':         { input: 3.0,  output: 15.0, cacheRead: 0.30, cacheWrite: 3.75 },
+  'claude-opus-4-6':           { input: 15.0, output: 75.0, cacheRead: 1.50, cacheWrite: 18.75 },
+};
+
+function calcCostUsd(model, usage) {
+  if (!usage) return 0;
+  const p = MODEL_PRICING[model] || MODEL_PRICING['claude-sonnet-4-6'];
+  const input = (usage.input_tokens || 0) * p.input / 1_000_000;
+  const output = (usage.output_tokens || 0) * p.output / 1_000_000;
+  const cacheR = (usage.cache_read_input_tokens || 0) * p.cacheRead / 1_000_000;
+  const cacheW = (usage.cache_creation_input_tokens || 0) * p.cacheWrite / 1_000_000;
+  return input + output + cacheR + cacheW;
+}
+
+const apiUsage = {
+  log({ userId, userName, threadId, model, usage, durationMs, turnCount, toolNames }) {
+    if (!ready) return null;
+    const now = nowIso();
+    const dateYmd = now.slice(0, 10);
+    const cost = calcCostUsd(model, usage);
+    const r = db.prepare(`
+      INSERT INTO ai_api_usage
+        (user_id, user_name, thread_id, model,
+         input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+         cost_usd, duration_ms, turn_count, tool_names, created_at, date_ymd)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      String(userId), userName || '', threadId || null, model || '',
+      (usage?.input_tokens) || 0, (usage?.output_tokens) || 0,
+      (usage?.cache_read_input_tokens) || 0, (usage?.cache_creation_input_tokens) || 0,
+      cost, durationMs || 0, turnCount || 1,
+      Array.isArray(toolNames) ? toolNames.join(',') : (toolNames || ''),
+      now, dateYmd
+    );
+    return { id: r.lastInsertRowid, cost };
+  },
+  countToday(userId) {
+    if (!ready) return 0;
+    const today = nowIso().slice(0, 10);
+    const row = db.prepare(`SELECT COUNT(*) AS cnt FROM ai_api_usage WHERE user_id=? AND date_ymd=?`)
+      .get(String(userId), today);
+    return row?.cnt || 0;
+  },
+  summaryMonth(yyyymm) {
+    // yyyymm = 'YYYY-MM'
+    if (!ready) return { total: 0, cost: 0, byModel: [], byUser: [] };
+    const prefix = yyyymm + '-%';
+    const total = db.prepare(`SELECT COUNT(*) AS cnt, SUM(cost_usd) AS cost, SUM(input_tokens) AS inT, SUM(output_tokens) AS outT FROM ai_api_usage WHERE date_ymd LIKE ?`).get(prefix);
+    const byModel = db.prepare(`SELECT model, COUNT(*) AS cnt, SUM(cost_usd) AS cost FROM ai_api_usage WHERE date_ymd LIKE ? GROUP BY model`).all(prefix);
+    const byUser = db.prepare(`SELECT user_id, user_name, COUNT(*) AS cnt, SUM(cost_usd) AS cost FROM ai_api_usage WHERE date_ymd LIKE ? GROUP BY user_id ORDER BY cost DESC`).all(prefix);
+    return {
+      count: total?.cnt || 0,
+      costUsd: total?.cost || 0,
+      inputTokens: total?.inT || 0,
+      outputTokens: total?.outT || 0,
+      byModel,
+      byUser,
+    };
+  },
+  dailySeries(days = 30) {
+    // 최근 N일 일별 비용
+    if (!ready) return [];
+    return db.prepare(`
+      SELECT date_ymd, COUNT(*) AS cnt, SUM(cost_usd) AS cost,
+             SUM(input_tokens) AS inT, SUM(output_tokens) AS outT
+      FROM ai_api_usage
+      WHERE date_ymd >= date('now', ?)
+      GROUP BY date_ymd
+      ORDER BY date_ymd ASC
+    `).all(`-${days} days`);
+  }
+};
+
+// ──────────────────────────────────────────────────────────
+// 생성 파일 (AI 도구가 만든 엑셀/PDF 등)
+// ──────────────────────────────────────────────────────────
+const artifacts = {
+  get(id) {
+    if (!ready) return null;
+    return db.prepare('SELECT * FROM ai_artifacts WHERE id=?').get(id);
+  },
+  create({ ownerId, threadId, messageId, originalName, storedName, mime, size, kind }) {
+    if (!ready) throw new Error('DB 미사용');
+    const now = nowIso();
+    const r = db.prepare(`
+      INSERT INTO ai_artifacts (owner_id, thread_id, message_id, original_name, stored_name, mime, size, kind, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(String(ownerId), threadId || null, messageId || null,
+           originalName, storedName, mime || '', size || 0, kind || 'file', now);
+    return this.get(r.lastInsertRowid);
+  },
+  listByThread(threadId) {
+    if (!ready) return [];
+    return db.prepare('SELECT * FROM ai_artifacts WHERE thread_id=? ORDER BY created_at ASC').all(threadId);
+  },
+  listByMessage(messageId) {
+    if (!ready) return [];
+    return db.prepare('SELECT * FROM ai_artifacts WHERE message_id=? ORDER BY created_at ASC').all(messageId);
+  },
+  setMessageId(id, messageId) {
+    if (!ready) return;
+    db.prepare('UPDATE ai_artifacts SET message_id=? WHERE id=?').run(messageId, id);
+  }
+};
+
 module.exports = {
   get ready() { return ready; },
   db,
   UPLOAD_DIR,
+  OUTPUT_DIR,
   projects,
   threads,
   templates,
   attachments,
+  apiUsage,
+  artifacts,
+  MODEL_PRICING,
+  calcCostUsd,
   // 권한 헬퍼도 외부에서 쓸 수 있게
   canViewProject,
   canEditProject,

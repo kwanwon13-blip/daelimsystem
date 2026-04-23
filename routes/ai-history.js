@@ -47,14 +47,28 @@ const ai = require('../db-ai');
 let multer;
 try { multer = require('multer'); } catch(e) { multer = null; }
 
+// Tool Use 도구 정의 + 실행 함수
+const aiTools = require('./ai-tools');
+
+// Tool Use 루프 설정
+const MAX_TOOL_TURNS = parseInt(process.env.AI_MAX_TOOL_TURNS || '10', 10);
+const DAILY_REQUEST_LIMIT_EMPLOYEE = parseInt(process.env.AI_DAILY_LIMIT_EMPLOYEE || '100', 10);
+const DAILY_REQUEST_LIMIT_ADMIN = parseInt(process.env.AI_DAILY_LIMIT_ADMIN || '500', 10);
+
 // ──────────────────────────────────────────────────────────
 // 모든 라우트 인증 필수
 // ──────────────────────────────────────────────────────────
 router.use(requireAuth);
 
-// 헬스체크 — DB 초기화 여부 (ready:false 라도 200 으로 내려줌)
+// 헬스체크 — DB 초기화 여부 + API 모드 활성화 여부
 router.get('/health', (req, res) => {
-  res.json({ ok: true, ready: !!ai.ready });
+  const apiOn = !!process.env.ANTHROPIC_API_KEY;
+  res.json({
+    ok: true,
+    ready: !!ai.ready,
+    backend: apiOn ? 'api' : 'cli',
+    model: apiOn ? (process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6') : 'claude-cli',
+  });
 });
 
 // DB 비사용 시 나머지 전체 503
@@ -369,8 +383,87 @@ router.delete('/threads/:id', (req, res) => {
 });
 
 // ──────────────────────────────────────────────────────────
-// 대화 (Claude CLI 호출 + 자동 저장)
+// 대화 (Claude API 우선, CLI fallback)
 // ──────────────────────────────────────────────────────────
+
+// 기본 모델 설정 (환경변수로 오버라이드 가능)
+const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
+const DEFAULT_MAX_TOKENS = parseInt(process.env.ANTHROPIC_MAX_TOKENS || '2048', 10);
+const DEFAULT_SYSTEM = '당신은 대림에스엠 ERP 시스템의 AI 도우미입니다. 한국어로 간결하고 실용적으로 답변해주세요. 직원들의 업무(견적·출퇴근·급여·결재·업체관리 등)를 도와주는 게 목적입니다.';
+
+// API 모드 활성화 여부
+function apiModeAvailable() {
+  return !!process.env.ANTHROPIC_API_KEY;
+}
+
+/**
+ * Claude API 호출 (텍스트 + Tool Use 지원)
+ * @param {Array} messages - [{role: 'user'|'assistant', content: string | [{type, ...}]}]
+ * @param {Object} options - { model, maxTokens, system, tools }
+ * @returns {Promise<{text, durationMs, usage, stopReason, toolUses, raw}>}
+ */
+async function callClaudeApi(messages, options = {}) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY 미설정 — .env 파일에 키를 추가하세요');
+
+  const model = options.model || DEFAULT_MODEL;
+  const maxTokens = options.maxTokens || DEFAULT_MAX_TOKENS;
+  const system = options.system || DEFAULT_SYSTEM;
+  const tools = options.tools;
+
+  const started = Date.now();
+  const body = {
+    model,
+    max_tokens: maxTokens,
+    system,
+    messages,
+  };
+  if (Array.isArray(tools) && tools.length > 0) {
+    body.tools = tools;
+  }
+
+  let response;
+  try {
+    response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    throw new Error(`Claude API 연결 실패: ${e.message}`);
+  }
+
+  if (!response.ok) {
+    let errMsg = `Claude API ${response.status}`;
+    try {
+      const errBody = await response.json();
+      errMsg += `: ${errBody.error?.message || JSON.stringify(errBody)}`;
+    } catch (_) {
+      errMsg += `: ${await response.text()}`;
+    }
+    throw new Error(errMsg);
+  }
+
+  const data = await response.json();
+  const contents = Array.isArray(data.content) ? data.content : [];
+  const text = contents.filter(c => c.type === 'text').map(c => c.text).join('');
+  const toolUses = contents.filter(c => c.type === 'tool_use');
+
+  return {
+    text,
+    durationMs: Date.now() - started,
+    usage: data.usage || null,        // { input_tokens, output_tokens, cache_* }
+    stopReason: data.stop_reason,     // 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence'
+    toolUses,                         // [{id, name, input}]
+    raw: data,
+  };
+}
+
+// CLI fallback (API 키 없을 때만 사용)
 function runClaudeCli(prompt) {
   return new Promise((resolve, reject) => {
     const { spawn } = require('child_process');
@@ -393,7 +486,7 @@ function runClaudeCli(prompt) {
       if (code !== 0) {
         return reject(new Error((err || '').trim() || `claude exit ${code}`));
       }
-      resolve({ text: (out || '').trim(), durationMs: Date.now() - started });
+      resolve({ text: (out || '').trim(), durationMs: Date.now() - started, usage: null });
     });
     child.stdin.write(prompt, 'utf8');
     child.stdin.end();
@@ -435,13 +528,8 @@ router.post('/chat', async (req, res) => {
       attachments = ai.attachments.hydrate(attachmentIds.map(Number));
     }
 
-    // 3. 프롬프트 구성 — 이전 대화 컨텍스트 포함 (L0.5)
+    // 3. 프롬프트 구성 — 이전 대화 컨텍스트 (API messages 배열)
     const prior = ai.threads.recentMessages(thread.id, 8);
-    const contextLines = [];
-    for (const m of prior) {
-      if (m.role === 'user') contextLines.push(`[사용자] ${m.content}`);
-      else if (m.role === 'ai' && m.status === 'ok') contextLines.push(`[Claude] ${m.content}`);
-    }
 
     // 템플릿
     let templatePrefix = '';
@@ -453,7 +541,7 @@ router.post('/chat', async (req, res) => {
       }
     }
 
-    // 첨부 텍스트
+    // 첨부 텍스트 (user message 앞에 prefix 로 주입)
     let attachmentBlock = '';
     if (attachments.length > 0) {
       const parts = attachments.map(a => {
@@ -465,8 +553,27 @@ router.post('/chat', async (req, res) => {
       attachmentBlock = parts.join('\n\n') + '\n\n';
     }
 
-    const systemPrefix = '당신은 ERP 시스템 내 워크스페이스 AI 도우미입니다. 한국어로 간결하고 실용적으로 답변해주세요.\n\n';
     const pageContext = pageContent ? `【참고: 현재 페이지 내용】\n${String(pageContent).slice(0, 10000)}\n\n` : '';
+
+    // ── API 용 messages 배열 구성 ──
+    const apiMessages = [];
+    for (const m of prior) {
+      if (m.role === 'user') apiMessages.push({ role: 'user', content: m.content });
+      else if (m.role === 'ai' && m.status === 'ok' && m.content) {
+        apiMessages.push({ role: 'assistant', content: m.content });
+      }
+    }
+    // 현재 질문 = 템플릿 + 페이지 컨텍스트 + 첨부 + 사용자 질문
+    const currentUserContent = templatePrefix + pageContext + attachmentBlock + prompt;
+    apiMessages.push({ role: 'user', content: currentUserContent });
+
+    // ── CLI fallback 용 fullPrompt (API 키 없을 때만 사용) ──
+    const contextLines = [];
+    for (const m of prior) {
+      if (m.role === 'user') contextLines.push(`[사용자] ${m.content}`);
+      else if (m.role === 'ai' && m.status === 'ok') contextLines.push(`[Claude] ${m.content}`);
+    }
+    const systemPrefix = DEFAULT_SYSTEM + '\n\n';
     const history = contextLines.length > 0 ? `【이전 대화】\n${contextLines.join('\n')}\n\n` : '';
     const fullPrompt = systemPrefix + templatePrefix + pageContext + attachmentBlock + history + `【질문】\n${prompt}`;
 
@@ -479,36 +586,434 @@ router.post('/chat', async (req, res) => {
       metadata: { templateId: templateId || null, sourcePageId: sourcePageId || null }
     });
 
-    // 5. Claude CLI
-    let aiText = '', durationMs = 0, status = 'ok', errMsg = null;
+    // 5. 일일 한도 체크 (API 모드일 때만 기록 있음)
+    if (apiModeAvailable()) {
+      const isAdmin = req.user.role === 'admin';
+      const dailyLimit = isAdmin ? DAILY_REQUEST_LIMIT_ADMIN : DAILY_REQUEST_LIMIT_EMPLOYEE;
+      const todayCount = ai.apiUsage.countToday(req.user.userId);
+      if (todayCount >= dailyLimit) {
+        return res.status(429).json({
+          ok: false,
+          error: `오늘 AI 사용 횟수(${todayCount}/${dailyLimit})를 초과했습니다. 내일 다시 시도하세요.`,
+          code: 'DAILY_LIMIT'
+        });
+      }
+    }
+
+    // 6. Claude 호출 — API 우선, 없으면 CLI fallback
+    let aiText = '', durationMs = 0, status = 'ok', errMsg = null, usage = null, backend = '';
+    let totalUsage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+    let turnCount = 0;
+    const usedToolNames = [];
+    const createdArtifacts = [];  // { id, name, url, size, kind }
+    const modelToUse = req.body.model || DEFAULT_MODEL;
+
     try {
-      const r = await runClaudeCli(fullPrompt);
-      aiText = r.text;
-      durationMs = r.durationMs;
-      if (!aiText) { status = 'error'; errMsg = 'Claude 응답이 비어있습니다'; }
+      if (apiModeAvailable()) {
+        backend = 'api';
+        // Tool Use 루프: Claude 가 end_turn 까지 도구 반복 호출 가능
+        const tools = aiTools.toolsForClaude(req.user.role === 'admin');
+        const ctx = {
+          userId: req.user.userId,
+          userName: req.user.name,
+          threadId: thread.id,
+          req,
+        };
+        const loopStart = Date.now();
+        let loopMessages = [...apiMessages];
+        let finalText = '';
+        for (turnCount = 0; turnCount < MAX_TOOL_TURNS; turnCount++) {
+          const r = await callClaudeApi(loopMessages, {
+            system: DEFAULT_SYSTEM,
+            model: modelToUse,
+            tools,
+          });
+          // 누적 usage
+          if (r.usage) {
+            totalUsage.input_tokens += r.usage.input_tokens || 0;
+            totalUsage.output_tokens += r.usage.output_tokens || 0;
+            totalUsage.cache_read_input_tokens += r.usage.cache_read_input_tokens || 0;
+            totalUsage.cache_creation_input_tokens += r.usage.cache_creation_input_tokens || 0;
+          }
+
+          // 답변 텍스트 누적
+          if (r.text) finalText = r.text;
+
+          if (r.stopReason === 'end_turn' || r.stopReason === 'stop_sequence') {
+            break;
+          }
+          if (r.stopReason !== 'tool_use' || !r.toolUses || r.toolUses.length === 0) {
+            // max_tokens 등 — 그냥 멈춤
+            break;
+          }
+
+          // 도구 호출 발생: assistant 메시지 + tool_result 메시지 추가
+          loopMessages.push({ role: 'assistant', content: r.raw.content });
+          const toolResults = [];
+          for (const tu of r.toolUses) {
+            usedToolNames.push(tu.name);
+            let resultContent = '';
+            let isError = false;
+            try {
+              const execResult = await aiTools.executeTool(tu.name, tu.input, ctx);
+              // 생성된 파일 트래킹
+              if (execResult && execResult.__artifact) {
+                const a = execResult.__artifact;
+                createdArtifacts.push({
+                  id: a.id,
+                  name: a.original_name,
+                  size: a.size,
+                  kind: a.kind,
+                  url: `/api/ai/artifacts/${a.id}/download`,
+                });
+              }
+              // __artifact 는 Claude 에게 노출할 필요 없음 (요약만 반환)
+              const forClaude = { ...execResult };
+              delete forClaude.__artifact;
+              resultContent = JSON.stringify(forClaude);
+            } catch (e) {
+              isError = true;
+              resultContent = `도구 실행 실패: ${e.message}`;
+              console.error(`[ai/chat] tool ${tu.name} 실패:`, e);
+            }
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: tu.id,
+              content: resultContent,
+              ...(isError && { is_error: true }),
+            });
+          }
+          loopMessages.push({ role: 'user', content: toolResults });
+          // 다음 턴 진행
+        }
+
+        aiText = finalText;
+        durationMs = Date.now() - loopStart;
+        usage = totalUsage;
+        if (!aiText && createdArtifacts.length === 0) {
+          status = 'error';
+          errMsg = 'Claude API 응답이 비어있습니다';
+        }
+      } else {
+        backend = 'cli';
+        const r = await runClaudeCli(fullPrompt);
+        aiText = r.text;
+        durationMs = r.durationMs;
+        turnCount = 1;
+        if (!aiText) { status = 'error'; errMsg = 'Claude 응답이 비어있습니다'; }
+      }
     } catch (e) {
       status = 'error';
       errMsg = e.message;
     }
 
-    // 6. AI 메시지 저장
+    // 7. AI 메시지 저장 (usage/backend/artifacts 메타 포함)
     const aiMsg = ai.threads.addMessage(thread.id, {
       role: 'ai',
       kind: mode || 'chat',
       content: aiText || '',
-      status, error: errMsg, durationMs
+      status, error: errMsg, durationMs,
+      metadata: { backend, usage, model: modelToUse, turnCount, artifacts: createdArtifacts }
     });
+
+    // 생성된 artifact 들의 message_id 업데이트
+    for (const a of createdArtifacts) {
+      try { ai.artifacts.setMessageId(a.id, aiMsg.id); } catch(e) {}
+    }
+
+    // 사용량 DB 기록 (API 모드일 때만)
+    if (backend === 'api' && status === 'ok') {
+      try {
+        ai.apiUsage.log({
+          userId: req.user.userId,
+          userName: req.user.name,
+          threadId: thread.id,
+          model: modelToUse,
+          usage: totalUsage,
+          durationMs,
+          turnCount: turnCount + 1,
+          toolNames: usedToolNames,
+        });
+      } catch (e) {
+        console.warn('[ai/chat] usage 기록 실패:', e.message);
+      }
+    }
 
     // 제목 자동 설정 (첫 대화였을 때)
     ai.threads.autoTitleIfEmpty(thread.id);
 
-    // 7. 응답
+    // 8. 응답
     if (status !== 'ok') {
-      return res.status(500).json({ ok: false, threadId: thread.id, error: errMsg, message: aiMsg });
+      return res.status(500).json({ ok: false, threadId: thread.id, error: errMsg, message: aiMsg, artifacts: createdArtifacts });
     }
-    res.json({ ok: true, threadId: thread.id, message: aiMsg, result: aiText });
+    res.json({
+      ok: true,
+      threadId: thread.id,
+      message: aiMsg,
+      result: aiText,
+      artifacts: createdArtifacts,
+      backend,
+      model: modelToUse,
+      turnCount: turnCount + 1,
+      toolsUsed: usedToolNames,
+    });
   } catch (e) {
     console.error('[ai/chat]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ──────────────────────────────────────────────────────────
+// 스트리밍 응답 (SSE) — 답변이 글자 단위로 바로바로 나옴
+// Tool Use 는 비활성 (스트리밍 + tool 혼합은 복잡도 높음 — 간단 대화 전용)
+// 도구가 필요한 요청은 /chat 비스트리밍 엔드포인트 사용
+// ──────────────────────────────────────────────────────────
+router.post('/chat-stream', async (req, res) => {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    return res.status(503).json({ error: 'API 모드 비활성 — 스트리밍은 API 모드에서만 지원됩니다' });
+  }
+
+  const { threadId, projectId, prompt, pageContent, attachmentIds, templateId, sourcePageId, model } = req.body || {};
+  if (!prompt || !String(prompt).trim()) return res.status(400).json({ error: 'prompt 필수' });
+
+  // 스레드 확보
+  let thread;
+  if (threadId) {
+    thread = ai.threads.get(threadId);
+    if (!thread) return res.status(404).json({ error: '스레드 없음' });
+    if (String(thread.owner_id) !== String(req.user.userId)) {
+      return res.status(403).json({ error: '다른 사람의 대화에 메시지를 보낼 수 없어요', code: 'NOT_OWNER' });
+    }
+  } else {
+    thread = ai.threads.create({
+      ownerId: req.user.userId,
+      ownerName: req.user.name,
+      projectId: projectId ? parseInt(projectId, 10) : null,
+      title: String(prompt).trim().slice(0, 60),
+      sourcePageId
+    });
+  }
+
+  // 일일 한도
+  const isAdmin = req.user.role === 'admin';
+  const dailyLimit = isAdmin ? DAILY_REQUEST_LIMIT_ADMIN : DAILY_REQUEST_LIMIT_EMPLOYEE;
+  const todayCount = ai.apiUsage.countToday(req.user.userId);
+  if (todayCount >= dailyLimit) {
+    return res.status(429).json({ error: `오늘 AI 사용 한도(${dailyLimit})를 초과했습니다`, code: 'DAILY_LIMIT' });
+  }
+
+  // 첨부 + 프롬프트 구성
+  let attachments = [];
+  if (Array.isArray(attachmentIds) && attachmentIds.length > 0) {
+    attachments = ai.attachments.hydrate(attachmentIds.map(Number));
+  }
+  let attachmentBlock = '';
+  if (attachments.length > 0) {
+    attachmentBlock = attachments.map(a => {
+      if (a.text_excerpt) return `[첨부: ${a.original_name} (${a.kind})]\n${a.text_excerpt.slice(0, 8000)}`;
+      return `[첨부: ${a.original_name} (${a.kind}, 텍스트 미추출)]`;
+    }).join('\n\n') + '\n\n';
+  }
+  let templatePrefix = '';
+  if (templateId) {
+    const tmpl = ai.templates.get(templateId);
+    if (tmpl) { templatePrefix = tmpl.prompt + '\n\n'; ai.templates.bumpUsage(tmpl.id); }
+  }
+  const pageCtx = pageContent ? `【참고: 현재 페이지】\n${String(pageContent).slice(0, 10000)}\n\n` : '';
+
+  const prior = ai.threads.recentMessages(thread.id, 8);
+  const apiMessages = [];
+  for (const m of prior) {
+    if (m.role === 'user') apiMessages.push({ role: 'user', content: m.content });
+    else if (m.role === 'ai' && m.status === 'ok' && m.content) apiMessages.push({ role: 'assistant', content: m.content });
+  }
+  apiMessages.push({ role: 'user', content: templatePrefix + pageCtx + attachmentBlock + prompt });
+
+  // 사용자 메시지 저장
+  ai.threads.addMessage(thread.id, {
+    role: 'user', kind: 'chat', content: prompt,
+    attachments: Array.isArray(attachmentIds) ? attachmentIds : [],
+  });
+
+  // SSE 헤더 세팅
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders && res.flushHeaders();
+
+  const write = (event, data) => {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  write('start', { threadId: thread.id });
+
+  const modelToUse = model || DEFAULT_MODEL;
+  const startedAt = Date.now();
+  let accumulated = '';
+  let usage = null;
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: modelToUse,
+        max_tokens: DEFAULT_MAX_TOKENS,
+        system: DEFAULT_SYSTEM,
+        messages: apiMessages,
+        stream: true,
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      write('error', { error: `Claude API ${response.status}: ${errText.slice(0, 300)}` });
+      res.end();
+      return;
+    }
+
+    // 스트림 파싱 (SSE 포맷)
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split('\n\n');
+      buffer = events.pop();
+      for (const evt of events) {
+        const lines = evt.split('\n');
+        let eventType = '', dataStr = '';
+        for (const line of lines) {
+          if (line.startsWith('event: ')) eventType = line.slice(7).trim();
+          else if (line.startsWith('data: ')) dataStr = line.slice(6).trim();
+        }
+        if (!dataStr) continue;
+        try {
+          const data = JSON.parse(dataStr);
+          if (data.type === 'content_block_delta' && data.delta?.type === 'text_delta') {
+            accumulated += data.delta.text;
+            write('delta', { text: data.delta.text });
+          } else if (data.type === 'message_delta') {
+            if (data.usage) usage = data.usage;
+          } else if (data.type === 'message_start' && data.message?.usage) {
+            usage = data.message.usage;
+          }
+        } catch (e) {}
+      }
+    }
+
+    // 완료 — DB 에 저장
+    const durationMs = Date.now() - startedAt;
+    const aiMsg = ai.threads.addMessage(thread.id, {
+      role: 'ai', kind: 'chat', content: accumulated, status: 'ok',
+      durationMs, metadata: { backend: 'api', usage, model: modelToUse, turnCount: 1, stream: true }
+    });
+    ai.threads.autoTitleIfEmpty(thread.id);
+    try {
+      ai.apiUsage.log({
+        userId: req.user.userId, userName: req.user.name, threadId: thread.id,
+        model: modelToUse, usage, durationMs, turnCount: 1, toolNames: [],
+      });
+    } catch(e) {}
+
+    write('done', {
+      threadId: thread.id,
+      messageId: aiMsg.id,
+      text: accumulated,
+      durationMs,
+      usage,
+    });
+    res.end();
+  } catch (e) {
+    write('error', { error: e.message });
+    try { res.end(); } catch(_) {}
+  }
+});
+
+// ──────────────────────────────────────────────────────────
+// 생성 파일(artifacts) 다운로드 + 목록
+// ──────────────────────────────────────────────────────────
+router.get('/artifacts/:id/download', (req, res) => {
+  try {
+    const a = ai.artifacts.get(parseInt(req.params.id, 10));
+    if (!a) return res.status(404).json({ error: '파일 없음' });
+    // 소유자 또는 관리자만 다운로드 가능
+    if (String(a.owner_id) !== String(req.user.userId) && req.user.role !== 'admin') {
+      return res.status(403).json({ error: '권한 없음' });
+    }
+    const filePath = path.join(ai.OUTPUT_DIR, a.stored_name);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: '파일 삭제됨' });
+    res.download(filePath, a.original_name);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.get('/artifacts/thread/:threadId', (req, res) => {
+  try {
+    const threadId = parseInt(req.params.threadId, 10);
+    const thread = ai.threads.get(threadId);
+    if (!thread) return res.status(404).json({ error: '스레드 없음' });
+    if (String(thread.owner_id) !== String(req.user.userId) && req.user.role !== 'admin') {
+      return res.status(403).json({ error: '권한 없음' });
+    }
+    const list = ai.artifacts.listByThread(threadId);
+    res.json({ ok: true, artifacts: list.map(a => ({
+      id: a.id,
+      name: a.original_name,
+      size: a.size,
+      kind: a.kind,
+      mime: a.mime,
+      createdAt: a.created_at,
+      url: `/api/ai/artifacts/${a.id}/download`,
+    })) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ──────────────────────────────────────────────────────────
+// 사용량·비용 (관리자 전용)
+// ──────────────────────────────────────────────────────────
+function requireAdminInline(req, res, next) {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: '관리자 전용' });
+  next();
+}
+
+router.get('/usage/today', (req, res) => {
+  // 본인 오늘 사용 횟수 (직원도 볼 수 있음)
+  const isAdmin = req.user.role === 'admin';
+  const dailyLimit = isAdmin ? DAILY_REQUEST_LIMIT_ADMIN : DAILY_REQUEST_LIMIT_EMPLOYEE;
+  const count = ai.apiUsage.countToday(req.user.userId);
+  res.json({ ok: true, count, limit: dailyLimit, remaining: Math.max(0, dailyLimit - count) });
+});
+
+router.get('/usage/summary', requireAdminInline, (req, res) => {
+  try {
+    const yyyymm = req.query.month || new Date().toISOString().slice(0, 7);
+    const summary = ai.apiUsage.summaryMonth(yyyymm);
+    const daily = ai.apiUsage.dailySeries(30);
+    res.json({
+      ok: true,
+      month: yyyymm,
+      summary,
+      daily,
+      pricing: ai.MODEL_PRICING,
+      limits: {
+        employee: DAILY_REQUEST_LIMIT_EMPLOYEE,
+        admin: DAILY_REQUEST_LIMIT_ADMIN,
+        maxToolTurns: MAX_TOOL_TURNS,
+      }
+    });
+  } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
