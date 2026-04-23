@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { requireAuth } = require('../middleware/auth');
+const claudeClient = require('../lib/claude-client');   // API/CLI 모드 자동 분기 공통 헬퍼
 
 // ── 인증: /public/:token 외부 공유 뷰어만 로그인 없이 허용, 나머지는 전부 로그인 필수 ──
 router.use((req, res, next) => {
@@ -268,37 +269,13 @@ const WS_AI_SYSTEM_PROMPT = `당신은 대림에스엠 ERP 워크스페이스 �
 
 이제 아래 사용자 요청에 맞게 JSON 만 출력하세요. 다른 텍스트는 절대 추가 금지.`;
 
-async function callClaudeForBlocks(userPrompt) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY 미설정');
-  const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
+// ↑ API/CLI 모드 전환은 lib/claude-client.js 의 callClaude() 사용 ↑
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 4096,
-      system: WS_AI_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userPrompt }]
-    }),
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Claude API ${response.status}: ${errText.slice(0, 300)}`);
-  }
-  const data = await response.json();
-  const content = (data.content || []).filter(c => c.type === 'text').map(c => c.text).join('').trim();
-  // JSON 파싱 (앞뒤 markdown 코드블록 제거 방어)
+// 응답 텍스트에서 JSON 추출 (markdown 코드블록 / 앞뒤 설명 제거)
+function extractBlocksJson(content) {
   let json = content;
   const mdMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (mdMatch) json = mdMatch[1].trim();
-  // 앞에 설명 섞여있으면 { 부터 시작하는 부분만 추출
   const braceStart = json.indexOf('{');
   const braceEnd = json.lastIndexOf('}');
   if (braceStart >= 0 && braceEnd > braceStart) {
@@ -309,6 +286,15 @@ async function callClaudeForBlocks(userPrompt) {
   catch (e) { throw new Error('AI 응답 JSON 파싱 실패: ' + e.message + '\n응답 앞부분: ' + content.slice(0, 200)); }
   if (!parsed || !Array.isArray(parsed.blocks)) throw new Error('AI 응답 형식 오류 (blocks 배열 없음)');
   return parsed.blocks;
+}
+
+async function callClaudeForBlocks(userPrompt) {
+  const content = await claudeClient.callClaude({
+    system: WS_AI_SYSTEM_PROMPT,
+    user: userPrompt,
+    maxTokens: 4096,
+  });
+  return extractBlocksJson(content);
 }
 
 // 블록 검증 + 정제 (안전한 블록만 통과)
@@ -376,9 +362,6 @@ router.post('/ai-generate', async (req, res) => {
     const prompt = String((req.body && req.body.prompt) || '').trim();
     if (!prompt) return res.status(400).json({ error: '프롬프트가 비어있습니다' });
     if (prompt.length > 1000) return res.status(400).json({ error: '프롬프트는 1000자 이하로 작성해주세요' });
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return res.status(503).json({ error: 'AI 기능이 비활성화 상태입니다. 관리자에게 ANTHROPIC_API_KEY 설정을 요청하세요.' });
-    }
 
     const rawBlocks = await callClaudeForBlocks(prompt);
     const blocks = sanitizeBlocks(rawBlocks);
@@ -417,45 +400,17 @@ router.post('/ai-action', async (req, res) => {
     if (!WS_AI_ACTIONS[action]) return res.status(400).json({ error: '지원하지 않는 action: ' + action });
     if (!pageContent) return res.status(400).json({ error: '페이지 내용이 비어있습니다' });
     if (pageContent.length > 20000) return res.status(400).json({ error: '페이지가 너무 깁니다 (20000자 제한)' });
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return res.status(503).json({ error: 'AI 기능이 비활성화 상태입니다.' });
-    }
 
     const cfg = WS_AI_ACTIONS[action];
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 2048,
-        system: cfg.system,
-        messages: [{ role: 'user', content: cfg.userWrap(pageContent) }]
-      }),
+    const responseText = await claudeClient.callClaude({
+      system: cfg.system,
+      user: cfg.userWrap(pageContent),
+      maxTokens: 2048,
     });
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Claude API ${response.status}: ${errText.slice(0, 300)}`);
-    }
-    const data = await response.json();
-    const content = (data.content || []).filter(c => c.type === 'text').map(c => c.text).join('').trim();
-    let json = content;
-    const mdMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (mdMatch) json = mdMatch[1].trim();
-    const braceStart = json.indexOf('{');
-    const braceEnd = json.lastIndexOf('}');
-    if (braceStart >= 0 && braceEnd > braceStart) {
-      json = json.slice(braceStart, braceEnd + 1);
-    }
-    let parsed;
-    try { parsed = JSON.parse(json); }
-    catch (e) { return res.status(502).json({ error: 'AI 응답 파싱 실패: ' + e.message }); }
-    const blocks = sanitizeBlocks(parsed.blocks || []);
+    let rawBlocks;
+    try { rawBlocks = extractBlocksJson(responseText); }
+    catch (e) { return res.status(502).json({ error: e.message }); }
+    const blocks = sanitizeBlocks(rawBlocks);
     if (blocks.length === 0) return res.status(502).json({ error: 'AI가 유효한 블록을 생성하지 못했습니다' });
     res.json({ ok: true, blocks });
   } catch (e) {
