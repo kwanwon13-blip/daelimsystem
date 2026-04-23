@@ -6745,6 +6745,19 @@ function app() {
       // popstate 로 복원할 때는 _suppressHashUpdate=true 를 켜서 재push 방지 (무한루프 차단)
       this._suppressHashUpdate = false;
 
+      // 워크스페이스 공유 링크로 진입한 경우 (/workspace/view/:token → 서버가 /?wsopen=<pageId>#workspace 로 리디렉트)
+      // → localStorage 의 ws:lastPageId 에 저장해서 워크스페이스 탭이 자동으로 해당 페이지 열도록
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const wsOpen = params.get('wsopen');
+        if (wsOpen) {
+          localStorage.setItem('ws:lastPageId', String(wsOpen));
+          // URL 에서 ?wsopen= 만 제거 (해시는 유지)
+          const newUrl = window.location.pathname + window.location.hash;
+          history.replaceState(null, '', newUrl);
+        }
+      } catch(e) { console.warn('[app] wsopen 처리 실패:', e); }
+
       // 초기 진입 시 URL hash 가 있으면 그 탭으로 이동 (공유 링크로 바로 들어온 경우)
       try {
         const initHashTab = (window.location.hash || '').replace('#', '');

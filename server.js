@@ -96,8 +96,39 @@ app.get(['/', '/index.html'], (req, res) => {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ── 워크스페이스 외부 공유 뷰어 (로그인 불필요) ──
+// ── 워크스페이스 공유 링크 뷰어 ──
+// - 로그인된 내부 사용자: 편집 가능한 메인 앱의 워크스페이스 탭으로 자동 리디렉트
+// - 비로그인 / 외부 사용자: 읽기전용 workspace-view.html 서빙
 app.get('/workspace/view/:token', (req, res) => {
+  try {
+    const { sessions, parseCookies } = require('./middleware/auth');
+    const cookies = parseCookies(req);
+    const sessToken = cookies.session_token || req.headers['x-session-token'];
+    const sess = sessToken ? sessions[sessToken] : null;
+
+    if (sess) {
+      // 로그인된 사용자 → share_token 으로 page.id 찾아서 편집 페이지로 리디렉트
+      const Database = require('better-sqlite3');
+      const dbPath = path.join(__dirname, 'data', '업무데이터.db');
+      let pageId = null;
+      try {
+        const dbRO = new Database(dbPath, { readonly: true });
+        const page = dbRO.prepare('SELECT id FROM workspace_pages WHERE share_token = ?').get(req.params.token);
+        dbRO.close();
+        if (page) pageId = page.id;
+      } catch (dbErr) {
+        console.error('[workspace/view] DB 조회 실패:', dbErr.message);
+      }
+      if (pageId) {
+        // 메인 앱으로 리디렉트 — wsopen 쿼리로 어떤 페이지 열지 전달, 해시로 워크스페이스 탭 지정
+        return res.redirect('/?wsopen=' + encodeURIComponent(pageId) + '#workspace');
+      }
+      // 페이지를 못 찾으면 (토큰 만료 등) 그냥 read-only view 로 떨어뜨림
+    }
+  } catch (e) {
+    console.error('[workspace/view] 세션 판별 실패:', e.message);
+  }
+  // 비로그인 or 예외 → 읽기전용 뷰어
   res.sendFile(path.join(PUBLIC_DIR, 'workspace-view.html'));
 });
 
