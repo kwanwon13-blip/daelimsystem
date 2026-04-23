@@ -275,6 +275,11 @@ app.use('/api/options', require('./routes/options'));
 // ── 업체 (routes/vendors.js) ──
 app.use('/api/vendors', require('./routes/vendors'));
 
+// ── 시안 검색 (routes/design.js) ──
+// vendorPrices/quotes 가 router.use(requireAuth) 쓰는데 /api prefix 로 마운트라서
+// VBS(쿠키없음) 요청이 design.js 에 도달하기 전 401 로 차단됨. 그래서 앞으로 이동.
+app.use('/api', require('./routes/design'));
+
 // ── 업체별 단가 (routes/vendorPrices.js) ──
 app.use('/api', require('./routes/vendorPrices'));
 
@@ -304,8 +309,7 @@ try { (function migrateContactsData() {
 })(); } catch(e) { console.error('연락처 마이그레이션 실패:', e.message); }
 
 
-// ── 시안 검색 (routes/design.js) ──
-app.use('/api', require('./routes/design'));
+// (시안 검색은 위로 이동됨 — vendorPrices 앞)
 
 // ══════════════════════════════════════════════════════════
 // ── 공지사항 (→ 하단 공지사항 API 섹션으로 이동됨) ───────
