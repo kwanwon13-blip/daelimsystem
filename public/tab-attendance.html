@@ -224,6 +224,13 @@
             <span x-text="attendance.yearView?'월간 보기':'연간 보기'"></span>
           </button>
         </template>
+        <!-- 관리자: 엑셀 다운로드 버튼 -->
+        <button x-show="auth.role==='admin'" @click="downloadAttendanceExcel()"
+          class="text-[10px] font-semibold px-3 rounded-lg border transition-colors flex items-center gap-1" style="height:30px;background:#ecfdf5;border-color:#a7f3d0;color:#059669;"
+          title="선택한 월의 전 직원 출퇴근 기록을 엑셀로 다운로드">
+          <span class="material-symbols-outlined" style="font-size:13px;">download</span>
+          엑셀 다운로드
+        </button>
         <!-- 관리자 설정 버튼 -->
         <button x-show="auth.role==='admin'" @click="attendance.orderMode=!attendance.orderMode; if(attendance.orderMode) loadAttendanceOrder();"
           class="text-[10px] font-semibold px-3 rounded-lg border transition-colors" style="height:30px;"

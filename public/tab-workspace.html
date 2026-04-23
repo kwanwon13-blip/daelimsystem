@@ -108,12 +108,12 @@
   .ws-share-option-text { flex:1; }
   .ws-share-option-label { font-size:13px; font-weight:600; color:#1a1d23; }
   .ws-share-option-desc { font-size:11px; color:#9ca3af; }
-  .ws-share-user-list { margin-top:8px; }
-  .ws-share-user { display:flex; align-items:center; gap:10px; padding:6px 12px; border-radius:8px; cursor:pointer; transition:background .12s; }
+  .ws-share-user-list { margin-top:8px; max-height:320px; overflow-y:auto; border:1px solid #f0f1f3; border-radius:8px; padding:4px; }
+  .ws-share-user { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:8px; cursor:pointer; transition:background .12s; }
   .ws-share-user:hover { background:#f3f4f6; }
-  .ws-share-user-avatar { width:28px; height:28px; border-radius:50%; background:#e0e7ff; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:#4338ca; flex-shrink:0; }
-  .ws-share-user-name { font-size:12.5px; font-weight:500; color:#374151; flex:1; }
-  .ws-share-user-dept { font-size:11px; color:#9ca3af; }
+  .ws-share-user-avatar { width:36px; height:36px; border-radius:50%; background:#e0e7ff; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700; color:#4338ca; flex-shrink:0; }
+  .ws-share-user-name { font-size:13.5px; font-weight:600; color:#111827; flex:1; }
+  .ws-share-user-dept { font-size:11px; color:#9ca3af; background:#f3f4f6; padding:2px 8px; border-radius:10px; }
   .ws-share-user input[type="checkbox"] { accent-color:#4f6ef7; }
   .ws-share-link-box { display:flex; align-items:center; gap:8px; margin-top:10px; }
   .ws-share-link-input { flex:1; padding:8px 12px; border:1px solid #e5e7eb; border-radius:8px; font-size:12px; background:#f8f9fb; color:#374151; }
@@ -459,9 +459,9 @@
             <div class="ws-share-user-list">
               <template x-for="u in shareUserList" :key="u.userId">
                 <label class="ws-share-user" x-show="u.userId !== getAuth().userId">
-                  <div class="ws-share-user-avatar" x-text="u.name.charAt(0)"></div>
+                  <div class="ws-share-user-avatar" x-text="(u.name || '?').charAt(0)"></div>
                   <span class="ws-share-user-name" x-text="u.name"></span>
-                  <span class="ws-share-user-dept" x-text="u.dept"></span>
+                  <span class="ws-share-user-dept" x-show="(u.dept || '').trim()" x-text="u.dept"></span>
                   <input type="checkbox" :value="u.userId" :checked="shareSelectedUsers.includes(u.userId)"
                     @change="toggleShareUser(u.userId)" />
                 </label>

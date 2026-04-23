@@ -249,3 +249,114 @@ git-pull-server.bat
 - `routes/ai-history.js` — `/threads` 가 `?project=` 필터 받도록
 
 ## 2차 개편 완료 시각: 2026-04-23 00:05 KST 경
+
+---
+
+# 3차 — UX 다듬기 (Claude.ai 스타일 입력박스 + 버그픽스)
+
+**완료**: 2026-04-23 KST
+
+## 수정 내역
+
+### UI/UX
+- **팀 초대 모달 이름 중심 정리** — `.ai-proj-user` + `.ws-share-user`
+  - 아바타 24→36px, 이름 bold (#111827), dept 를 pill 뱃지로 (회색)
+  - 빈 dept span 숨김 (`x-show="(u.dept || '').trim()"`)
+  - dept ID (`dept_...`) 대신 dept 이름 렌더링되도록 백엔드 보정
+    - `routes/workspace.js` /users → departments[] 에서 id→name 맵 빌드
+    - `routes/ai-history.js` /users → 동일 패턴 적용, `dept`/`department` 둘 다 이름으로 반환
+
+- **파일 첨부 UX 개편 (Claude 웹 스타일)** — `public/tab-ai.html`
+  - 첨부 칩이 입력박스 **안쪽 상단**에 위치 (시각적으로 입력과 연결)
+  - **드래그 & 드롭**: `.ai-input-wrap` 에 dragover/drop 핸들러, 드래그 중 점선 오버레이 표시
+  - **붙여넣기**: 클립보드 이미지(캡쳐 등) 자동 업로드
+  - **복수 파일 동시 업로드**: `input[multiple]`, 순차 업로드
+  - **이미지 썸네일**: `.ai-attach-chip.img` 에 실제 이미지 미리보기 (`/api/ai/attachments/:id/raw`)
+  - 파일 종류별 색상 아이콘 (excel 초록, pdf 빨강, word 파랑, text/file 회색)
+  - 파일명 + 크기 표시, 제거 × 버튼
+  - 업로드 중 스피너 칩
+  - 20MB 초과 경고를 `alert` 에서 토스트로 변경
+
+- **입력박스 하단 툴바 Claude 스타일**: 📎/🎨/📁 아이콘 버튼 좌측 / 힌트+전송 버튼 우측
+- **프로젝트 드롭다운** 을 버튼 위로 부상시키는 `.ai-proj-picker` absolute 컨테이너
+
+### 버그픽스
+- **Gemini CLI "Not enough arguments following: p" 오류 해결** (routes/ai-history.js, routes/workspace.js)
+  - 원인: `spawn('gemini', ['-p'], { shell: true })` → CLI 가 -p 값을 요구하는데 값이 없음
+  - 해결: 프롬프트를 임시파일에 쓰고 shell redirect (`<`) 로 stdin 주입, -p 에는 placeholder 전달
+  - 임시파일은 close 시 반드시 삭제
+
+## 추가된 state / 메서드 (aiApp)
+```
+dragOver, uploadingCount, _dragLeaveTimer
+uploadFiles(files), _uploadOne(file)
+onDragLeave(ev), onDrop(ev), onPaste(ev)
+fileIcon(a), formatSize(bytes), _toast(msg)
+```
+
+## 3차 완료 시각: 2026-04-23 KST
+
+---
+
+# 4차 — 참고 이미지 편집 + 업스케일 + 모델 선택
+
+**완료**: 2026-04-23 KST
+
+## 핵심 기능
+
+### ① 참고 이미지 편집 (Image-to-Image)
+- 이미지 모드에서 **이미지 파일을 첨부**하면 생성이 아닌 **편집/변형** 모드로 전환
+- 프롬프트에 참고 이미지의 **절대 경로** 를 포함시켜 nanobanana MCP 가 파일을 직접 참고하도록 함
+- 송신 버튼 레이블이 "🎨 그리기" ↔ "✏️ 편집하기" 로 자동 전환
+- placeholder 도 상황별 변경 ("배경을 밤하늘로 바꿔줘" 예시)
+
+### ② 업스케일 (Real-ESRGAN NCNN Vulkan)
+- 생성된 이미지 아래 **🔍 크게 만들기** 바 표시
+- 배율 선택: **2배 / 4배** (1024px → 2048px / 4096px)
+- 서버 PC `D:\price-list-app\tools\realesrgan\` 에 바이너리 + 모델 배치
+- 업스케일 결과는 `data/workspace-images/` 에 `원본이름_4x_모델명.png` 로 저장
+- 동일 조합 재실행 시 캐시 재사용
+
+### ③ 모델 선택 + 자동 추천
+- **5개 모델 카탈로그** (설치 여부 라벨 표시):
+
+| 모델 | 특기 | 비고 |
+|------|------|------|
+| ✨ 4x-UltraSharp | 실사·제품·풍경 | **기본 추천** |
+| 📷 REMACRI | 인물·피부·자연 | Upscayl 기본값 |
+| 🎨 Ultramix Balanced | 실사+일러 혼합 | AI 생성물 보정 |
+| 🌸 Real-ESRGAN Anime | 애니메·일러스트 | 실사 부적합 |
+| ⚙️ Real-ESRGAN x4plus | 범용·빠름 | Fallback |
+
+- 드롭다운에서 **각 모델의 한 줄 설명 + 특기** 표시
+- **✨ 자동 추천 토글**: 프롬프트 키워드로 모델 자동 선택
+  - "인물/얼굴/피부" → REMACRI
+  - "사진/실사/제품" → UltraSharp
+  - "애니/일러스트" → Real-ESRGAN Anime
+  - "그림/수채화" → Ultramix
+  - else → UltraSharp
+
+## 수정/추가 파일
+
+**추가**
+- `업스케일_설치가이드.md` — 바이너리·모델 다운로드 경로 + 폴더 구조 + 트러블슈팅
+
+**수정**
+- `routes/ai-history.js`
+  - `callGeminiImage(prompt, sourceImagePaths[])` — 2번째 인자 추가
+  - `/chat-image` — `attachmentIds` 받아서 이미지 첨부만 필터링 후 절대 경로 전달
+  - `UPSCALE_MODELS` 카탈로그 상수 (5개 모델 메타)
+  - `recommendUpscaleModel(hint)` — 키워드 매칭
+  - `scanInstalledModels()` — models/ 폴더 실제 설치 스캔
+  - `GET /upscale/health` — 설치 상태 + 모델 카탈로그
+  - `POST /upscale` — imageUrl + model + scale → 업스케일 실행
+  - `GET /upscale/recommend?hint=…` — 자동 추천 모델키
+
+- `public/tab-ai.html`
+  - state: `upscaleHealth`, `upscaleModels`, `upscaleAutoPick`, `upscaleModelKey`, `upscaleScale`, `upscaleStatus`, `upscalePickerOpen`
+  - computed: `hasImageAttachment` — placeholder/버튼 라벨 전환에 사용
+  - 메서드: `loadUpscaleHealth`, `toggleUpscalePicker`, `selectUpscaleModel`, `autoRecommendModel`, `getModelInfo`, `runUpscale`
+  - UI: 이미지 메시지 아래 `.ai-upscale-bar` — 배율·모델 선택·실행 버튼
+  - `sendImage()` → `attachmentIds` 함께 전송
+
+## 4차 완료 시각: 2026-04-23 KST

@@ -78,6 +78,8 @@
   .ai-msg.user .bubble { background:linear-gradient(135deg,#eef2ff,#e0e7ff); color:#1a1d23; border-top-right-radius:4px; }
   .ai-msg.ai .bubble { background:#fff; color:#374151; border:1px solid #e5e7eb; border-top-left-radius:4px; }
   .ai-msg.ai.error .bubble { background:#fef2f2; border-color:#fecaca; color:#b91c1c; }
+  /* 시스템 에러 배너 (AI 답변이 아닌 서버 에러 전용) */
+  .ai-system-error { display:flex; align-items:flex-start; gap:10px; margin:12px auto; padding:12px 14px; max-width:560px; background:#fef2f2; border:1px solid #fecaca; border-radius:12px; box-shadow:0 1px 3px rgba(220,38,38,0.08); }
   .ai-msg .meta { font-size:10px; color:#9ca3af; margin-top:3px; }
   .ai-msg.user .meta { text-align:right; }
   .ai-msg .bubble img.ai-img { max-width:100%; border-radius:8px; margin-top:6px; display:block; }
@@ -98,29 +100,93 @@
   .ai-welcome-sugg { padding:12px 14px; background:#fff; border:1px solid #e5e7eb; border-radius:12px; font-size:12.5px; color:#374151; cursor:pointer; text-align:left; transition:all .15s; }
   .ai-welcome-sugg:hover { border-color:#c7d2fe; background:#eef2ff; color:#4338ca; transform:translateY(-1px); box-shadow:0 2px 8px rgba(79,110,247,.1); }
 
-  /* ── 하단 입력 영역 ── */
+  /* ── 업스케일 컨트롤 ── */
+  .ai-upscale-bar { margin-top:10px; padding:10px 12px; background:#fafafa; border:1px solid #f0f1f3; border-radius:10px; }
+  .ai-upscale-controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+  .ai-upscale-label { font-size:12px; font-weight:600; color:#374151; }
+  .ai-upscale-scales { display:inline-flex; gap:2px; background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:2px; }
+  .ai-upscale-scales button { padding:4px 10px; background:none; border:none; border-radius:6px; font-size:11.5px; color:#6b7280; cursor:pointer; }
+  .ai-upscale-scales button.on { background:#eef2ff; color:#4338ca; font-weight:600; }
+  .ai-upscale-model-box { position:relative; }
+  .ai-upscale-pick { padding:5px 10px; background:#fff; border:1px solid #e5e7eb; border-radius:8px; font-size:11.5px; color:#374151; cursor:pointer; display:inline-flex; align-items:center; gap:3px; }
+  .ai-upscale-pick:hover { border-color:#c7d2fe; }
+  .ai-upscale-dropdown { position:absolute; top:100%; left:0; margin-top:4px; min-width:300px; background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:6px; box-shadow:0 8px 24px rgba(0,0,0,.12); z-index:10; max-height:340px; overflow-y:auto; }
+  .ai-upscale-divider { height:1px; background:#f0f1f3; margin:4px 0; }
+  .ai-upscale-auto, .ai-upscale-option { display:flex; align-items:flex-start; gap:8px; padding:8px 10px; border-radius:8px; cursor:pointer; }
+  .ai-upscale-auto:hover, .ai-upscale-option:hover { background:#f3f4f6; }
+  .ai-upscale-option.active { background:#eef2ff; }
+  .ai-upscale-option.disabled { opacity:.4; cursor:not-allowed; }
+  .ai-upscale-option input, .ai-upscale-auto input { margin-top:3px; accent-color:#4f6ef7; flex-shrink:0; }
+  .ai-upscale-option .n, .ai-upscale-auto .n { font-size:12.5px; font-weight:600; color:#111827; display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
+  .ai-upscale-option .s, .ai-upscale-auto .s { font-size:11px; color:#6b7280; margin-top:2px; }
+  .badge-rec { font-size:9.5px; padding:1px 6px; background:#dbeafe; color:#1e40af; border-radius:99px; font-weight:600; }
+  .badge-off { font-size:9.5px; padding:1px 6px; background:#fee2e2; color:#991b1b; border-radius:99px; font-weight:600; }
+  .ai-upscale-notready { padding:10px; background:#fef3c7; border:1px solid #fde68a; border-radius:8px; font-size:11px; color:#92400e; }
+  .ai-upscale-run { padding:6px 14px; background:linear-gradient(135deg,#10b981,#059669); color:#fff; border:none; border-radius:8px; font-size:11.5px; font-weight:600; cursor:pointer; }
+  .ai-upscale-run:hover { filter:brightness(1.06); }
+  .ai-upscale-run:disabled { opacity:.5; cursor:not-allowed; }
+  .ai-upscale-done { display:flex; align-items:center; gap:12px; font-size:12px; color:#059669; font-weight:600; }
+  .ai-upscale-link { font-size:11px; color:#4338ca; text-decoration:underline; }
+  .ai-upscale-error { margin-top:6px; padding:6px 10px; background:#fee2e2; border:1px solid #fecaca; border-radius:8px; font-size:11px; color:#991b1b; }
+
+  /* ── 하단 입력 영역 (Claude 웹 스타일) ── */
   .ai-foot { padding:12px 24px 16px; background:linear-gradient(to top, #f8f9fb 60%, rgba(248,249,251,0)); flex-shrink:0; position:relative; }
   .ai-foot-inner { max-width:760px; margin:0 auto; }
-  .ai-pending { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:6px; }
-  .ai-pending .chip { font-size:10.5px; padding:3px 9px; background:#fff7ed; border:1px solid #fed7aa; border-radius:99px; color:#92400e; display:inline-flex; align-items:center; gap:4px; }
-  .ai-pending .chip button { background:none; border:none; color:#dc2626; cursor:pointer; padding:0 2px; font-size:11px; }
 
-  .ai-tools { display:flex; gap:6px; margin-bottom:6px; }
-  .ai-tool-btn { padding:5px 10px; background:#fff; border:1px solid #e5e7eb; border-radius:8px; font-size:11.5px; color:#6b7280; cursor:pointer; display:inline-flex; align-items:center; gap:4px; transition:all .1s; }
-  .ai-tool-btn:hover { background:#f8f9fb; border-color:#c7d2fe; color:#4338ca; }
-  .ai-tool-btn.on { background:#eef2ff; color:#4338ca; border-color:#c7d2fe; font-weight:600; }
-  .ai-tool-btn.image-mode.on { background:linear-gradient(135deg,#fef3c7,#fde68a); color:#92400e; border-color:#fcd34d; }
+  .ai-input-wrap { position:relative; background:#fff; border:1.5px solid #e5e7eb; border-radius:20px; padding:12px 14px; transition:all .15s; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+  .ai-input-wrap:focus-within { border-color:#4f6ef7; box-shadow:0 4px 16px rgba(79,110,247,.12); }
+  .ai-input-wrap.dragging { border-color:#4f6ef7; border-style:dashed; background:#f0f4ff; }
 
-  .ai-input-wrap { position:relative; background:#fff; border:1.5px solid #e5e7eb; border-radius:16px; padding:12px 14px 10px; transition:border-color .15s; box-shadow:0 1px 3px rgba(0,0,0,.04); }
-  .ai-input-wrap:focus-within { border-color:#4f6ef7; box-shadow:0 2px 12px rgba(79,110,247,.12); }
-  .ai-input { width:100%; min-height:36px; max-height:200px; border:none; outline:none; resize:none; font-size:13.5px; line-height:1.6; font-family:inherit; color:#1a1d23; }
+  /* 드래그 오버레이 */
+  .ai-drop-overlay { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; background:rgba(240,244,255,.96); border:2px dashed #4f6ef7; border-radius:20px; pointer-events:none; z-index:3; font-weight:600; color:#4338ca; }
+  .ai-drop-overlay .big { font-size:32px; }
+  .ai-drop-overlay .txt { font-size:13px; }
+
+  /* 첨부 칩 행 */
+  .ai-attach-row { display:flex; flex-wrap:wrap; gap:8px; padding:4px 2px 10px; border-bottom:1px solid #f0f1f3; margin-bottom:8px; }
+  .ai-attach-chip { position:relative; display:flex; align-items:center; gap:8px; padding:6px 30px 6px 8px; background:#f8f9fb; border:1px solid #e5e7eb; border-radius:10px; max-width:240px; }
+  .ai-attach-chip:hover { background:#f0f1f3; }
+  .ai-attach-chip.img { padding:0 24px 0 0; overflow:hidden; }
+  .ai-attach-chip.img img { width:56px; height:56px; object-fit:cover; border-radius:8px 0 0 8px; display:block; }
+  .ai-attach-chip.img .ai-attach-info { padding:6px 4px 6px 0; }
+  .ai-attach-icon { width:32px; height:32px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; }
+  .ai-attach-icon.excel { background:#dcfce7; }
+  .ai-attach-icon.pdf { background:#fee2e2; }
+  .ai-attach-icon.word { background:#dbeafe; }
+  .ai-attach-icon.text { background:#f3f4f6; }
+  .ai-attach-icon.file { background:#f3f4f6; }
+  .ai-attach-info { min-width:0; }
+  .ai-attach-name { font-size:12px; font-weight:600; color:#1f2937; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:160px; }
+  .ai-attach-size { font-size:10.5px; color:#9ca3af; }
+  .ai-attach-x { position:absolute; top:4px; right:4px; width:18px; height:18px; padding:0; background:rgba(17,24,39,.7); border:none; border-radius:50%; color:#fff; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center; line-height:1; }
+  .ai-attach-x:hover { background:rgba(220,38,38,.9); }
+  .ai-attach-loading { display:flex; align-items:center; gap:6px; padding:6px 10px; background:#eef2ff; border:1px solid #c7d2fe; border-radius:10px; font-size:11px; color:#4338ca; }
+  .ai-attach-loading .spinner { width:12px; height:12px; border:2px solid #c7d2fe; border-top-color:#4f6ef7; border-radius:50%; animation:spin .6s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  .ai-input { width:100%; min-height:28px; max-height:240px; border:none; outline:none; resize:none; font-size:14px; line-height:1.55; font-family:inherit; color:#1a1d23; background:transparent; }
   .ai-input::placeholder { color:#b0b4c1; }
-  .ai-input-actions { display:flex; justify-content:space-between; align-items:center; margin-top:4px; gap:6px; }
-  .ai-input-hint { font-size:10.5px; color:#9ca3af; }
-  .ai-send-btn { padding:8px 16px; background:linear-gradient(135deg,#4f6ef7,#3b5ce4); color:#fff; border:none; border-radius:10px; font-size:12.5px; font-weight:600; cursor:pointer; transition:all .15s; display:inline-flex; align-items:center; gap:4px; }
+
+  /* 입력박스 하단 액션바 (Claude 스타일: 아이콘 좌측, 전송 우측) */
+  .ai-input-actions { display:flex; justify-content:space-between; align-items:center; margin-top:6px; gap:6px; }
+  .ai-input-left-tools { display:flex; gap:2px; align-items:center; }
+  .ai-icon-btn { width:32px; height:32px; padding:0; background:none; border:none; border-radius:8px; font-size:16px; color:#6b7280; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; transition:all .1s; position:relative; }
+  .ai-icon-btn:hover { background:#f3f4f6; color:#4338ca; }
+  .ai-icon-btn.on { background:#eef2ff; color:#4338ca; }
+  .ai-icon-btn.image-mode.on { background:linear-gradient(135deg,#fef3c7,#fde68a); color:#92400e; }
+  .ai-icon-btn .label { font-size:11.5px; font-weight:500; margin-left:3px; }
+  .ai-icon-btn.with-label { width:auto; padding:0 10px; gap:3px; }
+  .ai-icon-btn:disabled { opacity:.4; cursor:not-allowed; }
+  .ai-input-right { display:flex; align-items:center; gap:8px; }
+  .ai-input-hint { font-size:10.5px; color:#9ca3af; display:none; }
+  @media (min-width: 768px) { .ai-input-hint { display:inline; } }
+  .ai-send-btn { padding:7px 14px; background:linear-gradient(135deg,#4f6ef7,#3b5ce4); color:#fff; border:none; border-radius:10px; font-size:12.5px; font-weight:600; cursor:pointer; transition:all .15s; display:inline-flex; align-items:center; gap:4px; }
   .ai-send-btn:hover { filter:brightness(1.06); transform:translateY(-1px); box-shadow:0 3px 8px rgba(79,110,247,.3); }
   .ai-send-btn:disabled { opacity:.5; cursor:not-allowed; transform:none; box-shadow:none; }
   .ai-send-btn.image { background:linear-gradient(135deg,#f59e0b,#d97706); }
+
+  /* 프로젝트 드롭다운 (입력박스 위로 떠오름) */
+  .ai-proj-picker { position:absolute; bottom:100%; left:0; margin-bottom:6px; min-width:240px; background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:6px; max-height:280px; overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,.12); z-index:5; }
 
   /* ── 프로젝트 모달 ── */
   .ai-proj-overlay { position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:220; display:flex; align-items:center; justify-content:center; }
@@ -137,13 +203,13 @@
   .ai-proj-scope-grid button.active { background:#eef2ff; border-color:#c7d2fe; color:#4338ca; font-weight:600; }
   .ai-proj-scope-grid button small { display:block; font-size:10px; color:#9ca3af; font-weight:400; margin-top:1px; }
   .ai-proj-scope-grid button.active small { color:#6366f1; }
-  .ai-proj-user-list { max-height:220px; overflow-y:auto; margin-top:6px; border:1px solid #f0f1f3; border-radius:8px; padding:4px; }
-  .ai-proj-user { display:flex; align-items:center; gap:8px; padding:6px 10px; border-radius:6px; cursor:pointer; font-size:12px; }
+  .ai-proj-user-list { max-height:260px; overflow-y:auto; margin-top:6px; border:1px solid #f0f1f3; border-radius:8px; padding:4px; }
+  .ai-proj-user { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:8px; cursor:pointer; font-size:13px; transition:background .12s; }
   .ai-proj-user:hover { background:#f3f4f6; }
   .ai-proj-user input { accent-color:#4f6ef7; }
-  .ai-proj-user .avatar { width:24px; height:24px; border-radius:50%; background:#e0e7ff; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:#4338ca; }
-  .ai-proj-user .name { flex:1; color:#374151; }
-  .ai-proj-user .dept { font-size:10.5px; color:#9ca3af; }
+  .ai-proj-user .avatar { width:36px; height:36px; border-radius:50%; background:#e0e7ff; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700; color:#4338ca; flex-shrink:0; }
+  .ai-proj-user .name { flex:1; color:#111827; font-weight:600; font-size:13.5px; }
+  .ai-proj-user .dept { font-size:11px; color:#9ca3af; background:#f3f4f6; padding:2px 8px; border-radius:10px; }
   .ai-proj-foot { padding:12px 18px; border-top:1px solid #f0f1f3; display:flex; justify-content:space-between; gap:6px; }
   .ai-proj-foot .left { display:flex; gap:6px; }
   .ai-proj-foot button { padding:7px 14px; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; border:1px solid transparent; }
@@ -304,6 +370,18 @@
 
       <div class="ai-body-inner" x-show="currentThread || currentMessages.length > 0">
         <template x-for="(m, mi) in currentMessages" :key="m.id || ('m-'+mi)">
+          <div>
+            <!-- 시스템 에러 배너 (AI 답변이 아님을 명확히) -->
+            <template x-if="m.role === 'system'">
+              <div class="ai-system-error">
+                <span class="material-symbols-outlined" style="font-size:18px;color:#dc2626;">error</span>
+                <div style="flex:1;">
+                  <div style="font-weight:700;color:#991b1b;font-size:12px;margin-bottom:2px;">시스템 알림 (AI 답변 아님)</div>
+                  <div style="color:#7f1d1d;font-size:13px;" x-text="m.content"></div>
+                </div>
+              </div>
+            </template>
+            <template x-if="m.role !== 'system'">
           <div class="ai-msg" :class="m.role==='user' ? 'user' : (m.status==='error' ? 'ai error' : 'ai')">
             <div class="avatar">
               <template x-if="m.role === 'user'"><span x-text="(getAuth().name || '나').charAt(0)"></span></template>
@@ -313,8 +391,80 @@
               <div class="bubble">
                 <template x-if="m.kind==='image' && m.image_url">
                   <div>
-                    <img class="ai-img" :src="m.image_url" :alt="m.content || 'AI 이미지'" />
+                    <img class="ai-img" :src="(upscaleStatus[m.id] && upscaleStatus[m.id].url) || m.image_url" :alt="m.content || 'AI 이미지'" />
                     <div x-show="m.content" x-text="m.content" style="margin-top:6px;font-size:12px;color:#6b7280;"></div>
+
+                    <!-- 업스케일 컨트롤 -->
+                    <div class="ai-upscale-bar" x-show="m.role !== 'user'">
+                      <template x-if="upscaleStatus[m.id] && upscaleStatus[m.id].url">
+                        <div class="ai-upscale-done">
+                          <span x-text="'✓ ' + (upscaleStatus[m.id].scale || 4) + '배 업스케일 (' + ((upscaleStatus[m.id].model && upscaleStatus[m.id].model.name) || '') + ')'"></span>
+                          <a :href="upscaleStatus[m.id].url" target="_blank" class="ai-upscale-link">원본 보기</a>
+                        </div>
+                      </template>
+                      <template x-if="!upscaleStatus[m.id] || !upscaleStatus[m.id].url">
+                        <div class="ai-upscale-controls">
+                          <span class="ai-upscale-label">🔍 크게 만들기</span>
+                          <div class="ai-upscale-scales">
+                            <button :class="upscaleScale===2 ? 'on' : ''" @click="upscaleScale=2">2배</button>
+                            <button :class="upscaleScale===4 ? 'on' : ''" @click="upscaleScale=4">4배</button>
+                          </div>
+                          <div class="ai-upscale-model-box">
+                            <button class="ai-upscale-pick" @click="toggleUpscalePicker(m.id)">
+                              <template x-if="upscaleAutoPick"><span>✨ 자동 추천</span></template>
+                              <template x-if="!upscaleAutoPick">
+                                <span>
+                                  <span x-text="(getModelInfo(upscaleModelKey) && getModelInfo(upscaleModelKey).emoji) || '⚙️'"></span>
+                                  <span x-text="(getModelInfo(upscaleModelKey) && getModelInfo(upscaleModelKey).name) || upscaleModelKey"></span>
+                                </span>
+                              </template>
+                              <span style="margin-left:4px;color:#9ca3af;">▾</span>
+                            </button>
+                            <div class="ai-upscale-dropdown" x-show="upscalePickerOpen[m.id]" x-transition @click.away="upscalePickerOpen[m.id]=false">
+                              <label class="ai-upscale-auto">
+                                <input type="checkbox" x-model="upscaleAutoPick" />
+                                <div>
+                                  <div class="n">✨ 자동 추천</div>
+                                  <div class="s">프롬프트에 맞춰 자동 선택</div>
+                                </div>
+                              </label>
+                              <div class="ai-upscale-divider"></div>
+                              <template x-if="upscaleHealth && !upscaleHealth.ready">
+                                <div class="ai-upscale-notready">
+                                  <b>Real-ESRGAN 이 설치되지 않았습니다.</b><br>
+                                  <small>업스케일_설치가이드.md 참고</small>
+                                </div>
+                              </template>
+                              <template x-for="mdl in upscaleModels" :key="mdl.key">
+                                <label class="ai-upscale-option" :class="(upscaleModelKey===mdl.key ? 'active' : '') + (!mdl.installed ? ' disabled' : '')">
+                                  <input type="radio" :value="mdl.key" :checked="upscaleModelKey===mdl.key" :disabled="!mdl.installed" @change="selectUpscaleModel(mdl.key)" />
+                                  <div>
+                                    <div class="n">
+                                      <span x-text="mdl.emoji"></span>
+                                      <span x-text="mdl.name"></span>
+                                      <span x-show="mdl.recommended" class="badge-rec">추천</span>
+                                      <span x-show="!mdl.installed" class="badge-off">미설치</span>
+                                    </div>
+                                    <div class="s" x-text="mdl.tagline"></div>
+                                  </div>
+                                </label>
+                              </template>
+                            </div>
+                          </div>
+                          <button class="ai-upscale-run" @click="runUpscale(m)" :disabled="upscaleStatus[m.id] && upscaleStatus[m.id].loading">
+                            <template x-if="upscaleStatus[m.id] && upscaleStatus[m.id].loading">
+                              <span>처리 중…</span>
+                            </template>
+                            <template x-if="!upscaleStatus[m.id] || !upscaleStatus[m.id].loading">
+                              <span>↑ 업스케일</span>
+                            </template>
+                          </button>
+                        </div>
+                      </template>
+                      <template x-if="upscaleStatus[m.id] && upscaleStatus[m.id].error">
+                        <div class="ai-upscale-error" x-text="upscaleStatus[m.id].error"></div>
+                      </template>
+                    </div>
                   </div>
                 </template>
                 <template x-if="m.kind !== 'image'">
@@ -331,6 +481,8 @@
               <div class="meta" x-text="formatDate(m.created_at)"></div>
             </div>
           </div>
+            </template>
+          </div>
         </template>
         <div class="ai-msg ai thinking" x-show="loading">
           <div class="avatar">✦</div>
@@ -339,81 +491,112 @@
       </div>
     </div>
 
-    <!-- 하단 입력 -->
+    <!-- 하단 입력 (Claude 웹 스타일: 드래그 & 드롭 / 붙여넣기 지원) -->
     <div class="ai-foot">
       <div class="ai-foot-inner">
-        <!-- 첨부 대기 -->
-        <div x-show="pendingAttachments.length > 0" class="ai-pending">
-          <template x-for="a in pendingAttachments" :key="a.id">
-            <span class="chip">
-              <span x-text="'📎 ' + (a.original_name || ('#'+a.id))"></span>
-              <button @click="removeAttachment(a.id)" title="제거">✕</button>
-            </span>
-          </template>
-        </div>
+        <!-- 숨겨진 파일 입력 (multiple) -->
+        <input type="file" x-ref="fileInput" style="display:none" multiple
+          @change="uploadFiles($event.target.files); $event.target.value=''"
+          accept=".xlsx,.xls,.pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.docx,.doc,.csv" />
 
-        <!-- 툴바 -->
-        <div class="ai-tools">
-          <input type="file" x-ref="fileInput" style="display:none"
-            @change="uploadAttachment($event)"
-            accept=".xlsx,.xls,.pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.docx,.doc,.csv" />
-          <button class="ai-tool-btn" @click="$refs.fileInput.click()"
-            :disabled="loading" title="엑셀/PDF/이미지/텍스트 첨부">
-            📎 파일
-          </button>
-          <button class="ai-tool-btn image-mode" :class="imageMode ? 'on' : ''"
-            @click="imageMode = !imageMode" title="이미지 생성 모드">
-            🎨 <span x-text="imageMode ? '이미지 모드' : '이미지'"></span>
-          </button>
-          <button class="ai-tool-btn" :class="currentProjectId ? 'on' : ''"
-            @click="showProjectPicker = !showProjectPicker" title="프로젝트 선택">
-            📁 <span x-text="currentProjectId ? (projects.find(p=>p.id===currentProjectId)?.name || '프로젝트') : '프로젝트'"></span>
-          </button>
-        </div>
+        <!-- 입력 박스 (드래그/드롭/붙여넣기 이벤트 루트) -->
+        <div class="ai-input-wrap" :class="dragOver ? 'dragging' : ''"
+          @dragover.prevent="dragOver=true"
+          @dragenter.prevent="dragOver=true"
+          @dragleave.prevent="onDragLeave($event)"
+          @drop.prevent="onDrop($event)">
 
-        <!-- 프로젝트 선택 드롭다운 -->
-        <div x-show="showProjectPicker" x-transition @click.away="showProjectPicker=false"
-          style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:8px;margin-bottom:6px;max-height:240px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.08);">
-          <div class="ai-proj-item" @click="currentProjectId=null; showProjectPicker=false;">
-            <span class="em">❌</span>
-            <div class="info"><div class="n">프로젝트 없음</div></div>
+          <!-- 드래그 오버레이 -->
+          <div class="ai-drop-overlay" x-show="dragOver">
+            <div class="big">📎</div>
+            <div class="txt">여기에 놓으면 파일이 첨부됩니다</div>
           </div>
-          <template x-for="p in projects" :key="p.id">
-            <div class="ai-proj-item" :class="currentProjectId===p.id ? 'active' : ''"
-              @click="currentProjectId=p.id; showProjectPicker=false;">
-              <span class="em" x-text="p.emoji || '📁'"></span>
-              <div class="info">
-                <div class="n" x-text="p.name"></div>
-                <div class="s" x-text="p.owner_name || ''"></div>
+
+          <!-- 첨부 칩 (입력박스 상단) -->
+          <div x-show="pendingAttachments.length > 0 || uploadingCount > 0" class="ai-attach-row">
+            <template x-for="a in pendingAttachments" :key="a.id">
+              <div class="ai-attach-chip" :class="a.kind === 'image' ? 'img' : ''">
+                <template x-if="a.kind === 'image'">
+                  <img :src="'/api/ai/attachments/' + a.id + '/raw'" :alt="a.original_name" />
+                </template>
+                <template x-if="a.kind !== 'image'">
+                  <div class="ai-attach-icon" :class="a.kind || 'file'" x-text="fileIcon(a)"></div>
+                </template>
+                <div class="ai-attach-info">
+                  <div class="ai-attach-name" x-text="a.original_name"></div>
+                  <div class="ai-attach-size" x-text="formatSize(a.size)"></div>
+                </div>
+                <button class="ai-attach-x" @click="removeAttachment(a.id)" title="제거">×</button>
               </div>
-              <span class="badge" :class="p.share_mode" x-text="scopeBadges[p.share_mode] || p.share_mode"></span>
-            </div>
-          </template>
-          <div x-show="projects.length===0" class="ai-empty">
-            프로젝트 없음. <a href="#" @click.prevent="openProjectModal(); showProjectPicker=false;" style="color:#4338ca;">+ 만들기</a>
+            </template>
+            <template x-if="uploadingCount > 0">
+              <div class="ai-attach-loading">
+                <div class="spinner"></div>
+                <span x-text="uploadingCount + '개 업로드 중...'"></span>
+              </div>
+            </template>
           </div>
-        </div>
 
-        <!-- 텍스트 입력 -->
-        <div class="ai-input-wrap">
+          <!-- 텍스트 입력 -->
           <textarea class="ai-input" x-ref="inputArea"
-            :placeholder="imageMode ? '생성할 이미지를 설명해 주세요. 예: 밝고 깔끔한 사무실 책상에 노트북과 커피' : '무엇이든 물어보세요. Shift+Enter 로 줄바꿈.'"
+            :placeholder="imageMode ? (hasImageAttachment ? '첨부한 이미지를 어떻게 편집할까요? (예: 배경을 밤하늘로 바꿔줘)' : '생성할 이미지를 설명해 주세요.') : '무엇이든 물어보세요. 파일은 드래그하거나 붙여넣으세요.'"
             x-model="draft"
             @input="autoGrow($event)"
             @keydown.enter.prevent="onEnter($event)"
+            @paste="onPaste($event)"
             rows="1"></textarea>
+
+          <!-- 하단 액션바 -->
           <div class="ai-input-actions">
-            <div class="ai-input-hint">
-              <span x-show="!imageMode">Enter 전송 · Shift+Enter 줄바꿈</span>
-              <span x-show="imageMode">🎨 Gemini + nanobanana 로 그립니다 (최대 3분)</span>
+            <div class="ai-input-left-tools">
+              <button class="ai-icon-btn" @click="$refs.fileInput.click()"
+                :disabled="loading" title="파일 첨부 (드래그/붙여넣기 가능)">📎</button>
+              <button class="ai-icon-btn image-mode" :class="imageMode ? 'on' : ''"
+                @click="imageMode = !imageMode" title="이미지 생성 모드">🎨</button>
+              <div style="position:relative;">
+                <button class="ai-icon-btn with-label" :class="currentProjectId ? 'on' : ''"
+                  @click="showProjectPicker = !showProjectPicker" title="프로젝트 선택">
+                  <span>📁</span>
+                  <span class="label" x-text="currentProjectId ? (projects.find(p=>p.id===currentProjectId)?.name || '프로젝트') : '프로젝트'"></span>
+                </button>
+                <!-- 프로젝트 선택 드롭다운 -->
+                <div x-show="showProjectPicker" x-transition @click.away="showProjectPicker=false" class="ai-proj-picker">
+                  <div class="ai-proj-item" @click="currentProjectId=null; showProjectPicker=false;">
+                    <span class="em">❌</span>
+                    <div class="info"><div class="n">프로젝트 없음</div></div>
+                  </div>
+                  <template x-for="p in projects" :key="p.id">
+                    <div class="ai-proj-item" :class="currentProjectId===p.id ? 'active' : ''"
+                      @click="currentProjectId=p.id; showProjectPicker=false;">
+                      <span class="em" x-text="p.emoji || '📁'"></span>
+                      <div class="info">
+                        <div class="n" x-text="p.name"></div>
+                        <div class="s" x-text="p.owner_name || ''"></div>
+                      </div>
+                      <span class="badge" :class="p.share_mode" x-text="scopeBadges[p.share_mode] || p.share_mode"></span>
+                    </div>
+                  </template>
+                  <div x-show="projects.length===0" class="ai-empty">
+                    프로젝트 없음. <a href="#" @click.prevent="openProjectModal(); showProjectPicker=false;" style="color:#4338ca;">+ 만들기</a>
+                  </div>
+                </div>
+              </div>
             </div>
-            <button class="ai-send-btn" :class="imageMode ? 'image' : ''"
-              @click="send()"
-              :disabled="loading || !draft.trim()">
-              <span x-show="!loading && !imageMode">전송 ↑</span>
-              <span x-show="!loading && imageMode">🎨 그리기</span>
-              <span x-show="loading">…</span>
-            </button>
+            <div class="ai-input-right">
+              <span class="ai-input-hint">
+                <span x-show="!imageMode">Enter 전송 · Shift+Enter 줄바꿈</span>
+                <span x-show="imageMode && !hasImageAttachment">🎨 최대 3분 소요</span>
+                <span x-show="imageMode && hasImageAttachment">✏️ 첨부 이미지를 편집합니다</span>
+              </span>
+              <button class="ai-send-btn" :class="imageMode ? 'image' : ''"
+                @click="send()"
+                :disabled="loading || (!draft.trim() && pendingAttachments.length===0)">
+                <span x-show="!loading && !imageMode">전송 ↑</span>
+                <span x-show="!loading && imageMode && !hasImageAttachment">🎨 그리기</span>
+                <span x-show="!loading && imageMode && hasImageAttachment">✏️ 편집하기</span>
+                <span x-show="loading">…</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -474,7 +657,7 @@
                       @change="toggleProjectMember(u.userId)" />
                     <div class="avatar" x-text="(u.name || '?').charAt(0)"></div>
                     <span class="name" x-text="u.name"></span>
-                    <span class="dept" x-text="u.dept || u.department || ''"></span>
+                    <span class="dept" x-show="(u.dept || u.department || '').trim()" x-text="u.dept || u.department || ''"></span>
                   </label>
                 </template>
                 <div x-show="shareUserList.length <= 1" style="padding:10px;text-align:center;color:#9ca3af;font-size:11.5px;">
@@ -532,6 +715,11 @@ function aiApp() {
     currentProjectId: null,
     showProjectPicker: false,
 
+    // 파일 업로드 UX
+    dragOver: false,
+    uploadingCount: 0,         // 업로드 중인 파일 개수
+    _dragLeaveTimer: null,
+
     // 프로젝트 모달
     showProjectModal: false,
     projectForm: { id:null, name:'', emoji:'📁', description:'', share_mode:'private', member_ids:[] },
@@ -539,6 +727,21 @@ function aiApp() {
 
     // 모바일
     mobileSidebar: false,
+
+    // ── 업스케일 ──
+    upscaleHealth: null,       // { ready, binExists, models: [...], installedCount }
+    upscaleModels: [],         // health 응답의 models
+    upscaleAutoPick: true,     // 자동 추천 토글
+    upscaleModelKey: 'ultrasharp-4x',
+    upscaleScale: 4,
+    // 업스케일 진행 중/결과 캐시: { [messageId]: { loading, model, url, error } }
+    upscaleStatus: {},
+    // 드롭다운 열림 상태: messageId → bool
+    upscalePickerOpen: {},
+
+    get hasImageAttachment() {
+      return this.pendingAttachments.some(a => a && a.kind === 'image');
+    },
 
     getAuth() {
       try {
@@ -695,14 +898,22 @@ function aiApp() {
       this.$nextTick(() => { try { this.$refs.inputArea && this.$refs.inputArea.focus(); } catch(e){} });
     },
 
-    async uploadAttachment(ev) {
-      const file = ev.target.files && ev.target.files[0];
-      if (!file) return;
+    // 여러 파일 일괄 업로드 (FileList, File[], 또는 DataTransfer.items 모두 허용)
+    async uploadFiles(files) {
+      if (!files || !files.length) return;
+      const list = Array.from(files);
+      for (const file of list) {
+        if (!file || !(file instanceof File)) continue;
+        await this._uploadOne(file);
+      }
+    },
+
+    async _uploadOne(file) {
       if (file.size > 20 * 1024 * 1024) {
-        alert('20MB 이하 파일만 첨부할 수 있습니다.');
-        ev.target.value = '';
+        this._toast(`"${file.name}" 은(는) 20MB 를 초과해서 건너뜁니다.`);
         return;
       }
+      this.uploadingCount++;
       try {
         const form = new FormData();
         form.append('file', file);
@@ -711,16 +922,163 @@ function aiApp() {
         if (d.ok) {
           this.pendingAttachments.push(d.attachment);
         } else {
-          alert(d.error || '첨부 업로드 실패');
+          this._toast(d.error || '첨부 업로드 실패');
         }
       } catch(e) {
-        alert('첨부 업로드 실패: ' + e.message);
+        this._toast('첨부 업로드 실패: ' + e.message);
+      } finally {
+        this.uploadingCount = Math.max(0, this.uploadingCount - 1);
       }
-      ev.target.value = '';
     },
 
     removeAttachment(id) {
       this.pendingAttachments = this.pendingAttachments.filter(a => a.id !== id);
+    },
+
+    // 드래그 & 드롭
+    onDragLeave(ev) {
+      // 빈번한 dragleave 플리커 방지: 100ms 여유
+      clearTimeout(this._dragLeaveTimer);
+      this._dragLeaveTimer = setTimeout(() => { this.dragOver = false; }, 80);
+    },
+    onDrop(ev) {
+      clearTimeout(this._dragLeaveTimer);
+      this.dragOver = false;
+      const dt = ev.dataTransfer;
+      if (!dt) return;
+      if (dt.files && dt.files.length) {
+        this.uploadFiles(dt.files);
+      }
+    },
+
+    // 붙여넣기 (이미지 캡쳐 포함)
+    onPaste(ev) {
+      const items = ev.clipboardData && ev.clipboardData.items;
+      if (!items) return;
+      const files = [];
+      for (const it of items) {
+        if (it.kind === 'file') {
+          const f = it.getAsFile();
+          if (f) files.push(f);
+        }
+      }
+      if (files.length) {
+        ev.preventDefault();
+        this.uploadFiles(files);
+      }
+    },
+
+    // 첨부 UI 헬퍼
+    fileIcon(a) {
+      switch (a && a.kind) {
+        case 'excel': return '📊';
+        case 'pdf': return '📄';
+        case 'word': return '📝';
+        case 'text': return '📃';
+        case 'image': return '🖼️';
+        default: return '📎';
+      }
+    },
+    formatSize(bytes) {
+      const n = Number(bytes) || 0;
+      if (n < 1024) return n + 'B';
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1).replace(/\.0$/,'') + 'KB';
+      return (n / 1024 / 1024).toFixed(1).replace(/\.0$/,'') + 'MB';
+    },
+
+    // 간단 토스트 (alert 대체)
+    _toast(msg) {
+      try {
+        const el = document.createElement('div');
+        el.textContent = msg;
+        el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#111827;color:#fff;padding:10px 16px;border-radius:10px;font-size:13px;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,.2);max-width:80vw;';
+        document.body.appendChild(el);
+        setTimeout(() => { el.style.transition='opacity .3s'; el.style.opacity='0'; }, 2200);
+        setTimeout(() => { try { el.remove(); } catch(_){} }, 2600);
+      } catch(_) { alert(msg); }
+    },
+
+    // ── 업스케일 ──
+    async loadUpscaleHealth() {
+      if (this.upscaleHealth !== null) return this.upscaleHealth;
+      try {
+        const r = await fetch('/api/ai/upscale/health');
+        const d = await r.json();
+        this.upscaleHealth = d;
+        this.upscaleModels = d.models || [];
+        // 기본 선택: 추천 모델 중 설치된 것
+        const firstInstalled = this.upscaleModels.find(m => m.installed && m.recommended)
+          || this.upscaleModels.find(m => m.installed);
+        if (firstInstalled) this.upscaleModelKey = firstInstalled.key;
+        return d;
+      } catch(e) {
+        this.upscaleHealth = { ok:false, ready:false, error:e.message };
+        return this.upscaleHealth;
+      }
+    },
+
+    toggleUpscalePicker(messageId) {
+      this.upscalePickerOpen[messageId] = !this.upscalePickerOpen[messageId];
+      // 한 번만 lazy load
+      if (this.upscalePickerOpen[messageId]) this.loadUpscaleHealth();
+    },
+
+    selectUpscaleModel(key) {
+      this.upscaleModelKey = key;
+      this.upscaleAutoPick = false;
+    },
+
+    // 자동 추천: 메시지 프롬프트(유저 질문)에서 모델키 뽑기
+    async autoRecommendModel(messageId) {
+      // 직전 user 메시지의 content 를 힌트로
+      const idx = this.currentMessages.findIndex(m => m.id === messageId);
+      let hint = '';
+      for (let i = idx - 1; i >= 0; i--) {
+        const m = this.currentMessages[i];
+        if (m.role === 'user' && m.content) { hint = m.content; break; }
+      }
+      try {
+        const r = await fetch('/api/ai/upscale/recommend?hint=' + encodeURIComponent(hint));
+        const d = await r.json();
+        if (d.ok && d.model) this.upscaleModelKey = d.model;
+      } catch(_){}
+    },
+
+    getModelInfo(key) {
+      return this.upscaleModels.find(m => m.key === key) || null;
+    },
+
+    async runUpscale(msg) {
+      if (!msg || !msg.image_url) return;
+      await this.loadUpscaleHealth();
+      if (!this.upscaleHealth || !this.upscaleHealth.ready) {
+        this._toast('업스케일 도구가 서버에 설치되지 않았습니다. 업스케일_설치가이드.md 를 확인해주세요.');
+        return;
+      }
+      // 자동 추천이 켜져있으면 모델 키 다시 뽑기
+      if (this.upscaleAutoPick) await this.autoRecommendModel(msg.id);
+
+      this.upscaleStatus[msg.id] = { loading: true, model: this.upscaleModelKey, scale: this.upscaleScale };
+      this.upscalePickerOpen[msg.id] = false;
+
+      try {
+        const r = await fetch('/api/ai/upscale', {
+          method:'POST',
+          headers: { 'Content-Type':'application/json' },
+          body: JSON.stringify({ imageUrl: msg.image_url, model: this.upscaleModelKey, scale: this.upscaleScale })
+        });
+        const d = await r.json();
+        if (d.ok) {
+          this.upscaleStatus[msg.id] = { loading:false, url: d.url, model: d.model, scale: d.scale, cached: d.cached };
+          this._toast(`${this.upscaleScale}배 업스케일 완료 (${(d.model && d.model.name) || ''})`);
+        } else {
+          this.upscaleStatus[msg.id] = { loading:false, error: d.error || '업스케일 실패' };
+          this._toast(d.error || '업스케일 실패');
+        }
+      } catch(e) {
+        this.upscaleStatus[msg.id] = { loading:false, error: e.message };
+        this._toast('업스케일 실패: ' + e.message);
+      }
     },
 
     onEnter(e) {
@@ -796,18 +1154,28 @@ function aiApp() {
           await this.loadThreads();
           this.pendingAttachments = [];
         } else {
-          this.currentMessages.push({
-            id: 'err-' + Date.now(),
-            role: 'assistant', kind:'text',
-            content: d.error || 'AI 요청 실패',
-            status: 'error',
-            created_at: new Date().toISOString().replace('T',' ').slice(0,19)
-          });
+          // 낙관적으로 추가한 유저 메시지 제거 (서버엔 저장 안됐으므로)
+          this.currentMessages = this.currentMessages.filter(m => m.id !== userMsg.id);
+          // 권한 에러(403/NOT_OWNER): 토스트 + 입력창 복구로 새 대화 시작 유도
+          if (res.status === 403 || d.code === 'NOT_OWNER') {
+            if (this._toast) this._toast(d.error || '권한이 없는 대화입니다. 새 대화를 시작해주세요.');
+            this.draft = prompt;
+          } else {
+            // 그 외 에러는 AI 답변이 아닌 시스템 에러 배너로 명확히 표시
+            this.currentMessages.push({
+              id: 'err-' + Date.now(),
+              role: 'system', kind:'error',
+              content: d.error || 'AI 요청 실패',
+              status: 'error',
+              created_at: new Date().toISOString().replace('T',' ').slice(0,19)
+            });
+          }
         }
       } catch(e) {
+        this.currentMessages = this.currentMessages.filter(m => m.id !== userMsg.id);
         this.currentMessages.push({
           id: 'err-' + Date.now(),
-          role: 'assistant', kind:'text',
+          role: 'system', kind:'error',
           content: '서버 연결 실패: ' + e.message,
           status: 'error',
           created_at: new Date().toISOString().replace('T',' ').slice(0,19)
@@ -820,13 +1188,19 @@ function aiApp() {
     async sendImage(prompt) {
       this.loading = true;
 
+      // 참고 이미지 (이미지 첨부만) 추출
+      const imageAttachments = this.pendingAttachments.filter(a => a.kind === 'image');
+      const attIds = imageAttachments.map(a => a.id);
+      const isEdit = attIds.length > 0;
+
       // 낙관적 UI: 유저 메시지
       const userMsg = {
         id: 'tmp-' + Date.now(),
         role: 'user',
         kind: 'text',
-        content: '🎨 ' + prompt,
-        created_at: new Date().toISOString().replace('T',' ').slice(0,19)
+        content: (isEdit ? '🎨 ✏️ ' : '🎨 ') + prompt,
+        created_at: new Date().toISOString().replace('T',' ').slice(0,19),
+        attachments_parsed: imageAttachments.map(a => ({ id:a.id, original_name:a.original_name, kind:a.kind }))
       };
       this.currentMessages.push(userMsg);
       const projectId = this.currentProjectId;
@@ -843,7 +1217,8 @@ function aiApp() {
           body: JSON.stringify({
             threadId: this.currentThreadId || null,
             projectId: projectId,
-            prompt: prompt
+            prompt: prompt,
+            attachmentIds: attIds
           })
         });
         const d = await res.json();
@@ -853,6 +1228,7 @@ function aiApp() {
             try { localStorage.setItem('aiTab:lastThreadId', String(d.threadId)); } catch(e){}
           }
           await this.loadThreads();
+          this.pendingAttachments = [];
         } else {
           this.currentMessages.push({
             id: 'err-' + Date.now(),

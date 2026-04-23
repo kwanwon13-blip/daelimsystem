@@ -308,6 +308,59 @@ router.post('/admin/users/:id/permissions', requireAdmin, (req, res) => {
   res.json({ ok: true, permissions: user.permissions });
 });
 
+// 팀/부서 단위 권한 일괄 수정 (관리자)
+// body: { userIds: string[], permissions: string[], operation: 'replace'|'add'|'remove' }
+// - replace: 해당 유저들의 권한을 permissions 로 덮어쓰기
+// - add: 기존 권한 + permissions 합집합
+// - remove: 기존 권한 - permissions 차집합
+// admin 역할 유저는 대상에서 자동 제외 (admin 은 전체 권한 고정)
+router.post('/admin/users/bulk-permissions', requireAdmin, (req, res) => {
+  const { userIds, permissions = [], operation = 'replace' } = req.body || {};
+  if (!Array.isArray(userIds) || userIds.length === 0) {
+    return res.status(400).json({ error: '대상 userIds 필요' });
+  }
+  if (!Array.isArray(permissions)) {
+    return res.status(400).json({ error: 'permissions 배열 필요' });
+  }
+  if (!['replace', 'add', 'remove'].includes(operation)) {
+    return res.status(400).json({ error: 'operation 은 replace|add|remove' });
+  }
+
+  const uData = db.loadUsers();
+  const allUsers = uData.users || [];
+  const updated = [];
+  const skipped = [];
+
+  for (const id of userIds) {
+    const user = allUsers.find(u => u.id === id);
+    if (!user) { skipped.push({ id, reason: 'not_found' }); continue; }
+    if (user.role === 'admin') { skipped.push({ id, reason: 'admin' }); continue; }
+    if (user.status === 'resigned') { skipped.push({ id, reason: 'resigned' }); continue; }
+
+    const cur = Array.isArray(user.permissions) ? user.permissions : [];
+    let next;
+    if (operation === 'replace') {
+      next = [...new Set(permissions)];
+    } else if (operation === 'add') {
+      next = [...new Set([...cur, ...permissions])];
+    } else { // remove
+      const removeSet = new Set(permissions);
+      next = cur.filter(p => !removeSet.has(p));
+    }
+    user.permissions = next;
+    updated.push({ id: user.id, name: user.name, permissions: next });
+  }
+
+  db.saveUsers(uData);
+  res.json({
+    ok: true,
+    updatedCount: updated.length,
+    skippedCount: skipped.length,
+    updated,
+    skipped
+  });
+});
+
 // ── 권한 프리셋 CRUD (관리자) ──
 router.get('/admin/perm-presets', requireAdmin, (req, res) => {
   try {

@@ -1050,6 +1050,86 @@ router.delete('/records/bulk', requireAdmin, (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
+// 인건비 추이 (홈 대시보드용)
+// ══════════════════════════════════════════════════════════════════════════════
+
+// GET /api/salary/cost-trend?months=12&company=all
+// 최근 N개월 월별 인건비 (grossPay, netPay, headcount) — 회사별/전체
+// 관리자만 접근
+router.get('/cost-trend', requireAdmin, (req, res) => {
+  try {
+    const months = Math.max(1, Math.min(36, Number(req.query.months) || 12));
+    const companyFilter = (req.query.company || 'all').toString();
+
+    // 회사 목록
+    let companies = [];
+    try {
+      const org = db.조직관리.load();
+      companies = (org.companies || []).map(c => ({ id: c.id, name: c.name }));
+    } catch (e) {}
+    if (companies.length === 0) {
+      companies = [
+        { id: 'dalim-sm', name: '대림에스엠' },
+        { id: 'dalim-company', name: '대림컴퍼니' }
+      ];
+    }
+
+    // 최근 N개월 yearMonth 배열 (YYYY-MM, 과거→현재)
+    const now = new Date();
+    const monthList = [];
+    for (let i = months - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      monthList.push(d.toISOString().slice(0, 7));
+    }
+
+    // 각 회사 × 각 월 집계
+    const series = {};
+    const activeCompanies = companyFilter === 'all'
+      ? companies
+      : companies.filter(c => c.id === companyFilter);
+
+    for (const co of activeCompanies) {
+      series[co.id] = {
+        companyId: co.id,
+        companyName: co.name,
+        monthly: monthList.map(ym => {
+          const recs = salaryDb.records.getByMonth(co.id, ym) || [];
+          const grossPay = recs.reduce((s, r) => s + (r.grossPay || 0), 0);
+          const netPay = recs.reduce((s, r) => s + (r.netPay || 0), 0);
+          const totalDeductions = recs.reduce((s, r) => s + (r.totalDeductions || 0), 0);
+          return {
+            yearMonth: ym,
+            grossPay,
+            netPay,
+            totalDeductions,
+            headcount: recs.length
+          };
+        })
+      };
+    }
+
+    // 전체 합계 (회사 간 합산)
+    const totalMonthly = monthList.map((ym, idx) => {
+      let gp = 0, np = 0, td = 0, hc = 0;
+      Object.values(series).forEach(s => {
+        const m = s.monthly[idx];
+        gp += m.grossPay; np += m.netPay; td += m.totalDeductions; hc += m.headcount;
+      });
+      return { yearMonth: ym, grossPay: gp, netPay: np, totalDeductions: td, headcount: hc };
+    });
+
+    logSalaryAccess(req.user.userId, 'VIEW', `인건비추이 ${months}개월 company=${companyFilter}`);
+    res.json({
+      months: monthList,
+      companies: Object.values(series),
+      total: totalMonthly
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
 // 연간 급여현황
 // ══════════════════════════════════════════════════════════════════════════════
 

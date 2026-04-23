@@ -39,6 +39,8 @@
   <script src="/contacts.js"></script>
   <script src="/approval.js"></script>
   <script src="/orgchart.js"></script>
+  <!-- Chart.js (홈 대시보드 그래프) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <!-- Editor.js (워크스페이스) -->
   <script src="https://cdn.jsdelivr.net/npm/@editorjs/editorjs@2.29.1/dist/editorjs.umd.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@editorjs/header@2.8.7/dist/header.umd.js"></script>
@@ -2216,6 +2218,76 @@
             </div>
           </template>
 
+          <!-- 월별 인건비 추이 그래프 (관리자용) -->
+          <template x-if="auth.role === 'admin'">
+            <div class="card" style="padding:16px 18px;">
+              <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="material-symbols-outlined" style="font-size:18px;color:#4f6ef7;">trending_up</span>
+                  <h3 class="text-sm font-bold" style="color:#1e293b;">월별 인건비 추이</h3>
+                  <span class="text-[10px]" style="color:#94a3b8;">(최근 12개월)</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <select x-model="costTrend.company" @change="loadCostTrend()"
+                          class="text-xs rounded-lg border px-2"
+                          style="height:28px;background:#fff;border-color:#e5eaf4;color:#1e293b;">
+                    <option value="all">전체 회사</option>
+                    <template x-for="c in (costTrend.companies||[])" :key="c.id">
+                      <option :value="c.id" x-text="c.name"></option>
+                    </template>
+                  </select>
+                  <select x-model="costTrend.months" @change="loadCostTrend()"
+                          class="text-xs rounded-lg border px-2"
+                          style="height:28px;background:#fff;border-color:#e5eaf4;color:#1e293b;">
+                    <option value="6">6개월</option>
+                    <option value="12">12개월</option>
+                    <option value="24">24개월</option>
+                  </select>
+                  <select x-model="costTrend.metric" @change="renderCostTrendChart()"
+                          class="text-xs rounded-lg border px-2"
+                          style="height:28px;background:#fff;border-color:#e5eaf4;color:#1e293b;">
+                    <option value="grossPay">지급총액</option>
+                    <option value="netPay">실지급액</option>
+                    <option value="totalDeductions">공제총액</option>
+                    <option value="headcount">인원수</option>
+                  </select>
+                </div>
+              </div>
+              <template x-if="costTrend.loading">
+                <p class="text-xs py-8 text-center" style="color:#94a3b8;">불러오는 중...</p>
+              </template>
+              <template x-if="!costTrend.loading && costTrend.hasData === false">
+                <p class="text-xs py-8 text-center" style="color:#94a3b8;">아직 집계된 급여 데이터가 없습니다</p>
+              </template>
+              <div x-show="!costTrend.loading && costTrend.hasData !== false" style="position:relative;height:280px;">
+                <canvas id="costTrendChart"></canvas>
+              </div>
+              <div x-show="!costTrend.loading && costTrend.hasData !== false" class="grid gap-3 mt-3" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));">
+                <div class="rounded-lg p-2" style="background:#f8fafc;border:1px solid #e5eaf4;">
+                  <p class="text-[10px]" style="color:#64748b;">12개월 합계</p>
+                  <p class="text-sm font-bold mt-1" style="color:#1e293b;"
+                     x-text="(costTrend.summary.total||0).toLocaleString() + '원'"></p>
+                </div>
+                <div class="rounded-lg p-2" style="background:#f8fafc;border:1px solid #e5eaf4;">
+                  <p class="text-[10px]" style="color:#64748b;">월 평균</p>
+                  <p class="text-sm font-bold mt-1" style="color:#1e293b;"
+                     x-text="(costTrend.summary.avg||0).toLocaleString() + '원'"></p>
+                </div>
+                <div class="rounded-lg p-2" style="background:#f8fafc;border:1px solid #e5eaf4;">
+                  <p class="text-[10px]" style="color:#64748b;">최근 대비 전월</p>
+                  <p class="text-sm font-bold mt-1"
+                     :style="(costTrend.summary.momPct||0) >= 0 ? 'color:#059669' : 'color:#dc2626'"
+                     x-text="((costTrend.summary.momPct||0) >= 0 ? '+' : '') + (costTrend.summary.momPct||0).toFixed(1) + '%'"></p>
+                </div>
+                <div class="rounded-lg p-2" style="background:#f8fafc;border:1px solid #e5eaf4;">
+                  <p class="text-[10px]" style="color:#64748b;">평균 인원</p>
+                  <p class="text-sm font-bold mt-1" style="color:#1e293b;"
+                     x-text="(costTrend.summary.avgHead||0).toFixed(1) + '명'"></p>
+                </div>
+              </div>
+            </div>
+          </template>
+
           <!-- 하단 2단: 최근 공지 / 결재 대기 목록 -->
           <div class="grid gap-4" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));">
             <!-- 최근 공지 -->
@@ -2467,6 +2539,99 @@
       <template x-if="currentTab === 'admin' && auth.role === 'admin'">
         <div class="space-y-3 fade-in">
 
+          <!-- 회사 관리 (멀티컴퍼니) -->
+          <div class="card" style="padding:0;overflow:hidden;" x-data="companyAdmin()" x-init="load()">
+            <div style="padding:10px 14px;background:linear-gradient(135deg,#fef3c7,#fde68a);border-bottom:1px solid #fcd34d;">
+              <div class="flex items-center justify-between">
+                <h3 class="font-work text-[13px] font-bold text-gray-800 flex items-center gap-2 m-0">
+                  <span class="material-symbols-outlined" style="font-size:16px;color:#b45309;">domain</span> 회사 관리
+                  <span class="text-xs font-medium px-2.5 py-1 rounded-full" style="background:rgba(180,83,9,.1);color:#b45309;" x-text="companies.length + '개사'"></span>
+                </h3>
+                <button @click="showAdd = !showAdd; if(showAdd) resetForm()" class="btn-primary text-xs py-1.5 px-3 flex items-center gap-1">
+                  <span class="material-symbols-outlined" style="font-size:16px;" x-text="showAdd ? 'close' : 'add'"></span>
+                  <span x-text="showAdd && !form.id ? '닫기' : (form.id ? '취소' : '새 회사')"></span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 추가/수정 폼 -->
+            <template x-if="showAdd">
+              <div style="padding:12px 14px;background:#fffbeb;border-bottom:1px solid #fde68a;">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+                  <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">회사명 <span style="color:#dc2626;">*</span></label>
+                    <input x-model="form.name" class="input-base py-1.5 text-xs w-full" placeholder="예: 대림에스엠">
+                  </div>
+                  <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">사업자등록번호</label>
+                    <input x-model="form.bizNo" class="input-base py-1.5 text-xs w-full" placeholder="예: 123-45-67890">
+                  </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+                  <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">대표자</label>
+                    <input x-model="form.ceo" class="input-base py-1.5 text-xs w-full" placeholder="대표자 이름">
+                  </div>
+                  <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">전화번호</label>
+                    <input x-model="form.tel" class="input-base py-1.5 text-xs w-full" placeholder="02-xxx-xxxx">
+                  </div>
+                </div>
+                <div class="mb-2">
+                  <label class="block text-xs font-semibold text-gray-600 mb-1">주소</label>
+                  <input x-model="form.address" class="input-base py-1.5 text-xs w-full" placeholder="회사 주소">
+                </div>
+                <div class="mb-3">
+                  <label class="block text-xs font-semibold text-gray-600 mb-1">메모</label>
+                  <input x-model="form.note" class="input-base py-1.5 text-xs w-full" placeholder="선택 사항">
+                </div>
+                <div class="flex gap-2">
+                  <button @click="save()" :disabled="saving || !form.name" class="btn-primary text-xs py-1.5 px-4 flex items-center gap-1">
+                    <span class="material-symbols-outlined" style="font-size:14px;">save</span>
+                    <span x-text="saving ? '저장 중...' : (form.id ? '수정 저장' : '등록')"></span>
+                  </button>
+                  <button @click="showAdd = false; resetForm()" class="text-xs py-1.5 px-4" style="background:#f1f5f9;color:#64748b;border:none;border-radius:8px;cursor:pointer;">취소</button>
+                </div>
+              </div>
+            </template>
+
+            <!-- 회사 목록 테이블 -->
+            <div style="padding:10px 14px;">
+              <div x-show="companies.length === 0" style="font-size:11px;color:#94a3b8;text-align:center;padding:20px;">등록된 회사가 없습니다. 위의 "새 회사" 버튼으로 추가하세요.</div>
+              <template x-if="companies.length > 0">
+                <table style="width:100%;font-size:11px;border-collapse:collapse;">
+                  <thead>
+                    <tr style="background:#fef3c7;color:#92400e;">
+                      <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #fcd34d;">회사명</th>
+                      <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #fcd34d;">사업자번호</th>
+                      <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #fcd34d;">대표</th>
+                      <th style="padding:6px 8px;text-align:left;border-bottom:1px solid #fcd34d;">전화</th>
+                      <th style="padding:6px 8px;text-align:center;border-bottom:1px solid #fcd34d;width:70px;">소속직원</th>
+                      <th style="padding:6px 8px;text-align:center;border-bottom:1px solid #fcd34d;width:90px;">관리</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="c in companies" :key="c.id">
+                      <tr style="border-bottom:1px solid #f1f5f9;">
+                        <td style="padding:6px 8px;font-weight:600;color:#1f2937;" x-text="c.name"></td>
+                        <td style="padding:6px 8px;color:#64748b;font-family:monospace;" x-text="c.bizNo || '-'"></td>
+                        <td style="padding:6px 8px;color:#64748b;" x-text="c.ceo || '-'"></td>
+                        <td style="padding:6px 8px;color:#64748b;" x-text="c.tel || '-'"></td>
+                        <td style="padding:6px 8px;text-align:center;">
+                          <span style="display:inline-block;padding:2px 8px;border-radius:12px;background:#ecfdf5;color:#059669;font-weight:600;" x-text="userCountOf(c.id) + '명'"></span>
+                        </td>
+                        <td style="padding:6px 8px;text-align:center;">
+                          <button @click="edit(c)" title="수정" style="background:#eff6ff;color:#2563eb;border:none;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:11px;margin-right:4px;">수정</button>
+                          <button @click="remove(c)" title="삭제" style="background:#fef2f2;color:#dc2626;border:none;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:11px;">삭제</button>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </template>
+            </div>
+          </div>
+
           <!-- 부서(조직도) 관리 -->
           <div class="card" style="padding:0;overflow:hidden;">
             <div style="padding:10px 14px;background:linear-gradient(135deg,#ecfdf5,#d1fae5);border-bottom:1px solid #6ee7b7;">
@@ -2682,11 +2847,19 @@
           </div>
 
           <div class="card" style="padding:0;overflow:hidden;">
-            <div style="padding:10px 14px;background:linear-gradient(135deg,#fdf2f8,#fce7f3);border-bottom:1px solid #fbcfe8;">
-              <h3 class="font-work text-[13px] font-bold text-gray-800 flex items-center gap-2 m-0">
-                <span class="material-symbols-outlined" style="font-size:16px;color:#db2777;">group</span> 사용자 목록
-                <span class="text-xs font-medium px-2.5 py-1 rounded-full" style="background:rgba(219,39,119,.1);color:#db2777;" x-text="(adminUsers||[]).length + '명'"></span>
-              </h3>
+<div style="padding:10px 14px;background:linear-gradient(135deg,#fdf2f8,#fce7f3);border-bottom:1px solid #fbcfe8;">
+              <div class="flex items-center justify-between flex-wrap gap-2">
+                <h3 class="font-work text-[13px] font-bold text-gray-800 flex items-center gap-2 m-0">
+                  <span class="material-symbols-outlined" style="font-size:16px;color:#db2777;">group</span> 사용자 목록
+                  <span class="text-xs font-medium px-2.5 py-1 rounded-full" style="background:rgba(219,39,119,.1);color:#db2777;" x-text="(adminUsers||[]).length + '명'"></span>
+                </h3>
+                <button @click="bulkPermOpen = !bulkPermOpen; if(bulkPermOpen) initBulkPerm()"
+                        class="text-xs font-semibold flex items-center gap-1 px-3 py-1.5 rounded-lg"
+                        style="background:#fff;border:1px solid #f9a8d4;color:#be185d;cursor:pointer;">
+                  <span class="material-symbols-outlined" style="font-size:14px;">groups</span>
+                  <span x-text="bulkPermOpen ? '일괄 설정 닫기' : '부서별 권한 일괄 설정'"></span>
+                </button>
+              </div>
             </div>
             <div class="overflow-x-auto">
             <table class="w-full text-xs" style="border-collapse:collapse;">
@@ -2825,6 +2998,141 @@
                   </div>
                 </div>
               </div>
+          </template>
+
+          <!-- 부서별 권한 일괄 설정 패널 -->
+          <template x-if="bulkPermOpen">
+            <div class="card" style="padding:0;overflow:hidden;">
+              <div style="padding:10px 14px;background:linear-gradient(135deg,#fdf2f8,#fce7f3);border-bottom:1px solid #fbcfe8;">
+                <h3 class="font-work text-[13px] font-bold text-gray-800 flex items-center gap-2 m-0">
+                  <span class="material-symbols-outlined" style="font-size:16px;color:#db2777;">groups</span>
+                  부서별 권한 일괄 설정
+                  <span class="text-[10px] font-medium" style="color:#9ca3af;">관리자 계정은 자동 제외</span>
+                </h3>
+              </div>
+              <div style="padding:14px;">
+
+                <!-- 1단계: 대상 부서 선택 -->
+                <div class="mb-3">
+                  <label class="block text-xs font-semibold text-gray-600 mb-1">1. 대상 부서</label>
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <label class="flex items-center gap-1 text-xs cursor-pointer px-2.5 py-1 rounded-full border"
+                           :style="bulkPermForm.deptId === '__all__' ? 'background:#fce7f3;border-color:#f9a8d4;color:#be185d;font-weight:600;' : 'background:#fff;border-color:#e5e7eb;color:#6b7280;'">
+                      <input type="radio" x-model="bulkPermForm.deptId" value="__all__" class="hidden">
+                      <span>전체 직원</span>
+                    </label>
+                    <label class="flex items-center gap-1 text-xs cursor-pointer px-2.5 py-1 rounded-full border"
+                           :style="bulkPermForm.deptId === '__none__' ? 'background:#fce7f3;border-color:#f9a8d4;color:#be185d;font-weight:600;' : 'background:#fff;border-color:#e5e7eb;color:#6b7280;'">
+                      <input type="radio" x-model="bulkPermForm.deptId" value="__none__" class="hidden">
+                      <span>부서 미배정</span>
+                    </label>
+                    <template x-for="d in departments" :key="d.id">
+                      <label class="flex items-center gap-1 text-xs cursor-pointer px-2.5 py-1 rounded-full border"
+                             :style="bulkPermForm.deptId === d.id ? 'background:#fce7f3;border-color:#f9a8d4;color:#be185d;font-weight:600;' : 'background:#fff;border-color:#e5e7eb;color:#6b7280;'">
+                        <input type="radio" x-model="bulkPermForm.deptId" :value="d.id" class="hidden">
+                        <span x-text="d.name"></span>
+                      </label>
+                    </template>
+                  </div>
+                </div>
+
+                <!-- 대상 직원 미리보기 -->
+                <div class="mb-3" style="padding:8px 10px;background:#fdf2f8;border:1px solid #fbcfe8;border-radius:8px;">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="text-xs font-semibold" style="color:#be185d;">적용 대상:</span>
+                    <span class="text-xs" style="color:#be185d;" x-text="bulkPermTargets.length + '명'"></span>
+                    <template x-for="u in bulkPermTargets" :key="u.id">
+                      <span class="text-[11px] font-medium px-2 py-0.5 rounded-full" style="background:#fff;color:#374151;border:1px solid #e5e7eb;">
+                        <span x-text="u.name"></span>
+                        <span x-show="u.position" class="text-[10px]" style="color:#9ca3af;" x-text="' · ' + u.position"></span>
+                      </span>
+                    </template>
+                    <span x-show="bulkPermTargets.length === 0" class="text-xs" style="color:#9ca3af;">해당 부서에 승인된 직원이 없습니다</span>
+                  </div>
+                </div>
+
+                <!-- 2단계: 적용 방식 -->
+                <div class="mb-3">
+                  <label class="block text-xs font-semibold text-gray-600 mb-1">2. 적용 방식</label>
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <label class="flex items-center gap-2 text-xs cursor-pointer px-3 py-1.5 rounded-lg border"
+                           :style="bulkPermForm.operation === 'replace' ? 'background:#dbeafe;border-color:#60a5fa;color:#1d4ed8;font-weight:600;' : 'background:#fff;border-color:#e5e7eb;color:#6b7280;'">
+                      <input type="radio" x-model="bulkPermForm.operation" value="replace" class="hidden">
+                      <span>🔄 덮어쓰기</span>
+                      <span class="text-[10px]" style="color:inherit;opacity:0.7;">선택한 권한만 남김</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-xs cursor-pointer px-3 py-1.5 rounded-lg border"
+                           :style="bulkPermForm.operation === 'add' ? 'background:#dcfce7;border-color:#86efac;color:#15803d;font-weight:600;' : 'background:#fff;border-color:#e5e7eb;color:#6b7280;'">
+                      <input type="radio" x-model="bulkPermForm.operation" value="add" class="hidden">
+                      <span>➕ 추가</span>
+                      <span class="text-[10px]" style="color:inherit;opacity:0.7;">기존 권한 유지 + 선택 권한 추가</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-xs cursor-pointer px-3 py-1.5 rounded-lg border"
+                           :style="bulkPermForm.operation === 'remove' ? 'background:#fee2e2;border-color:#fca5a5;color:#b91c1c;font-weight:600;' : 'background:#fff;border-color:#e5e7eb;color:#6b7280;'">
+                      <input type="radio" x-model="bulkPermForm.operation" value="remove" class="hidden">
+                      <span>➖ 제거</span>
+                      <span class="text-[10px]" style="color:inherit;opacity:0.7;">선택한 권한 빼기</span>
+                    </label>
+                  </div>
+                </div>
+
+                <!-- 3단계: 프리셋 (선택사항) -->
+                <div class="mb-3" x-show="permPresets.length > 0">
+                  <label class="block text-xs font-semibold text-gray-600 mb-1">3. 프리셋 (선택사항)</label>
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <template x-for="preset in permPresets" :key="preset.name">
+                      <button @click="bulkPermForm.permissions = [...preset.perms]"
+                              class="text-xs px-3 py-1 rounded-lg"
+                              style="background:#f8fafc;border:1px solid #e5e7eb;color:#374151;cursor:pointer;"
+                              onmouseover="this.style.background='#eef2ff'" onmouseout="this.style.background='#f8fafc'"
+                              x-text="preset.name"></button>
+                    </template>
+                  </div>
+                </div>
+
+                <!-- 4단계: 권한 선택 -->
+                <div class="mb-4">
+                  <div class="flex items-center justify-between mb-2">
+                    <label class="block text-xs font-semibold text-gray-600">
+                      <span x-text="bulkPermForm.operation === 'replace' ? '4. 부여할 권한' : (bulkPermForm.operation === 'add' ? '4. 추가할 권한' : '4. 제거할 권한')"></span>
+                    </label>
+                    <div class="flex gap-2">
+                      <button @click="bulkPermForm.permissions = allMenus.map(m => m.id)" class="text-[10px] font-semibold" style="color:#4f6ef7;cursor:pointer;background:none;border:none;">전체 선택</button>
+                      <button @click="bulkPermForm.permissions = []" class="text-[10px] font-semibold" style="color:#9ca3af;cursor:pointer;background:none;border:none;">모두 해제</button>
+                    </div>
+                  </div>
+                  <div class="grid grid-cols-3 gap-2">
+                    <template x-for="menu in allMenus" :key="menu.id">
+                      <label class="flex items-center gap-2 p-2 rounded-lg border cursor-pointer"
+                             :class="bulkPermForm.permissions.includes(menu.id) ? 'border-pink-400 bg-pink-50' : 'border-gray-200 hover:bg-gray-50'">
+                        <input type="checkbox"
+                               :checked="bulkPermForm.permissions.includes(menu.id)"
+                               @change="$el.checked ? (bulkPermForm.permissions.includes(menu.id) || bulkPermForm.permissions.push(menu.id)) : (bulkPermForm.permissions = bulkPermForm.permissions.filter(p => p !== menu.id))"
+                               class="w-4 h-4 rounded">
+                        <span class="text-xs" x-text="menu.label"></span>
+                      </label>
+                    </template>
+                  </div>
+                </div>
+
+                <!-- 적용 버튼 -->
+                <div class="flex items-center justify-between">
+                  <p class="text-xs" style="color:#9ca3af;">
+                    <span x-text="bulkPermTargets.length + '명'"></span> ×
+                    <span x-text="bulkPermForm.permissions.length + '개 권한'"></span>
+                    <span x-text="bulkPermForm.operation === 'replace' ? '덮어쓰기' : (bulkPermForm.operation === 'add' ? '추가' : '제거')"></span>
+                  </p>
+                  <div class="flex gap-2">
+                    <button @click="bulkPermOpen = false" class="btn-ghost text-xs py-2 px-4">취소</button>
+                    <button @click="applyBulkPerms()"
+                            :disabled="bulkPermSaving || bulkPermTargets.length === 0 || bulkPermForm.permissions.length === 0"
+                            class="btn-primary text-xs py-2 px-4">
+                      <span x-text="bulkPermSaving ? '적용 중...' : (bulkPermTargets.length + '명에게 적용')"></span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </template>
 
           <!-- 권한 설정 패널 (테이블 아래 별도) -->
@@ -5659,6 +5967,54 @@ function app() {
     newPresetName: '',
     presetLoaded: false,
 
+    // 부서별 권한 일괄 설정
+    bulkPermOpen: false,
+    bulkPermSaving: false,
+    bulkPermForm: { deptId: '__all__', operation: 'replace', permissions: [] },
+    initBulkPerm() {
+      this.bulkPermForm = { deptId: '__all__', operation: 'replace', permissions: [] };
+    },
+    get bulkPermTargets() {
+      const d = this.bulkPermForm.deptId;
+      return (this.adminUsers || []).filter(u => {
+        if (u.role === 'admin') return false;
+        if (u.status !== 'approved') return false;
+        if (d === '__all__') return true;
+        if (d === '__none__') return !u.department;
+        return u.department === d;
+      });
+    },
+    async applyBulkPerms() {
+      if (this.bulkPermSaving) return;
+      const targets = this.bulkPermTargets;
+      if (targets.length === 0) { alert('적용 대상 직원이 없습니다.'); return; }
+      if (this.bulkPermForm.permissions.length === 0) { alert('권한을 1개 이상 선택하세요.'); return; }
+      const opLabel = { replace: '덮어쓰기', add: '추가', remove: '제거' }[this.bulkPermForm.operation];
+      const msg = `${targets.length}명에게 ${this.bulkPermForm.permissions.length}개 권한을 "${opLabel}" 하시겠습니까?\n\n대상: ${targets.map(u => u.name).join(', ')}`;
+      if (!confirm(msg)) return;
+      this.bulkPermSaving = true;
+      try {
+        const r = await fetch('/api/admin/users/bulk-permissions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userIds: targets.map(u => u.id),
+            permissions: this.bulkPermForm.permissions,
+            operation: this.bulkPermForm.operation
+          })
+        });
+        const d = await r.json();
+        if (!r.ok || !d.ok) { alert(d.error || '일괄 적용 실패'); return; }
+        alert(`완료: ${d.updatedCount}명 권한 갱신됨` + (d.skippedCount ? ` (${d.skippedCount}명 제외)` : ''));
+        this.bulkPermOpen = false;
+        await this.loadAdminUsers();
+      } catch (e) {
+        alert('일괄 적용 실패: ' + e.message);
+      } finally {
+        this.bulkPermSaving = false;
+      }
+    },
+
     // 그룹별 메뉴 정의
     menuGroups: [
       { group: '업무', icon: 'work', items: [
@@ -5790,6 +6146,17 @@ function app() {
       myAttendance: { normalDays: 0, lateDays: 0, annualDays: 0, halfAM: 0, halfPM: 0, absentDays: 0 },
       myLeave: { totalLeave: 0, usedDays: 0, remainingDays: 0 },
       myApprovals: { pending: 0, approved: 0, rejected: 0 },
+    },
+    // 인건비 추이 그래프 상태 (관리자용)
+    costTrend: {
+      loading: false,
+      company: 'all',
+      months: '12',
+      metric: 'grossPay',
+      hasData: null,
+      raw: null,        // 서버 원본 응답 (company/month별 월별 값)
+      summary: { total: 0, avg: 0, momPct: 0, avgHead: 0 },
+      _chart: null,     // Chart.js 인스턴스
     },
     // 홈 바로가기 (권한 있는 것만 자동 필터됨)
     get homeShortcuts() {
@@ -6583,11 +6950,165 @@ function app() {
         }
 
         this.homeDashboard.lastLoadedAt = Date.now();
+
+        // 관리자는 월별 인건비 추이 그래프도 함께 로드
+        if (isAdmin) {
+          // Chart.js 가 로드될 때까지 잠깐 대기 후 호출
+          this.$nextTick(() => { try { this.loadCostTrend(); } catch(e) { console.warn('[costTrend] load 실패:', e); } });
+        }
       } catch (e) {
         console.warn('[home] loadHomeDashboard 실패:', e);
       } finally {
         this.homeDashboard.loading = false;
       }
+    },
+
+    // ════ 월별 인건비 추이 그래프 (관리자 홈) ════
+    async loadCostTrend() {
+      if (this.auth.role !== 'admin') return;
+      this.costTrend.loading = true;
+      try {
+        const months = parseInt(this.costTrend.months, 10) || 12;
+        const company = this.costTrend.company || 'all';
+        const r = await fetch(`/api/salary/cost-trend?months=${months}&company=${encodeURIComponent(company)}`);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        this.costTrend.raw = data;
+        this.costTrend.companies = data.companies ? data.companies.map(c => ({ id: c.companyId, name: c.companyName })) : [];
+
+        // 데이터 있는지 체크: 총 grossPay 가 전부 0 이면 "데이터 없음" 표시
+        const total = Array.isArray(data.total) ? data.total : [];
+        const hasAny = total.some(m => (m.grossPay || 0) > 0 || (m.headcount || 0) > 0);
+        this.costTrend.hasData = hasAny;
+
+        if (hasAny) {
+          // summary 계산
+          const metricVals = total.map(m => m.grossPay || 0);
+          const sumTotal = metricVals.reduce((a, b) => a + b, 0);
+          const avg = metricVals.length ? Math.round(sumTotal / metricVals.length) : 0;
+          const last = metricVals[metricVals.length - 1] || 0;
+          const prev = metricVals[metricVals.length - 2] || 0;
+          const momPct = prev > 0 ? ((last - prev) / prev) * 100 : 0;
+          const headVals = total.map(m => m.headcount || 0);
+          const avgHead = headVals.length ? (headVals.reduce((a, b) => a + b, 0) / headVals.length) : 0;
+          this.costTrend.summary = { total: sumTotal, avg, momPct, avgHead };
+          this.$nextTick(() => this.renderCostTrendChart());
+        } else {
+          // 차트 있으면 파괴
+          if (this.costTrend._chart) { try { this.costTrend._chart.destroy(); } catch(e) {} this.costTrend._chart = null; }
+        }
+      } catch (e) {
+        console.warn('[costTrend] 로드 실패:', e);
+        this.costTrend.hasData = false;
+      } finally {
+        this.costTrend.loading = false;
+      }
+    },
+
+    renderCostTrendChart() {
+      if (typeof Chart === 'undefined') {
+        console.warn('[costTrend] Chart.js 로드 안됨');
+        return;
+      }
+      const data = this.costTrend.raw;
+      if (!data || !Array.isArray(data.months)) return;
+      const canvas = document.getElementById('costTrendChart');
+      if (!canvas) return;
+
+      // 기존 차트 제거
+      if (this.costTrend._chart) {
+        try { this.costTrend._chart.destroy(); } catch(e) {}
+        this.costTrend._chart = null;
+      }
+
+      const metric = this.costTrend.metric || 'grossPay';
+      const metricLabels = {
+        grossPay: '지급총액',
+        netPay: '실지급액',
+        totalDeductions: '공제총액',
+        headcount: '인원수',
+      };
+      const isHeadcount = metric === 'headcount';
+
+      // 회사별 색상
+      const palette = ['#4f6ef7', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#0ea5e9', '#ec4899'];
+      const companies = data.companies || [];
+      const labels = data.months.map(m => m.slice(2)); // "26-04" 형태
+
+      // 회사별 bar 데이터 (stacked)
+      const barDatasets = companies.map((c, i) => ({
+        type: 'bar',
+        label: c.companyName,
+        data: (c.monthly || []).map(m => m[metric] || 0),
+        backgroundColor: palette[i % palette.length] + 'cc',
+        borderColor: palette[i % palette.length],
+        borderWidth: 1,
+        stack: 'cost',
+        borderRadius: 4,
+      }));
+
+      // 전체 합계 line (지급총액 보는 경우 인원수 라인도 함께)
+      const totals = (data.total || []).map(m => m[metric] || 0);
+      const headcountLine = (data.total || []).map(m => m.headcount || 0);
+
+      const datasets = [...barDatasets];
+      if (!isHeadcount) {
+        datasets.push({
+          type: 'line',
+          label: '전 직원 수',
+          data: headcountLine,
+          borderColor: '#ef4444',
+          backgroundColor: 'rgba(239,68,68,0.1)',
+          borderWidth: 2,
+          tension: 0.3,
+          yAxisID: 'y1',
+          pointRadius: 3,
+          pointBackgroundColor: '#ef4444',
+        });
+      }
+
+      const ctx = canvas.getContext('2d');
+      this.costTrend._chart = new Chart(ctx, {
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => {
+                  const v = ctx.parsed.y;
+                  if (ctx.dataset.label === '전 직원 수') return `${ctx.dataset.label}: ${v}명`;
+                  return `${ctx.dataset.label}: ${(v || 0).toLocaleString()}원`;
+                },
+              },
+            },
+          },
+          scales: {
+            y: {
+              stacked: true,
+              beginAtZero: true,
+              ticks: {
+                callback: (v) => isHeadcount ? v + '명' : (v >= 1e8 ? (v / 1e8).toFixed(1) + '억' : v >= 1e4 ? (v / 1e4).toFixed(0) + '만' : v),
+                font: { size: 10 },
+              },
+              title: { display: true, text: metricLabels[metric] || '금액', font: { size: 11 } },
+            },
+            x: { stacked: true, ticks: { font: { size: 10 } } },
+            ...(isHeadcount ? {} : {
+              y1: {
+                position: 'right',
+                beginAtZero: true,
+                grid: { drawOnChartArea: false },
+                ticks: { callback: (v) => v + '명', font: { size: 10 } },
+                title: { display: true, text: '인원', font: { size: 11 } },
+              },
+            }),
+          },
+        },
+      });
     },
 
     async loadHolidays() {
@@ -9583,6 +10104,109 @@ function app() {
       };
     },
 
+  };
+}
+
+// ── 회사 관리 (멀티컴퍼니) ──
+function companyAdmin() {
+  return {
+    companies: [],
+    allUsers: [],
+    showAdd: false,
+    saving: false,
+    form: { id: null, name: '', bizNo: '', ceo: '', tel: '', address: '', note: '' },
+
+    resetForm() {
+      this.form = { id: null, name: '', bizNo: '', ceo: '', tel: '', address: '', note: '' };
+    },
+
+    async load() {
+      try {
+        const r = await fetch('/api/admin/companies');
+        const d = await r.json();
+        if (d.ok) this.companies = (d.companies || []).slice().sort((a,b) => (a.sortOrder||0) - (b.sortOrder||0));
+      } catch (e) { console.error('companies load:', e); }
+      try {
+        const r2 = await fetch('/api/admin/users');
+        const d2 = await r2.json();
+        if (d2.ok) this.allUsers = d2.users || [];
+      } catch (e) { /* 소속직원 카운트는 optional */ }
+    },
+
+    userCountOf(companyId) {
+      return (this.allUsers || []).filter(u => u.companyId === companyId && u.status !== 'resigned').length;
+    },
+
+    edit(c) {
+      this.form = {
+        id: c.id,
+        name: c.name || '',
+        bizNo: c.bizNo || '',
+        ceo: c.ceo || '',
+        tel: c.tel || '',
+        address: c.address || '',
+        note: c.note || ''
+      };
+      this.showAdd = true;
+    },
+
+    async save() {
+      if (!this.form.name || !this.form.name.trim()) { alert('회사명을 입력하세요'); return; }
+      this.saving = true;
+      try {
+        const payload = {
+          name: this.form.name.trim(),
+          bizNo: this.form.bizNo || '',
+          ceo: this.form.ceo || '',
+          tel: this.form.tel || '',
+          address: this.form.address || '',
+          note: this.form.note || ''
+        };
+        let r;
+        if (this.form.id) {
+          r = await fetch('/api/admin/companies/' + this.form.id, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        } else {
+          r = await fetch('/api/admin/companies', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        }
+        const d = await r.json();
+        if (d.ok) {
+          this.companies = (d.companies || []).slice().sort((a,b) => (a.sortOrder||0) - (b.sortOrder||0));
+          this.showAdd = false;
+          this.resetForm();
+        } else {
+          alert(d.error || '저장 실패');
+        }
+      } catch (e) {
+        alert('저장 오류: ' + e.message);
+      }
+      this.saving = false;
+    },
+
+    async remove(c) {
+      const n = this.userCountOf(c.id);
+      if (n > 0) {
+        alert('"' + c.name + '" 에 소속된 직원이 ' + n + '명 있어 삭제할 수 없습니다. 먼저 직원을 다른 회사로 이동하거나 퇴사 처리하세요.');
+        return;
+      }
+      if (!confirm('"' + c.name + '" 회사를 삭제할까요? 이 작업은 되돌릴 수 없습니다.')) return;
+      try {
+        const r = await fetch('/api/admin/companies/' + c.id, { method: 'DELETE' });
+        const d = await r.json();
+        if (d.ok) {
+          this.companies = (d.companies || []).slice().sort((a,b) => (a.sortOrder||0) - (b.sortOrder||0));
+        } else {
+          alert(d.error || '삭제 실패');
+        }
+      } catch (e) { alert('삭제 오류: ' + e.message); }
+    }
   };
 }
 

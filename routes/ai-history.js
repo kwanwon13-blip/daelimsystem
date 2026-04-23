@@ -77,16 +77,27 @@ router.get('/users', (req, res) => {
   try {
     const dbMain = require('../db');
     const uData = dbMain.loadUsers();
+    // 부서 ID → 이름 매핑
+    const deptMap = {};
+    (uData.departments || []).forEach(d => {
+      if (d && d.id) deptMap[d.id] = d.name || '';
+    });
     const users = (uData.users || [])
       .filter(u => u.status === 'approved')
-      .map(u => ({
-        userId: u.userId,
-        name: u.name,
-        company: u.company || '',
-        department: u.department || '',
-        departments: u.departments || [],
-        dept: u.department || ''
-      }));
+      .map(u => {
+        const deptId = u.department || '';
+        const deptName = deptMap[deptId] || '';
+        return {
+          userId: u.userId,
+          name: u.name,
+          company: u.company || '',
+          deptId: deptId,                          // 원본 부서 ID
+          dept: deptName,                          // 부서 이름 ("디자인팀")
+          department: deptName,                    // 하위 호환
+          departments: u.departments || [],
+          position: u.position || ''
+        };
+      });
     // 내 팀원 정보도 같이
     const my = ai.getUserDept(req.user.userId);
     res.json({ ok: true, users, myDept: my });
@@ -400,8 +411,13 @@ router.post('/chat', async (req, res) => {
     if (threadId) {
       thread = ai.threads.get(threadId);
       if (!thread) return res.status(404).json({ error: '스레드 없음' });
+      // 스레드 소유권: 관리자라도 다른 계정의 개인 대화엔 끼어들 수 없음
+      // (개인 AI 대화는 사적인 내용 포함 가능)
       if (String(thread.owner_id) !== String(req.user.userId)) {
-        return res.status(403).json({ error: '본인 스레드만 사용 가능' });
+        return res.status(403).json({
+          error: '다른 사람의 대화에는 메시지를 보낼 수 없어요. 새 대화를 시작해주세요.',
+          code: 'NOT_OWNER'
+        });
       }
     } else {
       thread = ai.threads.create({
@@ -503,7 +519,7 @@ router.post('/chat', async (req, res) => {
 // ──────────────────────────────────────────────────────────
 router.post('/chat-image', async (req, res) => {
   try {
-    const { threadId, projectId, prompt, sourcePageId } = req.body || {};
+    const { threadId, projectId, prompt, sourcePageId, attachmentIds } = req.body || {};
     if (!prompt || !String(prompt).trim()) return res.status(400).json({ error: 'prompt 필수' });
 
     let thread;
@@ -522,22 +538,36 @@ router.post('/chat-image', async (req, res) => {
       });
     }
 
+    // 참고 이미지 경로 확보 (첨부된 이미지만)
+    const sourcePaths = [];
+    if (Array.isArray(attachmentIds) && attachmentIds.length) {
+      const hydrated = ai.attachments.hydrate(attachmentIds);
+      for (const a of hydrated) {
+        if (!a) continue;
+        if (String(a.owner_id) !== String(req.user.userId)) continue; // 본인 첨부만
+        if (a.kind !== 'image') continue;                               // 이미지만
+        const fp = path.join(ai.UPLOAD_DIR, a.stored_name);
+        if (fs.existsSync(fp)) sourcePaths.push(fp);
+      }
+    }
+
     // 사용자 메시지
     ai.threads.addMessage(thread.id, {
       role: 'user', kind: 'image', content: prompt,
-      metadata: { sourcePageId: sourcePageId || null }
+      attachmentIds: Array.isArray(attachmentIds) ? attachmentIds : [],
+      metadata: { sourcePageId: sourcePageId || null, sourceImageCount: sourcePaths.length }
     });
 
-    // Gemini 호출 — 기존 /api/workspace/ai-image 와 동일한 방식으로 직접 돌린다
-    // (모듈 간 의존성을 피하기 위해 로직 복제)
-    const result = await callGeminiImage(prompt);
+    // Gemini 호출 (참고 이미지 경로 포함)
+    const result = await callGeminiImage(prompt, sourcePaths);
     const status = result.ok ? 'ok' : 'error';
     const aiMsg = ai.threads.addMessage(thread.id, {
       role: 'ai', kind: 'image',
       content: result.ok ? '(이미지)' : '',
       imageUrl: result.url || null,
       status, error: result.error || null,
-      durationMs: result.durationMs
+      durationMs: result.durationMs,
+      metadata: { sourceImageCount: sourcePaths.length }
     });
 
     ai.threads.autoTitleIfEmpty(thread.id);
@@ -551,17 +581,34 @@ router.post('/chat-image', async (req, res) => {
 });
 
 // 재사용: Gemini CLI + nanobanana 로 이미지 생성
-async function callGeminiImage(prompt) {
+// sourceImagePaths: 참고/편집할 이미지 경로 배열 (선택). 있으면 nanobanana 가 해당 이미지를 참고해서 편집·변형
+async function callGeminiImage(prompt, sourceImagePaths = []) {
   const started = Date.now();
   try {
     const { spawn } = require('child_process');
     const workDir = path.join(__dirname, '..', 'data', 'ai-image-work');
     if (!fs.existsSync(workDir)) fs.mkdirSync(workDir, { recursive: true });
 
-    const geminiPrompt = `/mcp nanobanana 을 사용해서 이미지를 생성해줘. 작업 디렉토리: ${workDir}\n\n프롬프트: ${prompt}\n\n이미지 파일명을 한 줄로 응답해줘. 다른 설명 없이.`;
+    // 참고 이미지가 있으면 프롬프트에 경로 명시 (nanobanana 가 파일 읽어서 참고)
+    let referenceBlock = '';
+    if (Array.isArray(sourceImagePaths) && sourceImagePaths.length) {
+      const lines = sourceImagePaths.map((p, i) => `${i + 1}. ${p}`).join('\n');
+      referenceBlock = `\n\n참고 이미지 (${sourceImagePaths.length}장) — 이 이미지를 기반으로 편집/변형해주세요:\n${lines}\n`;
+    }
+
+    const mode = sourceImagePaths.length > 0 ? '편집/변형해줘' : '생성해줘';
+    const geminiPrompt = `/mcp nanobanana 을 사용해서 이미지를 ${mode}. 작업 디렉토리: ${workDir}${referenceBlock}\n\n프롬프트: ${prompt}\n\n이미지 파일명을 한 줄로 응답해줘. 다른 설명 없이.`;
+
+    // 프롬프트를 임시 파일로 저장해서 shell redirect 로 stdin 주입
+    // (Gemini CLI 의 -p/--prompt 플래그는 값이 필수이므로 placeholder 를 전달하고,
+    //  실제 프롬프트는 stdin 으로 appended 되도록 함)
+    const promptFile = path.join(workDir, `_prompt_${Date.now()}_${Math.random().toString(36).slice(2,6)}.txt`);
+    fs.writeFileSync(promptFile, geminiPrompt, 'utf8');
 
     const output = await new Promise((resolve, reject) => {
-      const child = spawn('gemini', ['-p'], {
+      // Windows cmd.exe / POSIX sh 둘 다 "<" redirect 지원
+      const cmd = `gemini -p "generate-image" < "${promptFile}"`;
+      const child = spawn(cmd, {
         shell: true,
         env: { ...process.env, LANG: 'ko_KR.UTF-8' },
         windowsHide: true,
@@ -571,14 +618,13 @@ async function callGeminiImage(prompt) {
       const timer = setTimeout(() => { try { child.kill('SIGTERM'); } catch(_) {} reject(new Error('timeout')); }, 180000);
       child.stdout.on('data', d => { out += d.toString('utf8'); });
       child.stderr.on('data', d => { err += d.toString('utf8'); });
-      child.on('error', e => { clearTimeout(timer); reject(e); });
+      child.on('error', e => { clearTimeout(timer); try { fs.unlinkSync(promptFile); } catch(_){} reject(e); });
       child.on('close', code => {
         clearTimeout(timer);
+        try { fs.unlinkSync(promptFile); } catch(_) {}
         if (code !== 0) return reject(new Error(err || `gemini exit ${code}`));
         resolve(out.trim());
       });
-      child.stdin.write(geminiPrompt, 'utf8');
-      child.stdin.end();
     });
 
     // 생성된 이미지 파일 찾기 (workDir 에서 mtime 최신)
@@ -787,6 +833,226 @@ router.get('/attachments/:id/raw', (req, res) => {
     if (a.mime) res.setHeader('Content-Type', a.mime);
     res.sendFile(fp);
   } catch (e) { res.status(500).end(); }
+});
+
+// ──────────────────────────────────────────────────────────
+// 이미지 업스케일 (Real-ESRGAN NCNN Vulkan)
+// ──────────────────────────────────────────────────────────
+
+// 업스케일 도구 루트 — tools/realesrgan/ 아래에 realesrgan-ncnn-vulkan.exe 와 models/ 폴더를 둔다
+const UPSCALE_ROOT = path.join(__dirname, '..', 'tools', 'realesrgan');
+const UPSCALE_BIN = process.platform === 'win32'
+  ? path.join(UPSCALE_ROOT, 'realesrgan-ncnn-vulkan.exe')
+  : path.join(UPSCALE_ROOT, 'realesrgan-ncnn-vulkan');
+const UPSCALE_MODELS_DIR = path.join(UPSCALE_ROOT, 'models');
+
+// 모델 카탈로그 — 프론트에도 이 정보가 필요하므로 /upscale/models 로 노출
+// key: Real-ESRGAN NCNN Vulkan 이 -n 에 받는 모델명 (= models/ 아래 파일명과 일치해야 함)
+// Upscayl 번들 모델 파일명을 그대로 사용하여, Upscayl 설치본에서 그대로 복사해서 쓸 수 있도록 함
+const UPSCALE_MODELS = [
+  {
+    key: 'ultrasharp-4x',
+    name: 'UltraSharp',
+    emoji: '✨',
+    tagline: '실사 사진·제품 · 가장 선명함',
+    desc: '실사 사진의 디테일을 가장 선명하게 살려줌. 제품 사진·풍경·건물에 추천.',
+    bestFor: ['사진', '실사', '제품', '풍경', '건물'],
+    scale: 4,
+    speed: 'normal',
+    recommended: true,
+  },
+  {
+    key: 'remacri-4x',
+    name: 'REMACRI',
+    emoji: '📷',
+    tagline: '인물 사진·피부·자연스러움',
+    desc: '인물·피부 톤을 자연스럽게 살려줌. Upscayl 기본값.',
+    bestFor: ['인물', '얼굴', '피부', '사람', '포트레이트'],
+    scale: 4,
+    speed: 'normal',
+    recommended: true,
+  },
+  {
+    key: 'ultramix-balanced-4x',
+    name: 'Ultramix Balanced',
+    emoji: '🎨',
+    tagline: 'AI 생성 이미지·혼합',
+    desc: '선명함과 자연스러움 균형. AI 이미지·합성 이미지에 추천.',
+    bestFor: ['AI', 'AI 생성', '합성', '혼합'],
+    scale: 4,
+    speed: 'normal',
+    recommended: true,
+  },
+  {
+    key: 'high-fidelity-4x',
+    name: 'High Fidelity',
+    emoji: '🔬',
+    tagline: '고해상도 실사 · 디테일 복원',
+    desc: '디테일 손실 최소화. 중요한 사진 복원·고품질 업스케일.',
+    bestFor: ['고해상도', '복원', '고품질'],
+    scale: 4,
+    speed: 'slow',
+    recommended: false,
+  },
+  {
+    key: 'digital-art-4x',
+    name: 'Digital Art',
+    emoji: '🖌️',
+    tagline: '일러스트·애니·디지털 아트',
+    desc: '일러스트·만화·애니·디지털 페인팅에 최적. 선·면이 깨끗함.',
+    bestFor: ['애니', '만화', '일러스트', '그림', '캐릭터'],
+    scale: 4,
+    speed: 'fast',
+    recommended: false,
+  },
+  {
+    key: 'upscayl-standard-4x',
+    name: 'Upscayl Standard',
+    emoji: '⚙️',
+    tagline: '범용·무난',
+    desc: '모든 타입에 무난하게 동작. 고민 없이 쓸 수 있는 기본 모델.',
+    bestFor: ['범용', '기본'],
+    scale: 4,
+    speed: 'normal',
+    recommended: false,
+  },
+  {
+    key: 'upscayl-lite-4x',
+    name: 'Upscayl Lite',
+    emoji: '🏃',
+    tagline: '빠름·저사양 PC',
+    desc: '화질 약간 낮지만 매우 빠름. 저사양·CPU 환경에 적합.',
+    bestFor: ['빠른', 'CPU', '저사양'],
+    scale: 4,
+    speed: 'fast',
+    recommended: false,
+  }
+];
+
+// 자동 추천: 프롬프트 키워드로 모델 매칭
+function recommendUpscaleModel(hint) {
+  const t = String(hint || '').toLowerCase();
+  if (/(애니|만화|캐릭터|일러스트|그림|수채화|유화|anime|manga|illust|cartoon|painting|drawing|art)/i.test(t)) return 'digital-art-4x';
+  if (/(인물|얼굴|사람|portrait|face|person|피부|아이|어린이|아기)/i.test(t)) return 'remacri-4x';
+  if (/(ai|생성|합성|gan|midjourney|stable|diffusion)/i.test(t)) return 'ultramix-balanced-4x';
+  if (/(사진|실사|제품|건물|풍경|photo|realistic|product|landscape)/i.test(t)) return 'ultrasharp-4x';
+  return 'ultrasharp-4x'; // 기본값
+}
+
+// 실제 설치된 모델 목록 (models/ 폴더 스캔)
+function scanInstalledModels() {
+  if (!fs.existsSync(UPSCALE_MODELS_DIR)) return [];
+  const files = fs.readdirSync(UPSCALE_MODELS_DIR);
+  // .bin 또는 .param 파일 기준으로 모델키 추출
+  const keys = new Set();
+  for (const f of files) {
+    const m = f.match(/^(.+?)\.(bin|param)$/i);
+    if (m) keys.add(m[1]);
+  }
+  return Array.from(keys);
+}
+
+// GET /upscale/health — 설치 여부 + 모델 카탈로그 반환
+router.get('/upscale/health', (req, res) => {
+  const binExists = fs.existsSync(UPSCALE_BIN);
+  const installedKeys = scanInstalledModels();
+  const catalog = UPSCALE_MODELS.map(m => ({
+    ...m,
+    installed: installedKeys.includes(m.key)
+  }));
+  res.json({
+    ok: true,
+    ready: binExists && installedKeys.length > 0,
+    binExists,
+    binPath: UPSCALE_BIN,
+    modelsDir: UPSCALE_MODELS_DIR,
+    installedCount: installedKeys.length,
+    models: catalog,
+    setupGuideUrl: '/업스케일_설치가이드.md'
+  });
+});
+
+// POST /upscale — { imageUrl, model, scale } → 업스케일된 이미지 URL 반환
+router.post('/upscale', async (req, res) => {
+  try {
+    const { imageUrl, model, scale } = req.body || {};
+    if (!imageUrl) return res.status(400).json({ error: 'imageUrl 필수' });
+
+    if (!fs.existsSync(UPSCALE_BIN)) {
+      return res.status(503).json({
+        error: 'Real-ESRGAN 이 서버에 설치되지 않았습니다.',
+        setupGuide: '업스케일_설치가이드.md 참고'
+      });
+    }
+
+    // imageUrl 은 보통 /data/workspace-images/ai_xxxx.png 형태
+    let srcPath;
+    if (imageUrl.startsWith('/data/workspace-images/')) {
+      srcPath = path.join(__dirname, '..', imageUrl.replace(/^\//, '').replace(/\//g, path.sep));
+    } else {
+      return res.status(400).json({ error: 'imageUrl 형식 불일치 (/data/workspace-images/… 만 허용)' });
+    }
+    if (!fs.existsSync(srcPath)) return res.status(404).json({ error: '원본 이미지 없음' });
+
+    const requestedModel = UPSCALE_MODELS.find(m => m.key === model);
+    if (!requestedModel) return res.status(400).json({ error: '알 수 없는 모델: ' + model });
+
+    const installedKeys = scanInstalledModels();
+    if (!installedKeys.includes(requestedModel.key)) {
+      return res.status(503).json({ error: `모델이 설치되지 않음: ${requestedModel.key}. models/ 폴더에 .bin/.param 파일을 넣어주세요.` });
+    }
+
+    const scaleNum = [2, 3, 4].includes(Number(scale)) ? Number(scale) : 4;
+
+    // 출력 경로
+    const srcName = path.basename(srcPath, path.extname(srcPath));
+    const outName = `${srcName}_${scaleNum}x_${requestedModel.key}.png`;
+    const outPath = path.join(path.dirname(srcPath), outName);
+    const outUrl = `/data/workspace-images/${outName}`;
+
+    // 이미 있으면 재활용
+    if (fs.existsSync(outPath)) {
+      return res.json({ ok: true, url: outUrl, cached: true, model: requestedModel });
+    }
+
+    const { spawn } = require('child_process');
+    const started = Date.now();
+    await new Promise((resolve, reject) => {
+      // realesrgan-ncnn-vulkan -i in.png -o out.png -n <model> -s <scale>
+      const args = ['-i', srcPath, '-o', outPath, '-n', requestedModel.key, '-s', String(scaleNum)];
+      const child = spawn(UPSCALE_BIN, args, {
+        cwd: UPSCALE_ROOT,
+        windowsHide: true
+      });
+      let err = '';
+      const timer = setTimeout(() => { try { child.kill('SIGTERM'); } catch(_) {} reject(new Error('업스케일 timeout (90초)')); }, 90000);
+      child.stderr.on('data', d => { err += d.toString('utf8'); });
+      child.on('error', e => { clearTimeout(timer); reject(e); });
+      child.on('close', code => {
+        clearTimeout(timer);
+        if (code !== 0) return reject(new Error(err || `realesrgan exit ${code}`));
+        resolve();
+      });
+    });
+
+    res.json({
+      ok: true,
+      url: outUrl,
+      cached: false,
+      model: requestedModel,
+      scale: scaleNum,
+      durationMs: Date.now() - started
+    });
+  } catch (e) {
+    console.error('[ai/upscale]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /upscale/recommend — 프롬프트 키워드 → 추천 모델키
+router.get('/upscale/recommend', (req, res) => {
+  const hint = req.query.hint || '';
+  res.json({ ok: true, model: recommendUpscaleModel(hint) });
 });
 
 module.exports = router;

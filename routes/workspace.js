@@ -52,13 +52,29 @@ function genId() { return crypto.randomBytes(8).toString('hex'); }
 function genShareToken() { return crypto.randomBytes(16).toString('hex'); }
 
 // ── 직원 목록 (공유 대상 선택용) ──
+// 반환: [{ userId, name, dept (=부서 이름), deptId, position }]
 router.get('/users', (req, res) => {
   try {
     const dbMain = require('../db');
     const uData = dbMain.loadUsers();
+    // 부서 ID → 이름 매핑 테이블 (departments 는 {id, name} 을 가짐)
+    const deptMap = {};
+    (uData.departments || []).forEach(d => {
+      if (d && d.id) deptMap[d.id] = d.name || '';
+    });
     const users = (uData.users || [])
       .filter(u => u.status === 'approved')
-      .map(u => ({ userId: u.userId, name: u.name, dept: u.department || '' }));
+      .map(u => {
+        const deptId = u.department || '';
+        const deptName = deptMap[deptId] || '';
+        return {
+          userId: u.userId,
+          name: u.name,
+          dept: deptName,         // 이름 (예: "디자인팀") · 없으면 빈 문자열
+          deptId: deptId,
+          position: u.position || '' // 직책/직급 (선택)
+        };
+      });
     res.json({ ok: true, users });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -683,8 +699,14 @@ router.post('/ai-image', async (req, res) => {
     ].join('\n');
 
     // Gemini CLI 실행 (-y = yolo, MCP 툴 자동 승인)
+    // 프롬프트를 임시파일로 저장 → shell redirect 로 stdin 주입
+    // Gemini CLI 는 -p/--prompt 값이 필수이므로 placeholder 를 넘기고 실제 프롬프트는 stdin 으로 보낸다
+    const promptFile = path.join(workDir, `_prompt_${Date.now()}_${Math.random().toString(36).slice(2,6)}.txt`);
+    fs.writeFileSync(promptFile, fullPrompt, 'utf8');
+
     const aiOutput = await new Promise((resolve, reject) => {
-      const child = spawn('gemini', ['-y', '-p', '-'], {
+      const cmd = `gemini -y -p "generate-image" < "${promptFile}"`;
+      const child = spawn(cmd, {
         shell: true,                  // Windows gemini.cmd 호환
         cwd: workDir,                 // 이미지 저장 기준 폴더
         env: { ...process.env, LANG: 'ko_KR.UTF-8' },
@@ -697,18 +719,16 @@ router.post('/ai-image', async (req, res) => {
       }, 180000);  // 이미지 생성은 최대 3분까지 기다림
       child.stdout.on('data', d => { out += d.toString('utf8'); });
       child.stderr.on('data', d => { err += d.toString('utf8'); });
-      child.on('error', e => { clearTimeout(timer); reject(e); });
+      child.on('error', e => { clearTimeout(timer); try { fs.unlinkSync(promptFile); } catch(_){} reject(e); });
       child.on('close', code => {
         clearTimeout(timer);
+        try { fs.unlinkSync(promptFile); } catch(_) {}
         if (code !== 0) {
           const msg = (err || '').trim() || `gemini CLI exited with code ${code}`;
           return reject(new Error(msg));
         }
         resolve({ out, err });
       });
-      // 프롬프트를 stdin 으로 전달 (cmd 이스케이프 회피)
-      child.stdin.write(fullPrompt, 'utf8');
-      child.stdin.end();
     });
 
     // 생성된 이미지 파일 탐색
