@@ -2,7 +2,9 @@
  * routes/salary-proxy.js — 급여 API 프록시 (서버 PC 전용)
  *
  * 요청 흐름:
- *   브라우저 (192.168.0.30) → 서버(192.168.0.133:3000) → 데몬(192.168.0.30:3001)
+ *   브라우저 (192.168.0.30) → 서버(192.168.0.133:3000) → 데몬(192.168.0.30:3002)
+ *
+ * ⚠️ 포트 3001 은 CAPS Bridge 전용. salary-daemon 은 반드시 3002.
  *
  * 이 라우터가 하는 일:
  *   1) 접속 IP 확인: 관리자 PC(SALARY_SOURCE_IP) 외엔 차단
@@ -12,7 +14,7 @@
  *
  * 환경변수:
  *   SALARY_SOURCE_IP      관리자 PC IP (기본 192.168.0.30)
- *   SALARY_DAEMON_URL     데몬 주소 (기본 http://192.168.0.30:3001)
+ *   SALARY_DAEMON_URL     데몬 주소 (기본 http://192.168.0.30:3002)
  *   SALARY_DAEMON_SECRET  데몬과 공유하는 비밀키 (필수)
  *   SALARY_DAEMON_TIMEOUT 응답 대기 ms (기본 15000)
  */
@@ -25,7 +27,7 @@ const router = express.Router();
 const { requireSalaryAccess, logSalaryAccess } = require('../middleware/auth');
 
 const SOURCE_IP = process.env.SALARY_SOURCE_IP || '192.168.0.30';
-const DAEMON_URL = process.env.SALARY_DAEMON_URL || 'http://192.168.0.30:3001';
+const DAEMON_URL = process.env.SALARY_DAEMON_URL || 'http://192.168.0.30:3002';
 const SECRET = process.env.SALARY_DAEMON_SECRET || '';
 const TIMEOUT = parseInt(process.env.SALARY_DAEMON_TIMEOUT || '15000', 10);
 
