@@ -1270,14 +1270,18 @@ router.post('/slip/pdf/bulk', requireAdmin, async (req, res) => {
     }
 
     // 의존성 로드
-    let puppeteer, JSZip, muhammara;
+    let puppeteer, JSZip;
     try { puppeteer = require('puppeteer'); }
     catch(e) { return res.status(500).json({ error: 'puppeteer 미설치 — 서버에서 npm install 실행 필요' }); }
     try { JSZip = require('jszip'); }
     catch(e) { return res.status(500).json({ error: 'jszip 미설치 — 서버에서 npm install 실행 필요' }); }
     if (withPassword) {
-      try { muhammara = require('muhammara'); }
-      catch(e) { return res.status(500).json({ error: '비번 암호화 모듈(muhammara) 미설치 — 서버에서 npm install 후 재시작 필요' }); }
+      // qpdf.exe 바이너리 존재 여부 체크
+      if (!fs.existsSync(QPDF_BIN)) {
+        return res.status(500).json({
+          error: 'qpdf 미설치 — tools/qpdf/bin/qpdf.exe 를 배치해주세요. 또는 비번 체크박스를 해제하고 다시 시도'
+        });
+      }
     }
 
     // 공통 설정 로드
@@ -1322,7 +1326,7 @@ router.post('/slip/pdf/bulk', requireAdmin, async (req, res) => {
               continue;
             }
             try {
-              finalBuffer = encryptPdfWithPassword(pdfBuffer, birth, muhammara);
+              finalBuffer = await encryptPdfWithPassword(pdfBuffer, birth);
               isProtected = true;
             } catch (enc) {
               console.error('[slip/pdf/bulk] 암호화 실패', userId, enc);
@@ -1391,20 +1395,40 @@ router.post('/slip/pdf/bulk', requireAdmin, async (req, res) => {
   }
 });
 
-// muhammara를 이용한 PDF 사용자비번 암호화 (tmp 파일 경유)
-function encryptPdfWithPassword(pdfBuffer, password, muhammara) {
+// qpdf.exe 바이너리 경로 (프로젝트 내 tools/qpdf/bin/qpdf.exe)
+const QPDF_BIN = path.join(__dirname, '..', 'tools', 'qpdf', 'bin', 'qpdf.exe');
+
+// qpdf 로 PDF 사용자비번 암호화 (tmp 파일 경유, async)
+async function encryptPdfWithPassword(pdfBuffer, password) {
   const os = require('os');
   const crypto = require('crypto');
+  const { spawn } = require('child_process');
+  if (!fs.existsSync(QPDF_BIN)) {
+    throw new Error(`qpdf.exe 없음 (${QPDF_BIN}). tools/qpdf/bin/ 에 바이너리 배치 필요`);
+  }
   const tmpDir = os.tmpdir();
   const id = Date.now() + '_' + crypto.randomBytes(4).toString('hex');
   const inPath = path.join(tmpDir, `slip_in_${id}.pdf`);
   const outPath = path.join(tmpDir, `slip_out_${id}.pdf`);
   fs.writeFileSync(inPath, pdfBuffer);
   try {
-    muhammara.recrypt(inPath, outPath, {
-      userPassword: password,
-      ownerPassword: password + '_owner',
-      userProtectionFlag: 4  // Print 허용만 (0 = 전체금지, 4 = Print만)
+    await new Promise((resolve, reject) => {
+      const args = [
+        '--encrypt', password, password + '_owner', '256',
+        '--print=full',       // 인쇄는 허용
+        '--modify=none',      // 수정은 금지
+        '--',
+        inPath, outPath
+      ];
+      const child = spawn(QPDF_BIN, args, { windowsHide: true });
+      let stderr = '';
+      child.stderr.on('data', d => stderr += d.toString('utf8'));
+      child.on('error', reject);
+      child.on('close', code => {
+        // qpdf: 0=성공, 3=경고(성공), 2=에러
+        if (code === 0 || code === 3) return resolve();
+        reject(new Error(stderr.trim() || `qpdf exit ${code}`));
+      });
     });
     return fs.readFileSync(outPath);
   } finally {
