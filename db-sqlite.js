@@ -50,7 +50,6 @@ db.exec(`
     updatedAt TEXT DEFAULT (datetime('now'))
   );
 
-db.exec(`
   CREATE TABLE IF NOT EXISTS options (
     id TEXT PRIMARY KEY,
     code TEXT NOT NULL,

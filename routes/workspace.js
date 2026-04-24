@@ -83,10 +83,12 @@ router.get('/users', (req, res) => {
 });
 
 // ── 페이지 목록 조회 ──
+// 권한: 로그인 사용자 본인 기준으로 필터 (req.user 세션 신뢰)
 router.get('/pages', (req, res) => {
   try {
-    const userId = req.query.userId;
-    if (!userId) return res.status(400).json({ error: 'userId 필수' });
+    // 세션 userId 우선. query.userId 는 허용하지 않음 (다른 사람 조회 방지)
+    const userId = (req.user && req.user.userId) || '';
+    if (!userId) return res.status(401).json({ error: '로그인 필요' });
 
     // 내 페이지 + 전체 공유 + 나에게 공유된 페이지
     const pages = db.prepare(`
@@ -156,16 +158,19 @@ router.get('/pages/:id', (req, res) => {
 });
 
 // ── 페이지 생성 ──
+// 권한: 세션 계정으로 author 강제 지정 (body.userId 무시 — 신원 도용 방지)
 router.post('/pages', (req, res) => {
   try {
-    const { title, emoji, content, userId, userName } = req.body;
-    if (!userId) return res.status(400).json({ error: 'userId 필수' });
+    const { title, emoji, content } = req.body;
+    const userId = req.user && req.user.userId;
+    const userName = (req.user && req.user.name) || '';
+    if (!userId) return res.status(401).json({ error: '로그인 필요' });
 
     const id = genId();
     db.prepare(`
       INSERT INTO workspace_pages (id, title, emoji, content, author_id, author_name)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(id, title || '새 페이지', emoji || '📄', JSON.stringify(content || {}), userId, userName || '');
+    `).run(id, title || '새 페이지', emoji || '📄', JSON.stringify(content || {}), userId, userName);
 
     res.json({ ok: true, id });
   } catch (e) {
@@ -174,12 +179,26 @@ router.post('/pages', (req, res) => {
   }
 });
 
+// 작성자 또는 관리자만 허용하는 헬퍼 (수정/삭제/공유 변경 공용)
+function requireAuthorOrAdmin(req, res, page) {
+  if (!req.user) { res.status(401).json({ error: '로그인 필요' }); return false; }
+  const isAuthor = page.author_id === req.user.userId;
+  const isAdmin = req.user.role === 'admin';
+  if (!isAuthor && !isAdmin) {
+    res.status(403).json({ error: '본인이 작성한 페이지만 수정할 수 있습니다' });
+    return false;
+  }
+  return true;
+}
+
 // ── 페이지 수정 ──
+// 권한: 작성자 또는 관리자만
 router.put('/pages/:id', (req, res) => {
   try {
     const { title, emoji, content, shared, pinned } = req.body;
     const page = db.prepare('SELECT * FROM workspace_pages WHERE id = ?').get(req.params.id);
     if (!page) return res.status(404).json({ error: '페이지 없음' });
+    if (!requireAuthorOrAdmin(req, res, page)) return;
 
     const updates = [];
     const params = [];
@@ -204,8 +223,39 @@ router.put('/pages/:id', (req, res) => {
 });
 
 // ── 페이지 삭제 ──
+// 공유 중인 페이지는 삭제 차단 (다른 사람이 보고 있는데 사라지면 안됨)
+// force=true 쿼리파라미터 + 관리자면 우회 가능
 router.delete('/pages/:id', (req, res) => {
   try {
+    const page = db.prepare('SELECT * FROM workspace_pages WHERE id = ?').get(req.params.id);
+    if (!page) return res.status(404).json({ error: '페이지 없음' });
+    // 권한: 작성자 또는 관리자만 삭제 가능
+    if (!requireAuthorOrAdmin(req, res, page)) return;
+
+    // 공유 상태 체크
+    const isFullShared = !!page.shared;
+    let sharedWith = [];
+    try { sharedWith = JSON.parse(page.shared_with || '[]'); } catch(e) {}
+    const isSpecificShared = Array.isArray(sharedWith) && sharedWith.length > 0;
+    const hasShareLink = !!page.share_token;
+    const isShared = isFullShared || isSpecificShared || hasShareLink;
+
+    const force = String(req.query.force || '').toLowerCase() === 'true';
+    const isAdmin = req.user?.role === 'admin';
+
+    if (isShared && !(force && isAdmin)) {
+      return res.status(409).json({
+        error: '공유 중인 페이지는 삭제할 수 없습니다. 먼저 공유를 해제해주세요.',
+        code: 'SHARED_PAGE',
+        detail: {
+          fullShared: isFullShared,
+          specificShared: isSpecificShared,
+          shareLink: hasShareLink,
+          sharedWithCount: sharedWith.length,
+        }
+      });
+    }
+
     db.prepare('DELETE FROM workspace_pages WHERE id = ?').run(req.params.id);
     res.json({ ok: true });
   } catch (e) {
@@ -420,10 +470,12 @@ router.post('/ai-action', async (req, res) => {
 });
 
 // ── 외부 공유 링크 생성/해제 ──
+// 권한: 작성자 또는 관리자만 (외부에 공개하는 행위라 특히 엄격하게)
 router.post('/pages/:id/share-link', (req, res) => {
   try {
     const page = db.prepare('SELECT * FROM workspace_pages WHERE id = ?').get(req.params.id);
     if (!page) return res.status(404).json({ error: '페이지 없음' });
+    if (!requireAuthorOrAdmin(req, res, page)) return;
 
     const token = genShareToken();
     db.prepare('UPDATE workspace_pages SET share_token = ? WHERE id = ?').run(token, req.params.id);
@@ -435,6 +487,10 @@ router.post('/pages/:id/share-link', (req, res) => {
 
 router.delete('/pages/:id/share-link', (req, res) => {
   try {
+    const page = db.prepare('SELECT * FROM workspace_pages WHERE id = ?').get(req.params.id);
+    if (!page) return res.status(404).json({ error: '페이지 없음' });
+    if (!requireAuthorOrAdmin(req, res, page)) return;
+
     db.prepare('UPDATE workspace_pages SET share_token = NULL WHERE id = ?').run(req.params.id);
     res.json({ ok: true });
   } catch (e) {

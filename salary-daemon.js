@@ -6,7 +6,7 @@
  * 다른 누구도(외부 터널, 사내 타 PC) 직접 이 데몬에 접근할 수 없다.
  *
  * 환경변수:
- *   SALARY_DAEMON_PORT    데몬 포트 (기본 3001)
+ *   SALARY_DAEMON_PORT    데몬 포트 (기본 3002) — 3001은 CAPS Bridge 전용이라 충돌 주의
  *   SALARY_DAEMON_BIND    바인딩 IP (기본 0.0.0.0 — 사내망 전용)
  *   SALARY_DAEMON_SECRET  프록시 인증 공유 비밀 (필수)
  *   SALARY_SERVER_IP      신뢰 서버 PC IP (기본 192.168.0.133)
@@ -26,7 +26,7 @@ const path = require('path');
 const fs = require('fs');
 
 // ── 2. 설정 로드 ───────────────────────────────────────────
-const PORT = parseInt(process.env.SALARY_DAEMON_PORT || '3001', 10);
+const PORT = parseInt(process.env.SALARY_DAEMON_PORT || '3002', 10);
 const BIND = process.env.SALARY_DAEMON_BIND || '0.0.0.0';
 const SECRET = process.env.SALARY_DAEMON_SECRET || '';
 const SERVER_IP = process.env.SALARY_SERVER_IP || '192.168.0.133';

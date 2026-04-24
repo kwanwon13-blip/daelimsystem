@@ -9,14 +9,23 @@
   .ws-search:focus { border-color:#4f6ef7; background:#fff; }
   .ws-page-list { flex:1; overflow-y:auto; padding:6px 8px; }
   .ws-page-group { color:#9ca3af; font-size:11px; font-weight:600; padding:10px 8px 4px; text-transform:uppercase; letter-spacing:0.03em; }
-  .ws-page-item { display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:8px; cursor:pointer; transition:all .15s; }
+  .ws-page-item { display:flex; align-items:center; gap:6px; padding:4px 8px; border-radius:6px; cursor:pointer; transition:all .12s; min-height:26px; }
   .ws-page-item:hover { background:#f3f4f6; }
   .ws-page-item.active { background:#eef2ff; color:#4338ca; }
-  .ws-page-item .emoji { font-size:16px; flex-shrink:0; }
-  .ws-page-item .info { flex:1; min-width:0; }
-  .ws-page-item .title { font-size:12.5px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .ws-page-item .meta { font-size:10.5px; color:#9ca3af; }
+  .ws-page-item .emoji { font-size:13px; flex-shrink:0; width:16px; text-align:center; }
+  .ws-page-item .info { flex:1; min-width:0; display:flex; flex-direction:column; gap:0; }
+  .ws-page-item .title { font-size:12px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.3; }
+  /* 날짜 meta 는 기본 숨김, hover 또는 active 일 때만 표시 (한 줄 밀도 유지) */
+  .ws-page-item .meta { font-size:9.5px; color:#9ca3af; line-height:1.2; display:none; }
+  .ws-page-item:hover .meta, .ws-page-item.active .meta { display:block; }
   .ws-page-item.active .title { color:#4338ca; font-weight:600; }
+  /* 섹션 헤더도 더 컴팩트하게 */
+  .ws-page-group { font-size:10px; font-weight:600; color:#9ca3af; text-transform:uppercase; letter-spacing:0.5px; padding:8px 8px 3px 8px; }
+  /* 핀 토글 버튼 — 기본 숨김, 호버 시만 표시. 핀 상태면 항상 보임 */
+  .ws-page-item .ws-pin-btn { background:none; border:none; cursor:pointer; padding:2px 4px; border-radius:4px; font-size:12px; opacity:0; transition:opacity .15s, background .15s; flex-shrink:0; }
+  .ws-page-item:hover .ws-pin-btn { opacity:0.6; }
+  .ws-page-item .ws-pin-btn:hover { opacity:1; background:#fef3c7; }
+  .ws-page-item .ws-pin-btn.pinned { opacity:1; color:#f59e0b; }
 
   .ws-editor-area { flex:1; display:flex; flex-direction:column; overflow:hidden; }
   .ws-editor-toolbar { background:#fff; border-bottom:1px solid #f0f1f3; padding:8px 20px; display:flex; align-items:center; justify-content:space-between; }
@@ -213,28 +222,55 @@
       <input class="ws-search" placeholder="🔍 페이지 검색..." x-model="search" />
     </div>
     <div class="ws-page-list">
-      <!-- 내 페이지 -->
-      <div class="ws-page-group">내 페이지</div>
-      <template x-for="p in myPages" :key="p.id">
-        <div class="ws-page-item" :class="currentPageId === p.id ? 'active' : ''"
-          @click="openPage(p.id)">
-          <span class="emoji" x-text="p.emoji"></span>
-          <div class="info">
-            <div class="title" x-text="p.title || '새 페이지'"></div>
-            <div class="meta" x-text="formatDate(p.updated_at)"></div>
-          </div>
-          <span x-show="p.shared" class="ws-shared-badge">공유</span>
+      <!-- 고정 페이지 (내꺼 + 공유받은 것 통합) -->
+      <template x-if="pinnedPages.length > 0">
+        <div>
+          <div class="ws-page-group">📌 고정</div>
+          <template x-for="p in pinnedPages" :key="'pin-'+p.id">
+            <div class="ws-page-item" :class="currentPageId === p.id ? 'active' : ''"
+              @click="openPage(p.id)">
+              <span class="emoji" x-text="p.emoji"></span>
+              <div class="info">
+                <div class="title" x-text="p.title || '새 페이지'"></div>
+                <div class="meta" x-text="(p.author_id === getAuth().userId ? '' : p.author_name + ' · ') + formatDate(p.updated_at)"></div>
+              </div>
+              <button @click.stop="togglePin(p)" class="ws-pin-btn pinned"
+                      title="고정 해제">📌</button>
+              <span x-show="p.shared || (p.shared_with && p.shared_with.length)" class="ws-shared-badge">공유</span>
+            </div>
+          </template>
         </div>
       </template>
-      <div x-show="myPages.length === 0" style="padding:12px;text-align:center;color:#9ca3af;font-size:12px;">
-        페이지가 없습니다
-      </div>
 
-      <!-- 팀 공유 -->
-      <template x-if="sharedPages.length > 0">
+      <!-- 내 페이지 (핀 안 된 것만) -->
+      <template x-if="myPagesUnpinned.length > 0 || pinnedPages.length === 0">
+        <div>
+          <div class="ws-page-group">내 페이지</div>
+          <template x-for="p in myPagesUnpinned" :key="p.id">
+            <div class="ws-page-item" :class="currentPageId === p.id ? 'active' : ''"
+              @click="openPage(p.id)">
+              <span class="emoji" x-text="p.emoji"></span>
+              <div class="info">
+                <div class="title" x-text="p.title || '새 페이지'"></div>
+                <div class="meta" x-text="formatDate(p.updated_at)"></div>
+              </div>
+              <button @click.stop="togglePin(p)" class="ws-pin-btn"
+                      title="상단 고정">📌</button>
+              <span x-show="p.shared || (p.shared_with && p.shared_with.length)" class="ws-shared-badge">공유</span>
+            </div>
+          </template>
+          <div x-show="myPagesUnpinned.length === 0 && pinnedPages.length === 0"
+               style="padding:10px;text-align:center;color:#9ca3af;font-size:11px;">
+            페이지가 없습니다
+          </div>
+        </div>
+      </template>
+
+      <!-- 팀 공유 (핀 안 된 것만) -->
+      <template x-if="sharedPagesUnpinned.length > 0">
         <div>
           <div class="ws-page-group">팀 공유</div>
-          <template x-for="p in sharedPages" :key="p.id">
+          <template x-for="p in sharedPagesUnpinned" :key="p.id">
             <div class="ws-page-item" :class="currentPageId === p.id ? 'active' : ''"
               @click="openPage(p.id)">
               <span class="emoji" x-text="p.emoji"></span>
@@ -242,6 +278,8 @@
                 <div class="title" x-text="p.title || '새 페이지'"></div>
                 <div class="meta" x-text="p.author_name + ' · ' + formatDate(p.updated_at)"></div>
               </div>
+              <button @click.stop="togglePin(p)" class="ws-pin-btn"
+                      title="상단 고정">📌</button>
             </div>
           </template>
         </div>
@@ -580,6 +618,42 @@ function workspaceApp() {
         .filter(p => p.author_id === userId && (this.search === '' || p.title.includes(this.search)))
         .sort((a,b) => (b.pinned||0)-(a.pinned||0) || new Date(b.updated_at)-new Date(a.updated_at));
     },
+    // 핀 된 것 전부 (내꺼 + 공유받은 것) — 맨 위 섹션
+    get pinnedPages() {
+      const userId = this.getAuth().userId;
+      return this.pages
+        .filter(p => {
+          if (!p.pinned) return false;
+          if (this.search && !p.title.includes(this.search)) return false;
+          // 접근 권한: 내가 만든 것이거나, 전체공유거나, 나한테 공유됨
+          if (p.author_id === userId) return true;
+          if (p.shared) return true;
+          const sw = Array.isArray(p.shared_with) ? p.shared_with : [];
+          return sw.includes(userId);
+        })
+        .sort((a,b) => new Date(b.updated_at)-new Date(a.updated_at));
+    },
+    // 내 페이지 중 핀 안 된 것
+    get myPagesUnpinned() {
+      const userId = this.getAuth().userId;
+      return this.pages
+        .filter(p => p.author_id === userId && !p.pinned && (this.search === '' || p.title.includes(this.search)))
+        .sort((a,b) => new Date(b.updated_at)-new Date(a.updated_at));
+    },
+    // 팀 공유 중 핀 안 된 것
+    get sharedPagesUnpinned() {
+      const userId = this.getAuth().userId;
+      return this.pages
+        .filter(p => {
+          if (p.author_id === userId) return false;
+          if (p.pinned) return false;
+          if (this.search && !p.title.includes(this.search)) return false;
+          if (p.shared) return true;
+          const sw = Array.isArray(p.shared_with) ? p.shared_with : [];
+          return sw.includes(userId);
+        })
+        .sort((a,b) => new Date(b.updated_at)-new Date(a.updated_at));
+    },
     get sharedPages() {
       const userId = this.getAuth().userId;
       return this.pages
@@ -742,6 +816,10 @@ function workspaceApp() {
         data: editorData,
         tools: tools,
         onChange: () => { this.saveDebounced(); },
+        onReady: () => {
+          // 클립보드 이미지 붙여넣기 (Ctrl+V 로 캡쳐 이미지 등 자동 업로드)
+          self._attachClipboardImagePaste();
+        },
         i18n: {
           messages: {
             ui: { blockTunes: { toggler: { 'Click to tune': '블록 설정' } } },
@@ -752,6 +830,49 @@ function workspaceApp() {
             },
             blockTunes: { delete: { 'Delete': '삭제' }, moveUp: { 'Move up': '위로' }, moveDown: { 'Move down': '아래로' } }
           }
+        }
+      });
+    },
+
+    // 에디터 영역에 paste 이벤트 리스너 등록 → 클립보드 이미지 자동 업로드 + 이미지 블록 삽입
+    _attachClipboardImagePaste() {
+      const holder = document.getElementById('editorjs');
+      if (!holder) return;
+      if (holder._pasteAttached) return; // 중복 방지
+      holder._pasteAttached = true;
+
+      const self = this;
+      holder.addEventListener('paste', async (ev) => {
+        const items = ev.clipboardData && ev.clipboardData.items;
+        if (!items) return;
+        let imageFile = null;
+        for (const it of items) {
+          if (it.kind === 'file' && it.type && it.type.startsWith('image/')) {
+            imageFile = it.getAsFile();
+            break;
+          }
+        }
+        if (!imageFile) return; // 이미지 아니면 기본 붙여넣기 유지
+
+        // 이미지 붙여넣기 발견 — 기본 동작 차단하고 업로드
+        ev.preventDefault();
+        ev.stopPropagation();
+        try {
+          const result = await self._uploadImageFile(imageFile);
+          if (result && result.success && result.file && result.file.url) {
+            // 현재 커서 위치에 이미지 블록 삽입
+            const idx = self.editor.blocks.getCurrentBlockIndex();
+            self.editor.blocks.insert('image', {
+              file: { url: result.file.url },
+              caption: ''
+            }, {}, idx + 1, true);
+            self.saveDebounced();
+          } else {
+            alert('이미지 업로드 실패');
+          }
+        } catch (e) {
+          console.error('[workspace] clipboard image paste 실패:', e);
+          alert('이미지 업로드 중 오류: ' + e.message);
         }
       });
     },
@@ -863,9 +984,48 @@ function workspaceApp() {
       setTimeout(() => this.shareLinkCopied = false, 3000);
     },
 
+    async togglePin(page) {
+      if (!page || !page.id) return;
+      const newPinned = page.pinned ? 0 : 1;
+      // 낙관적 업데이트
+      page.pinned = newPinned;
+      try {
+        const r = await fetch(`/api/workspace/pages/${page.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pinned: newPinned })
+        });
+        if (!r.ok) {
+          page.pinned = newPinned ? 0 : 1; // 롤백
+          alert('핀 설정 실패');
+        }
+        await this.loadPages();
+      } catch (e) {
+        page.pinned = newPinned ? 0 : 1;
+        alert('핀 설정 실패: ' + e.message);
+      }
+    },
+
     async deletePage() {
       if (!confirm('이 페이지를 삭제하시겠습니까?')) return;
-      await fetch(`/api/workspace/pages/${this.currentPageId}`, { method: 'DELETE' });
+      const r = await fetch(`/api/workspace/pages/${this.currentPageId}`, { method: 'DELETE' });
+      if (!r.ok) {
+        let msg = '삭제 실패';
+        try {
+          const d = await r.json();
+          if (d.code === 'SHARED_PAGE') {
+            const parts = [];
+            if (d.detail?.fullShared) parts.push('전체 공유 중');
+            if (d.detail?.specificShared) parts.push(d.detail.sharedWithCount + '명에게 공유됨');
+            if (d.detail?.shareLink) parts.push('외부 공유 링크 발급됨');
+            msg = `${d.error}\n\n현재 상태: ${parts.join(', ')}\n\n공유 해제 방법:\n상단 "공유" 버튼 → "나만 보기" 선택 → 저장 후 다시 삭제`;
+          } else {
+            msg = d.error || msg;
+          }
+        } catch(e) {}
+        alert(msg);
+        return;
+      }
       if (this.editor) { this.editor.destroy(); this.editor = null; }
       this.currentPage = null;
       this.currentPageId = null;
