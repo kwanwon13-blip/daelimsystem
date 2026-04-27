@@ -300,23 +300,65 @@ router.get('/design/file', requireAuth, (req, res) => {
 });
 
 // ──────────────────────────────────────────────────────────
-// 워터마크 다운로드 — 이미지에 "DAELIM SM" 타일 패턴 워터마크 합성 후 반환
+// 워터마크 다운로드 — 이미지에 DAELIM SM 로고를 타일 패턴으로 합성
 // ──────────────────────────────────────────────────────────
 const WATERMARK_IMG_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif']);
+const LOGO_PATH = path.join(__dirname, '..', 'data', 'logo.png');
 
-// 이미지 크기에 맞는 SVG 워터마크 생성 (회전된 텍스트를 패턴으로 타일링)
+// 워터마크용 로고 (data/logo.png) 를 모듈 로드 시 한 번만 읽어 base64 + 사이즈 캐시
+let WATERMARK_LOGO = null;       // { base64, width, height, aspect } 또는 null (로고 없음)
+async function preloadWatermarkLogo() {
+  if (!sharp) return;
+  if (!fs.existsSync(LOGO_PATH)) {
+    console.warn('[design] 워터마크 로고 없음:', LOGO_PATH);
+    return;
+  }
+  try {
+    // PNG 그대로 읽고 메타만 추출 (리사이즈는 합성 시 SVG <image> 태그가 알아서 처리)
+    const meta = await sharp(LOGO_PATH).metadata();
+    const buf = fs.readFileSync(LOGO_PATH);
+    WATERMARK_LOGO = {
+      base64: buf.toString('base64'),
+      width: meta.width || 1000,
+      height: meta.height || 200,
+      aspect: (meta.width || 1000) / (meta.height || 200),
+    };
+    console.log('[design] 워터마크 로고 로드 OK:', WATERMARK_LOGO.width + 'x' + WATERMARK_LOGO.height);
+  } catch (e) {
+    console.error('[design] 워터마크 로고 로드 실패:', e.message);
+  }
+}
+preloadWatermarkLogo();
+
+// 이미지 크기에 맞는 SVG 워터마크 생성 (실제 DAELIM SM 로고를 패턴으로 회전 타일링)
 function buildWatermarkSvg(width, height) {
-  // 패턴 한 칸 크기 — 이미지 크기에 비례. 큰 이미지엔 큰 패턴.
-  const tileW = Math.max(280, Math.floor(width / 5));
-  const tileH = Math.max(180, Math.floor(height / 6));
+  // 로고 한 개의 표시 너비 — 이미지 너비의 18% (큰 이미지에선 더 크게)
+  const logoW = Math.max(200, Math.floor(width * 0.18));
+  const logoH = WATERMARK_LOGO ? Math.round(logoW / WATERMARK_LOGO.aspect) : 40;
+  // 타일 한 칸 — 로고 크기보다 약간 크게 (간격 포함)
+  const tileW = Math.round(logoW * 1.6);
+  const tileH = Math.round(logoH * 4.5);
+  const opacity = 0.28;
+
+  if (WATERMARK_LOGO) {
+    // 실제 로고 PNG 를 SVG <image> 로 임베딩하여 패턴화 + 회전
+    return `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <defs>
+    <pattern id="wm" patternUnits="userSpaceOnUse" width="${tileW}" height="${tileH}" patternTransform="rotate(-22)">
+      <image xlink:href="data:image/png;base64,${WATERMARK_LOGO.base64}" x="${(tileW - logoW) / 2}" y="${(tileH - logoH) / 2}" width="${logoW}" height="${logoH}" opacity="${opacity}" preserveAspectRatio="xMidYMid meet" />
+    </pattern>
+  </defs>
+  <rect width="${width}" height="${height}" fill="url(#wm)" />
+</svg>`;
+  }
+
+  // 폴백: 로고 파일 없을 때만 텍스트 기반
   const fontSize = Math.max(28, Math.floor(tileW / 8));
   const subFontSize = Math.max(9, Math.floor(fontSize / 3.5));
-  // 텍스트 색상/투명도 — 너무 진하면 그림 가림, 너무 옅으면 보호 효과 없음
-  const opacity = 0.32;
   return `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <pattern id="wm" patternUnits="userSpaceOnUse" width="${tileW}" height="${tileH}" patternTransform="rotate(-22)">
-      <g font-family="Arial, sans-serif" fill="#9ca3af" fill-opacity="${opacity}">
+      <g font-family="Arial, sans-serif" fill="#374151" fill-opacity="${opacity}">
         <text x="${tileW/2}" y="${tileH/2}" text-anchor="middle" font-size="${subFontSize}" font-weight="600" letter-spacing="2">TOTAL SAFETY GROUP CO., LTD.</text>
         <text x="${tileW/2}" y="${tileH/2 + fontSize * 0.9}" text-anchor="middle" font-size="${fontSize}" font-weight="800" letter-spacing="1">DAELIM SM</text>
       </g>
