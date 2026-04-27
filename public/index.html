@@ -3291,18 +3291,18 @@
             if(this.selectedPaths.length===0||this.watermarkBusy)return;
             this.watermarkBusy=true;
             const total=this.selectedPaths.length;
-            const failed=[];
+            let failedCount=0;
             for(let i=0;i<this.selectedPaths.length;i++){
               this.watermarkProgress='처리 중 '+(i+1)+'/'+total;
               const p=this.selectedPaths[i];
               try{
                 const url='/api/design/file-watermarked?path='+encodeURIComponent(p);
                 const resp=await fetch(url,{credentials:'include'});
-                if(!resp.ok){failed.push(p);continue;}
+                if(!resp.ok){failedCount++;continue;}
                 const blob=await resp.blob();
                 const cd=resp.headers.get('content-disposition')||'';
                 let filename='watermarked.jpg';
-                const m=cd.match(/filename\*=UTF-8''([^;]+)/i)||cd.match(/filename="([^"]+)"/i);
+                const m=cd.match(/filename\*=UTF-8''([^;]+)/i);
                 if(m)filename=decodeURIComponent(m[1]);
                 const a=document.createElement('a');
                 a.href=URL.createObjectURL(blob);
@@ -3310,13 +3310,12 @@
                 document.body.appendChild(a);
                 a.click();
                 setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},100);
-                // 동시다발 다운로드 방지를 위한 약간의 딜레이
                 await new Promise(r=>setTimeout(r,250));
-              }catch(e){failed.push(p);}
+              }catch(e){failedCount++;}
             }
             this.watermarkBusy=false;
             this.watermarkProgress='';
-            if(failed.length>0)alert(total+'개 중 '+failed.length+'개 실패\\n실패: '+failed.slice(0,3).map(p=>p.split(/[\\\\/]/).pop()).join(', ')+(failed.length>3?' 외':''));
+            if(failedCount>0)alert(total+'개 중 '+failedCount+'개 실패');
             this.selectedPaths=[];
           },
           fileTypes:[
@@ -6115,6 +6114,7 @@ function app() {
       { id: 'stats', label: '통계' },
       { id: 'pricing_view', label: '단가 조회' },
       { id: 'pricing_edit', label: '단가 수정' },
+      { id: 'salesLookup', label: '과거단가조회' },
       { id: 'attendance_all', label: '출퇴근 기록부 (팀 전체)' },
       { id: 'leave', label: '연차 관리' },
       { id: 'options', label: '옵션 관리' },
