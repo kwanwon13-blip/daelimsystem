@@ -407,6 +407,7 @@
   <div class="ec-popup-backdrop" @click.self="quotePopup.open=false"
        @mousemove.window="onPopupDrag(quotePopup, $event); onPopupResize(quotePopup, $event)"
        @mouseup.window="quotePopup.dragging=false; quotePopup.resizing=false;"
+       @keydown.escape.window="quotePopup.open=false"
        style="cursor:default;"></div>
 </template>
 
@@ -3270,6 +3271,54 @@
           currentPage:1, pageSize:40, hasMore:false,
           typeFilter:[], // 빈 배열 = 전체
           typeCounts:{image:0,pdf:0,ai:0,psd:0,excel:0,hwp:0,word:0},
+          selectedPaths:[],          // 체크박스로 선택된 시안 경로 배열
+          watermarkBusy:false,       // 워터마크 다운로드 진행 중 플래그
+          watermarkProgress:'',      // 진행 상태 텍스트 (3/10 처리 중...)
+          isImageItem(item){
+            const ext=(item.ext||(item.name||'').slice((item.name||'').lastIndexOf('.'))||'').toLowerCase();
+            return ['.jpg','.jpeg','.png','.webp','.bmp','.gif'].includes(ext);
+          },
+          toggleSelect(path){
+            const i=this.selectedPaths.indexOf(path);
+            if(i>=0)this.selectedPaths.splice(i,1);
+            else this.selectedPaths.push(path);
+          },
+          selectAllImages(){
+            this.selectedPaths=this.results.filter(r=>this.isImageItem(r)).map(r=>r.path);
+          },
+          clearSelection(){this.selectedPaths=[];},
+          async downloadWatermarked(){
+            if(this.selectedPaths.length===0||this.watermarkBusy)return;
+            this.watermarkBusy=true;
+            const total=this.selectedPaths.length;
+            const failed=[];
+            for(let i=0;i<this.selectedPaths.length;i++){
+              this.watermarkProgress='처리 중 '+(i+1)+'/'+total;
+              const p=this.selectedPaths[i];
+              try{
+                const url='/api/design/file-watermarked?path='+encodeURIComponent(p);
+                const resp=await fetch(url,{credentials:'include'});
+                if(!resp.ok){failed.push(p);continue;}
+                const blob=await resp.blob();
+                const cd=resp.headers.get('content-disposition')||'';
+                let filename='watermarked.jpg';
+                const m=cd.match(/filename\*=UTF-8''([^;]+)/i)||cd.match(/filename="([^"]+)"/i);
+                if(m)filename=decodeURIComponent(m[1]);
+                const a=document.createElement('a');
+                a.href=URL.createObjectURL(blob);
+                a.download=filename;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},100);
+                // 동시다발 다운로드 방지를 위한 약간의 딜레이
+                await new Promise(r=>setTimeout(r,250));
+              }catch(e){failed.push(p);}
+            }
+            this.watermarkBusy=false;
+            this.watermarkProgress='';
+            if(failed.length>0)alert(total+'개 중 '+failed.length+'개 실패\\n실패: '+failed.slice(0,3).map(p=>p.split(/[\\\\/]/).pop()).join(', ')+(failed.length>3?' 외':''));
+            this.selectedPaths=[];
+          },
           fileTypes:[
             {id:'image',label:'이미지',icon:'image',color:'#4f6ef7'},
             {id:'pdf',label:'PDF',icon:'picture_as_pdf',color:'#dc2626'},
@@ -3495,13 +3544,54 @@
           <template x-if="!loading && results.length>0">
             <div>
               <p class="text-[12px] text-gray-400 mb-3" x-text="total+'개 결과 ('+results.length+'개 표시)'"></p>
+
+              <!-- 워터마크 다운로드 액션바 -->
+              <div x-show="selectedPaths.length>0 || watermarkBusy" x-transition
+                style="position:sticky;top:0;z-index:10;background:linear-gradient(90deg,#eef2ff,#fff);border:1px solid #c7d2fe;border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;box-shadow:0 4px 12px rgba(79,110,247,.15);">
+                <span style="font-size:13px;font-weight:600;color:#4338ca;">
+                  <span class="material-symbols-outlined" style="font-size:16px;vertical-align:-3px;">check_circle</span>
+                  <span x-text="selectedPaths.length+'개 선택됨'"></span>
+                </span>
+                <span x-show="watermarkProgress" x-text="watermarkProgress"
+                  style="font-size:12px;color:#6b7280;animation:pulse 1.4s infinite;"></span>
+                <div style="flex:1;"></div>
+                <button @click="downloadWatermarked()" :disabled="watermarkBusy"
+                  style="background:#4f6ef7;color:#fff;border:none;padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:4px;"
+                  :style="watermarkBusy?'opacity:.6;cursor:wait;':''">
+                  <span class="material-symbols-outlined" style="font-size:14px;">water_drop</span>
+                  워터마크 다운로드
+                </button>
+                <button @click="selectAllImages()"
+                  style="background:#fff;color:#4f6ef7;border:1px solid #c7d2fe;padding:7px 12px;border-radius:6px;font-size:12px;cursor:pointer;">
+                  이미지 전체 선택
+                </button>
+                <button @click="clearSelection()"
+                  style="background:#fff;color:#6b7280;border:1px solid #e5e7eb;padding:7px 12px;border-radius:6px;font-size:12px;cursor:pointer;">
+                  해제
+                </button>
+              </div>
               <div :style="'display:grid;grid-template-columns:repeat(auto-fill,minmax('+thumbSize+'px,1fr));gap:12px;'">
                 <template x-for="(item, idx) in results" :key="item.path">
-                  <div class="card" style="padding:0;overflow:hidden;transition:transform .15s,box-shadow .15s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 24px rgba(0,0,0,.12)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+                  <div class="card" :class="selectedPaths.includes(item.path) ? 'ring-2 ring-indigo-400' : ''"
+                    :style="'padding:0;overflow:hidden;transition:transform .15s,box-shadow .15s;'+(selectedPaths.includes(item.path)?'box-shadow:0 0 0 3px #818cf8,0 4px 14px rgba(79,110,247,.25);':'')"
+                    onmouseover="if(!this.style.boxShadow.includes('818cf8')){this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 24px rgba(0,0,0,.12)'}" onmouseout="if(!this.style.boxShadow.includes('818cf8')){this.style.transform='';this.style.boxShadow=''}">
                     <div @click="openPreview(idx)"
                       :style="'height:'+Math.round(thumbSize*0.75)+'px;background:#f1f5f9;overflow:hidden;position:relative;'+(canPreview(item)?'cursor:zoom-in;':'cursor:default;')"
                       :title="canPreview(item)?'클릭하면 원본 크게 보기':''">
                       <img :src="'/api/design/thumb?path='+encodeURIComponent(item.path)" style="width:100%;height:100%;object-fit:cover;" loading="lazy" decoding="async" onerror="this.style.display='none';this.parentElement.innerHTML='<div style=&quot;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#94a3b8;gap:4px&quot;><span class=&quot;material-symbols-outlined&quot; style=&quot;font-size:28px&quot;>image</span><span style=&quot;font-size:10px&quot;>미리보기 없음</span></div>'">
+                      <!-- 워터마크 다운로드용 체크박스 (이미지 파일에만 표시) -->
+                      <template x-if="isImageItem(item)">
+                        <label @click.stop=""
+                          :style="'position:absolute;top:6px;right:6px;background:rgba(255,255,255,.95);border:1px solid #c7d2fe;border-radius:5px;padding:3px 6px;display:flex;align-items:center;gap:4px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.15);font-size:10px;color:#4338ca;font-weight:600;'+(selectedPaths.includes(item.path)?'background:#4f6ef7;color:#fff;border-color:#4f6ef7;':'')"
+                          :title="selectedPaths.includes(item.path)?'선택 해제':'워터마크 다운로드용 선택'">
+                          <input type="checkbox"
+                            :checked="selectedPaths.includes(item.path)"
+                            @change="toggleSelect(item.path)"
+                            @click.stop=""
+                            style="margin:0;cursor:pointer;width:13px;height:13px;" />
+                          <span x-show="selectedPaths.includes(item.path)" style="font-size:9px;">선택됨</span>
+                        </label>
+                      </template>
                       <!-- 파일종류 뱃지 (이미지 아닌 경우) -->
                       <template x-if="itemType(item)&&itemType(item)!=='image'">
                         <div style="position:absolute;top:4px;left:4px;background:rgba(0,0,0,.55);color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;" x-text="(item.ext||item.name.slice(item.name.lastIndexOf('.'))||'').toUpperCase().replace('.','')"></div>
@@ -3627,7 +3717,18 @@
                     style="background:#4f6ef7;color:#fff;text-decoration:none;"
                     @click.stop>
                     <span class="material-symbols-outlined" style="font-size:14px;">download</span>
-                    다운
+                    원본 다운
+                  </a>
+                </template>
+                <!-- 라이트박스에서 워터마크 다운로드 (이미지일 때만) -->
+                <template x-if="preview.index>=0 && results[preview.index] && isImageItem(results[preview.index])">
+                  <a :href="'/api/design/file-watermarked?path='+encodeURIComponent(results[preview.index].path)"
+                    class="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold"
+                    style="background:#10b981;color:#fff;text-decoration:none;"
+                    title="DAELIM SM 워터마크 적용해서 다운로드"
+                    @click.stop>
+                    <span class="material-symbols-outlined" style="font-size:14px;">water_drop</span>
+                    워터마크 다운
                   </a>
                 </template>
               </div>

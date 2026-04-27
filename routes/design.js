@@ -299,6 +299,90 @@ router.get('/design/file', requireAuth, (req, res) => {
   res.sendFile(resolved);
 });
 
+// ──────────────────────────────────────────────────────────
+// 워터마크 다운로드 — 이미지에 "DAELIM SM" 타일 패턴 워터마크 합성 후 반환
+// ──────────────────────────────────────────────────────────
+const WATERMARK_IMG_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif']);
+
+// 이미지 크기에 맞는 SVG 워터마크 생성 (회전된 텍스트를 패턴으로 타일링)
+function buildWatermarkSvg(width, height) {
+  // 패턴 한 칸 크기 — 이미지 크기에 비례. 큰 이미지엔 큰 패턴.
+  const tileW = Math.max(280, Math.floor(width / 5));
+  const tileH = Math.max(180, Math.floor(height / 6));
+  const fontSize = Math.max(28, Math.floor(tileW / 8));
+  const subFontSize = Math.max(9, Math.floor(fontSize / 3.5));
+  // 텍스트 색상/투명도 — 너무 진하면 그림 가림, 너무 옅으면 보호 효과 없음
+  const opacity = 0.32;
+  return `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <pattern id="wm" patternUnits="userSpaceOnUse" width="${tileW}" height="${tileH}" patternTransform="rotate(-22)">
+      <g font-family="Arial, sans-serif" fill="#9ca3af" fill-opacity="${opacity}">
+        <text x="${tileW/2}" y="${tileH/2}" text-anchor="middle" font-size="${subFontSize}" font-weight="600" letter-spacing="2">TOTAL SAFETY GROUP CO., LTD.</text>
+        <text x="${tileW/2}" y="${tileH/2 + fontSize * 0.9}" text-anchor="middle" font-size="${fontSize}" font-weight="800" letter-spacing="1">DAELIM SM</text>
+      </g>
+    </pattern>
+  </defs>
+  <rect width="${width}" height="${height}" fill="url(#wm)" />
+</svg>`;
+}
+
+router.get('/design/file-watermarked', requireAuth, async (req, res) => {
+  const filePath = req.query.path;
+  if (!filePath) return res.status(400).send('path required');
+  const resolved = path.resolve(filePath);
+  if (!resolved.toLowerCase().startsWith(path.resolve(DESIGN_ROOT).toLowerCase())) {
+    return res.status(403).send('forbidden');
+  }
+  if (!fs.existsSync(resolved)) return res.status(404).send('not found');
+
+  const ext = path.extname(resolved).toLowerCase();
+  if (!WATERMARK_IMG_EXTS.has(ext)) {
+    return res.status(400).send('이미지 파일만 워터마크 적용 가능합니다');
+  }
+  if (!sharp) {
+    return res.status(503).send('sharp 라이브러리 미설치 — 워터마크 기능 사용 불가');
+  }
+
+  try {
+    const img = sharp(resolved, { failOn: 'none' });
+    const meta = await img.metadata();
+    const w = meta.width || 1024;
+    const h = meta.height || 768;
+    // 너무 큰 이미지는 다운스케일 (4096px 초과 시) — 메모리 보호
+    const MAX_DIM = 4096;
+    let resizedImg = img;
+    let outW = w, outH = h;
+    if (w > MAX_DIM || h > MAX_DIM) {
+      const ratio = MAX_DIM / Math.max(w, h);
+      outW = Math.round(w * ratio);
+      outH = Math.round(h * ratio);
+      resizedImg = img.resize(outW, outH, { fit: 'inside' });
+    }
+
+    const wmSvg = Buffer.from(buildWatermarkSvg(outW, outH), 'utf8');
+    const isPng = ext === '.png' || ext === '.webp';
+    const composited = await resizedImg
+      .composite([{ input: wmSvg, top: 0, left: 0 }])
+      .toBuffer({ resolveWithObject: false });
+
+    // 출력 형식: 원본이 PNG/WebP면 PNG 유지, 그 외엔 JPEG (워터마크 합성된 결과)
+    const outBuf = isPng
+      ? await sharp(composited).png({ quality: 90, compressionLevel: 6 }).toBuffer()
+      : await sharp(composited).jpeg({ quality: 88, progressive: true }).toBuffer();
+
+    const baseName = path.basename(resolved, ext);
+    const outExt = isPng ? '.png' : '.jpg';
+    const outName = baseName + '_watermarked' + outExt;
+    res.setHeader('Content-Type', isPng ? 'image/png' : 'image/jpeg');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(outName)}`);
+    res.setHeader('Cache-Control', 'private, no-cache');
+    res.send(outBuf);
+  } catch (e) {
+    console.error('[design/file-watermarked] 처리 실패:', e.message);
+    res.status(500).send('워터마크 처리 실패: ' + e.message);
+  }
+});
+
 // 원본 보기 (inline 전송 — 라이트박스용)
 router.get('/design/view', requireAuth, (req, res) => {
   const filePath = req.query.path;

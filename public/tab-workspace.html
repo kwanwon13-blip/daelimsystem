@@ -450,9 +450,19 @@
 
             <div class="ws-ai-footer">
               <div class="ws-ai-input-row">
-                <input class="ws-ai-input" placeholder="무엇을 도와드릴까요? (현재 페이지 기준)"
+                <input class="ws-ai-input" :placeholder="aiInsertMode ? '예: 회의록 양식 추가, 체크리스트 만들어줘 (블록으로 페이지에 추가)' : '무엇을 도와드릴까요? (텍스트 답변)'"
                   x-model="aiPrompt" @keydown.enter="askAI(aiPrompt)" />
-                <button class="ws-ai-send" @click="askAI(aiPrompt)">↑</button>
+                <button class="ws-ai-send" @click="askAI(aiPrompt)" :disabled="aiLoading || aiActionLoading"
+                  :title="aiInsertMode ? '페이지에 블록으로 삽입' : '텍스트로 답변'"
+                  x-text="aiLoading ? '...' : (aiInsertMode ? '✦' : '↑')"></button>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:#6b7280;margin-top:6px;padding:0 2px;">
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none;">
+                  <input type="checkbox" x-model="aiInsertMode" style="margin:0;cursor:pointer;" />
+                  <span>페이지에 블록으로 삽입 (노션 스타일)</span>
+                </label>
+                <span style="margin-left:auto;color:#9ca3af;" x-show="aiInsertMode">✦ 켜짐: 입력 → 블록 추가</span>
+                <span style="margin-left:auto;color:#9ca3af;" x-show="!aiInsertMode">↑ 꺼짐: 입력 → 텍스트 답변</span>
               </div>
             </div>
           </div>
@@ -594,6 +604,7 @@ function workspaceApp() {
     aiResult: '',
     aiError: '',
     aiLoading: false,
+    aiInsertMode: true,           // 노션 MCP 스타일 — 입력하면 블록으로 페이지에 직접 추가 (기본 ON)
     aiTemplateMode: null,       // 'daily_log' | 'project_checklist' | 'customer_report' | 'freeform' | null
     aiTemplateInput: '',
     aiTemplateLoading: false,
@@ -1074,29 +1085,76 @@ function workspaceApp() {
       });
     },
 
-    // 작성 도우미 — 현재 페이지 내용을 AI 에게 전달해서 결과 텍스트 받기
-    // (히스토리/첨부/프로젝트/이미지 생성은 AI 탭으로 이전됨)
+    // 작성 도우미 — 두 가지 모드:
+    // (A) aiInsertMode=true (기본): 노션 MCP 스타일 — AI 응답을 블록으로 페이지에 직접 삽입
+    // (B) aiInsertMode=false: 기존 동작 — 텍스트로 답변, 패널에 표시
     async askAI(prompt) {
       if (!prompt || !prompt.trim()) return;
+      if (this.aiLoading || this.aiActionLoading) return;
       this.aiLoading = true;
       this.aiError = '';
       this.aiResult = '';
 
-      // 현재 에디터 내용 가져오기 (빠른 도움 버튼에서 사용)
+      // 현재 에디터 내용 텍스트로 변환 (컨텍스트로 AI 에게 전달)
       let textContent = '';
       if (this.editor) {
         try {
           const saved = await this.editor.save();
           textContent = saved.blocks.map(b => {
-            if (b.type === 'header' || b.type === 'paragraph') return b.data.text;
-            if (b.type === 'checklist') return b.data.items.map(i => (i.checked?'✅ ':'☐ ')+i.text).join('\n');
-            if (b.type === 'list') return b.data.items.join('\n');
-            if (b.type === 'quote') return b.data.text;
+            const d = b.data || {};
+            if (b.type === 'header')    return '# ' + (d.text || '');
+            if (b.type === 'paragraph') return (d.text || '').replace(/<[^>]+>/g, '');
+            if (b.type === 'checklist') return (d.items || []).map(i => (i.checked?'✅ ':'☐ ') + (i.text||'').replace(/<[^>]+>/g, '')).join('\n');
+            if (b.type === 'list')      return (d.items || []).map(i => '- ' + String(i).replace(/<[^>]+>/g, '')).join('\n');
+            if (b.type === 'quote')     return '> ' + (d.text || '').replace(/<[^>]+>/g, '');
+            if (b.type === 'dataTable') {
+              const cols = (d.columns || []).map(c => c.name).join(' | ');
+              const rows = (d.rows || []).slice(0, 20).map(r => (d.columns || []).map(c => String(r[c.id]||'')).join(' | '));
+              return '[표] ' + cols + '\n' + rows.join('\n');
+            }
             return '';
           }).filter(Boolean).join('\n');
         } catch(e) {}
       }
 
+      // ── 모드 (A): 페이지에 블록 삽입 (노션 MCP 스타일) ──
+      if (this.aiInsertMode) {
+        if (!this.editor) {
+          this.aiError = '페이지를 먼저 선택해주세요.';
+          this.aiLoading = false;
+          return;
+        }
+        try {
+          // 현재 페이지 컨텍스트 + 사용자 요청을 합쳐서 ai-generate 에 전달
+          const fullPrompt = textContent
+            ? `현재 페이지 내용:\n${textContent}\n\n=== 요청 ===\n${prompt.trim()}`
+            : prompt.trim();
+          const res = await fetch('/api/workspace/ai-generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: fullPrompt })
+          });
+          const data = await res.json();
+          if (data.ok && Array.isArray(data.blocks) && data.blocks.length) {
+            for (const b of data.blocks) {
+              try { await this.editor.blocks.insert(b.type, b.data); }
+              catch(err) { console.warn('[workspace] askAI insert fail:', b.type, err); }
+            }
+            this.saveDebounced();
+            this.aiResult = `✓ ${data.blocks.length}개 블록을 페이지에 추가했어요`;
+          } else {
+            this.aiError = data.error || 'AI 가 블록을 생성하지 못했습니다. 다시 시도해주세요.';
+          }
+        } catch(e) {
+          console.error('[workspace] askAI insert mode:', e);
+          this.aiError = '서버 연결 실패';
+        }
+        this.aiLoading = false;
+        this.aiPrompt = '';
+        return;
+      }
+
+      // ── 모드 (B): 텍스트 답변 (기존 동작) ──
       try {
         const res = await fetch('/api/workspace/ai', {
           method: 'POST',

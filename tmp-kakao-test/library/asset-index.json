@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "createdAt": "2026-04-25T04:38:21.632Z",
+  "updatedAt": "2026-04-25T04:38:42.085Z",
+  "assets": [
+    {
+      "id": "dcae89db4fc28e6c0d351ca6fcc2a9cb3c6d4c0e72dffd8b1a07f11d06c80deb",
+      "hash": "dcae89db4fc28e6c0d351ca6fcc2a9cb3c6d4c0e72dffd8b1a07f11d06c80deb",
+      "shortHash": "dcae89db4fc2",
+      "originalName": "스크린샷 2026-03-28 123059.png",
+      "sourcePath": "C:\\Users\\NAMGW\\Documents\\Claude\\Projects\\업체별 단가표 만들기!!!\\price-list-app\\tmp-kakao-test\\inbox\\스크린샷 2026-03-28 123059.png",
+      "originalPath": "originals\\2026\\03\\28\\dcae89db4fc2_스크린샷 2026-03-28 123059.png",
+      "thumbnailPath": "thumbs\\2026\\03\\28\\dcae89db4fc2.jpg",
+      "size": 39754,
+      "width": 1002,
+      "height": 785,
+      "format": "png",
+      "date": "2026-03-28T03:30:59",
+      "dateSource": "file-mtime",
+      "importedAt": "2026-04-25T04:38:21.707Z",
+      "duplicateCount": 1,
+      "tags": [],
+      "note": "",
+      "lastDuplicatePath": "C:\\Users\\NAMGW\\Documents\\Claude\\Projects\\업체별 단가표 만들기!!!\\price-list-app\\tmp-kakao-test\\inbox\\스크린샷 2026-03-28 123059.png"
+    }
+  ]
+}

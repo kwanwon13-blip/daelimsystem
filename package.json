@@ -4,7 +4,8 @@
   "description": "업체별 단가표 관리 웹앱",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "kakao:assets": "node scripts/kakao-asset-watcher.js --watch"
   },
   "dependencies": {
     "better-sqlite3": "^12.8.0",
