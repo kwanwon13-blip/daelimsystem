@@ -74,9 +74,34 @@
   .ai-msg .avatar { width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0; }
   .ai-msg.user .avatar { background:#e0e7ff; color:#4338ca; font-weight:700; }
   .ai-msg.ai .avatar { background:linear-gradient(135deg,#4f6ef7,#7c3aed); color:#fff; }
-  .ai-msg .bubble { padding:12px 14px; border-radius:14px; font-size:13.5px; line-height:1.7; white-space:pre-wrap; max-width:82%; word-break:break-word; }
-  .ai-msg.user .bubble { background:linear-gradient(135deg,#eef2ff,#e0e7ff); color:#1a1d23; border-top-right-radius:4px; }
-  .ai-msg.ai .bubble { background:#fff; color:#374151; border:1px solid #e5e7eb; border-top-left-radius:4px; }
+  .ai-msg .bubble {
+    padding: 9px 13px;
+    border-radius: 14px;
+    font-size: 13.5px;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    max-width: 82%;
+    width: fit-content;          /* 내용 크기에 딱 맞춤 — 짧은 메시지도 작게 */
+    word-break: break-word;
+  }
+  .ai-msg.user { justify-content: flex-end; }
+  .ai-msg.user .bubble {
+    background: linear-gradient(135deg, #eef2ff, #e0e7ff);
+    color: #1a1d23;
+    border-top-right-radius: 4px;
+    margin-left: auto;            /* 우측 정렬 */
+  }
+  .ai-msg.ai .bubble {
+    background: #fff;
+    color: #374151;
+    border: 1px solid #e5e7eb;
+    border-top-left-radius: 4px;
+  }
+  /* 이미지/agent/template 등 큰 컨텐츠가 있는 bubble 은 fit-content 해제 (전체 너비 사용) */
+  .ai-msg .bubble:has(img.ai-img),
+  .ai-msg .bubble:has(.ai-upscale-bar),
+  .ai-msg .bubble:has(.ai-artifacts),
+  .ai-msg .bubble:has(details) { width: auto; }
   .ai-msg.ai.error .bubble { background:#fef2f2; border-color:#fecaca; color:#b91c1c; }
   /* 시스템 에러 배너 (AI 답변이 아닌 서버 에러 전용) */
   .ai-system-error { display:flex; align-items:flex-start; gap:10px; margin:12px auto; padding:12px 14px; max-width:560px; background:#fef2f2; border:1px solid #fecaca; border-radius:12px; box-shadow:0 1px 3px rgba(220,38,38,0.08); }
@@ -393,9 +418,9 @@
         <span x-show="backendMode === 'cli'" style="font-size:10px;padding:3px 8px;background:#fef3c7;color:#92400e;border-radius:10px;font-weight:600;" title="CLI 모드 — 동시 사용 제한됨. API 키 설정하면 자동 전환">CLI</span>
         <!-- 오늘 사용량 — 항상 표시 (직원이 잔여 한도 볼 수 있게) -->
         <span x-show="usageToday.limit > 0"
-              :style="'font-size:10px;padding:3px 10px;border-radius:10px;font-weight:600;cursor:default;'+(usageToday.remaining < 10 ? 'background:#fef2f2;color:#dc2626;' : (usageToday.remaining < 30 ? 'background:#fef3c7;color:#92400e;' : 'background:#f0fdf4;color:#166534;'))"
-              :title="'오늘 ' + usageToday.count + '/' + usageToday.limit + '회 사용 — 남은 횟수: ' + usageToday.remaining"
-              x-text="'오늘 ' + (usageToday.count || 0) + '/' + (usageToday.limit || 0)"></span>
+              :style="'font-size:10px;padding:3px 10px;border-radius:10px;font-weight:600;cursor:default;'+(usageToday.remaining < 3 ? 'background:#fef2f2;color:#dc2626;' : (usageToday.remaining < 10 ? 'background:#fef3c7;color:#92400e;' : 'background:#f0fdf4;color:#166534;'))"
+              :title="'오늘 이미지 생성 ' + usageToday.count + '/' + usageToday.limit + '장 — 남은 횟수: ' + usageToday.remaining + ' (텍스트 메시지는 무제한)'"
+              x-text="'🎨 ' + (usageToday.count || 0) + '/' + (usageToday.limit || 0)"></span>
         <button @click="startNewThread()">+ 새 대화</button>
       </div>
     </div>
@@ -442,18 +467,18 @@
               <div class="bubble">
                 <template x-if="m.kind==='image' && m.image_url">
                   <div>
-                    <img class="ai-img" :src="(upscaleStatus[m.id] && upscaleStatus[m.id].url) || m.image_url" :alt="m.content || 'AI 이미지'" />
+                    <!-- 원본 이미지는 절대 교체되지 않음 — 업스케일 결과는 별도 메시지로 따로 추가됨 -->
+                    <img class="ai-img" :src="m.image_url" :alt="m.content || 'AI 이미지'" />
                     <div x-show="m.content" x-text="m.content" style="margin-top:6px;font-size:12px;color:#6b7280;"></div>
 
-                    <!-- 업스케일 컨트롤 -->
-                    <div class="ai-upscale-bar" x-show="m.role !== 'user'">
-                      <template x-if="upscaleStatus[m.id] && upscaleStatus[m.id].url">
+                    <!-- 업스케일 컨트롤 (원본 메시지 — 업스케일 안 된 원본 이미지에만) -->
+                    <div class="ai-upscale-bar" x-show="m.role !== 'user' && !(m.metadata_parsed && m.metadata_parsed.upscaledFrom)">
+                      <template x-if="upscaleStatus[m.id] && upscaleStatus[m.id].done">
                         <div class="ai-upscale-done">
-                          <span x-text="'✓ ' + (upscaleStatus[m.id].scale || 4) + '배 업스케일 (' + ((upscaleStatus[m.id].model && upscaleStatus[m.id].model.name) || '') + ')'"></span>
-                          <a :href="upscaleStatus[m.id].url" target="_blank" class="ai-upscale-link">원본 보기</a>
+                          <span x-text="'✓ ' + (upscaleStatus[m.id].scale || 4) + '배 업스케일 완료 (' + ((upscaleStatus[m.id].model && upscaleStatus[m.id].model.name) || '') + ') — 아래 새 메시지에서 확인'"></span>
                         </div>
                       </template>
-                      <template x-if="!upscaleStatus[m.id] || !upscaleStatus[m.id].url">
+                      <template x-if="!upscaleStatus[m.id] || !upscaleStatus[m.id].done">
                         <div class="ai-upscale-controls">
                           <span class="ai-upscale-label">🔍 크게 만들기</span>
                           <div class="ai-upscale-scales">
@@ -521,7 +546,8 @@
                     </div>
                   </div>
                 </template>
-                <template x-if="m.kind !== 'image' && m.kind !== 'agent'">
+                <!-- 일반 텍스트 / 이미지 생성 사용자 프롬프트 (image_url 없는 메시지) -->
+                <template x-if="m.kind !== 'agent' && (m.kind !== 'image' || !m.image_url)">
                   <div x-text="m.content"></div>
                 </template>
                 <!-- 🤖 Agent 모드 메시지 — 진행상황 + 출력 + 생성된 파일 -->
@@ -1310,15 +1336,40 @@ function aiApp() {
       this.upscaleStatus[msg.id] = { loading: true, model: this.upscaleModelKey, scale: this.upscaleScale };
       this.upscalePickerOpen[msg.id] = false;
 
+      // 6분 후 강제 abort — 서버 timeout 5분 + 여유 1분
+      const ctrl = new AbortController();
+      const abortTimer = setTimeout(() => ctrl.abort(), 6 * 60 * 1000);
+
       try {
         const r = await fetch('/api/ai/upscale', {
           method:'POST',
           headers: { 'Content-Type':'application/json' },
-          body: JSON.stringify({ imageUrl: msg.image_url, model: this.upscaleModelKey, scale: this.upscaleScale })
+          signal: ctrl.signal,
+          body: JSON.stringify({
+            imageUrl: msg.image_url,
+            model: this.upscaleModelKey,
+            scale: this.upscaleScale,
+            threadId: this.currentThreadId,    // 서버가 새 메시지로 저장하도록
+          })
         });
+        clearTimeout(abortTimer);
         const d = await r.json();
         if (d.ok) {
-          this.upscaleStatus[msg.id] = { loading:false, url: d.url, model: d.model, scale: d.scale, cached: d.cached };
+          // 원본 메시지의 업스케일 상태는 "완료"만 표시 — 이미지 자체는 교체 안 함
+          this.upscaleStatus[msg.id] = { loading:false, done:true, model: d.model, scale: d.scale, cached: d.cached, url: d.url };
+          // 서버가 새 AI 메시지를 만들었으면 채팅창에 추가
+          if (d.message) {
+            const nm = d.message;
+            // metadata 파싱 (openThread 와 동일)
+            try {
+              nm.metadata_parsed = typeof nm.metadata === 'string' ? JSON.parse(nm.metadata) : (nm.metadata || {});
+            } catch(_) { nm.metadata_parsed = {}; }
+            try {
+              nm.attachments_parsed = typeof nm.attachments === 'string' ? JSON.parse(nm.attachments) : [];
+            } catch(_) { nm.attachments_parsed = []; }
+            this.currentMessages.push(nm);
+            this.$nextTick(() => this.scrollToBottom());
+          }
           this._toast(`${this.upscaleScale}배 업스케일 완료 (${(d.model && d.model.name) || ''})`);
         } else {
           const err = d.error || '업스케일 실패';
@@ -1328,8 +1379,12 @@ function aiApp() {
           console.error('[upscale] 실패:', d);
         }
       } catch(e) {
-        this.upscaleStatus[msg.id] = { loading:false, error: e.message };
-        this._toast('업스케일 네트워크 실패: ' + e.message);
+        clearTimeout(abortTimer);
+        const errMsg = e.name === 'AbortError'
+          ? '업스케일 6분 초과 — 서버에서 응답 없음. Real-ESRGAN 미설치/서버 다운 가능성'
+          : e.message;
+        this.upscaleStatus[msg.id] = { loading:false, error: errMsg };
+        this._toast('업스케일 실패: ' + errMsg);
         console.error('[upscale] 네트워크 오류:', e);
       }
     },

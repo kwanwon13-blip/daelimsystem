@@ -107,20 +107,7 @@ router.post('/run', async (req, res) => {
   });
 
   try {
-    // DB 일일 사용량 체크 (countToday + .env 한도와 비교)
-    try {
-      const isAdmin = req.user.role === 'admin';
-      const dailyLimit = isAdmin
-        ? parseInt(process.env.AI_DAILY_LIMIT_ADMIN || '500', 10)
-        : parseInt(process.env.AI_DAILY_LIMIT_EMPLOYEE || '100', 10);
-      const todayCount = (ai && ai.apiUsage && ai.apiUsage.countToday)
-        ? ai.apiUsage.countToday(req.user.userId)
-        : 0;
-      if (todayCount >= dailyLimit) {
-        send('error', { message: `오늘 AI 사용 횟수(${todayCount}/${dailyLimit})를 초과했습니다.` });
-        clearInterval(ping); try { res.end(); } catch(_) {}; return;
-      }
-    } catch (_) {}
+    // 텍스트 메시지는 일일 한도 없음 (이미지 생성에만 제한 적용)
 
     let lastDone = null;
     let lastError = null;
@@ -251,17 +238,17 @@ router.post('/image', async (req, res) => {
     return res.status(400).json({ error: 'prompt 필수' });
   }
 
-  // 일일 한도 (이미지는 별도 카운트가 없어서 전체 한도 공유)
+  // 이미지 생성 일일 한도 (이미지만 카운트)
   try {
     const isAdmin = req.user.role === 'admin';
-    const dailyLimit = isAdmin
-      ? parseInt(process.env.AI_DAILY_LIMIT_ADMIN || '500', 10)
-      : parseInt(process.env.AI_DAILY_LIMIT_EMPLOYEE || '100', 10);
-    const todayCount = (ai && ai.apiUsage && ai.apiUsage.countToday)
-      ? ai.apiUsage.countToday(req.user.userId)
+    const imageLimit = isAdmin
+      ? parseInt(process.env.AI_IMAGE_DAILY_LIMIT_ADMIN || '100', 10)
+      : parseInt(process.env.AI_IMAGE_DAILY_LIMIT_EMPLOYEE || '30', 10);
+    const imageCount = (ai && ai.apiUsage && ai.apiUsage.countImagesToday)
+      ? ai.apiUsage.countImagesToday(req.user.userId)
       : 0;
-    if (todayCount >= dailyLimit) {
-      return res.status(429).json({ error: `오늘 AI 사용 횟수(${todayCount}/${dailyLimit})를 초과했습니다.` });
+    if (imageCount >= imageLimit) {
+      return res.status(429).json({ error: `오늘 이미지 생성 한도(${imageCount}/${imageLimit})를 초과했습니다.` });
     }
   } catch (_) {}
 

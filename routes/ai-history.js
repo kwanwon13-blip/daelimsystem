@@ -52,6 +52,10 @@ const aiTools = require('./ai-tools');
 
 // Tool Use 루프 설정
 const MAX_TOOL_TURNS = parseInt(process.env.AI_MAX_TOOL_TURNS || '10', 10);
+// 이미지 생성 전용 일일 한도 (텍스트 메시지는 무제한)
+const IMAGE_DAILY_LIMIT_EMPLOYEE = parseInt(process.env.AI_IMAGE_DAILY_LIMIT_EMPLOYEE || '30', 10);
+const IMAGE_DAILY_LIMIT_ADMIN = parseInt(process.env.AI_IMAGE_DAILY_LIMIT_ADMIN || '100', 10);
+// 레거시 호환 (텍스트 한도 — 이제 사용 안 함, 무제한)
 const DAILY_REQUEST_LIMIT_EMPLOYEE = parseInt(process.env.AI_DAILY_LIMIT_EMPLOYEE || '100', 10);
 const DAILY_REQUEST_LIMIT_ADMIN = parseInt(process.env.AI_DAILY_LIMIT_ADMIN || '500', 10);
 
@@ -586,19 +590,7 @@ router.post('/chat', async (req, res) => {
       metadata: { templateId: templateId || null, sourcePageId: sourcePageId || null }
     });
 
-    // 5. 일일 한도 체크 (API 모드일 때만 기록 있음)
-    if (apiModeAvailable()) {
-      const isAdmin = req.user.role === 'admin';
-      const dailyLimit = isAdmin ? DAILY_REQUEST_LIMIT_ADMIN : DAILY_REQUEST_LIMIT_EMPLOYEE;
-      const todayCount = ai.apiUsage.countToday(req.user.userId);
-      if (todayCount >= dailyLimit) {
-        return res.status(429).json({
-          ok: false,
-          error: `오늘 AI 사용 횟수(${todayCount}/${dailyLimit})를 초과했습니다. 내일 다시 시도하세요.`,
-          code: 'DAILY_LIMIT'
-        });
-      }
-    }
+    // 5. 일일 한도 체크 — 텍스트 메시지는 무제한 (이미지 생성에만 적용)
 
     // 6. Claude 호출 — API 우선, 없으면 CLI fallback
     let aiText = '', durationMs = 0, status = 'ok', errMsg = null, usage = null, backend = '';
@@ -795,13 +787,7 @@ router.post('/chat-stream', async (req, res) => {
     });
   }
 
-  // 일일 한도
-  const isAdmin = req.user.role === 'admin';
-  const dailyLimit = isAdmin ? DAILY_REQUEST_LIMIT_ADMIN : DAILY_REQUEST_LIMIT_EMPLOYEE;
-  const todayCount = ai.apiUsage.countToday(req.user.userId);
-  if (todayCount >= dailyLimit) {
-    return res.status(429).json({ error: `오늘 AI 사용 한도(${dailyLimit})를 초과했습니다`, code: 'DAILY_LIMIT' });
-  }
+  // 텍스트 메시지는 일일 한도 없음 (이미지에만 적용)
 
   // 첨부 + 프롬프트 구성
   let attachments = [];
@@ -989,11 +975,19 @@ function requireAdminInline(req, res, next) {
 }
 
 router.get('/usage/today', (req, res) => {
-  // 본인 오늘 사용 횟수 (직원도 볼 수 있음)
+  // 본인 오늘 이미지 생성 횟수 (텍스트 메시지는 무제한이라 카운트 안 함)
   const isAdmin = req.user.role === 'admin';
-  const dailyLimit = isAdmin ? DAILY_REQUEST_LIMIT_ADMIN : DAILY_REQUEST_LIMIT_EMPLOYEE;
-  const count = ai.apiUsage.countToday(req.user.userId);
-  res.json({ ok: true, count, limit: dailyLimit, remaining: Math.max(0, dailyLimit - count) });
+  const imageLimit = isAdmin ? IMAGE_DAILY_LIMIT_ADMIN : IMAGE_DAILY_LIMIT_EMPLOYEE;
+  const imageCount = (ai.apiUsage.countImagesToday)
+    ? ai.apiUsage.countImagesToday(req.user.userId)
+    : 0;
+  res.json({
+    ok: true,
+    count: imageCount,
+    limit: imageLimit,
+    remaining: Math.max(0, imageLimit - imageCount),
+    kind: 'image',  // UI 가 "이미지 N/M" 으로 표시하도록
+  });
 });
 
 router.get('/usage/summary', requireAdminInline, (req, res) => {
@@ -1026,6 +1020,20 @@ router.post('/chat-image', async (req, res) => {
   try {
     const { threadId, projectId, prompt, sourcePageId, attachmentIds, quality } = req.body || {};
     if (!prompt || !String(prompt).trim()) return res.status(400).json({ error: 'prompt 필수' });
+
+    // 이미지 일일 한도 체크 (텍스트는 무제한, 이미지만 제한)
+    const isAdmin = req.user.role === 'admin';
+    const imageLimit = isAdmin ? IMAGE_DAILY_LIMIT_ADMIN : IMAGE_DAILY_LIMIT_EMPLOYEE;
+    const imageCount = (ai.apiUsage.countImagesToday)
+      ? ai.apiUsage.countImagesToday(req.user.userId)
+      : 0;
+    if (imageCount >= imageLimit) {
+      return res.status(429).json({
+        ok: false,
+        error: `오늘 이미지 생성 한도(${imageCount}/${imageLimit})를 초과했습니다. 내일 다시 시도하세요.`,
+        code: 'IMAGE_DAILY_LIMIT'
+      });
+    }
 
     let thread;
     if (threadId) {
@@ -1547,10 +1555,11 @@ router.get('/upscale/health', (req, res) => {
   });
 });
 
-// POST /upscale — { imageUrl, model, scale } → 업스케일된 이미지 URL 반환
+// POST /upscale — { imageUrl, model, scale, threadId? } → 업스케일된 이미지 URL + 새 메시지 반환
+// threadId 가 있으면 업스케일 결과를 새 AI 메시지로 DB 저장 → 채팅에 별도 버블로 표시
 router.post('/upscale', async (req, res) => {
   try {
-    const { imageUrl, model, scale } = req.body || {};
+    const { imageUrl, model, scale, threadId } = req.body || {};
     if (!imageUrl) return res.status(400).json({ error: 'imageUrl 필수' });
 
     if (!fs.existsSync(UPSCALE_BIN)) {
@@ -1585,9 +1594,35 @@ router.post('/upscale', async (req, res) => {
     const outPath = path.join(path.dirname(srcPath), outName);
     const outUrl = `/data/workspace-images/${outName}`;
 
-    // 이미 있으면 재활용
+    // 결과 파일을 새 AI 메시지로 저장하는 헬퍼
+    function saveAsMessage({ outUrl, durationMs, scaleNum, requestedModel, cached }) {
+      if (!threadId || !ai || !ai.threads || !ai.threads.addMessage) return null;
+      try {
+        const t = ai.threads.get(threadId);
+        if (!t || String(t.owner_id) !== String(req.user.userId)) return null;
+        return ai.threads.addMessage(threadId, {
+          role: 'ai', kind: 'image',
+          content: `🔍 ${scaleNum}x 업스케일 (${requestedModel.name})${cached ? ' · 캐시' : ''}`,
+          imageUrl: outUrl,
+          status: 'ok',
+          durationMs: durationMs || 0,
+          metadata: {
+            upscaledFrom: imageUrl,
+            scale: scaleNum,
+            model: requestedModel.key,
+            modelName: requestedModel.name,
+          },
+        });
+      } catch (e) {
+        console.warn('[upscale] 메시지 저장 실패:', e.message);
+        return null;
+      }
+    }
+
+    // 이미 있으면 재활용 — 그래도 새 메시지는 만들어서 채팅에 표시
     if (fs.existsSync(outPath)) {
-      return res.json({ ok: true, url: outUrl, cached: true, model: requestedModel });
+      const cachedMsg = saveAsMessage({ outUrl, durationMs: 0, scaleNum, requestedModel, cached: true });
+      return res.json({ ok: true, url: outUrl, cached: true, model: requestedModel, scale: scaleNum, message: cachedMsg });
     }
 
     const { spawn } = require('child_process');
@@ -1633,13 +1668,17 @@ router.post('/upscale', async (req, res) => {
       });
     }
 
+    const durationMs = Date.now() - started;
+    const newMsg = saveAsMessage({ outUrl, durationMs, scaleNum, requestedModel, cached: false });
+
     res.json({
       ok: true,
       url: outUrl,
       cached: false,
       model: requestedModel,
       scale: scaleNum,
-      durationMs: Date.now() - started,
+      durationMs,
+      message: newMsg,
     });
   } catch (e) {
     console.error('[ai/upscale]', e);

@@ -640,6 +640,23 @@ const apiUsage = {
       .get(String(userId), today);
     return row?.cnt || 0;
   },
+  // 이미지 생성만 카운트 (gpt-image-* 또는 dalle 계열). 텍스트는 무제한이라 제외
+  countImagesToday(userId) {
+    if (!ready) return 0;
+    const today = nowIso().slice(0, 10);
+    // ai_messages 의 kind='image' + role='ai' + status='ok' 기준 (실제 생성 성공만)
+    const row = db.prepare(`
+      SELECT COUNT(*) AS cnt
+      FROM ai_messages m
+      JOIN ai_threads t ON t.id = m.thread_id
+      WHERE t.owner_id = ?
+        AND m.role = 'ai'
+        AND m.kind = 'image'
+        AND m.status = 'ok'
+        AND substr(m.created_at, 1, 10) = ?
+    `).get(String(userId), today);
+    return row?.cnt || 0;
+  },
   summaryMonth(yyyymm) {
     // yyyymm = 'YYYY-MM'
     if (!ready) return { total: 0, cost: 0, byModel: [], byUser: [] };

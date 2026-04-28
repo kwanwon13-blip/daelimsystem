@@ -1,30 +1,18 @@
 #targetengine "session"
 /**
- * 시안제목입력.jsx — 통합 (텍스트 입력 + 시안 저장)
+ * 시안제목입력.jsx — 통합 palette (모든 동작 내부 inline)
  *
- * 한 palette 안에 모든 기능:
- * - 콤보박스 (검색 가능): 타이핑 + 사전에서 선택
- * - 텍스트 삽입 (시안에 표준 텍스트)
- * - 시안 저장 (같은 스크립트 안의 모달 다이얼로그)
- * - 미니마이즈 토글 (전체 압축)
+ * - 팝업 없음. 모든 입력/검색/저장이 같은 palette 내부에서 처리됨
+ * - drawer 영역 1개를 공유: ▼/+옵션/💾저장 누르면 거기 컨텐츠 등장
  */
 
 $.global.__designerScriptPath = $.fileName;
 
-// ══════════════════════════════════════════════════════════
-// 설정
-// ══════════════════════════════════════════════════════════
 var CONFIG = {
-  ERP_HOST: "192.168.0.133",
-  ERP_PORT: "3000",
-  DESIGNER_TOKEN: "designer-default-key-change-in-env",
   DESIGN_ROOT: "D:\\",
   YEAR: new Date().getFullYear() + "시안작업"
 };
 
-// ══════════════════════════════════════════════════════════
-// 마스터 사전 (combobox 검색용)
-// ══════════════════════════════════════════════════════════
 var KIND_DICT = [
   "현수막","배너","타포린","깃발","어깨띠",
   "포맥스","3t포맥스","5t포맥스","1t포맥스","10t포맥스",
@@ -58,96 +46,17 @@ var VENDOR_DICT = [
   "세계로","풍아몰","이용전","대영","현대상사","건우","동방사","서진","kep","풍아"
 ];
 
-// ══════════════════════════════════════════════════════════
-// 검색 가능한 사전 팝업 (live filter)
-// ══════════════════════════════════════════════════════════
-function showPickerPopup(currentValue, dictArray, onSelect) {
-  var popup = new Window("dialog", "사전에서 선택 (타이핑으로 검색)");
-  popup.orientation = "column";
-  popup.alignChildren = "fill";
-  popup.preferredSize.width = 320;
+var OPTION_DICT = [
+  "양면","단면",
+  "사방타공","상단1타공","상단2타공","상단3타공","4방타공","6방타공",
+  "양면테이프","리무버양면테이프",
+  "화이트보드코팅","유포부착","유포유광","축광시트","바니쉬코팅",
+  "자립","프레임","상단걸이","아일렛","아일렛타공","집게부착","벨크로부착",
+  "A4아크릴포켓","A3아크릴포켓","파일케이스","클리어파일",
+  "고무자석부착","음성경보기","멀티넘버링N4"
+];
 
-  var searchRow = popup.add("group");
-  searchRow.add("statictext", undefined, "🔍 검색:");
-  var searchInput = searchRow.add("edittext", undefined, currentValue || "");
-  searchInput.characters = 25;
-  searchInput.active = true;
-
-  var lb = popup.add("listbox", undefined, []);
-  lb.preferredSize = [300, 320];
-
-  function refreshList() {
-    var query = String(searchInput.text || "").toLowerCase();
-    lb.removeAll();
-    var matched = [];
-    for (var i = 0; i < dictArray.length; i++) {
-      var item = dictArray[i];
-      if (!query || String(item).toLowerCase().indexOf(query) >= 0) {
-        matched.push(item);
-      }
-    }
-    for (var j = 0; j < matched.length; j++) lb.add("item", matched[j]);
-    if (lb.items.length > 0) lb.selection = 0;
-  }
-
-  searchInput.onChanging = refreshList;
-  refreshList();
-
-  var btnRow = popup.add("group");
-  btnRow.alignment = "right";
-  var okBtn = btnRow.add("button", undefined, "선택", { name: "ok" });
-  var cancelBtn = btnRow.add("button", undefined, "취소", { name: "cancel" });
-
-  function pickAndClose() {
-    if (lb.selection) {
-      onSelect(lb.selection.text);
-      popup.close(1);
-    } else if (searchInput.text) {
-      // 검색어를 그대로 입력값으로 사용
-      onSelect(searchInput.text);
-      popup.close(1);
-    }
-  }
-
-  lb.onDoubleClick = pickAndClose;
-  okBtn.onClick = pickAndClose;
-  cancelBtn.onClick = function() { popup.close(0); };
-
-  popup.show();
-}
-
-// ══════════════════════════════════════════════════════════
-// 콤보박스 (edittext + ▼ 검색 사전 버튼)
-// ══════════════════════════════════════════════════════════
-function makeCombo(parent, labelText, dictArray, placeholder, labelWidth) {
-  var g = parent.add("group");
-  g.orientation = "row";
-  g.alignChildren = ["left", "center"];
-
-  var lbl = g.add("statictext", undefined, labelText);
-  lbl.preferredSize.width = labelWidth || 60;
-
-  var input = g.add("edittext", undefined, "");
-  input.characters = 24;
-  if (placeholder) input.helpTip = placeholder;
-
-  if (dictArray && dictArray.length > 0) {
-    var pickBtn = g.add("button", undefined, "▼");
-    pickBtn.preferredSize = [28, 22];
-    pickBtn.helpTip = "사전 검색 + 선택";
-    pickBtn.onClick = function() {
-      showPickerPopup(input.text, dictArray, function(selected) {
-        input.text = selected;
-        try { if (input.onChanging) input.onChanging(); } catch(e) {}
-      });
-    };
-  }
-  return input;
-}
-
-// ══════════════════════════════════════════════════════════
-// 파일명/폴더 유틸
-// ══════════════════════════════════════════════════════════
+// ── 유틸 ────────────────────────────────────────
 function sanitize(s) {
   if (!s) return "";
   return String(s).replace(/[\\\/:*?"<>|]/g, "").replace(/\s+/g, "");
@@ -163,7 +72,7 @@ function buildFileName(d, purpose) {
   if (d.건설사) parts.push(sanitize(d.건설사));
   if (d.현장) parts.push(sanitize(d.현장));
   if (d.종류) parts.push(sanitize(d.종류));
-  if (d.내용) parts.push(sanitize(d.내용));
+  if (d.옵션) parts.push(sanitize(d.옵션));
   if (d.버전) parts.push(d.버전);
   var base = parts.join("-");
   if (purpose && purpose !== "원본") base += "-발주(" + purpose + ")";
@@ -178,15 +87,13 @@ function buildFolder(d) {
   if (d.현장) folders.push(sanitize(d.현장));
   return folders.join("\\");
 }
-function ensureFolder(folderPath) {
-  var f = new Folder(folderPath);
+function ensureFolder(p) {
+  var f = new Folder(p);
   if (!f.exists) f.create();
   return f;
 }
 
-// ══════════════════════════════════════════════════════════
-// 일러스트 저장 함수들
-// ══════════════════════════════════════════════════════════
+// ── 일러스트 저장 함수 ──────────────────────────
 function saveAsAI(doc, filePath, compatibility) {
   var opts = new IllustratorSaveOptions();
   opts.compatibility = compatibility;
@@ -216,10 +123,6 @@ function exportJPG(doc, filePath, quality) {
   opts.optimization = true;
   doc.exportFile(new File(filePath), ExportType.JPEG, opts);
 }
-
-// ══════════════════════════════════════════════════════════
-// 텍스트 프레임 삽입 (defensive)
-// ══════════════════════════════════════════════════════════
 function insertTextFrames(doc, data) {
   var centerX = 300, topY = 0;
   try {
@@ -228,23 +131,21 @@ function insertTextFrames(doc, data) {
     centerX = (rect[0] + rect[2]) / 2;
     topY = rect[1] - 50;
   } catch(e) {}
-
   var tf1 = doc.textFrames.add();
   tf1.contents = data.line1;
   try { tf1.position = [centerX - 200, topY]; } catch(e) {}
   try {
-    tf1.textRange.characterAttributes.size = data.fontSize1;
+    tf1.textRange.characterAttributes.size = data.fontSize1 || 24;
     if (data.alignCenter) {
       try { tf1.textRange.paragraphAttributes.justification = Justification.CENTER; } catch(e) {}
     }
   } catch(e) {}
-
   if (data.line2) {
     var tf2 = doc.textFrames.add();
     tf2.contents = data.line2;
-    try { tf2.position = [centerX - 100, topY - data.fontSize1 - 20]; } catch(e) {}
+    try { tf2.position = [centerX - 100, topY - (data.fontSize1 || 24) - 20]; } catch(e) {}
     try {
-      tf2.textRange.characterAttributes.size = data.fontSize2;
+      tf2.textRange.characterAttributes.size = data.fontSize2 || 18;
       if (data.alignCenter) {
         try { tf2.textRange.paragraphAttributes.justification = Justification.CENTER; } catch(e) {}
       }
@@ -253,203 +154,67 @@ function insertTextFrames(doc, data) {
 }
 
 // ══════════════════════════════════════════════════════════
-// 시안 저장 모달 다이얼로그 (같은 스크립트 안에서)
-// ══════════════════════════════════════════════════════════
-function showSaveDialog(prefill) {
-  prefill = prefill || {};
-  var dlg = new Window("dialog", "💾 시안 저장");
-  dlg.orientation = "column";
-  dlg.alignChildren = "fill";
-  dlg.preferredSize.width = 520;
-
-  var infoP = dlg.add("panel", undefined, "시안 정보");
-  infoP.orientation = "column";
-  infoP.alignChildren = "fill";
-  infoP.margins = 12;
-  infoP.spacing = 6;
-
-  // 월일
-  var rowD = infoP.add("group");
-  rowD.alignChildren = ["left", "center"];
-  rowD.add("statictext", undefined, "월일").preferredSize.width = 60;
-  var dateInput = rowD.add("edittext", undefined, prefill.월일 || todayMMDD());
-  dateInput.characters = 8;
-
-  // 건설사 / 현장 (콤보박스)
-  var brandInput = makeCombo(infoP, "건설사", BRAND_DICT, "예: 두산");
-  brandInput.text = prefill.건설사 || "";
-  var siteInput = makeCombo(infoP, "현장", null, "예: 성수장미");
-  siteInput.text = prefill.현장 || "";
-  // 종류 / 내용 / 버전
-  var kindInput = makeCombo(infoP, "종류", KIND_DICT, "예: A형철판");
-  kindInput.text = prefill.종류 || "";
-  var descInput = makeCombo(infoP, "내용", null, "예: 실명제");
-  descInput.text = prefill.내용 || "";
-  var rowV = infoP.add("group");
-  rowV.alignChildren = ["left", "center"];
-  rowV.add("statictext", undefined, "버전").preferredSize.width = 60;
-  var verInput = rowV.add("edittext", undefined, prefill.버전 || "v1");
-  verInput.characters = 6;
-
-  // 발주처 (콤보박스, 단일)
-  var vendorP = dlg.add("panel", undefined, "발주처 (단일 선택)");
-  vendorP.orientation = "column";
-  vendorP.alignChildren = "fill";
-  vendorP.margins = 12;
-  var vendorInput = makeCombo(vendorP, "발주처", VENDOR_DICT, "(없으면 시안만 저장)");
-  vendorInput.text = prefill.발주처 || "공장";
-
-  // 저장 형식
-  var fmtP = dlg.add("panel", undefined, "저장 형식");
-  fmtP.orientation = "row";
-  fmtP.alignChildren = "left";
-  fmtP.margins = 12;
-  fmtP.spacing = 14;
-  var saveOriginal = fmtP.add("checkbox", undefined, "원본 .ai (CC)");
-  saveOriginal.value = true;
-  var saveCS6 = fmtP.add("checkbox", undefined, "발주용 .ai (CS6)");
-  saveCS6.value = true;
-  var saveJPG = fmtP.add("checkbox", undefined, "발주용 .jpg");
-  saveJPG.value = true;
-  var savePDF = fmtP.add("checkbox", undefined, "발주용 .pdf");
-  savePDF.value = false;
-
-  // 저장 폴더 미리보기
-  var folderG = dlg.add("group");
-  folderG.add("statictext", undefined, "저장 폴더:");
-  var folderText = folderG.add("statictext", undefined, "");
-  folderText.preferredSize.width = 400;
-  function updateFolder() {
-    folderText.text = buildFolder({ 건설사: brandInput.text, 현장: siteInput.text });
-  }
-  brandInput.onChanging = updateFolder;
-  siteInput.onChanging = updateFolder;
-  updateFolder();
-
-  // 버튼
-  var btnRow = dlg.add("group");
-  btnRow.alignment = "right";
-  var saveActionBtn = btnRow.add("button", undefined, "💾 한 번에 저장", { name: "ok" });
-  saveActionBtn.preferredSize.width = 130;
-  var cancelBtn = btnRow.add("button", undefined, "취소", { name: "cancel" });
-
-  saveActionBtn.onClick = function() {
-    if (!brandInput.text) { alert("건설사를 입력하세요"); return; }
-    if (!kindInput.text) { alert("종류를 입력하세요"); return; }
-    if (!saveOriginal.value && !saveCS6.value && !saveJPG.value && !savePDF.value) {
-      alert("저장 형식을 1개 이상 선택하세요"); return;
-    }
-
-    var data = {
-      월일: dateInput.text,
-      건설사: brandInput.text,
-      현장: siteInput.text,
-      종류: kindInput.text,
-      내용: descInput.text,
-      버전: verInput.text,
-      발주처: vendorInput.text
-    };
-
-    var folder = buildFolder(data);
-    try { ensureFolder(folder); } catch(e) { alert("폴더 생성 실패: " + e.message); return; }
-
-    var doc = app.activeDocument;
-    var savedFiles = [];
-    var errors = [];
-    var baseName = buildFileName(data, "원본");
-    var orderName = data.발주처 ? buildFileName(data, data.발주처) : baseName;
-
-    // 1. 원본 .ai (CC)
-    if (saveOriginal.value) {
-      try {
-        var p = folder + "\\" + baseName + ".ai";
-        saveAsAI(doc, p, Compatibility.ILLUSTRATOR);
-        savedFiles.push(p);
-      } catch(e) { errors.push("원본 .ai: " + e.message); }
-    }
-    // 2. JPG
-    if (saveJPG.value) {
-      try {
-        var pj = folder + "\\" + orderName + ".jpg";
-        exportJPG(doc, pj, 60);
-        savedFiles.push(pj);
-      } catch(e) { errors.push("JPG: " + e.message); }
-    }
-    // 3. CS6 .ai
-    if (saveCS6.value) {
-      try {
-        var pc = folder + "\\" + orderName + ".ai";
-        if (pc === folder + "\\" + baseName + ".ai") pc = folder + "\\" + baseName + "-cs6.ai";
-        saveAsAI(doc, pc, Compatibility.ILLUSTRATOR16);
-        savedFiles.push(pc);
-      } catch(e) { errors.push("CS6 .ai: " + e.message); }
-    }
-    // 4. PDF
-    if (savePDF.value) {
-      try {
-        var pp = folder + "\\" + orderName + ".pdf";
-        saveAsPDF(doc, pp);
-        savedFiles.push(pp);
-      } catch(e) { errors.push("PDF: " + e.message); }
-    }
-
-    var msg = "✅ 저장 완료: " + savedFiles.length + "개\n\n";
-    for (var s = 0; s < savedFiles.length; s++) msg += "• " + savedFiles[s].replace(folder + "\\", "") + "\n";
-    if (errors.length) {
-      msg += "\n⚠️ 오류:\n";
-      for (var e2 = 0; e2 < errors.length; e2++) msg += "• " + errors[e2] + "\n";
-    }
-    msg += "\n폴더: " + folder;
-    alert(msg);
-    dlg.close(1);
-  };
-  cancelBtn.onClick = function() { dlg.close(0); };
-
-  dlg.show();
-}
-
-// ══════════════════════════════════════════════════════════
-// 메인 palette
+// 메인 palette — 모든 동작 inline
 // ══════════════════════════════════════════════════════════
 function showPalette() {
   var dlg = new Window("palette", "시안 도우미");
   dlg.orientation = "column";
   dlg.alignChildren = "fill";
-  dlg.preferredSize.width = 480;
+  dlg.preferredSize.width = 540;
   dlg.spacing = 6;
   dlg.margins = 8;
 
-  // 컨텐츠 영역 (미니마이즈 시 숨김)
   var content = dlg.add("group");
   content.orientation = "column";
   content.alignChildren = "fill";
   content.spacing = 6;
 
+  // ── 시안 정보 ─────────────────
   var infoP = content.add("panel", undefined, "시안 정보");
   infoP.orientation = "column";
   infoP.alignChildren = "fill";
   infoP.margins = 10;
-  infoP.spacing = 6;
+  infoP.spacing = 5;
 
-  // 규격 — 검색 사전 없음 (자유입력)
-  var specInput = makeCombo(infoP, "규격", null, "예: 600*900 / 550파이");
+  function addRow(parent, label, w) {
+    var g = parent.add("group");
+    g.orientation = "row";
+    g.alignChildren = ["left", "center"];
+    var lbl = g.add("statictext", undefined, label);
+    lbl.preferredSize.width = w || 60;
+    return g;
+  }
 
-  // 상품명 — 콤보 (검색 사전 있음)
-  var kindInput = makeCombo(infoP, "상품명", KIND_DICT, "예: A형철판");
+  // 규격
+  var rowSpec = addRow(infoP, "규격");
+  var specInput = rowSpec.add("edittext", undefined, "");
+  specInput.characters = 36;
+  specInput.helpTip = "예: 600*900 / 550파이 / 1020mm*50M";
 
-  // 옵션
-  var optInput = makeCombo(infoP, "옵션", null, "예: 반사실사/단면");
+  // 상품명 + ▼ 사전 + + 옵션
+  var rowKind = addRow(infoP, "상품명");
+  var kindInput = rowKind.add("edittext", undefined, "");
+  kindInput.characters = 24;
+  kindInput.helpTip = "예: A형철판 (옵션 추가는 + 옵션 버튼)";
+  var kindPickBtn = rowKind.add("button", undefined, "▼ 사전");
+  kindPickBtn.preferredSize = [60, 22];
+  var kindOptBtn = rowKind.add("button", undefined, "+ 옵션");
+  kindOptBtn.preferredSize = [60, 22];
+
+  // 옵션 (현재 추가된 옵션 표시)
+  var rowOpt = addRow(infoP, "옵션");
+  var optInput = rowOpt.add("edittext", undefined, "");
+  optInput.characters = 36;
+  optInput.helpTip = "+옵션 버튼으로 추가 가능 / 직접 입력도 OK";
 
   // 수량
-  var qtyRow = infoP.add("group");
-  qtyRow.alignChildren = ["left", "center"];
-  qtyRow.add("statictext", undefined, "수량").preferredSize.width = 60;
-  var qtySingleRb = qtyRow.add("radiobutton", undefined, "단일");
+  var rowQty = addRow(infoP, "수량");
+  var qtySingleRb = rowQty.add("radiobutton", undefined, "단일");
   qtySingleRb.value = true;
-  var qtyInput = qtyRow.add("edittext", undefined, "1");
+  var qtyInput = rowQty.add("edittext", undefined, "1");
   qtyInput.characters = 4;
-  qtyRow.add("statictext", undefined, "개   ");
-  var qtyMultiRb = qtyRow.add("radiobutton", undefined, "다중");
+  rowQty.add("statictext", undefined, "개   ");
+  var qtyMultiRb = rowQty.add("radiobutton", undefined, "다중");
   var qtyMultiRow = infoP.add("group");
   qtyMultiRow.alignChildren = ["left", "center"];
   qtyMultiRow.add("statictext", undefined, "").preferredSize.width = 60;
@@ -458,34 +223,344 @@ function showPalette() {
   multiEach.characters = 4;
   qtyMultiRow.add("statictext", undefined, "개씩 총");
   var multiTotal = qtyMultiRow.add("edittext", undefined, "");
-  multiTotal.characters = 6;
+  multiTotal.characters = 5;
   qtyMultiRow.add("statictext", undefined, "개");
   qtyMultiRow.visible = false;
 
-  var dateRow = infoP.add("group");
-  dateRow.alignChildren = ["left", "center"];
-  dateRow.add("statictext", undefined, "납품일").preferredSize.width = 60;
-  var d2 = new Date();
-  var dateMonth = dateRow.add("edittext", undefined, String(d2.getMonth() + 1));
+  // 납품일
+  var rowDate = addRow(infoP, "납품일");
+  var d = new Date();
+  var dateMonth = rowDate.add("edittext", undefined, String(d.getMonth() + 1));
   dateMonth.characters = 3;
-  dateRow.add("statictext", undefined, "/");
-  var dateDay = dateRow.add("edittext", undefined, String(d2.getDate()));
+  rowDate.add("statictext", undefined, "/");
+  var dateDay = rowDate.add("edittext", undefined, String(d.getDate()));
   dateDay.characters = 3;
-  dateRow.add("statictext", undefined, "(M/D)");
+  rowDate.add("statictext", undefined, "(M/D)");
 
+  // ── 미리보기 ─────────────────
   var prevP = content.add("panel", undefined, "미리보기");
   prevP.orientation = "column";
   prevP.alignChildren = "fill";
   prevP.margins = 10;
   var prevLine1 = prevP.add("statictext", undefined, "(입력하면 여기 표시)");
-  prevLine1.preferredSize.width = 440;
+  prevLine1.preferredSize.width = 500;
   try { prevLine1.graphics.font = ScriptUI.newFont("Malgun Gothic", "Bold", 12); } catch(e) {}
   var prevLine2 = prevP.add("statictext", undefined, "");
-  prevLine2.preferredSize.width = 440;
+  prevLine2.preferredSize.width = 500;
 
+  // 상태
   var statusText = content.add("statictext", undefined, "");
-  statusText.preferredSize.width = 460;
+  statusText.preferredSize.width = 520;
 
+  // 액션 버튼
+  var btnRow = dlg.add("group");
+  btnRow.alignment = "right";
+  var insertBtn = btnRow.add("button", undefined, "텍스트 삽입");
+  insertBtn.preferredSize.width = 100;
+  var clearBtn = btnRow.add("button", undefined, "초기화");
+  var saveBtn = btnRow.add("button", undefined, "💾 시안 저장");
+  saveBtn.preferredSize.width = 110;
+  var minBtn = btnRow.add("button", undefined, "_");
+  minBtn.preferredSize.width = 30;
+
+  // ══════════════════════════════════════════════════════════
+  // DRAWER — 모든 inline 영역이 여기 로드됨 (검색/옵션/저장)
+  // ══════════════════════════════════════════════════════════
+  var drawer = dlg.add("panel", undefined, "");
+  drawer.orientation = "column";
+  drawer.alignChildren = "fill";
+  drawer.margins = 10;
+  drawer.visible = false;
+
+  var drawerMode = null;        // 'pick' | 'option' | 'save'
+  var drawerTargetInput = null; // 검색 결과 보낼 input
+
+  // drawer 내부 영역 3개 — 모드에 따라 보임
+  var pickArea = drawer.add("group");
+  pickArea.orientation = "column";
+  pickArea.alignChildren = "fill";
+  pickArea.visible = false;
+
+  var optionArea = drawer.add("group");
+  optionArea.orientation = "column";
+  optionArea.alignChildren = "fill";
+  optionArea.visible = false;
+
+  var saveArea = drawer.add("group");
+  saveArea.orientation = "column";
+  saveArea.alignChildren = "fill";
+  saveArea.visible = false;
+
+  // ── PICK (사전 검색) ─────────────────
+  var pickHeader = pickArea.add("statictext", undefined, "🔍 사전 검색");
+  try { pickHeader.graphics.font = ScriptUI.newFont("Malgun Gothic", "Bold", 11); } catch(e) {}
+  var pickSearchRow = pickArea.add("group");
+  pickSearchRow.add("statictext", undefined, "검색:");
+  var pickSearchInput = pickSearchRow.add("edittext", undefined, "");
+  pickSearchInput.characters = 30;
+  var pickList = pickArea.add("listbox", undefined, []);
+  pickList.preferredSize = [500, 220];
+  var pickBtnRow = pickArea.add("group");
+  pickBtnRow.alignment = "right";
+  var pickOkBtn = pickBtnRow.add("button", undefined, "선택");
+  var pickCancelBtn = pickBtnRow.add("button", undefined, "닫기");
+
+  var pickCurrentDict = [];
+  function refreshPickList() {
+    var query = String(pickSearchInput.text || "").toLowerCase();
+    pickList.removeAll();
+    for (var i = 0; i < pickCurrentDict.length; i++) {
+      if (!query || String(pickCurrentDict[i]).toLowerCase().indexOf(query) >= 0) {
+        pickList.add("item", pickCurrentDict[i]);
+      }
+    }
+    if (pickList.items.length > 0) pickList.selection = 0;
+  }
+  pickSearchInput.onChanging = refreshPickList;
+  pickList.onDoubleClick = function() {
+    if (pickList.selection && drawerTargetInput) {
+      drawerTargetInput.text = pickList.selection.text;
+      try { if (drawerTargetInput.onChanging) drawerTargetInput.onChanging(); } catch(e) {}
+    }
+    closeDrawer();
+  };
+  pickOkBtn.onClick = function() {
+    if (drawerTargetInput) {
+      if (pickList.selection) drawerTargetInput.text = pickList.selection.text;
+      else if (pickSearchInput.text) drawerTargetInput.text = pickSearchInput.text;
+      try { if (drawerTargetInput.onChanging) drawerTargetInput.onChanging(); } catch(e) {}
+    }
+    closeDrawer();
+  };
+  pickCancelBtn.onClick = function() { closeDrawer(); };
+
+  // ── OPTION (다중 선택) ─────────────────
+  var optionHeader = optionArea.add("statictext", undefined, "+ 옵션 추가 (다중 선택)");
+  try { optionHeader.graphics.font = ScriptUI.newFont("Malgun Gothic", "Bold", 11); } catch(e) {}
+  var optionList = optionArea.add("listbox", undefined, OPTION_DICT, { multiselect: true });
+  optionList.preferredSize = [500, 220];
+  var optionCustomRow = optionArea.add("group");
+  optionCustomRow.add("statictext", undefined, "직접 추가:");
+  var optionCustomInput = optionCustomRow.add("edittext", undefined, "");
+  optionCustomInput.characters = 32;
+  optionCustomInput.helpTip = "쉼표로 구분 (예: 양면,사방타공)";
+  var optionBtnRow = optionArea.add("group");
+  optionBtnRow.alignment = "right";
+  var optionAddBtn = optionBtnRow.add("button", undefined, "상품명에 추가");
+  var optionCancelBtn = optionBtnRow.add("button", undefined, "닫기");
+
+  optionAddBtn.onClick = function() {
+    var selected = [];
+    if (optionList.selection) {
+      if (optionList.selection.length !== undefined) {
+        for (var s = 0; s < optionList.selection.length; s++) selected.push(optionList.selection[s].text);
+      } else {
+        selected.push(optionList.selection.text);
+      }
+    }
+    if (optionCustomInput.text) {
+      var customs = optionCustomInput.text.split(",");
+      for (var c = 0; c < customs.length; c++) {
+        var t = customs[c].replace(/^\s+|\s+$/g, "");
+        if (t) selected.push(t);
+      }
+    }
+    if (selected.length > 0 && drawerTargetInput) {
+      var current = drawerTargetInput.text || "";
+      for (var i = 0; i < selected.length; i++) current += "+" + selected[i];
+      drawerTargetInput.text = current;
+      try { if (drawerTargetInput.onChanging) drawerTargetInput.onChanging(); } catch(e) {}
+    }
+    closeDrawer();
+  };
+  optionCancelBtn.onClick = function() { closeDrawer(); };
+
+  // ── SAVE (저장 form) ─────────────────
+  var saveHeader = saveArea.add("statictext", undefined, "💾 시안 저장");
+  try { saveHeader.graphics.font = ScriptUI.newFont("Malgun Gothic", "Bold", 11); } catch(e) {}
+
+  function saveRow(parent, label, w) {
+    var g = parent.add("group");
+    g.orientation = "row";
+    g.alignChildren = ["left", "center"];
+    var lbl = g.add("statictext", undefined, label);
+    lbl.preferredSize.width = w || 70;
+    return g;
+  }
+
+  var sRow1 = saveRow(saveArea, "월일");
+  var saveMonth = sRow1.add("edittext", undefined, todayMMDD());
+  saveMonth.characters = 8;
+
+  var sRow2 = saveRow(saveArea, "건설사");
+  var saveBrandInput = sRow2.add("edittext", undefined, "");
+  saveBrandInput.characters = 28;
+  var saveBrandPickBtn = sRow2.add("button", undefined, "▼ 사전");
+  saveBrandPickBtn.preferredSize = [60, 22];
+
+  var sRow3 = saveRow(saveArea, "현장");
+  var saveSiteInput = sRow3.add("edittext", undefined, "");
+  saveSiteInput.characters = 36;
+
+  var sRow4 = saveRow(saveArea, "종류");
+  var saveKindInput = sRow4.add("edittext", undefined, "");
+  saveKindInput.characters = 36;
+
+  var sRow5 = saveRow(saveArea, "옵션");
+  var saveOptInput = sRow5.add("edittext", undefined, "");
+  saveOptInput.characters = 36;
+
+  var sRow6 = saveRow(saveArea, "버전");
+  var saveVerInput = sRow6.add("edittext", undefined, "v1");
+  saveVerInput.characters = 6;
+
+  var sRow7 = saveRow(saveArea, "발주처");
+  var saveVendorInput = sRow7.add("edittext", undefined, "공장");
+  saveVendorInput.characters = 28;
+  var saveVendorPickBtn = sRow7.add("button", undefined, "▼ 사전");
+  saveVendorPickBtn.preferredSize = [60, 22];
+
+  var sFmtRow = saveArea.add("group");
+  sFmtRow.add("statictext", undefined, "형식").preferredSize.width = 70;
+  var saveFmtAI = sFmtRow.add("checkbox", undefined, "원본 .ai (CC)");
+  saveFmtAI.value = true;
+  var saveFmtCS6 = sFmtRow.add("checkbox", undefined, "발주 .ai (CS6)");
+  saveFmtCS6.value = true;
+  var saveFmtJPG = sFmtRow.add("checkbox", undefined, ".jpg");
+  saveFmtJPG.value = true;
+  var saveFmtPDF = sFmtRow.add("checkbox", undefined, ".pdf");
+  saveFmtPDF.value = false;
+
+  var sFolderRow = saveArea.add("group");
+  sFolderRow.add("statictext", undefined, "저장 폴더:");
+  var saveFolderText = sFolderRow.add("statictext", undefined, "");
+  saveFolderText.preferredSize.width = 420;
+
+  function updateSaveFolder() {
+    saveFolderText.text = buildFolder({ 건설사: saveBrandInput.text, 현장: saveSiteInput.text });
+  }
+  saveBrandInput.onChanging = updateSaveFolder;
+  saveSiteInput.onChanging = updateSaveFolder;
+
+  var saveBtnRow = saveArea.add("group");
+  saveBtnRow.alignment = "right";
+  var saveExecBtn = saveBtnRow.add("button", undefined, "💾 한 번에 저장");
+  saveExecBtn.preferredSize.width = 130;
+  var saveCancelBtn = saveBtnRow.add("button", undefined, "닫기");
+
+  saveBrandPickBtn.onClick = function() {
+    openPick(BRAND_DICT, saveBrandInput);
+  };
+  saveVendorPickBtn.onClick = function() {
+    openPick(VENDOR_DICT, saveVendorInput);
+  };
+
+  saveExecBtn.onClick = function() {
+    if (!app.documents.length) { statusText.text = "⚠️ 열린 문서가 없습니다"; return; }
+    if (!saveBrandInput.text) { statusText.text = "⚠️ 건설사 입력하세요"; return; }
+    if (!saveKindInput.text) { statusText.text = "⚠️ 종류 입력하세요"; return; }
+    if (!saveFmtAI.value && !saveFmtCS6.value && !saveFmtJPG.value && !saveFmtPDF.value) {
+      statusText.text = "⚠️ 저장 형식 1개 이상 선택"; return;
+    }
+    var data = {
+      월일: saveMonth.text,
+      건설사: saveBrandInput.text,
+      현장: saveSiteInput.text,
+      종류: saveKindInput.text,
+      옵션: saveOptInput.text,
+      버전: saveVerInput.text,
+      발주처: saveVendorInput.text
+    };
+    var folder = buildFolder(data);
+    try { ensureFolder(folder); } catch(e) { statusText.text = "⚠️ 폴더 생성 실패: " + e.message; return; }
+    var doc = app.activeDocument;
+    var savedFiles = [];
+    var errors = [];
+    var baseName = buildFileName(data, "원본");
+    var orderName = data.발주처 ? buildFileName(data, data.발주처) : baseName;
+
+    if (saveFmtAI.value) {
+      try {
+        var p1 = folder + "\\" + baseName + ".ai";
+        saveAsAI(doc, p1, Compatibility.ILLUSTRATOR);
+        savedFiles.push(p1);
+      } catch(e) { errors.push("원본 .ai: " + e.message); }
+    }
+    if (saveFmtJPG.value) {
+      try {
+        var p2 = folder + "\\" + orderName + ".jpg";
+        exportJPG(doc, p2, 60);
+        savedFiles.push(p2);
+      } catch(e) { errors.push("JPG: " + e.message); }
+    }
+    if (saveFmtCS6.value) {
+      try {
+        var p3 = folder + "\\" + orderName + ".ai";
+        if (p3 === folder + "\\" + baseName + ".ai") p3 = folder + "\\" + baseName + "-cs6.ai";
+        saveAsAI(doc, p3, Compatibility.ILLUSTRATOR16);
+        savedFiles.push(p3);
+      } catch(e) { errors.push("CS6 .ai: " + e.message); }
+    }
+    if (saveFmtPDF.value) {
+      try {
+        var p4 = folder + "\\" + orderName + ".pdf";
+        saveAsPDF(doc, p4);
+        savedFiles.push(p4);
+      } catch(e) { errors.push("PDF: " + e.message); }
+    }
+
+    var msg = "✓ 저장 완료: " + savedFiles.length + "개";
+    if (errors.length) msg += " / 오류 " + errors.length + "개";
+    statusText.text = msg;
+    closeDrawer();
+  };
+  saveCancelBtn.onClick = function() { closeDrawer(); };
+
+  // ── DRAWER 제어 ─────────────────
+  function openPick(dict, target) {
+    drawerMode = 'pick';
+    drawerTargetInput = target;
+    pickCurrentDict = dict;
+    pickSearchInput.text = target.text || "";
+    refreshPickList();
+    pickArea.visible = true;
+    optionArea.visible = false;
+    saveArea.visible = false;
+    drawer.visible = true;
+  }
+  function openOption(target) {
+    drawerMode = 'option';
+    drawerTargetInput = target;
+    optionList.selection = null;
+    optionCustomInput.text = "";
+    pickArea.visible = false;
+    optionArea.visible = true;
+    saveArea.visible = false;
+    drawer.visible = true;
+  }
+  function openSave() {
+    drawerMode = 'save';
+    drawerTargetInput = null;
+    // prefill 종류=상품명, 옵션=현재 옵션
+    saveKindInput.text = kindInput.text;
+    saveOptInput.text = optInput.text;
+    updateSaveFolder();
+    pickArea.visible = false;
+    optionArea.visible = false;
+    saveArea.visible = true;
+    drawer.visible = true;
+  }
+  function closeDrawer() {
+    drawer.visible = false;
+    drawerMode = null;
+    drawerTargetInput = null;
+  }
+
+  // ── 콤보 버튼 액션 ─────────────────
+  kindPickBtn.onClick = function() { openPick(KIND_DICT, kindInput); };
+  kindOptBtn.onClick = function() { openOption(kindInput); };
+
+  // ── 미리보기 빌드 ─────────────────
   function buildQty() {
     if (qtyMultiRb.value) {
       var ee = String(multiEach.text || "").replace(/^\s+|\s+$/g, "");
@@ -517,17 +592,7 @@ function showPalette() {
   qtySingleRb.onClick = function() { qtyMultiRow.visible = false; qtyInput.enabled = true; updatePreview(); };
   qtyMultiRb.onClick = function() { qtyMultiRow.visible = true; qtyInput.enabled = false; updatePreview(); };
 
-  var btnRow = dlg.add("group");
-  btnRow.alignment = "right";
-  var insertBtn = btnRow.add("button", undefined, "텍스트 삽입");
-  insertBtn.preferredSize.width = 100;
-  var clearBtn = btnRow.add("button", undefined, "초기화");
-  var saveBtn = btnRow.add("button", undefined, "💾 시안 저장");
-  saveBtn.preferredSize.width = 110;
-  var minBtn = btnRow.add("button", undefined, "_");
-  minBtn.preferredSize.width = 30;
-  minBtn.helpTip = "최소화/복원";
-
+  // ── 메인 액션 버튼 ─────────────────
   insertBtn.onClick = function() {
     var line1 = prevLine1.text;
     var line2 = prevLine2.text;
@@ -535,7 +600,7 @@ function showPalette() {
     if (!app.documents.length) { statusText.text = "⚠️ 열린 문서가 없습니다"; return; }
     try {
       insertTextFrames(app.activeDocument, { line1: line1, line2: line2, alignCenter: true, fontSize1: 24, fontSize2: 18 });
-      statusText.text = "✓ 삽입 완료: " + line1.substring(0, 40);
+      statusText.text = "✓ 삽입 완료";
       try { app.redraw(); } catch(e) {}
     } catch(e) { statusText.text = "⚠️ 삽입 오류: " + (e.message || e.toString()); }
   };
@@ -552,17 +617,15 @@ function showPalette() {
   };
   saveBtn.onClick = function() {
     if (!app.documents.length) { statusText.text = "⚠️ 열린 문서가 없습니다"; return; }
-    try {
-      showSaveDialog({ 종류: kindInput.text, 내용: optInput.text });
-      statusText.text = "✓ 저장 완료 (또는 취소됨)";
-    } catch(e) { statusText.text = "⚠️ 저장 오류: " + (e.message || e.toString()); }
+    openSave();
   };
+
   var minimized = false;
   minBtn.onClick = function() {
     minimized = !minimized;
     content.visible = !minimized;
+    drawer.visible = false;
     minBtn.text = minimized ? "□" : "_";
-    minBtn.helpTip = minimized ? "원래 크기로 복원" : "최소화";
   };
 
   dlg.show();
