@@ -5,7 +5,7 @@
 <title>연락처</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; font-family: 'Noto Sans KR', 'Segoe UI', sans-serif; font-size: 12px; color: #1f2937; background: #ffffff; overflow: hidden; }
+  html, body { height: 100%; font-family: 'Noto Sans KR', 'Segoe UI', sans-serif; font-size: 12px; color: #1f2937; background: #fffbeb; overflow: hidden; }
 
   /* 헤더 — drag 영역 */
   .hdr {
@@ -37,7 +37,7 @@
   .hdr-btn.close:hover { background: #ef4444; color: #fff; }
 
   /* 검색 */
-  .search-wrap { padding: 6px 8px; border-bottom: 1px solid #e5e7eb; background: #fafafa; }
+  .search-wrap { padding: 6px 8px; border-bottom: 1px solid #f59e0b40; background: #fef9c3; }
   .search-wrap input {
     width: 100%;
     padding: 5px 8px;
@@ -74,14 +74,32 @@
   /* 연락처 항목 */
   .contact-item {
     padding: 6px 8px;
-    border-bottom: 1px solid #f3f4f6;
+    border-bottom: 1px solid #fde68a80;
     cursor: pointer;
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 6px;
   }
   .contact-item:hover { background: #fef3c7; }
-  .contact-item.expanded { background: #fffbeb; }
+  .contact-item.expanded { background: #fde68a; }
+  .quick-copy {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    border: 1px solid #f59e0b50;
+    background: #fff;
+    border-radius: 4px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #b45309;
+    font-size: 11px;
+    padding: 0;
+  }
+  .quick-copy:hover { background: #fde68a; border-color: #d97706; }
+  .quick-copy:active { background: #fbbf24; color: #fff; }
+  .quick-copy:disabled { opacity: 0.3; cursor: not-allowed; }
 
   .star {
     flex-shrink: 0;
@@ -166,8 +184,8 @@
 
   /* 푸터 (모드 전환) */
   .footer {
-    border-top: 1px solid #e5e7eb;
-    background: #f9fafb;
+    border-top: 1px solid #f59e0b40;
+    background: #fef9c3;
     padding: 4px;
     display: flex;
     gap: 4px;
@@ -175,19 +193,20 @@
   }
   .mode-btn {
     flex: 1;
-    background: #fff;
-    border: 1px solid #e5e7eb;
+    background: #fef3c7;
+    border: 1px solid #f59e0b50;
     border-radius: 4px;
     cursor: pointer;
     font-size: 11px;
-    color: #4b5563;
+    color: #78350f;
+    font-weight: 600;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 3px;
     transition: all 0.1s;
   }
-  .mode-btn:hover { background: #fde68a; border-color: #f59e0b; color: #78350f; }
+  .mode-btn:hover { background: #fde68a; border-color: #d97706; }
 </style>
 </head>
 <body>
@@ -262,25 +281,10 @@
   }
 
   function render() {
-    const favs = favoriteIds
-      .map(id => allContacts.find(c => c.id === id))
-      .filter(Boolean)
-      .filter(c => matchSearch(c, searchQ));
-
     let html = '';
 
-    // 즐겨찾기 섹션
-    if (!searchQ) {
-      html += '<div class="section-title">⭐ 즐겨찾기 (' + favs.length + ')</div>';
-      if (favs.length === 0) {
-        html += '<div class="empty">즐겨찾기가 비어있습니다.<div class="hint">★ 클릭하면 즐겨찾기에 추가됩니다.</div></div>';
-      } else {
-        html += favs.map(c => renderItem(c, true)).join('');
-      }
-    }
-
-    // 검색 결과
     if (searchQ) {
+      // 검색 모드 — 전체에서 매칭
       const matched = allContacts.filter(c => matchSearch(c, searchQ));
       html += '<div class="section-title">검색 결과 (' + matched.length + ')</div>';
       if (matched.length === 0) {
@@ -288,10 +292,42 @@
       } else {
         html += matched.slice(0, 50).map(c => renderItem(c, favoriteIds.includes(c.id))).join('');
       }
+    } else {
+      // 일반 모드 — 즐겨찾기 + 전체 둘 다 보임
+      const favs = favoriteIds
+        .map(id => allContacts.find(c => c.id === id))
+        .filter(Boolean);
+      const others = allContacts.filter(c => !favoriteIds.includes(c.id));
+      // 회사명 → 이름 순 정렬
+      others.sort((a, b) => {
+        const ca = (a.company || '').localeCompare(b.company || '', 'ko');
+        if (ca !== 0) return ca;
+        return (a.name || '').localeCompare(b.name || '', 'ko');
+      });
+
+      if (favs.length > 0) {
+        html += '<div class="section-title">⭐ 즐겨찾기 (' + favs.length + ')</div>';
+        html += favs.map(c => renderItem(c, true)).join('');
+      }
+      html += '<div class="section-title">📇 전체 (' + others.length + ')</div>';
+      if (others.length === 0 && favs.length === 0) {
+        html += '<div class="empty">연락처가 없습니다.<div class="hint">ERP 에서 추가하세요.</div></div>';
+      } else if (others.length === 0) {
+        html += '<div class="empty" style="padding:8px;font-size:10px;">모든 연락처가 즐겨찾기에 있습니다.</div>';
+      } else {
+        // 첫 50개 + 더보기
+        const showCount = window._wsContactsShowAll ? others.length : Math.min(50, others.length);
+        html += others.slice(0, showCount).map(c => renderItem(c, false)).join('');
+        if (others.length > showCount) {
+          html += '<div class="empty" style="padding:8px;font-size:10px;cursor:pointer;color:#b45309;" id="showMoreBtn">▼ 더보기 (' + (others.length - showCount) + '개)</div>';
+        }
+      }
     }
 
     $body.innerHTML = html;
     bindItemEvents();
+    const btn = document.getElementById('showMoreBtn');
+    if (btn) btn.addEventListener('click', () => { window._wsContactsShowAll = true; render(); });
   }
 
   function renderItem(c, isFav) {
@@ -305,7 +341,14 @@
     html += '<div class="contact-name">' + escapeHtml(c.name || '(이름 없음)') + '</div>';
     if (meta) html += '<div class="contact-meta">' + escapeHtml(meta) + '</div>';
     else if (phone) html += '<div class="contact-meta">' + escapeHtml(phone) + '</div>';
-    html += '</div></div>';
+    html += '</div>';
+    // 빠른 복사 버튼 — 휴대폰/사무실 번호 즉시 복사
+    if (phone) {
+      html += '<button class="quick-copy" data-quick-copy="' + escapeHtml(phone) + '" title="번호 복사: ' + escapeHtml(phone) + '">📋</button>';
+    } else {
+      html += '<button class="quick-copy" disabled title="번호 없음">📋</button>';
+    }
+    html += '</div>';
 
     if (expanded) {
       html += '<div class="detail">';
@@ -347,6 +390,15 @@
         const txt = el.dataset.copy;
         await api.copyText(txt);
         showToast('복사됨: ' + txt);
+      });
+    });
+    // 빠른 복사 버튼 (행에 항상 보임)
+    $body.querySelectorAll('[data-quick-copy]').forEach(el => {
+      el.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const txt = el.dataset.quickCopy;
+        await api.copyText(txt);
+        showToast('📋 복사됨: ' + txt);
       });
     });
   }

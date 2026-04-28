@@ -115,10 +115,10 @@
       border-bottom: none;
       min-height: 28px;
     }
-    /* 미니 모드: opacityBtn / colorBtn / aotBtn / icon / status 전부 숨김. 제목 + ⤢ + ✕ 만 */
+    /* 미니 모드: 제목 + 📌 + ⤢ + ✕ 만 보임. opacityBtn / colorBtn / aiBtn / icon / status 숨김 */
     body[data-mini="1"] #opacityBtn,
     body[data-mini="1"] #colorBtn,
-    body[data-mini="1"] #aotBtn,
+    body[data-mini="1"] #aiBtn,
     body[data-mini="1"] .memo-header .icon,
     body[data-mini="1"] .memo-status { display: none !important; }
     body[data-mini="1"] html,
@@ -228,6 +228,62 @@
     }
     .memo-btn:hover { background: rgba(255,255,255,.5); }
 
+    /* AI 인라인 프롬프트 */
+    .ai-prompt {
+      background: linear-gradient(135deg, #eef2ff, #ddd6fe);
+      border-bottom: 1px solid #c7d2fe;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .ai-prompt textarea {
+      width: 100%;
+      min-height: 50px;
+      padding: 6px 8px;
+      border: 1px solid #c7d2fe;
+      border-radius: 6px;
+      font-size: 12.5px;
+      font-family: inherit;
+      resize: vertical;
+      outline: none;
+      background: #fff;
+    }
+    .ai-prompt textarea:focus { border-color: #6366f1; }
+    .ai-prompt-row { display: flex; gap: 6px; }
+    .ai-go {
+      flex: 1;
+      padding: 6px 10px;
+      background: linear-gradient(135deg, #4f6ef7, #3b5ce4);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .ai-go:hover { filter: brightness(1.06); }
+    .ai-go:disabled { opacity: 0.5; cursor: not-allowed; }
+    .ai-cancel {
+      padding: 6px 10px;
+      background: #fff;
+      color: #6b7280;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .ai-cancel:hover { background: #f3f4f6; }
+    .ai-status {
+      font-size: 11px;
+      color: #4338ca;
+      padding: 4px 6px;
+      background: #fff;
+      border-radius: 4px;
+      border: 1px solid #c7d2fe;
+    }
+    body[data-mini="1"] .ai-prompt { display: none !important; }
+
     /* 색상 팔레트 */
     .color-palette {
       position: absolute;
@@ -328,10 +384,20 @@
     <div class="memo-title-display" id="titleDisplay" title="더블클릭하여 편집">제목 없음</div>
     <input class="memo-title-input" id="title" placeholder="제목 없음" style="display:none;" />
     <span class="memo-status" id="status">대기</span>
+    <button class="memo-btn" id="aiBtn" title="🤖 AI로 글쓰기 — 메모에 내용 추가">🤖</button>
     <button class="memo-btn" id="opacityBtn" title="투명도 (호버 시 다시 진해짐)">👁</button>
     <button class="memo-btn" id="colorBtn" title="색상 변경">🎨</button>
     <button class="memo-btn" id="miniBtn" title="미니/원래 크기 토글">▭</button>
     <button class="memo-btn" id="closeBtn" title="창 닫기 (페이지는 저장됨)">×</button>
+  </div>
+  <!-- AI 프롬프트 인라인 패널 -->
+  <div class="ai-prompt" id="aiPrompt" style="display:none;">
+    <textarea id="aiInput" placeholder="AI에게 시킬 일을 적으세요 — 예: '오늘 회의록 작성', '이 내용 요약해서 추가'"></textarea>
+    <div class="ai-prompt-row">
+      <button class="ai-go" id="aiGo">▶ 생성하고 메모에 추가</button>
+      <button class="ai-cancel" id="aiCancel">취소</button>
+    </div>
+    <div class="ai-status" id="aiStatus" style="display:none;"></div>
   </div>
 
   <!-- 색상 팔레트 -->
@@ -433,6 +499,136 @@
     aotBtn.style.opacity = '1';
   }
 
+  // ── AI 작성 (인라인 프롬프트 → SSE → 에디터에 삽입) ──
+  const aiBtn = document.getElementById('aiBtn');
+  const aiPrompt = document.getElementById('aiPrompt');
+  const aiInput = document.getElementById('aiInput');
+  const aiGo = document.getElementById('aiGo');
+  const aiCancel = document.getElementById('aiCancel');
+  const aiStatusEl = document.getElementById('aiStatus');
+  let aiBusy = false;
+  let aiThreadId = null;
+
+  function showAiPrompt(on) {
+    aiPrompt.style.display = on ? '' : 'none';
+    if (on) setTimeout(() => aiInput.focus(), 50);
+    else aiInput.value = '';
+  }
+  aiBtn.addEventListener('click', () => {
+    showAiPrompt(aiPrompt.style.display === 'none');
+  });
+  aiCancel.addEventListener('click', () => showAiPrompt(false));
+  aiInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); aiGo.click(); }
+    if (e.key === 'Escape') { e.preventDefault(); showAiPrompt(false); }
+  });
+
+  async function insertAiResultIntoEditor(text) {
+    if (!editor || !text) return;
+    try {
+      // 텍스트를 줄바꿈 기준으로 단락 블록으로 변환 (간단 버전)
+      const paras = text.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
+      const allBlocks = await editor.save();
+      const insertIdx = allBlocks.blocks ? allBlocks.blocks.length : 0;
+      for (let i = 0; i < paras.length; i++) {
+        const p = paras[i];
+        // 줄바꿈은 <br> 로
+        const html = p.replace(/\n/g, '<br>');
+        // # 으로 시작하면 헤더로 (간단 마크다운)
+        if (/^###\s/.test(p)) {
+          editor.blocks.insert('header', { text: p.replace(/^###\s/, ''), level: 3 }, {}, insertIdx + i, true);
+        } else if (/^##\s/.test(p)) {
+          editor.blocks.insert('header', { text: p.replace(/^##\s/, ''), level: 2 }, {}, insertIdx + i, true);
+        } else if (/^- /.test(p)) {
+          // 불릿 목록
+          const items = p.split('\n').map(l => l.replace(/^- /, '').trim()).filter(Boolean);
+          editor.blocks.insert('list', { style: 'unordered', items }, {}, insertIdx + i, true);
+        } else {
+          editor.blocks.insert('paragraph', { text: html }, {}, insertIdx + i, true);
+        }
+      }
+      dirty = true;
+      scheduleSave();
+    } catch (e) {
+      console.error('AI 결과 삽입 실패:', e);
+    }
+  }
+
+  aiGo.addEventListener('click', async () => {
+    if (aiBusy) return;
+    const task = aiInput.value.trim();
+    if (!task) return;
+    if (!editor) {
+      aiStatusEl.style.display = '';
+      aiStatusEl.textContent = '⏳ 에디터 로딩 중 — 잠시 후 다시 시도하세요';
+      return;
+    }
+    aiBusy = true;
+    aiGo.disabled = true;
+    aiGo.textContent = '...생성 중';
+    aiStatusEl.style.display = '';
+    aiStatusEl.textContent = '🤖 AI 생각 중...';
+
+    try {
+      const resp = await fetch('/api/ai/agent/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ task, threadId: aiThreadId }),
+      });
+      if (!resp.ok) {
+        const err = await resp.text().catch(() => 'HTTP ' + resp.status);
+        aiStatusEl.textContent = '오류: ' + err;
+        return;
+      }
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buf = '';
+      let aiText = '';
+      let currentEvent = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() || '';
+        for (const line of lines) {
+          const t = line.trimEnd();
+          if (!t) continue;
+          if (t.startsWith('event:')) currentEvent = t.slice(6).trim();
+          else if (t.startsWith('data:')) {
+            try {
+              const data = JSON.parse(t.slice(5).trim());
+              if (currentEvent === 'thread' && data.threadId) aiThreadId = data.threadId;
+              if (currentEvent === 'text' && data.text) {
+                aiText += data.text;
+                aiStatusEl.textContent = '🤖 작성 중... (' + aiText.length + 'chars)';
+              }
+              if (currentEvent === 'tool' && data.name) {
+                aiStatusEl.textContent = '🔧 ' + data.name + ' 실행 중...';
+              }
+              if (currentEvent === 'done' && data.text && !aiText) aiText = data.text;
+              if (currentEvent === 'error') aiStatusEl.textContent = '오류: ' + (data.error || '알 수 없음');
+            } catch (e) {}
+          }
+        }
+      }
+      if (aiText) {
+        await insertAiResultIntoEditor(aiText);
+        aiStatusEl.textContent = '✅ 메모에 추가됨';
+        setTimeout(() => showAiPrompt(false), 800);
+      } else {
+        aiStatusEl.textContent = '응답 없음';
+      }
+    } catch (e) {
+      aiStatusEl.textContent = '오류: ' + (e.message || e);
+    } finally {
+      aiBusy = false;
+      aiGo.disabled = false;
+      aiGo.textContent = '▶ 생성하고 메모에 추가';
+    }
+  });
+
   // ── 미니 모드 (본문 숨기고 헤더만) — IPC 로 정확한 윈도우 리사이즈 ──
   const miniBtn = document.getElementById('miniBtn');
   const MINI_KEY = 'wsMemo:mini:' + pageId;
@@ -441,23 +637,31 @@
   let savedSize = null;
   try { savedSize = JSON.parse(localStorage.getItem(SIZE_KEY) || 'null'); } catch(_) {}
 
-  function setMini(on) {
+  function setMini(on, fromInit) {
     document.body.setAttribute('data-mini', on ? '1' : '0');
     miniBtn.textContent = on ? '⤢' : '▭';
     miniBtn.title = on ? '원래 크기로' : '미니 크기로';
     try { localStorage.setItem(MINI_KEY, on ? '1' : '0'); } catch(_) {}
 
     if (on) {
-      // 현재 크기 저장 (복원용)
-      try {
-        const cur = { w: window.outerWidth, h: window.outerHeight };
-        if (cur.h > 60) { // 미니 상태가 아닐 때만 저장 (이중 저장 방지)
-          localStorage.setItem(SIZE_KEY, JSON.stringify(cur));
-          savedSize = cur;
-        }
-      } catch(_) {}
+      // 사용자 클릭으로 미니 진입할 때만 현재 크기를 savedSize 로 저장.
+      // 초기 페이지 로드 복원(fromInit=true) 시엔 윈도우 크기가 아직 minHeight 폴백(280)일 수 있어
+      // savedSize 가 손상됨 → 저장 스킵, 기존 SIZE_KEY 유지
+      if (!fromInit) {
+        try {
+          const cur = { w: window.outerWidth, h: window.outerHeight };
+          // h 가 미니 영역(<=60) 도 아니고 minHeight 폴백(<=290) 도 아닐 때만 저장
+          if (cur.h > 290) {
+            localStorage.setItem(SIZE_KEY, JSON.stringify(cur));
+            savedSize = cur;
+          } else if (cur.h > 60 && !savedSize) {
+            // 처음 토글 + savedSize 없을 땐 어쩔 수 없이 현재 크기로
+            localStorage.setItem(SIZE_KEY, JSON.stringify(cur));
+            savedSize = cur;
+          }
+        } catch(_) {}
+      }
       const miniW = parseInt(localStorage.getItem(MINI_W_KEY) || '0', 10) || (savedSize ? savedSize.w : 280);
-      // IPC 로 정확하게 (minHeight 제약 우회)
       if (window.electronAPI && window.electronAPI.setMini) {
         window.electronAPI.setMini(true, miniW, 30);
       } else {
@@ -491,8 +695,8 @@
     if (e.target.closest('input, button, .memo-title-display')) return;
     setMini(document.body.getAttribute('data-mini') !== '1');
   });
-  // 초기 상태 복원
-  if (localStorage.getItem(MINI_KEY) === '1') setMini(true);
+  // 초기 상태 복원 — fromInit=true 로 호출 (savedSize 손상 방지)
+  if (localStorage.getItem(MINI_KEY) === '1') setMini(true, true);
 
   // ── 투명도 토글 (100 → 80 → 60 → 40 → 100 순환) ──
   const opacityBtn = document.getElementById('opacityBtn');

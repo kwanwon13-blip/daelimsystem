@@ -674,7 +674,7 @@ router.delete('/sites/:siteId/fields/:fieldId', requireAuth, (req, res) => {
 
 router.get('/favorites', requireAuth, (req, res) => {
   try {
-    const userId = req.authUser?.userId || '';
+    const userId = req.user?.userId || '';
     if (!userId) return res.status(401).json({ error: '인증 필요' });
 
     const data = db.loadContacts() || {};
@@ -708,7 +708,7 @@ router.get('/favorites', requireAuth, (req, res) => {
 
 router.post('/favorites/toggle', requireAuth, (req, res) => {
   try {
-    const userId = req.authUser?.userId || '';
+    const userId = req.user?.userId || '';
     if (!userId) return res.status(401).json({ error: '인증 필요' });
 
     const { contactId } = req.body || {};

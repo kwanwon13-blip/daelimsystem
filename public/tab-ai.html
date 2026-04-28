@@ -502,11 +502,14 @@
                               </template>
                             </div>
                           </div>
-                          <button class="ai-upscale-run" @click="runUpscale(m)" :disabled="upscaleStatus[m.id] && upscaleStatus[m.id].loading">
-                            <template x-if="upscaleStatus[m.id] && upscaleStatus[m.id].loading">
+                          <button type="button" class="ai-upscale-run"
+                                  @click.stop="runUpscale(m)"
+                                  :disabled="!!(upscaleStatus[m.id] && upscaleStatus[m.id].loading === true)"
+                                  style="cursor:pointer;">
+                            <template x-if="upscaleStatus[m.id] && upscaleStatus[m.id].loading === true">
                               <span>처리 중…</span>
                             </template>
-                            <template x-if="!upscaleStatus[m.id] || !upscaleStatus[m.id].loading">
+                            <template x-if="!upscaleStatus[m.id] || upscaleStatus[m.id].loading !== true">
                               <span>↑ 업스케일</span>
                             </template>
                           </button>
@@ -1221,14 +1224,14 @@ function aiApp() {
     },
 
     // ── 업스케일 ──
-    async loadUpscaleHealth() {
-      if (this.upscaleHealth !== null) return this.upscaleHealth;
+    // force=true 면 캐시 무시 (서버 환경 변경 후 재진단)
+    async loadUpscaleHealth(force = false) {
+      if (!force && this.upscaleHealth !== null) return this.upscaleHealth;
       try {
-        const r = await fetch('/api/ai/upscale/health');
+        const r = await fetch('/api/ai/upscale/health?_t=' + Date.now());
         const d = await r.json();
         this.upscaleHealth = d;
         this.upscaleModels = d.models || [];
-        // 기본 선택: 추천 모델 중 설치된 것
         const firstInstalled = this.upscaleModels.find(m => m.installed && m.recommended)
           || this.upscaleModels.find(m => m.installed);
         if (firstInstalled) this.upscaleModelKey = firstInstalled.key;
@@ -1271,14 +1274,38 @@ function aiApp() {
     },
 
     async runUpscale(msg) {
-      if (!msg || !msg.image_url) return;
-      await this.loadUpscaleHealth();
-      if (!this.upscaleHealth || !this.upscaleHealth.ready) {
-        this._toast('업스케일 도구가 서버에 설치되지 않았습니다. 업스케일_설치가이드.md 를 확인해주세요.');
+      console.log('[upscale] runUpscale called', { msgId: msg?.id, hasImage: !!msg?.image_url });
+      if (!msg || !msg.image_url) {
+        this._toast('이미지가 없어 업스케일 불가 (msg.image_url 누락)');
+        console.warn('[upscale] no image_url on msg:', msg);
         return;
       }
-      // 자동 추천이 켜져있으면 모델 키 다시 뽑기
+      // 이전 시도가 stuck 일 수 있으니 강제 리셋
+      this.upscaleStatus[msg.id] = null;
+      this.$nextTick(() => { delete this.upscaleStatus[msg.id]; });
+      // 누를 때마다 health 새로 — 캐시 안 함 (설치 후 즉시 인식)
+      await this.loadUpscaleHealth(true);
+      if (!this.upscaleHealth || !this.upscaleHealth.ready) {
+        const diag = this.upscaleHealth?.diagnosis || '업스케일 도구 미설치';
+        this.upscaleStatus[msg.id] = { loading:false, error: diag };
+        this._toast('🔧 ' + diag);
+        return;
+      }
       if (this.upscaleAutoPick) await this.autoRecommendModel(msg.id);
+
+      // 모델 선택 검증 — 미설치 모델로 보내면 503
+      const selectedModel = this.upscaleModels.find(m => m.key === this.upscaleModelKey);
+      if (selectedModel && !selectedModel.installed) {
+        const installedRec = this.upscaleModels.find(m => m.installed && m.recommended)
+          || this.upscaleModels.find(m => m.installed);
+        if (installedRec) {
+          this.upscaleModelKey = installedRec.key;
+        } else {
+          this.upscaleStatus[msg.id] = { loading:false, error: '설치된 업스케일 모델이 없음' };
+          this._toast('설치된 업스케일 모델이 없음');
+          return;
+        }
+      }
 
       this.upscaleStatus[msg.id] = { loading: true, model: this.upscaleModelKey, scale: this.upscaleScale };
       this.upscalePickerOpen[msg.id] = false;
@@ -1294,12 +1321,16 @@ function aiApp() {
           this.upscaleStatus[msg.id] = { loading:false, url: d.url, model: d.model, scale: d.scale, cached: d.cached };
           this._toast(`${this.upscaleScale}배 업스케일 완료 (${(d.model && d.model.name) || ''})`);
         } else {
-          this.upscaleStatus[msg.id] = { loading:false, error: d.error || '업스케일 실패' };
-          this._toast(d.error || '업스케일 실패');
+          const err = d.error || '업스케일 실패';
+          const hint = d.hint ? ' — ' + d.hint : '';
+          this.upscaleStatus[msg.id] = { loading:false, error: err + hint };
+          this._toast('❌ ' + err + hint);
+          console.error('[upscale] 실패:', d);
         }
       } catch(e) {
         this.upscaleStatus[msg.id] = { loading:false, error: e.message };
-        this._toast('업스케일 실패: ' + e.message);
+        this._toast('업스케일 네트워크 실패: ' + e.message);
+        console.error('[upscale] 네트워크 오류:', e);
       }
     },
 

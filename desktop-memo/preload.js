@@ -48,6 +48,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   launcherOpen: (kind) => ipcRenderer.invoke('launcher:open', kind),
   aiOpenFull: () => ipcRenderer.invoke('ai:open-full'),
 
+  // AI Agent SSE — 메인 프로세스로 우회 (쿠키 직접 첨부)
+  aiRun: (task, threadId) => ipcRenderer.invoke('ai:run', { task, threadId }),
+  aiOnEvent: (callback) => {
+    const wrapper = (_e, payload) => callback(payload);
+    ipcRenderer.on('ai:event', wrapper);
+    return () => ipcRenderer.removeListener('ai:event', wrapper);
+  },
+
+  // 영역 캡쳐
+  captureCrop: (rect) => ipcRenderer.invoke('capture:crop', rect),
+  captureCancel: () => ipcRenderer.invoke('capture:cancel'),
+  captureOnImage: (callback) => {
+    const wrapper = (_e, payload) => callback(payload);
+    ipcRenderer.on('capture:image', wrapper);
+    return () => ipcRenderer.removeListener('capture:image', wrapper);
+  },
+
   // 환경 정보
   isDesktopApp: true,
   platform: process.platform,

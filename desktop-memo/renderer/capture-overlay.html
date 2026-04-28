@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>영역 캡쳐</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+  html, body {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    background: #000;
+    cursor: crosshair;
+  }
+  #screenshot {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    -webkit-user-drag: none;
+    user-drag: none;
+    filter: brightness(0.55);
+  }
+  /* 선택된 영역만 원본 밝기 — clip-path 로 잘라 보여줌 */
+  #screenshot-bright {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    clip-path: inset(100% 0 0 0); /* 초기엔 안 보임 */
+  }
+  #selection {
+    position: absolute;
+    border: 2px solid #4f6ef7;
+    background: transparent;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.4) inset;
+    display: none;
+    pointer-events: none;
+    box-sizing: border-box;
+  }
+  #hint {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(15, 23, 42, 0.92);
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-family: 'Noto Sans KR', 'Segoe UI', sans-serif;
+    font-size: 13px;
+    pointer-events: none;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    z-index: 100;
+  }
+  #size-tag {
+    position: absolute;
+    background: #4f6ef7;
+    color: #fff;
+    font-family: 'Consolas', monospace;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    pointer-events: none;
+    display: none;
+    white-space: nowrap;
+  }
+  #toast {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(15, 23, 42, 0.92);
+    color: #fff;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 13px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+    z-index: 100;
+  }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+  <img id="screenshot" alt="" draggable="false" />
+  <img id="screenshot-bright" alt="" draggable="false" />
+  <div id="selection"></div>
+  <div id="size-tag"></div>
+  <div id="hint">📸 드래그해서 영역 선택 · Enter 로 확정 · ESC 로 취소</div>
+  <div id="toast">✅ 클립보드에 복사됨 — Ctrl+V 로 메모에 붙여넣기</div>
+
+<script>
+  const api = window.electronAPI;
+  const $screenshot = document.getElementById('screenshot');
+  const $screenshotBright = document.getElementById('screenshot-bright');
+  const $selection = document.getElementById('selection');
+  const $sizeTag = document.getElementById('size-tag');
+  const $toast = document.getElementById('toast');
+
+  let imageWidth = 0, imageHeight = 0;
+  let dpr = 1;     // device pixel ratio: 화면 원본 px / window CSS px
+  let dragging = false;
+  let startX = 0, startY = 0, endX = 0, endY = 0;
+
+  // 메인에서 캡쳐된 이미지 데이터 받음
+  api.captureOnImage(({ dataUrl, width, height }) => {
+    $screenshot.src = dataUrl;
+    $screenshotBright.src = dataUrl;
+    imageWidth = width;
+    imageHeight = height;
+    dpr = imageWidth / window.innerWidth; // 가로 기준 비율
+  });
+
+  function updateSelection() {
+    const x = Math.min(startX, endX);
+    const y = Math.min(startY, endY);
+    const w = Math.abs(endX - startX);
+    const h = Math.abs(endY - startY);
+    $selection.style.left = x + 'px';
+    $selection.style.top = y + 'px';
+    $selection.style.width = w + 'px';
+    $selection.style.height = h + 'px';
+    $selection.style.display = (w > 0 && h > 0) ? 'block' : 'none';
+
+    // 선택된 영역만 원본 밝기로 보여주기 (clip-path inset)
+    const right = window.innerWidth - (x + w);
+    const bottom = window.innerHeight - (y + h);
+    $screenshotBright.style.clipPath = `inset(${y}px ${right}px ${bottom}px ${x}px)`;
+
+    // 사이즈 태그 — 원본 픽셀 기준
+    if (w > 0 && h > 0) {
+      const realW = Math.round(w * dpr);
+      const realH = Math.round(h * dpr);
+      $sizeTag.textContent = realW + ' × ' + realH;
+      $sizeTag.style.left = x + 'px';
+      // 위쪽에 공간 있으면 위, 없으면 아래
+      const tagTop = y > 24 ? y - 22 : y + h + 4;
+      $sizeTag.style.top = tagTop + 'px';
+      $sizeTag.style.display = 'block';
+    } else {
+      $sizeTag.style.display = 'none';
+    }
+  }
+
+  document.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    dragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    endX = e.clientX;
+    endY = e.clientY;
+    updateSelection();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    endX = e.clientX;
+    endY = e.clientY;
+    updateSelection();
+  });
+
+  document.addEventListener('mouseup', async (e) => {
+    if (!dragging) return;
+    dragging = false;
+    endX = e.clientX;
+    endY = e.clientY;
+    updateSelection();
+
+    const w = Math.abs(endX - startX);
+    const h = Math.abs(endY - startY);
+    if (w < 5 || h < 5) {
+      // 너무 작으면 초기화 (오작동 클릭)
+      $selection.style.display = 'none';
+      $sizeTag.style.display = 'none';
+      $screenshotBright.style.clipPath = 'inset(100% 0 0 0)';
+      return;
+    }
+    await confirmCapture();
+  });
+
+  async function confirmCapture() {
+    const x = Math.min(startX, endX);
+    const y = Math.min(startY, endY);
+    const w = Math.abs(endX - startX);
+    const h = Math.abs(endY - startY);
+    if (w < 5 || h < 5) return;
+
+    // CSS px → 원본 px 변환
+    const rect = {
+      x: Math.round(x * dpr),
+      y: Math.round(y * dpr),
+      w: Math.round(w * dpr),
+      h: Math.round(h * dpr),
+    };
+    try {
+      const res = await api.captureCrop(rect);
+      if (res && res.ok) {
+        $toast.textContent = '✅ 클립보드에 복사됨 (' + res.width + '×' + res.height + ') — Ctrl+V';
+        $toast.classList.add('show');
+        setTimeout(() => api.captureCancel(), 600);
+      } else {
+        alert('캡쳐 저장 실패: ' + (res?.error || '알 수 없음'));
+      }
+    } catch (err) {
+      alert('캡쳐 저장 실패: ' + err.message);
+    }
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      api.captureCancel();
+    } else if (e.key === 'Enter' && Math.abs(endX - startX) > 5) {
+      confirmCapture();
+    }
+  });
+</script>
+</body>
+</html>

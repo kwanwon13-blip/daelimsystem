@@ -7470,7 +7470,10 @@ function app() {
     async loadVendors() { this.vendors = await (await fetch('/api/vendors')).json(); },
     async loadDepartments() { try { this.departments = await (await fetch('/api/departments')).json(); } catch(e) { this.departments = []; } },
     getDeptName(deptId) { const d = this.departments.find(x => x.id === deptId); return d ? d.name : ''; },
-    async checkCsv() { this.csvStatus = await (await fetch('/api/csv/status')).json(); },
+    async checkCsv() {
+      // /api/csv/* 라우트는 deprecate 됨. 404 콘솔 에러 방지용 무동작.
+      this.csvStatus = { loaded: false, count: 0 };
+    },
 
     onVendorSelect() { this.debouncePreview(); },
 

@@ -432,11 +432,18 @@ function showDialog(masters) {
 // 메인 실행
 // ══════════════════════════════════════════════════════════
 function main() {
-  if (!app.documents.length) {
-    alert("열린 문서가 없습니다. Illustrator에서 시안을 먼저 여세요.");
+  // 문서 존재 여부 — Startup Scripts 호환 (조용히 종료)
+  var hasDoc = false;
+  try { hasDoc = (app.documents && app.documents.length > 0); } catch(e) { hasDoc = false; }
+  if (!hasDoc) {
+    // 명시적 호출 (시안제목입력 [💾 시안 저장]) 인지 자동 실행 (Startup) 인지 구분 어려움
+    // → alert 대신 조용히 종료 (Startup 시 방해 안 됨)
+    // 사용자가 직접 실행했는데 문서 없으면 일러스트 콘솔에서 확인
     return;
   }
-  var doc = app.activeDocument;
+  var doc;
+  try { doc = app.activeDocument; } catch(e) { return; }
+  if (!doc) return;
 
   // 마스터 로드
   var masters = loadMasters();
@@ -516,7 +523,6 @@ function main() {
   }
 
   // 결과 메시지
-  var msg = "✅ 저장 완료: " + savedFiles.length + "개 파일\n\n";
   for (var s = 0; s < savedFiles.length; s++) {
     msg += "• " + savedFiles[s].replace(folder + "\\", "") + "\n";
   }
@@ -531,5 +537,10 @@ function main() {
 try {
   main();
 } catch(e) {
-  alert("스크립트 오류: " + e.message + (e.line ? "\n(line " + e.line + ")" : ""));
+  // Startup Scripts 자동 실행 시 무문서 에러 등은 조용히 무시
+  if (e.message && e.message.indexOf("there is no document") >= 0) {
+    // 문서 없음 — 조용히 종료
+  } else {
+    alert("스크립트 오류: " + e.message + (e.line ? "\n(line " + e.line + ")" : ""));
+  }
 }

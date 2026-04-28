@@ -9,15 +9,15 @@
 
   .hdr {
     -webkit-app-region: drag;
-    background: #fde68a;
-    border-bottom: 1px solid #f59e0b;
+    background: linear-gradient(135deg, #4f6ef7, #3b5ce4);
+    border-bottom: 1px solid #3b5ce4;
     padding: 4px 6px 4px 8px;
     display: flex;
     align-items: center;
     gap: 4px;
     min-height: 28px;
   }
-  .hdr-title { flex: 1; font-size: 12px; font-weight: 700; color: #78350f; }
+  .hdr-title { flex: 1; font-size: 12px; font-weight: 700; color: #fff; }
   .hdr-btn {
     -webkit-app-region: no-drag;
     background: transparent;
@@ -26,13 +26,13 @@
     height: 22px;
     border-radius: 4px;
     cursor: pointer;
-    color: #78350f;
+    color: #fff;
     font-size: 12px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
   }
-  .hdr-btn:hover { background: rgba(255,255,255,0.5); }
+  .hdr-btn:hover { background: rgba(255,255,255,0.2); }
   .hdr-btn.close:hover { background: #ef4444; color: #fff; }
 
   .toolbar {

@@ -11,7 +11,7 @@
  *  - ERP 세션 공유 (cookie 영속)
  */
 
-const { app, BrowserWindow, Tray, Menu, ipcMain, shell, nativeImage, session, dialog, clipboard, globalShortcut } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, shell, nativeImage, session, dialog, clipboard, globalShortcut, desktopCapturer, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -55,6 +55,8 @@ let launcherWin = null;          // 런처 (4버튼 박스)
 let workspaceSidebarWin = null;  // 워크스페이스 사이드바 패널
 let aiWidgetWin = null;          // AI 빠른 질문 위젯
 let aiFullWin = null;            // AI 전체 화면 (큰 창)
+let captureOverlayWin = null;    // 캡쳐 영역 선택 오버레이
+let _lastCaptureImg = null;      // 마지막 전체 화면 캡쳐 (nativeImage) — crop 용
 let isQuitting = false;
 
 // 단일 인스턴스 보장 (이미 떠있으면 새로 안 띄움)
@@ -123,7 +125,44 @@ function openLoginWindow() {
   return loginWindow;
 }
 
-// 로그인 처리 — IPC 로 호출됨, 성공하면 자동으로 로그인 창 닫고 메모 목록 띄움
+// IP 호스트 (192.168.x.x, localhost) 인지 — Electron 쿠키는 IP 에 domain 명시하면 거부
+function isIpOrLocalhost(host) {
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host === 'localhost' || host === '127.0.0.1';
+}
+
+// Set-Cookie 헤더 풀 파싱 (name, value, attributes)
+function parseSetCookie(setCookieStr) {
+  const parts = setCookieStr.split(';').map(p => p.trim());
+  const [nameValue, ...attrs] = parts;
+  const eqIdx = nameValue.indexOf('=');
+  if (eqIdx < 0) return null;
+  const name = nameValue.slice(0, eqIdx).trim();
+  const value = nameValue.slice(eqIdx + 1).trim();
+  if (!name) return null;
+  const result = { name, value, httpOnly: false, secure: false, path: '/', sameSite: null, expirationDate: null };
+  for (const a of attrs) {
+    const lower = a.toLowerCase();
+    if (lower === 'httponly') result.httpOnly = true;
+    else if (lower === 'secure') result.secure = true;
+    else if (lower.startsWith('max-age=')) {
+      const ma = parseInt(a.slice(8), 10);
+      if (!isNaN(ma)) result.expirationDate = Date.now() / 1000 + ma;
+    }
+    else if (lower.startsWith('expires=')) {
+      const d = new Date(a.slice(8));
+      if (!isNaN(d.getTime())) result.expirationDate = d.getTime() / 1000;
+    }
+    else if (lower.startsWith('path=')) result.path = a.slice(5) || '/';
+    else if (lower.startsWith('samesite=')) {
+      const s = lower.slice(9);
+      if (s === 'lax' || s === 'strict') result.sameSite = s;
+      else if (s === 'none') result.sameSite = 'no_restriction';
+    }
+  }
+  return result;
+}
+
+// 로그인 처리 — IPC 로 호출됨, 성공하면 자동으로 로그인 창 닫고 런처 띄움
 async function doLogin(userId, password) {
   try {
     const url = getServerUrl() + '/api/auth/login';
@@ -134,26 +173,29 @@ async function doLogin(userId, password) {
     });
 
     // Set-Cookie 헤더 → Electron session 으로 저장
-    // (Node.js fetch 에선 자동 안 됨. 헤더 파싱해서 직접 저장)
     const setCookieHeaders = resp.headers.getSetCookie ? resp.headers.getSetCookie() : (resp.headers.raw ? resp.headers.raw()['set-cookie'] : []);
     if (Array.isArray(setCookieHeaders) && setCookieHeaders.length) {
       const targetUrl = new URL(getServerUrl());
+      const isIp = isIpOrLocalhost(targetUrl.hostname);
       for (const ck of setCookieHeaders) {
-        const m = ck.match(/^([^=]+)=([^;]+)/);
-        if (!m) continue;
-        const name = m[1].trim();
-        const value = m[2].trim();
+        const parsed = parseSetCookie(ck);
+        if (!parsed) continue;
+        const opts = {
+          url: getServerUrl(),
+          name: parsed.name,
+          value: parsed.value,
+          path: parsed.path,
+          httpOnly: parsed.httpOnly,
+          secure: parsed.secure,
+        };
+        // ⚠ IP/localhost 는 domain 생략 (host-only 쿠키로 저장됨, Electron 권장)
+        if (!isIp) opts.domain = targetUrl.hostname;
+        if (parsed.expirationDate) opts.expirationDate = parsed.expirationDate;
+        if (parsed.sameSite) opts.sameSite = parsed.sameSite;
         try {
-          await session.defaultSession.cookies.set({
-            url: getServerUrl(),
-            name, value,
-            domain: targetUrl.hostname,
-            path: '/',
-            httpOnly: ck.toLowerCase().includes('httponly'),
-            secure: ck.toLowerCase().includes('secure'),
-          });
+          await session.defaultSession.cookies.set(opts);
         } catch (e) {
-          console.warn('cookie set failed:', e.message);
+          console.warn('[doLogin] cookie set failed:', e.message, parsed.name);
         }
       }
     }
@@ -163,12 +205,12 @@ async function doLogin(userId, password) {
       return { ok: false, error: data.error || ('HTTP ' + resp.status) };
     }
 
-    // 로그인 성공 — 로그인 창 닫고 트레이 + 메모 목록 띄움
+    // 로그인 성공 — 로그인 창 닫고 트레이 + 런처 띄움 (런처가 메인 진입)
     if (loginWindow && !loginWindow.isDestroyed()) {
       try { loginWindow.close(); } catch(_) {}
     }
     buildTrayMenu();
-    showMemoList();
+    openLauncher();
 
     return { ok: true, userId: data.userId, name: data.name };
   } catch (e) {
@@ -355,7 +397,7 @@ function addToRecentPages(pageId, title) {
 }
 
 // ────────────────────────────────────────────────
-// 메모 목록 창 (트레이 → "📋 내 메모")
+// 워크스페이스 창 (트레이 → "📋 워크스페이스")
 // ────────────────────────────────────────────────
 function showMemoList() {
   if (listWindow && !listWindow.isDestroyed()) {
@@ -365,7 +407,7 @@ function showMemoList() {
   listWindow = new BrowserWindow({
     width: 380,
     height: 540,
-    title: '내 메모',
+    title: '워크스페이스',
     frame: true,
     icon: path.join(__dirname, 'build', 'icon.ico'),
     webPreferences: {
@@ -505,6 +547,77 @@ function openContactsFull() {
   });
   contactsFullWin.loadFile(path.join(__dirname, 'renderer', 'contacts-full.html'));
   contactsFullWin.on('closed', () => { contactsFullWin = null; });
+}
+
+// ────────────────────────────────────────────────
+// 영역 캡쳐 (S메모 스타일) — 전체화면 캡쳐 → 오버레이에서 영역 선택 → 클립보드
+// ────────────────────────────────────────────────
+async function startCapture() {
+  if (captureOverlayWin && !captureOverlayWin.isDestroyed()) {
+    captureOverlayWin.focus();
+    return;
+  }
+  try {
+    // 커서가 위치한 디스플레이를 캡쳐 (멀티모니터 지원)
+    const cursor = screen.getCursorScreenPoint();
+    const display = screen.getDisplayNearestPoint(cursor);
+    const { width, height } = display.size;
+
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width, height },
+    });
+    if (!sources.length) {
+      dialog.showErrorBox('캡쳐 실패', '화면을 가져올 수 없음');
+      return;
+    }
+    // display.id 매칭 (가능하면), 없으면 첫 번째
+    let src = sources.find(s => String(s.display_id) === String(display.id)) || sources[0];
+    _lastCaptureImg = src.thumbnail;
+    const dataUrl = _lastCaptureImg.toDataURL();
+
+    captureOverlayWin = new BrowserWindow({
+      x: display.bounds.x,
+      y: display.bounds.y,
+      width: display.bounds.width,
+      height: display.bounds.height,
+      frame: false,
+      transparent: false,
+      backgroundColor: '#000000',
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      resizable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      hasShadow: false,
+      fullscreen: false,
+      kiosk: false,
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+      show: false,
+    });
+    captureOverlayWin.setAlwaysOnTop(true, 'screen-saver');
+    captureOverlayWin.loadFile(path.join(__dirname, 'renderer', 'capture-overlay.html'));
+    captureOverlayWin.webContents.once('did-finish-load', () => {
+      captureOverlayWin.webContents.send('capture:image', { dataUrl, width, height });
+      captureOverlayWin.show();
+      captureOverlayWin.focus();
+    });
+    captureOverlayWin.on('closed', () => { captureOverlayWin = null; });
+  } catch (e) {
+    console.error('[capture] 실패:', e);
+    dialog.showErrorBox('캡쳐 실패', e.message);
+  }
+}
+
+function closeCapture() {
+  if (captureOverlayWin && !captureOverlayWin.isDestroyed()) {
+    try { captureOverlayWin.close(); } catch (_) {}
+  }
 }
 
 // ────────────────────────────────────────────────
@@ -705,7 +818,7 @@ function buildTrayMenu() {
     { type: 'separator' },
     ...(pinnedItems.length ? [{ label: '⭐ 즐겨찾기', submenu: pinnedItems }] : []),
     ...(recentItems.length ? [{ label: '🕐 최근 메모', submenu: recentItems }] : []),
-    { label: '📋 전체 메모 목록...', click: () => showMemoList() },
+    { label: '📋 워크스페이스 (전체 메모 목록)', click: () => showMemoList() },
     { type: 'separator' },
     {
       label: '📞 연락처',
@@ -723,6 +836,25 @@ function buildTrayMenu() {
       ],
     },
     { label: '🚀 런처 (4버튼 박스)', click: () => openLauncher() },
+    { type: 'separator' },
+    // ── 영역 캡쳐 (S메모 스타일) — 토글 ON 일 때만 활성화 ──
+    ...(cfg.get('captureEnabled', false) ? [
+      { label: '📸 영역 캡쳐', accelerator: 'Ctrl+Shift+S', click: () => startCapture() },
+    ] : []),
+    {
+      label: '📸 영역 캡쳐 기능 사용',
+      type: 'checkbox',
+      checked: cfg.get('captureEnabled', false),
+      click: (item) => {
+        cfg.set('captureEnabled', item.checked);
+        // 단축키 갱신
+        try { globalShortcut.unregister('CommandOrControl+Shift+S'); } catch (_) {}
+        if (item.checked) {
+          try { globalShortcut.register('CommandOrControl+Shift+S', () => startCapture()); } catch (_) {}
+        }
+        buildTrayMenu();
+      },
+    },
     { type: 'separator' },
     {
       label: '⚙ 설정',
@@ -750,6 +882,12 @@ function buildTrayMenu() {
             });
             cfg.set('autoStart', item.checked);
           },
+        },
+        {
+          label: '⭐ 즐겨찾기 메모 자동 복원 (PC 간 동기화)',
+          type: 'checkbox',
+          checked: cfg.get('autoOpenPinned', true),
+          click: (item) => cfg.set('autoOpenPinned', item.checked),
         },
         {
           label: '자석 스냅 (다른 메모창에 붙기)',
@@ -971,19 +1109,54 @@ ipcMain.handle('memo:list-pages', async () => {
     return { ok: false, error: e.message };
   }
 });
-ipcMain.handle('memo:pin-toggle', (_e, page) => {
+// 핀 토글 — 서버 우선, 실패 시 로컬 폴백
+ipcMain.handle('memo:pin-toggle', async (_e, page) => {
+  if (!page || !page.id) return false;
+  try {
+    const status = await checkLoggedIn();
+    if (status.loggedIn) {
+      const resp = await fetchWithCookies('/api/workspace/pinned/toggle', {
+        method: 'POST',
+        body: { memoId: page.id, title: page.title || '' },
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.ok) {
+          cfg.set('pinnedPages', data.pinned || []);
+          buildTrayMenu();
+          return data.isPinned;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[pin-toggle] 서버 동기화 실패, 로컬만 적용:', e.message);
+  }
+  // 로컬 폴백
   const pinned = cfg.get('pinnedPages', []);
   const idx = pinned.findIndex(p => p.id === page.id);
-  if (idx >= 0) {
-    pinned.splice(idx, 1);
-  } else {
-    pinned.push({ id: page.id, title: page.title });
-  }
+  if (idx >= 0) pinned.splice(idx, 1);
+  else pinned.push({ id: page.id, title: page.title });
   cfg.set('pinnedPages', pinned);
   buildTrayMenu();
   return pinned.some(p => p.id === page.id);
 });
-ipcMain.handle('memo:get-pinned', () => cfg.get('pinnedPages', []));
+ipcMain.handle('memo:get-pinned', async () => {
+  // 서버에서 최신 가져오고, 실패 시 로컬 캐시
+  try {
+    const status = await checkLoggedIn();
+    if (status.loggedIn) {
+      const resp = await fetchWithCookies('/api/workspace/pinned');
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.ok) {
+          cfg.set('pinnedPages', data.pinned || []);
+          return data.pinned || [];
+        }
+      }
+    }
+  } catch (e) {}
+  return cfg.get('pinnedPages', []);
+});
 ipcMain.handle('memo:logout', () => logout());
 ipcMain.handle('memo:open-erp', () => shell.openExternal(getServerUrl()));
 ipcMain.handle('memo:open-server-prompt', () => promptServerUrl());
@@ -1049,6 +1222,94 @@ ipcMain.handle('launcher:open', (_e, kind) => {
 });
 ipcMain.handle('ai:open-full', () => openAIFull());
 
+// ── 영역 캡쳐 IPC ──
+ipcMain.handle('capture:start', () => startCapture());
+ipcMain.handle('capture:cancel', () => closeCapture());
+ipcMain.handle('capture:crop', (_e, rect) => {
+  try {
+    if (!_lastCaptureImg) return { ok: false, error: '캡쳐 원본 없음' };
+    const r = rect || {};
+    const x = Math.max(0, Math.round(r.x || 0));
+    const y = Math.max(0, Math.round(r.y || 0));
+    const w = Math.max(1, Math.round(r.w || 1));
+    const h = Math.max(1, Math.round(r.h || 1));
+    const cropped = _lastCaptureImg.crop({ x, y, width: w, height: h });
+    clipboard.writeImage(cropped);
+    closeCapture();
+    return { ok: true, width: w, height: h };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+// AI Agent SSE — 쿠키 직접 첨부해서 호출, 이벤트는 webContents.send 로 renderer에 전달
+ipcMain.handle('ai:run', async (e, payload) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win) return { ok: false, error: 'no window' };
+  const { task, threadId } = payload || {};
+  if (!task) return { ok: false, error: 'task 필수' };
+  try {
+    const status = await checkLoggedIn();
+    if (!status.loggedIn) return { ok: false, error: '로그인 필요 — 트레이 → 설정 → 로그아웃 후 재로그인' };
+
+    const cookies = await session.defaultSession.cookies.get({ url: getServerUrl() });
+    const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+    const resp = await fetch(getServerUrl() + '/api/ai/agent/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookieHeader },
+      body: JSON.stringify({ task, threadId }),
+    });
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => '');
+      return { ok: false, error: 'HTTP ' + resp.status + (txt ? ' — ' + txt.slice(0, 200) : '') };
+    }
+    if (!resp.body || !resp.body.getReader) {
+      // SSE 스트림이 아니면 일반 JSON 으로 처리
+      const text = await resp.text().catch(() => '');
+      win.webContents.send('ai:event', { event: 'text', data: { text } });
+      win.webContents.send('ai:event', { event: 'end', data: {} });
+      return { ok: true };
+    }
+
+    // SSE 파싱 — 비동기로 진행, 끝나면 'end' 이벤트
+    (async () => {
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buf = '';
+      let currentEvent = '';
+      try {
+        while (true) {
+          if (win.isDestroyed()) return;
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split('\n');
+          buf = lines.pop() || '';
+          for (const line of lines) {
+            const t = line.trimEnd();
+            if (!t || t.startsWith(':')) continue;
+            if (t.startsWith('event:')) currentEvent = t.slice(6).trim();
+            else if (t.startsWith('data:')) {
+              try {
+                const data = JSON.parse(t.slice(5).trim());
+                if (!win.isDestroyed()) win.webContents.send('ai:event', { event: currentEvent, data });
+              } catch (_) {}
+            }
+          }
+        }
+      } catch (err) {
+        if (!win.isDestroyed()) win.webContents.send('ai:event', { event: 'error', data: { error: err.message } });
+      } finally {
+        if (!win.isDestroyed()) win.webContents.send('ai:event', { event: 'end', data: {} });
+      }
+    })();
+
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
 // ────────────────────────────────────────────────
 // 앱 라이프사이클
 // ────────────────────────────────────────────────
@@ -1066,18 +1327,22 @@ app.whenReady().then(async () => {
   createTray();
 
   // 전역 단축키: Ctrl+Shift+F → 연락처 빠른 검색 팝업
-  // (다른 앱에서도 동작 — 시스템 어디서든 호출 가능)
   try {
     globalShortcut.register('CommandOrControl+Shift+F', async () => {
       const st = await checkLoggedIn();
-      if (!st.loggedIn) {
-        openLoginWindow();
-        return;
-      }
+      if (!st.loggedIn) { openLoginWindow(); return; }
       openContactsSearch();
     });
   } catch (e) {
-    console.warn('globalShortcut 등록 실패:', e.message);
+    console.warn('globalShortcut F 등록 실패:', e.message);
+  }
+  // 전역 단축키: Ctrl+Shift+S → 영역 캡쳐 (사용자가 캡쳐 ON 한 경우만)
+  if (cfg.get('captureEnabled', false)) {
+    try {
+      globalShortcut.register('CommandOrControl+Shift+S', () => startCapture());
+    } catch (e) {
+      console.warn('globalShortcut S 등록 실패:', e.message);
+    }
   }
 
   // 로그인 상태 확인
@@ -1085,15 +1350,25 @@ app.whenReady().then(async () => {
   if (!status.loggedIn) {
     openLoginWindow();
   } else {
-    // 로그인된 상태 — 즐겨찾기 메모 자동 띄우기
-    const pinned = cfg.get('pinnedPages', []);
-    for (const p of pinned) openMemoWindow(p.id, { title: p.title });
-    // 런처 자동 띄우기 (사용자가 끈 적 없으면)
-    if (cfg.get('autoOpenLauncher', true)) {
-      openLauncher();
-    } else if (pinned.length === 0) {
-      // 런처도 안 띄우는데 즐겨찾기도 없으면 메모 목록 보여주기
-      showMemoList();
+    // 시작 시 런처가 메인 화면
+    openLauncher();
+    // 즐겨찾기 메모 자동 복원 — 기본 ON. 서버에서 최신 핀 목록 가져와서 띄움 (PC 간 동기화)
+    if (cfg.get('autoOpenPinned', true)) {
+      try {
+        const resp = await fetchWithCookies('/api/workspace/pinned');
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.ok && Array.isArray(data.pinned)) {
+            cfg.set('pinnedPages', data.pinned); // 로컬 캐시 갱신
+            for (const p of data.pinned) openMemoWindow(p.id, { title: p.title });
+          }
+        }
+      } catch (e) {
+        // 서버 다운 등 — 로컬 캐시로 폴백
+        console.warn('[autoOpenPinned] 서버 핀 가져오기 실패, 로컬 캐시 사용:', e.message);
+        const pinned = cfg.get('pinnedPages', []);
+        for (const p of pinned) openMemoWindow(p.id, { title: p.title });
+      }
     }
   }
 });

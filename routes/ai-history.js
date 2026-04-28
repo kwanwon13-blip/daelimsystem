@@ -1077,19 +1077,46 @@ router.post('/chat-image', async (req, res) => {
       result = await callGeminiImage(prompt, sourcePaths);
     }
     const status = result.ok ? 'ok' : 'error';
+    // 폴백 발생 시 메시지에 안내 표기
+    let displayContent = result.ok ? '(이미지)' : '';
+    if (result.ok && result._fallback) {
+      displayContent = `(이미지 — ${result.model} 폴백 적용. ${result._fallbackHint || ''})`;
+    }
     const aiMsg = ai.threads.addMessage(thread.id, {
       role: 'ai', kind: 'image',
-      content: result.ok ? '(이미지)' : '',
+      content: displayContent,
       imageUrl: result.url || null,
       status, error: result.error || null,
       durationMs: result.durationMs,
-      metadata: { sourceImageCount: sourcePaths.length }
+      metadata: {
+        sourceImageCount: sourcePaths.length,
+        model: result.model || null,
+        fallback: result._fallback || false,
+        fallbackFrom: result._fallbackFrom || null,
+        fallbackReason: result._fallbackReason || null,
+      }
     });
 
     ai.threads.autoTitleIfEmpty(thread.id);
 
-    if (!result.ok) return res.status(500).json({ ok: false, threadId: thread.id, error: result.error, message: aiMsg });
-    res.json({ ok: true, threadId: thread.id, message: aiMsg, url: result.url });
+    if (!result.ok) {
+      return res.status(500).json({
+        ok: false,
+        threadId: thread.id,
+        error: result.error,
+        verificationRequired: !!result._verificationRequired,
+        message: aiMsg,
+      });
+    }
+    res.json({
+      ok: true,
+      threadId: thread.id,
+      message: aiMsg,
+      url: result.url,
+      model: result.model,
+      fallback: result._fallback || false,
+      fallbackHint: result._fallbackHint || null,
+    });
   } catch (e) {
     console.error('[ai/chat-image]', e);
     res.status(500).json({ error: e.message });
@@ -1472,13 +1499,17 @@ function recommendUpscaleModel(hint) {
 function scanInstalledModels() {
   if (!fs.existsSync(UPSCALE_MODELS_DIR)) return [];
   const files = fs.readdirSync(UPSCALE_MODELS_DIR);
-  // .bin 또는 .param 파일 기준으로 모델키 추출
-  const keys = new Set();
+  // .bin AND .param 둘 다 있어야 실제 사용 가능 — Real-ESRGAN 은 양쪽 모두 필요
+  const bins = new Set();
+  const params = new Set();
   for (const f of files) {
     const m = f.match(/^(.+?)\.(bin|param)$/i);
-    if (m) keys.add(m[1]);
+    if (!m) continue;
+    if (m[2].toLowerCase() === 'bin') bins.add(m[1]);
+    else params.add(m[1]);
   }
-  return Array.from(keys);
+  // 교집합 = 정상 설치
+  return Array.from(bins).filter(k => params.has(k));
 }
 
 // GET /upscale/health — 설치 여부 + 모델 카탈로그 반환
@@ -1487,17 +1518,32 @@ router.get('/upscale/health', (req, res) => {
   const installedKeys = scanInstalledModels();
   const catalog = UPSCALE_MODELS.map(m => ({
     ...m,
-    installed: installedKeys.includes(m.key)
+    installed: installedKeys.includes(m.key),
   }));
+  // 진단용 — 어떤 파일이 있는지/없는지 사용자에게 보여줌
+  let modelsDirContents = [];
+  try {
+    if (fs.existsSync(UPSCALE_MODELS_DIR)) {
+      modelsDirContents = fs.readdirSync(UPSCALE_MODELS_DIR);
+    }
+  } catch (_) {}
   res.json({
     ok: true,
     ready: binExists && installedKeys.length > 0,
     binExists,
     binPath: UPSCALE_BIN,
     modelsDir: UPSCALE_MODELS_DIR,
+    modelsDirExists: fs.existsSync(UPSCALE_MODELS_DIR),
+    modelsDirFiles: modelsDirContents,
     installedCount: installedKeys.length,
+    installedKeys,
     models: catalog,
-    setupGuideUrl: '/업스케일_설치가이드.md'
+    setupGuideUrl: '/업스케일_설치가이드.md',
+    diagnosis: !binExists
+      ? `❌ realesrgan-ncnn-vulkan.exe 가 ${UPSCALE_BIN} 에 없음`
+      : installedKeys.length === 0
+        ? `❌ ${UPSCALE_MODELS_DIR} 에 모델 파일 없음 (.bin + .param 한 쌍 필요)`
+        : `✅ 정상 — ${installedKeys.length}개 모델 사용 가능`,
   });
 });
 
@@ -1546,23 +1592,46 @@ router.post('/upscale', async (req, res) => {
 
     const { spawn } = require('child_process');
     const started = Date.now();
+    let stderr = '', stdout = '';
     await new Promise((resolve, reject) => {
-      // realesrgan-ncnn-vulkan -i in.png -o out.png -n <model> -s <scale>
       const args = ['-i', srcPath, '-o', outPath, '-n', requestedModel.key, '-s', String(scaleNum)];
+      console.log('[upscale] spawn:', UPSCALE_BIN, args.join(' '));
       const child = spawn(UPSCALE_BIN, args, {
         cwd: UPSCALE_ROOT,
-        windowsHide: true
+        windowsHide: true,
       });
-      let err = '';
-      const timer = setTimeout(() => { try { child.kill('SIGTERM'); } catch(_) {} reject(new Error('업스케일 timeout (90초)')); }, 90000);
-      child.stderr.on('data', d => { err += d.toString('utf8'); });
-      child.on('error', e => { clearTimeout(timer); reject(e); });
+      // 4x 업스케일은 큰 이미지에선 90초 부족 → 5분으로 확장
+      const timer = setTimeout(() => {
+        try { child.kill('SIGTERM'); } catch(_) {}
+        reject(new Error('업스케일 timeout (5분 초과)'));
+      }, 300000);
+      child.stdout.on('data', d => { stdout += d.toString('utf8'); });
+      child.stderr.on('data', d => { stderr += d.toString('utf8'); });
+      child.on('error', e => {
+        clearTimeout(timer);
+        // ENOENT = 실행파일 없음 / EACCES = 권한 / 기타
+        const reason = e.code === 'ENOENT'
+          ? `realesrgan-ncnn-vulkan.exe 실행 실패 (ENOENT) — 파일 권한 / Windows Defender 격리 / Vulkan 드라이버 확인 필요`
+          : e.message;
+        reject(new Error(reason));
+      });
       child.on('close', code => {
         clearTimeout(timer);
-        if (code !== 0) return reject(new Error(err || `realesrgan exit ${code}`));
+        if (code !== 0) {
+          const tail = (stderr || stdout || '(출력 없음)').slice(-500);
+          return reject(new Error(`realesrgan exit code ${code} — ${tail}`));
+        }
         resolve();
       });
     });
+
+    // 출력 파일 실제로 생성됐는지 확인 (exit 0 이어도 실패하는 경우 있음)
+    if (!fs.existsSync(outPath)) {
+      return res.status(500).json({
+        error: '업스케일 완료됐지만 결과 파일이 없음',
+        debug: { stderr: stderr.slice(-500), stdout: stdout.slice(-500), outPath },
+      });
+    }
 
     res.json({
       ok: true,
@@ -1570,11 +1639,16 @@ router.post('/upscale', async (req, res) => {
       cached: false,
       model: requestedModel,
       scale: scaleNum,
-      durationMs: Date.now() - started
+      durationMs: Date.now() - started,
     });
   } catch (e) {
     console.error('[ai/upscale]', e);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({
+      error: e.message,
+      hint: e.message.includes('ENOENT') ? '서버 PC 의 tools/realesrgan/ 폴더 확인 필요' :
+            e.message.includes('exit code') ? 'Vulkan 드라이버 미설치 / 모델 파일 누락 가능성' :
+            null,
+    });
   }
 });
 

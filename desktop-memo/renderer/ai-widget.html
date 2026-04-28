@@ -200,72 +200,57 @@
     const aiDiv = appendMsg('ai', '');
     aiDiv.innerHTML = '<span style="opacity:.5;">생각 중...</span>';
 
-    try {
-      const serverUrl = await api.getServerUrl();
-      const url = serverUrl + '/api/ai/agent/run';
-      // 쿠키는 Electron session 에서 자동 첨부됨 (메인 프로세스의 fetch 와 같은 session 사용)
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ task, threadId }),
-      });
-      if (!resp.ok) {
-        const err = await resp.text().catch(() => 'HTTP ' + resp.status);
-        aiDiv.innerHTML = '<span style="color:#dc2626;">오류: ' + escapeHtml(err) + '</span>';
-        return;
-      }
+    let aiText = '';
+    let finished = false;
+    let off = null;
 
-      // SSE 파싱
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder('utf-8');
-      let buf = '';
-      let aiText = '';
-      let currentEvent = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const lines = buf.split('\n');
-        buf = lines.pop() || '';
-        for (const line of lines) {
-          const t = line.trimEnd();
-          if (!t) continue;
-          if (t.startsWith('event:')) currentEvent = t.slice(6).trim();
-          else if (t.startsWith('data:')) {
-            try {
-              const data = JSON.parse(t.slice(5).trim());
-              if (currentEvent === 'thread' && data.threadId) threadId = data.threadId;
-              if (currentEvent === 'text' && data.text) {
-                aiText += data.text;
-                aiDiv.innerHTML = renderMd(aiText);
-                $msgs.scrollTop = $msgs.scrollHeight;
-              }
-              if (currentEvent === 'tool' && data.name) {
-                // 툴 사용 알림 (소소하게)
-                if (!aiText) aiDiv.innerHTML = '<span style="opacity:.6;font-size:10px;">🔧 ' + escapeHtml(data.name) + ' 실행 중...</span>';
-              }
-              if (currentEvent === 'done') {
-                if (data.text && !aiText) {
-                  aiText = data.text;
-                  aiDiv.innerHTML = renderMd(aiText);
-                }
-              }
-              if (currentEvent === 'error') {
-                aiDiv.innerHTML = '<span style="color:#dc2626;">오류: ' + escapeHtml(data.error || '알 수 없음') + '</span>';
-              }
-            } catch (e) { /* JSON parse 실패 — 무시 */ }
-          }
-        }
-      }
-      if (!aiText) aiDiv.innerHTML = '<span style="opacity:.5;">(응답 없음)</span>';
-    } catch (e) {
-      aiDiv.innerHTML = '<span style="color:#dc2626;">오류: ' + escapeHtml(e.message || e) + '</span>';
-    } finally {
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      if (off) { try { off(); } catch (_) {} }
       busy = false;
       $send.disabled = false;
       $send.textContent = '전송';
       $input.focus();
+      if (!aiText && aiDiv.innerHTML.includes('생각 중')) {
+        aiDiv.innerHTML = '<span style="opacity:.5;">(응답 없음)</span>';
+      }
+    };
+
+    // SSE 이벤트 리스너 등록 (메인 프로세스가 webContents.send 로 보냄)
+    off = api.aiOnEvent(({ event, data }) => {
+      if (!data) return;
+      if (event === 'thread' && data.threadId) threadId = data.threadId;
+      else if (event === 'text' && data.text) {
+        aiText += data.text;
+        aiDiv.innerHTML = renderMd(aiText);
+        $msgs.scrollTop = $msgs.scrollHeight;
+      }
+      else if (event === 'tool' && data.name) {
+        if (!aiText) aiDiv.innerHTML = '<span style="opacity:.6;font-size:10px;">🔧 ' + escapeHtml(data.name) + ' 실행 중...</span>';
+      }
+      else if (event === 'done' && data.text && !aiText) {
+        aiText = data.text;
+        aiDiv.innerHTML = renderMd(aiText);
+      }
+      else if (event === 'error') {
+        aiDiv.innerHTML = '<span style="color:#dc2626;">오류: ' + escapeHtml(data.error || '알 수 없음') + '</span>';
+        finish();
+      }
+      else if (event === 'end') {
+        finish();
+      }
+    });
+
+    try {
+      const result = await api.aiRun(task, threadId);
+      if (!result || !result.ok) {
+        aiDiv.innerHTML = '<span style="color:#dc2626;">오류: ' + escapeHtml(result?.error || '알 수 없음') + '</span>';
+        finish();
+      }
+    } catch (e) {
+      aiDiv.innerHTML = '<span style="color:#dc2626;">오류: ' + escapeHtml(e.message || e) + '</span>';
+      finish();
     }
   }
 

@@ -8,8 +8,8 @@
   html, body {
     height: 100%;
     font-family: 'Noto Sans KR', 'Segoe UI', sans-serif;
-    background: linear-gradient(135deg, #fef3c7, #fde68a);
-    color: #78350f;
+    background: linear-gradient(135deg, #4f6ef7, #3b5ce4);
+    color: #fff;
     overflow: hidden;
     user-select: none;
   }
@@ -22,14 +22,15 @@
     display: flex;
     align-items: center;
     gap: 4px;
-    background: rgba(245, 158, 11, 0.18);
-    border-bottom: 1px solid rgba(245, 158, 11, 0.3);
+    background: rgba(0, 0, 0, 0.15);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.15);
     cursor: move;
   }
   .hdr-title {
     flex: 1;
     font-size: 10px;
     font-weight: 700;
+    color: #fff;
     text-overflow: ellipsis;
     white-space: nowrap;
     overflow: hidden;
@@ -42,14 +43,14 @@
     height: 18px;
     border-radius: 3px;
     cursor: pointer;
-    color: #78350f;
+    color: #fff;
     font-size: 11px;
     line-height: 1;
     display: inline-flex;
     align-items: center;
     justify-content: center;
   }
-  .hdr-btn:hover { background: rgba(255, 255, 255, 0.5); }
+  .hdr-btn:hover { background: rgba(255, 255, 255, 0.2); }
   .hdr-btn.close:hover { background: #ef4444; color: #fff; }
 
   /* 본문 — 4버튼 가로 배치 */
@@ -59,31 +60,33 @@
     align-items: stretch;
     padding: 4px;
     gap: 4px;
+    background: linear-gradient(135deg, #4f6ef7, #3b5ce4);
   }
   .lb {
     flex: 1;
-    background: #fff;
-    border: 1px solid rgba(245, 158, 11, 0.3);
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.3);
     border-radius: 5px;
     cursor: pointer;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 1px;
+    gap: 2px;
     padding: 4px 2px;
     transition: all 0.1s;
-    color: #78350f;
+    color: #fff;
+    backdrop-filter: blur(4px);
   }
   .lb:hover {
-    background: #fef3c7;
-    border-color: #f59e0b;
+    background: rgba(255, 255, 255, 0.28);
+    border-color: rgba(255, 255, 255, 0.6);
     transform: translateY(-1px);
-    box-shadow: 0 2px 6px rgba(245,158,11,.25);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   }
   .lb:active { transform: translateY(0); }
-  .lb-ico { font-size: 18px; line-height: 1; }
-  .lb-lbl { font-size: 9.5px; font-weight: 600; }
+  .lb-ico { font-size: 17px; line-height: 1; }
+  .lb-lbl { font-size: 10px; font-weight: 700; }
 
   /* 미니 모드 — 본문 숨김 */
   body[data-mini="1"] .body { display: none !important; }
@@ -102,17 +105,17 @@
     <button class="hdr-btn close" id="btnClose" title="닫기">✕</button>
   </div>
   <div class="body">
-    <div class="lb" data-action="memo">
-      <span class="lb-ico">📝</span>
-      <span class="lb-lbl">메모</span>
+    <div class="lb" data-action="new-memo">
+      <span class="lb-ico">➕</span>
+      <span class="lb-lbl">새 메모</span>
+    </div>
+    <div class="lb" data-action="workspace">
+      <span class="lb-ico">📋</span>
+      <span class="lb-lbl">워크스페이스</span>
     </div>
     <div class="lb" data-action="contacts">
       <span class="lb-ico">📞</span>
       <span class="lb-lbl">연락처</span>
-    </div>
-    <div class="lb" data-action="workspace">
-      <span class="lb-ico">📋</span>
-      <span class="lb-lbl">페이지</span>
     </div>
     <div class="lb" data-action="ai">
       <span class="lb-ico">🤖</span>
@@ -126,9 +129,9 @@
   document.querySelectorAll('.lb').forEach(el => {
     el.addEventListener('click', () => {
       const action = el.dataset.action;
-      if (action === 'memo') api.launcherOpen('memo-list');
-      else if (action === 'contacts') api.launcherOpen('contacts-widget');
+      if (action === 'new-memo') api.createNewMemo();
       else if (action === 'workspace') api.launcherOpen('workspace-sidebar');
+      else if (action === 'contacts') api.launcherOpen('contacts-widget');
       else if (action === 'ai') api.launcherOpen('ai-widget');
     });
   });

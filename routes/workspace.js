@@ -1153,4 +1153,75 @@ router.get('/ai-image-health', async (req, res) => {
   });
 });
 
+// ── 데스크탑 앱: 즐겨찾기 메모 핀 (PC 간 동기화) ────────
+// 사용자별 핀 메모 ID 저장 — 어떤 PC 에서 로그인하든 동일하게 자동 띄움
+// 위치/크기 는 모니터 다르면 어색해서 미동기화 (로컬 유지)
+const jsonDb = require('../db');
+
+router.get('/pinned', (req, res) => {
+  try {
+    const userId = req.user?.userId || '';
+    if (!userId) return res.status(401).json({ error: '인증 필요' });
+    const data = jsonDb.loadUsers() || {};
+    const user = (data.users || []).find(u => String(u.userId) === String(userId));
+    res.json({ ok: true, pinned: (user && user.pinnedMemos) || [] });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post('/pinned/toggle', (req, res) => {
+  try {
+    const userId = req.user?.userId || '';
+    if (!userId) return res.status(401).json({ error: '인증 필요' });
+    const { memoId, title } = req.body || {};
+    if (!memoId) return res.status(400).json({ error: 'memoId 필수' });
+
+    const data = jsonDb.loadUsers() || {};
+    const user = (data.users || []).find(u => String(u.userId) === String(userId));
+    if (!user) return res.status(404).json({ error: 'user not found' });
+
+    if (!user.pinnedMemos) user.pinnedMemos = [];
+    const idx = user.pinnedMemos.findIndex(p => String(p.id) === String(memoId));
+    let isPinned;
+    if (idx >= 0) {
+      user.pinnedMemos.splice(idx, 1);
+      isPinned = false;
+    } else {
+      user.pinnedMemos.push({ id: String(memoId), title: String(title || ''), pinnedAt: new Date().toISOString() });
+      isPinned = true;
+    }
+    jsonDb.saveUsers(data);
+    res.json({ ok: true, isPinned, pinned: user.pinnedMemos });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 핀 목록 한 번에 동기화 (로컬 → 서버 백업)
+router.post('/pinned/sync', (req, res) => {
+  try {
+    const userId = req.user?.userId || '';
+    if (!userId) return res.status(401).json({ error: '인증 필요' });
+    const { pinned } = req.body || {};
+    if (!Array.isArray(pinned)) return res.status(400).json({ error: 'pinned 배열 필수' });
+
+    const data = jsonDb.loadUsers() || {};
+    const user = (data.users || []).find(u => String(u.userId) === String(userId));
+    if (!user) return res.status(404).json({ error: 'user not found' });
+
+    user.pinnedMemos = pinned
+      .filter(p => p && p.id)
+      .map(p => ({
+        id: String(p.id),
+        title: String(p.title || ''),
+        pinnedAt: p.pinnedAt || new Date().toISOString(),
+      }));
+    jsonDb.saveUsers(data);
+    res.json({ ok: true, pinned: user.pinnedMemos });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;
