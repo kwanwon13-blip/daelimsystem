@@ -10696,4 +10696,54 @@ function gpsLocationAdmin() {
 
     async toggleActive(loc) {
       try {
-        const r = await f
+        const r = await fetch('/api/gps-attendance/locations/' + loc.id, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ active: loc.active ? 0 : 1 })
+        });
+        const d = await r.json();
+        if (d.ok) {
+          loc.active = !loc.active;
+        } else {
+          alert(d.error || '상태 변경 실패');
+        }
+      } catch (e) {
+        alert('오류: ' + e.message);
+      }
+    },
+
+    async remove(loc) {
+      if (!confirm("'" + (loc.name || '사업장') + "' 을(를) 삭제하시겠습니까?")) return;
+      try {
+        const r = await fetch('/api/gps-attendance/locations/' + loc.id, { method: 'DELETE' });
+        const d = await r.json();
+        if (d.ok) {
+          this.locations = this.locations.filter(l => l.id !== loc.id);
+        } else {
+          alert(d.error || '삭제 실패');
+        }
+      } catch (e) {
+        alert('오류: ' + e.message);
+      }
+    },
+
+    edit(loc) {
+      this.form = {
+        id: loc.id,
+        name: loc.name || '',
+        companyId: loc.companyId || 'dalim-sm',
+        addressQuery: loc.address || '',
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        radius: loc.radius || 100,
+      };
+      this.searchResults = [];
+      this.searchError = '';
+      this.showAdd = true;
+    }
+  };
+}
+</script>
+
+</body>
+</html>
