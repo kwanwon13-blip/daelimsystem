@@ -51,6 +51,10 @@ let listWindow = null;
 let contactsWidgetWin = null;    // 연락처 위젯 (모드 A — 작은 영구 창)
 let contactsSearchWin = null;    // 연락처 검색 팝업 (모드 B)
 let contactsFullWin = null;      // 연락처 전체 목록 (모드 C)
+let launcherWin = null;          // 런처 (4버튼 박스)
+let workspaceSidebarWin = null;  // 워크스페이스 사이드바 패널
+let aiWidgetWin = null;          // AI 빠른 질문 위젯
+let aiFullWin = null;            // AI 전체 화면 (큰 창)
 let isQuitting = false;
 
 // 단일 인스턴스 보장 (이미 떠있으면 새로 안 띄움)
@@ -683,6 +687,8 @@ async function logout() {
 function createTray() {
   // 트레이 아이콘 — tray-icon.png (16x16) 우선, 없으면 .ico, 그것도 없으면 빈 이미지
   const candidates = [
+    path.join(__dirname, 'assets', 'tray-icon@2x.png'),
+    path.join(__dirname, 'assets', 'tray-icon.png'),
     path.join(__dirname, 'build', 'tray-icon@2x.png'),
     path.join(__dirname, 'build', 'tray-icon.png'),
     path.join(__dirname, 'build', 'icon.ico'),
@@ -750,6 +756,25 @@ ipcMain.handle('memo:minimize-to-tray', (e) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   if (!w) return;
   w.hide();
+});
+// 미니 모드 — 정확한 윈도우 크기 변경 (minHeight 제약 임시 해제)
+ipcMain.handle('memo:set-mini', (e, on, width, height) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!w) return;
+  const W = Math.max(180, parseInt(width, 10) || 280);
+  const H = Math.max(28, parseInt(height, 10) || 30);
+  if (on) {
+    // 미니: minHeight 를 충분히 작게 (28px = 헤더만)
+    w.setMinimumSize(180, 28);
+    const b = w.getBounds();
+    w.setBounds({ x: b.x, y: b.y, width: W, height: H });
+    w.setResizable(true); // 가로 드래그 리사이즈 가능
+  } else {
+    // 복원: 원래 minHeight
+    w.setMinimumSize(280, 200);
+    const b = w.getBounds();
+    w.setBounds({ x: b.x, y: b.y, width: W, height: H });
+  }
 });
 ipcMain.handle('memo:list-pages', async () => {
   const status = await checkLoggedIn();

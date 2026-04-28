@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>대림에스엠</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    font-family: 'Noto Sans KR', 'Segoe UI', sans-serif;
+    background: linear-gradient(135deg, #fef3c7, #fde68a);
+    color: #78350f;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* 헤더 — 통일된 드래그 영역 */
+  .hdr {
+    -webkit-app-region: drag;
+    height: 22px;
+    padding: 0 6px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(245, 158, 11, 0.18);
+    border-bottom: 1px solid rgba(245, 158, 11, 0.3);
+    cursor: move;
+  }
+  .hdr-title {
+    flex: 1;
+    font-size: 10px;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .hdr-btn {
+    -webkit-app-region: no-drag;
+    background: transparent;
+    border: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 3px;
+    cursor: pointer;
+    color: #78350f;
+    font-size: 11px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .hdr-btn:hover { background: rgba(255, 255, 255, 0.5); }
+  .hdr-btn.close:hover { background: #ef4444; color: #fff; }
+
+  /* 본문 — 4버튼 가로 배치 */
+  .body {
+    height: calc(100% - 22px);
+    display: flex;
+    align-items: stretch;
+    padding: 4px;
+    gap: 4px;
+  }
+  .lb {
+    flex: 1;
+    background: #fff;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: 5px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    padding: 4px 2px;
+    transition: all 0.1s;
+    color: #78350f;
+  }
+  .lb:hover {
+    background: #fef3c7;
+    border-color: #f59e0b;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(245,158,11,.25);
+  }
+  .lb:active { transform: translateY(0); }
+  .lb-ico { font-size: 18px; line-height: 1; }
+  .lb-lbl { font-size: 9.5px; font-weight: 600; }
+
+  /* 미니 모드 — 본문 숨김 */
+  body[data-mini="1"] .body { display: none !important; }
+  body[data-mini="1"] .hdr { border-bottom: none; }
+  body[data-mini="1"] html,
+  body[data-mini="1"] body {
+    height: auto;
+  }
+</style>
+</head>
+<body>
+  <div class="hdr">
+    <span class="hdr-title">📌 런처</span>
+    <button class="hdr-btn" id="btnPin" title="항상 위">📌</button>
+    <button class="hdr-btn" id="btnMini" title="미니 / 원래 크기">▭</button>
+    <button class="hdr-btn close" id="btnClose" title="닫기">✕</button>
+  </div>
+  <div class="body">
+    <div class="lb" data-action="memo">
+      <span class="lb-ico">📝</span>
+      <span class="lb-lbl">메모</span>
+    </div>
+    <div class="lb" data-action="contacts">
+      <span class="lb-ico">📞</span>
+      <span class="lb-lbl">연락처</span>
+    </div>
+    <div class="lb" data-action="workspace">
+      <span class="lb-ico">📋</span>
+      <span class="lb-lbl">페이지</span>
+    </div>
+    <div class="lb" data-action="ai">
+      <span class="lb-ico">🤖</span>
+      <span class="lb-lbl">AI</span>
+    </div>
+  </div>
+
+<script>
+  const api = window.electronAPI;
+
+  document.querySelectorAll('.lb').forEach(el => {
+    el.addEventListener('click', () => {
+      const action = el.dataset.action;
+      if (action === 'memo') api.launcherOpen('memo-list');
+      else if (action === 'contacts') api.launcherOpen('contacts-widget');
+      else if (action === 'workspace') api.launcherOpen('workspace-sidebar');
+      else if (action === 'ai') api.launcherOpen('ai-widget');
+    });
+  });
+
+  // 미니 모드 — IPC
+  const $body = document.body;
+  let isMini = false;
+  document.getElementById('btnMini').addEventListener('click', () => {
+    isMini = !isMini;
+    $body.setAttribute('data-mini', isMini ? '1' : '0');
+    if (api.setMini) api.setMini(isMini, isMini ? 180 : 360, isMini ? 24 : 80);
+  });
+
+  document.getElementById('btnPin').addEventListener('click', async () => {
+    if (api.toggleAlwaysOnTop) await api.toggleAlwaysOnTop();
+  });
+
+  document.getElementById('btnClose').addEventListener('click', () => window.close());
+
+  // 헤더 더블클릭으로도 미니 토글
+  document.querySelector('.hdr').addEventListener('dblclick', (e) => {
+    if (e.target.closest('button')) return;
+    document.getElementById('btnMini').click();
+  });
+</script>
+</body>
+</html>

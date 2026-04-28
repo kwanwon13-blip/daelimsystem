@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>AI 빠른 질문</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; font-family: 'Noto Sans KR', 'Segoe UI', sans-serif; font-size: 12px; color: #1f2937; background: #fafafa; overflow: hidden; }
+
+  .hdr {
+    -webkit-app-region: drag;
+    background: linear-gradient(135deg, #c7d2fe, #a5b4fc);
+    border-bottom: 1px solid #818cf8;
+    padding: 4px 6px 4px 8px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 28px;
+  }
+  .hdr-title { flex: 1; font-size: 12px; font-weight: 700; color: #312e81; }
+  .hdr-btn {
+    -webkit-app-region: no-drag;
+    background: transparent;
+    border: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #312e81;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .hdr-btn:hover { background: rgba(255,255,255,0.5); }
+  .hdr-btn.close:hover { background: #ef4444; color: #fff; }
+
+  body[data-mini="1"] .messages,
+  body[data-mini="1"] .input-area { display: none !important; }
+  body[data-mini="1"] .hdr { border-bottom: none; }
+
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px;
+    height: calc(100% - 28px - 56px);
+  }
+  .messages::-webkit-scrollbar { width: 6px; }
+  .messages::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+
+  .msg {
+    margin-bottom: 6px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.5;
+    word-wrap: break-word;
+  }
+  .msg.user {
+    background: #6366f1;
+    color: #fff;
+    margin-left: 24px;
+  }
+  .msg.ai {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    color: #1f2937;
+    margin-right: 24px;
+  }
+  .msg.ai pre {
+    font-family: 'Consolas', monospace;
+    font-size: 11px;
+    background: #f3f4f6;
+    padding: 6px;
+    border-radius: 4px;
+    overflow-x: auto;
+    margin: 4px 0;
+  }
+  .msg.ai code {
+    background: #f3f4f6;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-family: 'Consolas', monospace;
+    font-size: 11px;
+  }
+  .msg.system {
+    background: #fef3c7;
+    color: #78350f;
+    font-size: 10.5px;
+    font-style: italic;
+    text-align: center;
+  }
+
+  .input-area {
+    border-top: 1px solid #e5e7eb;
+    padding: 6px;
+    background: #fff;
+    height: 56px;
+    display: flex;
+    gap: 4px;
+    align-items: flex-end;
+  }
+  .input-area textarea {
+    flex: 1;
+    padding: 4px 6px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: inherit;
+    resize: none;
+    outline: none;
+    height: 44px;
+  }
+  .input-area textarea:focus { border-color: #6366f1; }
+  .input-area button {
+    background: #6366f1;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-size: 11.5px;
+    font-weight: 600;
+    height: 44px;
+    white-space: nowrap;
+  }
+  .input-area button:hover { background: #4f46e5; }
+  .input-area button:disabled { background: #d1d5db; cursor: not-allowed; }
+
+  .empty {
+    text-align: center;
+    color: #9ca3af;
+    padding: 20px 16px;
+    font-size: 11px;
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+  <div class="hdr">
+    <span class="hdr-title">🤖 AI</span>
+    <button class="hdr-btn" id="btnFull" title="전체 보기 (큰 창)">⛶</button>
+    <button class="hdr-btn" id="btnPin" title="항상 위">📌</button>
+    <button class="hdr-btn" id="btnMini" title="미니 / 원래 크기">▭</button>
+    <button class="hdr-btn close" id="btnClose" title="닫기">✕</button>
+  </div>
+
+  <div class="messages" id="messages">
+    <div class="empty">간단한 질문을 빠르게.<br><span style="font-size:10px;">긴 작업·파일 첨부는 ⛶ 전체보기</span></div>
+  </div>
+
+  <div class="input-area">
+    <textarea id="input" placeholder="무엇이든 물어보세요... (Enter=전송, Shift+Enter=줄바꿈)"></textarea>
+    <button id="btnSend">전송</button>
+  </div>
+
+<script>
+  const api = window.electronAPI;
+  const $msgs = document.getElementById('messages');
+  const $input = document.getElementById('input');
+  const $send = document.getElementById('btnSend');
+
+  let threadId = null; // 첫 전송 시 서버에서 생성받음
+  let busy = false;
+
+  function escapeHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  // 매우 간단한 markdown — code block + inline code 만
+  function renderMd(text) {
+    text = escapeHtml(text);
+    text = text.replace(/```([^`]*?)```/gs, (_m, code) => '<pre>' + code.trim() + '</pre>');
+    text = text.replace(/`([^`]+)`/g, (_m, code) => '<code>' + code + '</code>');
+    text = text.replace(/\n/g, '<br>');
+    return text;
+  }
+
+  function appendMsg(role, text) {
+    if ($msgs.querySelector('.empty')) $msgs.innerHTML = '';
+    const div = document.createElement('div');
+    div.className = 'msg ' + role;
+    div.innerHTML = role === 'ai' ? renderMd(text) : escapeHtml(text);
+    $msgs.appendChild(div);
+    $msgs.scrollTop = $msgs.scrollHeight;
+    return div;
+  }
+
+  async function send() {
+    if (busy) return;
+    const task = $input.value.trim();
+    if (!task) return;
+
+    appendMsg('user', task);
+    $input.value = '';
+    busy = true;
+    $send.disabled = true;
+    $send.textContent = '...';
+
+    const aiDiv = appendMsg('ai', '');
+    aiDiv.innerHTML = '<span style="opacity:.5;">생각 중...</span>';
+
+    try {
+      const serverUrl = await api.getServerUrl();
+      const url = serverUrl + '/api/ai/agent/run';
+      // 쿠키는 Electron session 에서 자동 첨부됨 (메인 프로세스의 fetch 와 같은 session 사용)
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ task, threadId }),
+      });
+      if (!resp.ok) {
+        const err = await resp.text().catch(() => 'HTTP ' + resp.status);
+        aiDiv.innerHTML = '<span style="color:#dc2626;">오류: ' + escapeHtml(err) + '</span>';
+        return;
+      }
+
+      // SSE 파싱
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buf = '';
+      let aiText = '';
+      let currentEvent = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() || '';
+        for (const line of lines) {
+          const t = line.trimEnd();
+          if (!t) continue;
+          if (t.startsWith('event:')) currentEvent = t.slice(6).trim();
+          else if (t.startsWith('data:')) {
+            try {
+              const data = JSON.parse(t.slice(5).trim());
+              if (currentEvent === 'thread' && data.threadId) threadId = data.threadId;
+              if (currentEvent === 'text' && data.text) {
+                aiText += data.text;
+                aiDiv.innerHTML = renderMd(aiText);
+                $msgs.scrollTop = $msgs.scrollHeight;
+              }
+              if (currentEvent === 'tool' && data.name) {
+                // 툴 사용 알림 (소소하게)
+                if (!aiText) aiDiv.innerHTML = '<span style="opacity:.6;font-size:10px;">🔧 ' + escapeHtml(data.name) + ' 실행 중...</span>';
+              }
+              if (currentEvent === 'done') {
+                if (data.text && !aiText) {
+                  aiText = data.text;
+                  aiDiv.innerHTML = renderMd(aiText);
+                }
+              }
+              if (currentEvent === 'error') {
+                aiDiv.innerHTML = '<span style="color:#dc2626;">오류: ' + escapeHtml(data.error || '알 수 없음') + '</span>';
+              }
+            } catch (e) { /* JSON parse 실패 — 무시 */ }
+          }
+        }
+      }
+      if (!aiText) aiDiv.innerHTML = '<span style="opacity:.5;">(응답 없음)</span>';
+    } catch (e) {
+      aiDiv.innerHTML = '<span style="color:#dc2626;">오류: ' + escapeHtml(e.message || e) + '</span>';
+    } finally {
+      busy = false;
+      $send.disabled = false;
+      $send.textContent = '전송';
+      $input.focus();
+    }
+  }
+
+  $send.addEventListener('click', send);
+  $input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  });
+
+  // 헤더 버튼
+  document.getElementById('btnFull').addEventListener('click', () => {
+    if (api.aiOpenFull) api.aiOpenFull();
+  });
+  let isMini = false;
+  document.getElementById('btnMini').addEventListener('click', () => {
+    isMini = !isMini;
+    document.body.setAttribute('data-mini', isMini ? '1' : '0');
+    if (api.setMini) api.setMini(isMini, isMini ? 200 : 360, isMini ? 24 : 480);
+  });
+  document.getElementById('btnPin').addEventListener('click', async () => {
+    if (api.toggleAlwaysOnTop) await api.toggleAlwaysOnTop();
+  });
+  document.getElementById('btnClose').addEventListener('click', () => window.close());
+
+  document.querySelector('.hdr').addEventListener('dblclick', (e) => {
+    if (e.target.closest('button')) return;
+    document.getElementById('btnMini').click();
+  });
+
+  $input.focus();
+</script>
+</body>
+</html>

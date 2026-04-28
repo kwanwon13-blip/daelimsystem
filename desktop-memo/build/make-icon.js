@@ -72,10 +72,15 @@ const OUT_DIR = __dirname;
     pngBuffers[size] = buf;
   }
 
-  // 5. 트레이용 PNG 별도 저장 (16x16 / 32x32)
+  // 5. 트레이용 PNG 별도 저장 (16x16 / 32x32) — build/ + assets/ 양쪽 (asar 패키징 안전망)
+  const ASSETS_DIR = path.join(__dirname, '..', 'assets');
+  if (!fs.existsSync(ASSETS_DIR)) fs.mkdirSync(ASSETS_DIR, { recursive: true });
   fs.writeFileSync(path.join(OUT_DIR, 'tray-icon.png'), pngBuffers[16]);
   fs.writeFileSync(path.join(OUT_DIR, 'tray-icon@2x.png'), pngBuffers[32]);
-  console.log('✅ tray-icon.png / tray-icon@2x.png 생성');
+  fs.writeFileSync(path.join(ASSETS_DIR, 'tray-icon.png'), pngBuffers[16]);
+  fs.writeFileSync(path.join(ASSETS_DIR, 'tray-icon@2x.png'), pngBuffers[32]);
+  fs.writeFileSync(path.join(ASSETS_DIR, 'icon-256.png'), pngBuffers[256]);
+  console.log('✅ tray-icon.png / tray-icon@2x.png 생성 (build/ + assets/)');
 
   // 6. ICO 생성 (Windows .ico 포맷)
   // 직접 ICO 헤더 작성 (외부 lib 안 쓰고 PNG 들을 ICO 컨테이너에 묶음)

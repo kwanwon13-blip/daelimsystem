@@ -32,6 +32,9 @@
       "preload.js",
       "renderer/**/*",
       "assets/**/*",
+      "build/icon.ico",
+      "build/tray-icon.png",
+      "build/tray-icon@2x.png",
       "package.json"
     ],
     "win": {

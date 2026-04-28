@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>페이지 목록</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; font-family: 'Noto Sans KR', 'Segoe UI', sans-serif; font-size: 12px; color: #1f2937; background: #fff; overflow: hidden; }
+
+  .hdr {
+    -webkit-app-region: drag;
+    background: #fde68a;
+    border-bottom: 1px solid #f59e0b;
+    padding: 4px 6px 4px 8px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 28px;
+  }
+  .hdr-title { flex: 1; font-size: 12px; font-weight: 700; color: #78350f; }
+  .hdr-btn {
+    -webkit-app-region: no-drag;
+    background: transparent;
+    border: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #78350f;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .hdr-btn:hover { background: rgba(255,255,255,0.5); }
+  .hdr-btn.close:hover { background: #ef4444; color: #fff; }
+
+  .toolbar {
+    padding: 5px 6px;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    gap: 4px;
+  }
+  .toolbar input {
+    flex: 1;
+    padding: 4px 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 11.5px;
+    outline: none;
+  }
+  .toolbar input:focus { border-color: #f59e0b; }
+  .toolbar button {
+    background: #fbbf24;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #78350f;
+    white-space: nowrap;
+  }
+  .toolbar button:hover { background: #f59e0b; color: #fff; }
+
+  .body {
+    height: calc(100% - 28px - 32px);
+    overflow-y: auto;
+  }
+  body[data-mini="1"] .toolbar,
+  body[data-mini="1"] .body { display: none !important; }
+  body[data-mini="1"] .hdr { border-bottom: none; }
+
+  .body::-webkit-scrollbar { width: 6px; }
+  .body::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+
+  .group-title {
+    padding: 4px 8px;
+    background: #f9fafb;
+    font-size: 9.5px;
+    font-weight: 700;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+
+  .item {
+    padding: 5px 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    border-bottom: 1px solid #f3f4f6;
+    min-height: 24px;
+  }
+  .item:hover { background: #fef3c7; }
+  .item-emoji { font-size: 12px; flex-shrink: 0; }
+  .item-title {
+    flex: 1;
+    font-size: 11.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .item-meta {
+    font-size: 9.5px;
+    color: #9ca3af;
+    flex-shrink: 0;
+  }
+
+  .empty {
+    padding: 30px 16px;
+    text-align: center;
+    color: #9ca3af;
+    font-size: 11px;
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+  <div class="hdr">
+    <span class="hdr-title">📋 페이지</span>
+    <button class="hdr-btn" id="btnPin" title="항상 위">📌</button>
+    <button class="hdr-btn" id="btnMini" title="미니 / 원래 크기">▭</button>
+    <button class="hdr-btn close" id="btnClose" title="닫기">✕</button>
+  </div>
+
+  <div class="toolbar">
+    <input id="search" type="text" placeholder="페이지 검색...">
+    <button id="btnNew" title="새 메모 만들기">+ 새</button>
+  </div>
+
+  <div class="body" id="body">
+    <div class="empty">불러오는 중...</div>
+  </div>
+
+<script>
+  const api = window.electronAPI;
+  let pages = [];
+  let searchQ = '';
+
+  const $body = document.getElementById('body');
+  const $search = document.getElementById('search');
+
+  function escapeHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  async function loadPages() {
+    try {
+      const res = await api.listPages();
+      if (res && res.ok) {
+        pages = res.pages || [];
+        render();
+      } else {
+        $body.innerHTML = '<div class="empty">' + (res && res.error === 'not_logged_in' ? '로그인 필요' : '불러오기 실패') + '</div>';
+      }
+    } catch (e) {
+      $body.innerHTML = '<div class="empty">오류: ' + (e.message || e) + '</div>';
+    }
+  }
+
+  function render() {
+    const q = searchQ.toLowerCase();
+    const filtered = q
+      ? pages.filter(p => (p.title || '').toLowerCase().includes(q))
+      : pages;
+
+    if (filtered.length === 0) {
+      $body.innerHTML = '<div class="empty">' + (q ? '결과 없음' : '메모 없음<br><span style="font-size:10px;">+ 새 버튼으로 만들어보세요</span>') + '</div>';
+      return;
+    }
+
+    // 즐겨찾기 (pinned) / 일반 분리
+    api.getPinned().then(pinned => {
+      const pinnedIds = (pinned || []).map(p => p.id);
+      const favs = filtered.filter(p => pinnedIds.includes(p.id));
+      const others = filtered.filter(p => !pinnedIds.includes(p.id));
+
+      // 최근 수정순 정렬
+      others.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+
+      let html = '';
+      if (favs.length) {
+        html += '<div class="group-title">⭐ 즐겨찾기</div>';
+        html += favs.map(renderItem).join('');
+      }
+      if (others.length) {
+        if (favs.length) html += '<div class="group-title">전체</div>';
+        html += others.map(renderItem).join('');
+      }
+      $body.innerHTML = html;
+      bindItems();
+    });
+  }
+
+  function renderItem(p) {
+    const updated = p.updatedAt ? formatDate(p.updatedAt) : '';
+    return '<div class="item" data-id="' + p.id + '" data-title="' + escapeHtml(p.title || '') + '">' +
+      '<span class="item-emoji">' + (p.emoji || '📝') + '</span>' +
+      '<span class="item-title">' + escapeHtml(p.title || '제목 없음') + '</span>' +
+      (updated ? '<span class="item-meta">' + updated + '</span>' : '') +
+      '</div>';
+  }
+
+  function formatDate(iso) {
+    try {
+      const d = new Date(iso);
+      const now = new Date();
+      const diffH = (now - d) / 3600000;
+      if (diffH < 24) return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+      if (diffH < 24 * 7) return (d.getMonth()+1) + '/' + d.getDate();
+      return d.getFullYear() % 100 + '.' + (d.getMonth()+1) + '.' + d.getDate();
+    } catch (_) { return ''; }
+  }
+
+  function bindItems() {
+    $body.querySelectorAll('.item').forEach(el => {
+      el.addEventListener('click', () => {
+        const id = el.dataset.id;
+        const title = el.dataset.title;
+        api.openMemo(id, title);
+      });
+    });
+  }
+
+  // 검색
+  let searchTimer = null;
+  $search.addEventListener('input', (e) => {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      searchQ = e.target.value.trim();
+      render();
+    }, 100);
+  });
+
+  // 새 메모
+  document.getElementById('btnNew').addEventListener('click', async () => {
+    if (api.createNewMemo) await api.createNewMemo();
+    setTimeout(loadPages, 800); // 잠시 후 새로고침
+  });
+
+  // 헤더 버튼
+  let isMini = false;
+  document.getElementById('btnMini').addEventListener('click', () => {
+    isMini = !isMini;
+    document.body.setAttribute('data-mini', isMini ? '1' : '0');
+    if (api.setMini) api.setMini(isMini, isMini ? 180 : 280, isMini ? 24 : 480);
+  });
+  document.getElementById('btnPin').addEventListener('click', async () => {
+    if (api.toggleAlwaysOnTop) await api.toggleAlwaysOnTop();
+  });
+  document.getElementById('btnClose').addEventListener('click', () => window.close());
+
+  document.querySelector('.hdr').addEventListener('dblclick', (e) => {
+    if (e.target.closest('button')) return;
+    document.getElementById('btnMini').click();
+  });
+
+  // 첫 로드 + 주기적 갱신 (다른 PC 의 변경 감지)
+  loadPages();
+  setInterval(loadPages, 30000);
+</script>
+</body>
+</html>

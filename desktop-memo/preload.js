@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   toggleAlwaysOnTop: () => ipcRenderer.invoke('memo:toggle-always-on-top'),
   setOpacity: (opacity) => ipcRenderer.invoke('memo:set-opacity', opacity),
   minimizeToTray: () => ipcRenderer.invoke('memo:minimize-to-tray'),
+  setMini: (on, w, h) => ipcRenderer.invoke('memo:set-mini', on, w, h),
 
   // 페이지 목록
   listPages: () => ipcRenderer.invoke('memo:list-pages'),
