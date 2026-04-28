@@ -7,14 +7,15 @@
   .ws-sidebar-title { font-family:'Work Sans',sans-serif; font-size:14px; font-weight:700; color:#1a1d23; display:flex; align-items:center; gap:6px; }
   .ws-search { width:100%; padding:6px 10px; border:1px solid #e5e7eb; border-radius:8px; font-size:12px; background:#f8f9fb; outline:none; margin-top:8px; }
   .ws-search:focus { border-color:#4f6ef7; background:#fff; }
-  .ws-page-list { flex:1; overflow-y:auto; padding:6px 8px; }
+  .ws-page-list { flex:1; overflow-y:auto; padding:4px 6px; }
+  .ws-page-group { font-size:9.5px; font-weight:600; color:#9ca3af; padding:6px 6px 2px; text-transform:uppercase; letter-spacing:.5px; }
   .ws-page-group { color:#9ca3af; font-size:11px; font-weight:600; padding:10px 8px 4px; text-transform:uppercase; letter-spacing:0.03em; }
-  .ws-page-item { display:flex; align-items:center; gap:6px; padding:4px 8px; border-radius:6px; cursor:pointer; transition:all .12s; min-height:26px; }
+  .ws-page-item { display:flex; align-items:center; gap:5px; padding:2px 6px; border-radius:5px; cursor:pointer; transition:all .12s; min-height:22px; }
   .ws-page-item:hover { background:#f3f4f6; }
   .ws-page-item.active { background:#eef2ff; color:#4338ca; }
-  .ws-page-item .emoji { font-size:13px; flex-shrink:0; width:16px; text-align:center; }
+  .ws-page-item .emoji { font-size:12px; flex-shrink:0; width:14px; text-align:center; }
   .ws-page-item .info { flex:1; min-width:0; display:flex; flex-direction:column; gap:0; }
-  .ws-page-item .title { font-size:12px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.3; }
+  .ws-page-item .title { font-size:11.5px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.3; }
   /* 날짜 meta 는 기본 숨김, hover 또는 active 일 때만 표시 (한 줄 밀도 유지) */
   .ws-page-item .meta { font-size:9.5px; color:#9ca3af; line-height:1.2; display:none; }
   .ws-page-item:hover .meta, .ws-page-item.active .meta { display:block; }
@@ -1300,7 +1301,9 @@ function workspaceApp() {
       const w = 420, h = 560;
       const left = Math.max(0, (window.screen.availWidth || 1280) - w - 40);
       const top = 60;
+      // popup=yes 로 브라우저 chrome (주소창/탭/메뉴) 없이 깔끔한 데스크탑 위젯 모드
       const features = [
+        'popup=yes',
         'width=' + w,
         'height=' + h,
         'left=' + left,
@@ -1311,6 +1314,7 @@ function workspaceApp() {
         'status=no',
         'resizable=yes',
         'scrollbars=yes',
+        'noopener=no',
       ].join(',');
       const win = window.open(url, 'wsmemo_' + this.currentPage.id, features);
       if (!win) {

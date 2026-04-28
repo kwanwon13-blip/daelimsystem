@@ -1,0 +1,51 @@
+{
+  "name": "daelimsm-memo",
+  "version": "1.0.0",
+  "description": "대림에스엠 데스크탑 메모 — ERP 워크스페이스 데스크탑 클라이언트",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder --win portable",
+    "build:installer": "electron-builder --win nsis"
+  },
+  "author": "대림에스엠",
+  "license": "UNLICENSED",
+  "private": true,
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "electron-store": "^10.0.0"
+  },
+  "build": {
+    "appId": "kr.daelimsm.memo",
+    "productName": "대림에스엠 메모",
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "대림에스엠메모-${version}.exe"
+    },
+    "portable": {
+      "artifactName": "대림에스엠메모-portable.exe"
+    }
+  }
+}

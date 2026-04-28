@@ -668,4 +668,67 @@ router.delete('/sites/:siteId/fields/:fieldId', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// ── 즐겨찾기 (사용자별) ─────────────────────────────────
+// data.favoritesByUser = { userId: [contactId, ...] }
+// 회사 전체 공유 연락처 위에서 사용자별로 즐겨찾기를 따로 관리
+
+router.get('/favorites', requireAuth, (req, res) => {
+  try {
+    const userId = req.authUser?.userId || '';
+    if (!userId) return res.status(401).json({ error: '인증 필요' });
+
+    const data = db.loadContacts() || {};
+    const favIds = (data.favoritesByUser && data.favoritesByUser[userId]) || [];
+    const allContacts = data.contacts || [];
+    const projects = data.contactProjects || [];
+    const companies = data.contactCompanies || [];
+
+    const projMap = {}; projects.forEach(p => { projMap[p.id] = p; });
+    const compMap = {}; companies.forEach(c => { compMap[c.id] = c; });
+
+    // 즐겨찾기 ID에 해당하는 연락처만 + 회사/현장 정보 첨부
+    const favs = favIds
+      .map(id => allContacts.find(c => c.id === id))
+      .filter(Boolean)
+      .map(c => {
+        const proj = projMap[c.projectId];
+        const comp = proj ? compMap[proj.companyId] : null;
+        return {
+          ...c,
+          projectName: proj ? proj.name : '',
+          companyName: comp ? comp.name : (c.company || '')
+        };
+      });
+
+    res.json({ ok: true, favoriteIds: favIds, favorites: favs });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post('/favorites/toggle', requireAuth, (req, res) => {
+  try {
+    const userId = req.authUser?.userId || '';
+    if (!userId) return res.status(401).json({ error: '인증 필요' });
+
+    const { contactId } = req.body || {};
+    if (!contactId) return res.status(400).json({ error: 'contactId 필수' });
+
+    const data = db.loadContacts() || {};
+    if (!data.favoritesByUser) data.favoritesByUser = {};
+    if (!data.favoritesByUser[userId]) data.favoritesByUser[userId] = [];
+
+    const list = data.favoritesByUser[userId];
+    const idx = list.indexOf(contactId);
+    let isFavorite;
+    if (idx >= 0) { list.splice(idx, 1); isFavorite = false; }
+    else { list.push(contactId); isFavorite = true; }
+
+    db.saveContacts(data);
+    res.json({ ok: true, isFavorite, favoriteIds: list });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;

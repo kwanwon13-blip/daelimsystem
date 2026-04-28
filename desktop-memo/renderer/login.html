@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>대림에스엠 메모 — 로그인</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: 'Noto Sans KR', sans-serif;
+      background: linear-gradient(135deg, #fef3c7 0%, #fde68a 50%, #fcd34d 100%);
+      color: #1f2937;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 12px 40px rgba(0,0,0,.12);
+      padding: 32px 28px;
+      width: 100%;
+      max-width: 360px;
+    }
+    .brand {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    .brand .logo { font-size: 36px; margin-bottom: 6px; }
+    .brand h1 {
+      font-size: 18px;
+      font-weight: 700;
+      color: #111827;
+      margin-bottom: 3px;
+    }
+    .brand p { font-size: 11.5px; color: #6b7280; }
+
+    .field { margin-bottom: 14px; }
+    .field label {
+      display: block;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 5px;
+    }
+    .field input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1.5px solid #e5e7eb;
+      border-radius: 8px;
+      font-size: 13.5px;
+      outline: none;
+      font-family: inherit;
+      transition: border-color .15s;
+    }
+    .field input:focus { border-color: #f59e0b; }
+
+    .server-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      margin-bottom: 16px;
+      font-size: 11px;
+      color: #9ca3af;
+    }
+    .server-row a { color: #4f6ef7; cursor: pointer; }
+
+    .btn-primary {
+      width: 100%;
+      padding: 11px;
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+      transition: filter .15s;
+    }
+    .btn-primary:hover { filter: brightness(1.06); }
+    .btn-primary:disabled { opacity: 0.5; cursor: wait; }
+
+    .err {
+      margin-top: 12px;
+      padding: 10px 12px;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 6px;
+      color: #dc2626;
+      font-size: 11.5px;
+    }
+
+    .foot {
+      text-align: center;
+      margin-top: 18px;
+      font-size: 10.5px;
+      color: #9ca3af;
+    }
+    .foot a { color: #4f6ef7; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">
+      <div class="logo">📌</div>
+      <h1>대림에스엠 메모</h1>
+      <p>데스크탑 메모 위젯 — ERP 워크스페이스</p>
+    </div>
+
+    <div class="server-row">
+      <span>서버:</span>
+      <span id="serverDisplay" style="flex:1;color:#374151;">불러오는 중...</span>
+      <a id="changeServer">변경</a>
+    </div>
+
+    <form id="loginForm">
+      <div class="field">
+        <label for="userId">아이디</label>
+        <input type="text" id="userId" autocomplete="username" autofocus required />
+      </div>
+      <div class="field">
+        <label for="password">비밀번호</label>
+        <input type="password" id="password" autocomplete="current-password" required />
+      </div>
+      <button type="submit" class="btn-primary" id="loginBtn">로그인</button>
+      <div class="err" id="err" style="display:none;"></div>
+    </form>
+
+    <div class="foot">
+      ERP 와 같은 계정으로 로그인하세요
+    </div>
+  </div>
+
+<script>
+const serverDisplayEl = document.getElementById('serverDisplay');
+const changeServerEl = document.getElementById('changeServer');
+const formEl = document.getElementById('loginForm');
+const userIdEl = document.getElementById('userId');
+const passwordEl = document.getElementById('password');
+const btnEl = document.getElementById('loginBtn');
+const errEl = document.getElementById('err');
+
+(async () => {
+  const url = await window.electronAPI.getServerUrl();
+  serverDisplayEl.textContent = url;
+  // 마지막 로그인 ID 자동 채우기 (config 에서)
+  const lastId = await window.electronAPI.getConfig('lastLoginId');
+  if (lastId) userIdEl.value = lastId;
+})();
+
+changeServerEl.addEventListener('click', async () => {
+  await window.electronAPI.openServerPrompt();
+  // 변경 후 서버 표시 갱신
+  setTimeout(async () => {
+    const url = await window.electronAPI.getServerUrl();
+    serverDisplayEl.textContent = url;
+  }, 500);
+});
+
+formEl.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const userId = userIdEl.value.trim();
+  const password = passwordEl.value;
+  if (!userId || !password) return;
+
+  btnEl.disabled = true;
+  btnEl.textContent = '로그인 중...';
+  errEl.style.display = 'none';
+
+  try {
+    const result = await window.electronAPI.doLogin(userId, password);
+    if (result.ok) {
+      // 마지막 로그인 ID 저장
+      await window.electronAPI.setConfig('lastLoginId', userId);
+      // main process 가 자동으로 메모 목록 창 띄우고 이 창 닫음
+    } else {
+      errEl.textContent = result.error || '로그인 실패';
+      errEl.style.display = 'block';
+      btnEl.disabled = false;
+      btnEl.textContent = '로그인';
+    }
+  } catch (e) {
+    errEl.textContent = '서버 연결 실패: ' + e.message;
+    errEl.style.display = 'block';
+    btnEl.disabled = false;
+    btnEl.textContent = '로그인';
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>연락처</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; font-family: 'Noto Sans KR', 'Segoe UI', sans-serif; font-size: 12px; color: #1f2937; background: #ffffff; overflow: hidden; }
+
+  /* 헤더 — drag 영역 */
+  .hdr {
+    -webkit-app-region: drag;
+    background: #fde68a;
+    border-bottom: 1px solid #f59e0b;
+    padding: 4px 6px 4px 8px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 28px;
+  }
+  .hdr-title { flex: 1; font-size: 12px; font-weight: 600; color: #78350f; user-select: none; }
+  .hdr-btn {
+    -webkit-app-region: no-drag;
+    background: transparent;
+    border: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    color: #78350f;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .hdr-btn:hover { background: rgba(0,0,0,0.08); }
+  .hdr-btn.close:hover { background: #ef4444; color: #fff; }
+
+  /* 검색 */
+  .search-wrap { padding: 6px 8px; border-bottom: 1px solid #e5e7eb; background: #fafafa; }
+  .search-wrap input {
+    width: 100%;
+    padding: 5px 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 12px;
+    outline: none;
+  }
+  .search-wrap input:focus { border-color: #f59e0b; }
+
+  /* 본문 */
+  .body { flex: 1; overflow-y: auto; height: calc(100vh - 64px); }
+  .body::-webkit-scrollbar { width: 6px; }
+  .body::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+
+  /* 섹션 */
+  .section-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: #6b7280;
+    padding: 6px 8px 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .empty {
+    padding: 20px 12px;
+    text-align: center;
+    color: #9ca3af;
+    font-size: 11px;
+    line-height: 1.5;
+  }
+  .empty .hint { font-size: 10px; color: #d1d5db; margin-top: 4px; }
+
+  /* 연락처 항목 */
+  .contact-item {
+    padding: 6px 8px;
+    border-bottom: 1px solid #f3f4f6;
+    cursor: pointer;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .contact-item:hover { background: #fef3c7; }
+  .contact-item.expanded { background: #fffbeb; }
+
+  .star {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #d1d5db;
+    font-size: 14px;
+    border-radius: 3px;
+  }
+  .star.fav { color: #fbbf24; }
+  .star:hover { background: rgba(0,0,0,0.05); }
+
+  .contact-main { flex: 1; min-width: 0; }
+  .contact-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: #1f2937;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .contact-meta {
+    font-size: 10px;
+    color: #6b7280;
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* 펼친 디테일 */
+  .detail {
+    padding: 4px 12px 8px 32px;
+    background: #fffbeb;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 11px;
+  }
+  .detail-row { display: flex; gap: 6px; padding: 2px 0; align-items: center; }
+  .detail-label { color: #6b7280; min-width: 36px; font-size: 10px; }
+  .detail-value {
+    flex: 1;
+    color: #1f2937;
+    word-break: break-all;
+  }
+  .detail-value.copyable {
+    cursor: pointer;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: #fff;
+    border: 1px solid #f59e0b40;
+  }
+  .detail-value.copyable:hover { background: #fde68a; }
+  .detail-value.copyable:active { background: #fbbf24; color: #fff; }
+
+  /* 토스트 */
+  .toast {
+    position: fixed;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1f2937;
+    color: #fff;
+    padding: 6px 14px;
+    border-radius: 16px;
+    font-size: 11px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+    z-index: 100;
+  }
+  .toast.show { opacity: 1; }
+
+  /* 푸터 (모드 전환) */
+  .footer {
+    border-top: 1px solid #e5e7eb;
+    background: #f9fafb;
+    padding: 4px;
+    display: flex;
+    gap: 4px;
+    height: 30px;
+  }
+  .mode-btn {
+    flex: 1;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    color: #4b5563;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    transition: all 0.1s;
+  }
+  .mode-btn:hover { background: #fde68a; border-color: #f59e0b; color: #78350f; }
+</style>
+</head>
+<body>
+  <div class="hdr">
+    <span class="hdr-title">📞 연락처</span>
+    <button class="hdr-btn" id="btnPin" title="항상 위에 표시">📌</button>
+    <button class="hdr-btn close" id="btnClose" title="닫기">✕</button>
+  </div>
+
+  <div class="search-wrap">
+    <input id="search" type="text" placeholder="이름·회사·전화로 검색" autocomplete="off">
+  </div>
+
+  <div class="body" id="body">
+    <div class="empty">불러오는 중...</div>
+  </div>
+
+  <div class="footer">
+    <button class="mode-btn" id="btnSearch" title="검색 팝업">🔍 검색</button>
+    <button class="mode-btn" id="btnFull" title="전체 목록">📋 전체</button>
+  </div>
+
+  <div class="toast" id="toast">복사됨</div>
+
+<script>
+  const api = window.electronAPI;
+  let allContacts = [];     // 전체 연락처
+  let favoriteIds = [];     // 즐겨찾기 ID 배열
+  let expandedId = null;    // 현재 펼쳐진 ID
+  let searchQ = '';
+
+  const $body = document.getElementById('body');
+  const $search = document.getElementById('search');
+  const $toast = document.getElementById('toast');
+
+  function showToast(msg) {
+    $toast.textContent = msg;
+    $toast.classList.add('show');
+    setTimeout(() => $toast.classList.remove('show'), 1200);
+  }
+
+  async function loadAll() {
+    try {
+      const [listRes, favRes] = await Promise.all([
+        api.contactsList(),
+        api.contactsFavorites(),
+      ]);
+      if (listRes && listRes.ok) allContacts = listRes.contacts || [];
+      if (favRes && favRes.ok) favoriteIds = favRes.favoriteIds || [];
+      render();
+    } catch (e) {
+      $body.innerHTML = '<div class="empty">오류: ' + (e.message || e) + '</div>';
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function matchSearch(c, q) {
+    if (!q) return true;
+    const k = q.toLowerCase();
+    return (
+      (c.name || '').toLowerCase().includes(k) ||
+      (c.company || '').toLowerCase().includes(k) ||
+      (c.position || '').toLowerCase().includes(k) ||
+      (c.phone || '').includes(k) ||
+      (c.mobile || '').includes(k) ||
+      (c.note || '').toLowerCase().includes(k)
+    );
+  }
+
+  function render() {
+    const favs = favoriteIds
+      .map(id => allContacts.find(c => c.id === id))
+      .filter(Boolean)
+      .filter(c => matchSearch(c, searchQ));
+
+    let html = '';
+
+    // 즐겨찾기 섹션
+    if (!searchQ) {
+      html += '<div class="section-title">⭐ 즐겨찾기 (' + favs.length + ')</div>';
+      if (favs.length === 0) {
+        html += '<div class="empty">즐겨찾기가 비어있습니다.<div class="hint">★ 클릭하면 즐겨찾기에 추가됩니다.</div></div>';
+      } else {
+        html += favs.map(c => renderItem(c, true)).join('');
+      }
+    }
+
+    // 검색 결과
+    if (searchQ) {
+      const matched = allContacts.filter(c => matchSearch(c, searchQ));
+      html += '<div class="section-title">검색 결과 (' + matched.length + ')</div>';
+      if (matched.length === 0) {
+        html += '<div class="empty">결과 없음</div>';
+      } else {
+        html += matched.slice(0, 50).map(c => renderItem(c, favoriteIds.includes(c.id))).join('');
+      }
+    }
+
+    $body.innerHTML = html;
+    bindItemEvents();
+  }
+
+  function renderItem(c, isFav) {
+    const expanded = expandedId === c.id;
+    const meta = [c.position, c.company].filter(Boolean).join(' · ');
+    const phone = c.mobile || c.phone || '';
+
+    let html = '<div class="contact-item ' + (expanded ? 'expanded' : '') + '" data-id="' + c.id + '">';
+    html += '<span class="star ' + (isFav ? 'fav' : '') + '" data-fav="' + c.id + '">' + (isFav ? '★' : '☆') + '</span>';
+    html += '<div class="contact-main" data-toggle="' + c.id + '">';
+    html += '<div class="contact-name">' + escapeHtml(c.name || '(이름 없음)') + '</div>';
+    if (meta) html += '<div class="contact-meta">' + escapeHtml(meta) + '</div>';
+    else if (phone) html += '<div class="contact-meta">' + escapeHtml(phone) + '</div>';
+    html += '</div></div>';
+
+    if (expanded) {
+      html += '<div class="detail">';
+      if (c.mobile) html += '<div class="detail-row"><span class="detail-label">휴대폰</span><span class="detail-value copyable" data-copy="' + escapeHtml(c.mobile) + '">' + escapeHtml(c.mobile) + '</span></div>';
+      if (c.phone) html += '<div class="detail-row"><span class="detail-label">사무실</span><span class="detail-value copyable" data-copy="' + escapeHtml(c.phone) + '">' + escapeHtml(c.phone) + '</span></div>';
+      if (c.email) html += '<div class="detail-row"><span class="detail-label">이메일</span><span class="detail-value copyable" data-copy="' + escapeHtml(c.email) + '">' + escapeHtml(c.email) + '</span></div>';
+      if (c.dept) html += '<div class="detail-row"><span class="detail-label">부서</span><span class="detail-value">' + escapeHtml(c.dept) + '</span></div>';
+      if (c.note) html += '<div class="detail-row"><span class="detail-label">메모</span><span class="detail-value">' + escapeHtml(c.note) + '</span></div>';
+      html += '</div>';
+    }
+
+    return html;
+  }
+
+  function bindItemEvents() {
+    $body.querySelectorAll('[data-fav]').forEach(el => {
+      el.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const id = el.dataset.fav;
+        try {
+          const res = await api.contactsToggleFavorite(id);
+          if (res && res.ok) {
+            favoriteIds = res.favoriteIds || [];
+            render();
+          }
+        } catch (err) { showToast('실패: ' + err.message); }
+      });
+    });
+    $body.querySelectorAll('[data-toggle]').forEach(el => {
+      el.addEventListener('click', () => {
+        const id = el.dataset.toggle;
+        expandedId = (expandedId === id) ? null : id;
+        render();
+      });
+    });
+    $body.querySelectorAll('[data-copy]').forEach(el => {
+      el.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const txt = el.dataset.copy;
+        await api.copyText(txt);
+        showToast('복사됨: ' + txt);
+      });
+    });
+  }
+
+  // 검색 입력
+  let searchTimer = null;
+  $search.addEventListener('input', (e) => {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      searchQ = e.target.value.trim();
+      render();
+    }, 150);
+  });
+
+  // 헤더 버튼
+  document.getElementById('btnPin').addEventListener('click', async () => {
+    const next = await api.toggleAlwaysOnTop();
+    showToast(next ? '항상 위' : '항상 위 해제');
+  });
+  document.getElementById('btnClose').addEventListener('click', () => window.close());
+  document.getElementById('btnSearch').addEventListener('click', () => api.contactsOpenSearch());
+  document.getElementById('btnFull').addEventListener('click', () => api.contactsOpenFull());
+
+  // 첫 로드
+  loadAll();
+
+  // ESC 로 닫기 (검색 중이면 검색 클리어)
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if ($search.value) { $search.value = ''; searchQ = ''; render(); }
+      else window.close();
+    }
+  });
+</script>
+</body>
+</html>

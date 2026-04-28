@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>연락처 전체</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; font-family: 'Noto Sans KR', 'Segoe UI', sans-serif; font-size: 13px; color: #1f2937; background: #fff; }
+
+  .topbar {
+    padding: 8px 12px;
+    background: #fef3c7;
+    border-bottom: 2px solid #f59e0b;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .topbar h1 { font-size: 14px; font-weight: 700; color: #78350f; flex-shrink: 0; }
+  .topbar input {
+    flex: 1;
+    padding: 5px 8px;
+    border: 1px solid #d97706;
+    border-radius: 4px;
+    font-size: 13px;
+    outline: none;
+    background: #fff;
+  }
+  .topbar select {
+    padding: 5px 8px;
+    border: 1px solid #d97706;
+    border-radius: 4px;
+    font-size: 12px;
+    background: #fff;
+    cursor: pointer;
+  }
+  .stats { font-size: 11px; color: #78350f; }
+
+  .body {
+    height: calc(100vh - 50px);
+    overflow-y: auto;
+    padding: 0;
+  }
+  .body::-webkit-scrollbar { width: 8px; }
+  .body::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+
+  .group-title {
+    padding: 6px 14px;
+    background: #f3f4f6;
+    border-bottom: 1px solid #e5e7eb;
+    font-size: 11px;
+    font-weight: 700;
+    color: #4b5563;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+
+  .item {
+    padding: 8px 14px;
+    border-bottom: 1px solid #f3f4f6;
+    display: grid;
+    grid-template-columns: 24px 1fr auto;
+    gap: 10px;
+    align-items: center;
+    cursor: pointer;
+  }
+  .item:hover { background: #fef3c7; }
+  .item.expanded { background: #fffbeb; }
+
+  .star {
+    cursor: pointer;
+    color: #d1d5db;
+    font-size: 16px;
+    text-align: center;
+    border-radius: 3px;
+    user-select: none;
+  }
+  .star.fav { color: #fbbf24; }
+  .star:hover { background: rgba(0,0,0,0.05); }
+
+  .info { min-width: 0; }
+  .name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 2px;
+  }
+  .sub {
+    font-size: 11px;
+    color: #6b7280;
+  }
+
+  .actions {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+  .quick-btn {
+    background: #fff;
+    border: 1px solid #f59e0b40;
+    border-radius: 3px;
+    padding: 3px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    color: #b45309;
+    font-family: 'Consolas', monospace;
+    white-space: nowrap;
+    max-width: 130px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .quick-btn:hover { background: #fde68a; }
+  .quick-btn:active { background: #fbbf24; color: #fff; }
+
+  .detail {
+    padding: 6px 14px 10px 48px;
+    background: #fffbeb;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 12px;
+  }
+  .detail-row { display: flex; gap: 10px; padding: 3px 0; align-items: center; }
+  .detail-label { color: #6b7280; min-width: 50px; font-size: 11px; }
+  .detail-value {
+    flex: 1;
+    color: #1f2937;
+    word-break: break-all;
+  }
+  .detail-value.copyable {
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: #fff;
+    border: 1px solid #f59e0b40;
+    display: inline-block;
+  }
+  .detail-value.copyable:hover { background: #fde68a; }
+
+  .empty {
+    padding: 40px 16px;
+    text-align: center;
+    color: #9ca3af;
+    font-size: 12px;
+  }
+
+  .toast {
+    position: fixed;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1f2937;
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 16px;
+    font-size: 12px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+    z-index: 100;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>📞 전체 연락처</h1>
+    <input id="search" type="text" placeholder="검색...">
+    <select id="filter">
+      <option value="all">전체</option>
+      <option value="fav">⭐ 즐겨찾기만</option>
+    </select>
+    <select id="groupBy">
+      <option value="company">회사별</option>
+      <option value="name">이름순</option>
+      <option value="recent">최신순</option>
+    </select>
+    <span class="stats" id="stats"></span>
+  </div>
+
+  <div class="body" id="body">
+    <div class="empty">불러오는 중...</div>
+  </div>
+
+  <div class="toast" id="toast">복사됨</div>
+
+<script>
+  const api = window.electronAPI;
+  let allContacts = [];
+  let favoriteIds = [];
+  let expandedId = null;
+
+  const $body = document.getElementById('body');
+  const $search = document.getElementById('search');
+  const $filter = document.getElementById('filter');
+  const $groupBy = document.getElementById('groupBy');
+  const $stats = document.getElementById('stats');
+  const $toast = document.getElementById('toast');
+
+  function showToast(msg) {
+    $toast.textContent = msg;
+    $toast.classList.add('show');
+    setTimeout(() => $toast.classList.remove('show'), 1200);
+  }
+
+  async function loadAll() {
+    try {
+      const [listRes, favRes] = await Promise.all([
+        api.contactsList(),
+        api.contactsFavorites(),
+      ]);
+      if (listRes && listRes.ok) allContacts = listRes.contacts || [];
+      if (favRes && favRes.ok) favoriteIds = favRes.favoriteIds || [];
+      render();
+    } catch (e) {
+      $body.innerHTML = '<div class="empty">오류: ' + (e.message || e) + '</div>';
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function getFiltered() {
+    const q = $search.value.trim().toLowerCase();
+    const filter = $filter.value;
+    let list = allContacts.slice();
+
+    if (filter === 'fav') {
+      list = list.filter(c => favoriteIds.includes(c.id));
+    }
+    if (q) {
+      list = list.filter(c =>
+        (c.name || '').toLowerCase().includes(q) ||
+        (c.company || '').toLowerCase().includes(q) ||
+        (c.position || '').toLowerCase().includes(q) ||
+        (c.phone || '').includes(q) ||
+        (c.mobile || '').includes(q) ||
+        (c.email || '').toLowerCase().includes(q) ||
+        (c.note || '').toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }
+
+  function render() {
+    const list = getFiltered();
+    $stats.textContent = list.length + '건';
+
+    if (list.length === 0) {
+      $body.innerHTML = '<div class="empty">결과 없음</div>';
+      return;
+    }
+
+    const groupBy = $groupBy.value;
+    let html = '';
+
+    if (groupBy === 'company') {
+      const groups = {};
+      list.forEach(c => {
+        const key = c.company || '(회사 없음)';
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(c);
+      });
+      const sortedKeys = Object.keys(groups).sort((a, b) => a.localeCompare(b, 'ko'));
+      sortedKeys.forEach(key => {
+        html += '<div class="group-title">' + escapeHtml(key) + ' (' + groups[key].length + ')</div>';
+        groups[key].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'));
+        groups[key].forEach(c => { html += renderItem(c); });
+      });
+    } else if (groupBy === 'name') {
+      list.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ko'));
+      list.forEach(c => { html += renderItem(c); });
+    } else if (groupBy === 'recent') {
+      list.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+      list.forEach(c => { html += renderItem(c); });
+    }
+
+    $body.innerHTML = html;
+    bindEvents();
+  }
+
+  function renderItem(c) {
+    const isFav = favoriteIds.includes(c.id);
+    const expanded = expandedId === c.id;
+    const meta = [c.position, c.dept].filter(Boolean).join(' / ');
+    const phone = c.mobile || c.phone || '';
+
+    let html = '<div class="item ' + (expanded ? 'expanded' : '') + '">';
+    html += '<span class="star ' + (isFav ? 'fav' : '') + '" data-fav="' + c.id + '">' + (isFav ? '★' : '☆') + '</span>';
+    html += '<div class="info" data-toggle="' + c.id + '">';
+    html += '<div class="name">' + escapeHtml(c.name || '(이름 없음)') + (c.company ? ' <span style="color:#9ca3af;font-weight:400;">· ' + escapeHtml(c.company) + '</span>' : '') + '</div>';
+    if (meta || c.note) html += '<div class="sub">' + escapeHtml([meta, c.note].filter(Boolean).join(' · ')) + '</div>';
+    html += '</div>';
+    html += '<div class="actions">';
+    if (phone) html += '<button class="quick-btn" data-copy="' + escapeHtml(phone) + '" title="클릭하면 복사">' + escapeHtml(phone) + '</button>';
+    html += '</div>';
+    html += '</div>';
+
+    if (expanded) {
+      html += '<div class="detail">';
+      if (c.mobile) html += '<div class="detail-row"><span class="detail-label">휴대폰</span><span class="detail-value copyable" data-copy="' + escapeHtml(c.mobile) + '">' + escapeHtml(c.mobile) + '</span></div>';
+      if (c.phone) html += '<div class="detail-row"><span class="detail-label">사무실</span><span class="detail-value copyable" data-copy="' + escapeHtml(c.phone) + '">' + escapeHtml(c.phone) + '</span></div>';
+      if (c.email) html += '<div class="detail-row"><span class="detail-label">이메일</span><span class="detail-value copyable" data-copy="' + escapeHtml(c.email) + '">' + escapeHtml(c.email) + '</span></div>';
+      if (c.dept) html += '<div class="detail-row"><span class="detail-label">부서</span><span class="detail-value">' + escapeHtml(c.dept) + '</span></div>';
+      if (c.position) html += '<div class="detail-row"><span class="detail-label">직급</span><span class="detail-value">' + escapeHtml(c.position) + '</span></div>';
+      if (c.company) html += '<div class="detail-row"><span class="detail-label">회사</span><span class="detail-value">' + escapeHtml(c.company) + '</span></div>';
+      if (c.note) html += '<div class="detail-row"><span class="detail-label">메모</span><span class="detail-value">' + escapeHtml(c.note) + '</span></div>';
+      html += '</div>';
+    }
+
+    return html;
+  }
+
+  function bindEvents() {
+    $body.querySelectorAll('[data-fav]').forEach(el => {
+      el.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const id = el.dataset.fav;
+        try {
+          const res = await api.contactsToggleFavorite(id);
+          if (res && res.ok) {
+            favoriteIds = res.favoriteIds || [];
+            render();
+          }
+        } catch (err) { showToast('실패: ' + err.message); }
+      });
+    });
+    $body.querySelectorAll('[data-toggle]').forEach(el => {
+      el.addEventListener('click', () => {
+        const id = el.dataset.toggle;
+        expandedId = (expandedId === id) ? null : id;
+        render();
+      });
+    });
+    $body.querySelectorAll('[data-copy]').forEach(el => {
+      el.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const txt = el.dataset.copy;
+        await api.copyText(txt);
+        showToast('복사됨: ' + txt);
+      });
+    });
+  }
+
+  let searchTimer = null;
+  $search.addEventListener('input', () => {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(render, 100);
+  });
+  $filter.addEventListener('change', render);
+  $groupBy.addEventListener('change', render);
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if ($search.value) { $search.value = ''; render(); }
+    } else if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+      e.preventDefault();
+      $search.focus();
+      $search.select();
+    }
+  });
+
+  loadAll();
+</script>
+</body>
+</html>
