@@ -610,11 +610,9 @@
                     </div>
                   </div>
                 </template>
-                <!-- 일반 텍스트 / 이미지 생성 사용자 프롬프트 —
-                     중간에 끼어있는 다중 newline 도 압축 (DB 옛날 데이터 호환).
-                     입력 시 textarea 에서 잘못 들어간 빈 줄 정리 -->
+                <!-- 일반 텍스트 / 이미지 생성 사용자 프롬프트 — cleanMsgText 가 빈 줄 정리 -->
                 <template x-if="m.kind !== 'agent' && (m.kind !== 'image' || !m.image_url)">
-                  <div x-text="String(m.content || '').replace(/\n{2,}/g, '\n').replace(/[ \t]+\n/g, '\n').trim()"></div>
+                  <div x-text="cleanMsgText(m.content)"></div>
                 </template>
                 <!-- 🤖 Agent 모드 메시지 — 진행상황 + 출력 + 생성된 파일 -->
                 <template x-if="m.kind === 'agent'">
@@ -928,6 +926,26 @@ function aiApp() {
     scope: 'mine',   // 'mine' | 'team' | 'company' | 'invited'
     scopeLabels: { mine:'내 대화', team:'팀', company:'회사', invited:'초대받은' },
     scopeBadges: { private:'나만', team:'팀', company:'회사', invited:'초대' },
+
+
+    // 메시지 텍스트 정리 — 빈 줄 / 다중 newline 압축 / 앞뒤 공백 제거
+    cleanMsgText(content) {
+      if (content == null) return '';
+      const s = String(content);
+      // 모든 라인 분리: LF, CR, CRLF, U+0085 NEL, U+2028 LS, U+2029 PS
+      const lines = s.split(new RegExp('\r\n|\r|\n|\u0085|\u2028|\u2029'));
+      const cleaned = [];
+      for (const line of lines) {
+        // \s 는 NBSP/zero-width 포함 모든 unicode whitespace 매칭
+        const trimmed = line.replace(/^\s+|\s+$/g, '');
+        if (trimmed.length > 0) cleaned.push(trimmed);
+      }
+      return cleaned.join('\n');
+    },
+
+
+
+
     limit: 30,
     offset: 0,
     hasMore: false,
@@ -1476,7 +1494,7 @@ function aiApp() {
     },
 
     async send() {
-      const prompt = String(this.draft || '').replace(/\n{2,}/g, '\n').replace(/[ \t]+\n/g, '\n').trim();
+      const prompt = this.cleanMsgText(this.draft);
       if (!prompt || this.loading || this.agentRunning) return;
       if (!this.aiReady) {
         alert('AI 기능이 서버에서 비활성화 상태입니다. 서버 관리자에게 문의하세요.');
