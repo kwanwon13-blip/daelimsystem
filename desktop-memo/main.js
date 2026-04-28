@@ -508,6 +508,178 @@ function openContactsFull() {
 }
 
 // ────────────────────────────────────────────────
+// 통일 위젯 헬퍼 — 자석 스냅 + 위치 저장 (런처/사이드바/AI 위젯 공용)
+// ────────────────────────────────────────────────
+function attachWidgetBehavior(win, stateKey) {
+  const saveState = () => {
+    if (!win || win.isDestroyed()) return;
+    const b = win.getBounds();
+    const all = cfg.get('windowStates', {});
+    all[stateKey] = {
+      ...all[stateKey],
+      x: b.x, y: b.y, width: b.width, height: b.height,
+      alwaysOnTop: win.isAlwaysOnTop(),
+    };
+    cfg.set('windowStates', all);
+  };
+  let _t = null;
+  win.on('move', () => {
+    if (!cfg.get('snapEnabled', true)) return;
+    if (_t) clearTimeout(_t);
+    _t = setTimeout(() => snapWindow(win), 50);
+  });
+  win.on('moved', () => {
+    saveState();
+    if (cfg.get('snapEnabled', true)) snapWindow(win, true);
+  });
+  win.on('resized', saveState);
+}
+
+function getSavedState(stateKey, defaults) {
+  const states = cfg.get('windowStates', {});
+  const saved = states[stateKey] || {};
+  return {
+    x: saved.x,
+    y: saved.y,
+    width: saved.width || defaults.width,
+    height: saved.height || defaults.height,
+    alwaysOnTop: saved.alwaysOnTop !== undefined ? saved.alwaysOnTop : cfg.get('alwaysOnTopDefault', true),
+  };
+}
+
+// ────────────────────────────────────────────────
+// 런처 — 데스크탑 4버튼 박스
+// ────────────────────────────────────────────────
+function openLauncher() {
+  if (launcherWin && !launcherWin.isDestroyed()) {
+    launcherWin.focus();
+    return;
+  }
+  const s = getSavedState('__launcher', { width: 360, height: 80 });
+  launcherWin = new BrowserWindow({
+    width: s.width, height: s.height, x: s.x, y: s.y,
+    minWidth: 180, minHeight: 24,
+    title: '대림에스엠 런처',
+    frame: false,
+    backgroundColor: '#fef3c7',
+    alwaysOnTop: s.alwaysOnTop,
+    skipTaskbar: false,
+    resizable: true,
+    minimizable: true,
+    maximizable: false,
+    icon: path.join(__dirname, 'build', 'icon.ico'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+    show: false,
+  });
+  launcherWin.loadFile(path.join(__dirname, 'renderer', 'launcher.html'));
+  launcherWin.once('ready-to-show', () => launcherWin.show());
+  attachWidgetBehavior(launcherWin, '__launcher');
+  launcherWin.on('closed', () => { launcherWin = null; });
+}
+
+// ────────────────────────────────────────────────
+// 워크스페이스 사이드바 — 페이지 목록 패널
+// ────────────────────────────────────────────────
+function openWorkspaceSidebar() {
+  if (workspaceSidebarWin && !workspaceSidebarWin.isDestroyed()) {
+    workspaceSidebarWin.focus();
+    return;
+  }
+  const s = getSavedState('__workspace_sidebar', { width: 280, height: 480 });
+  workspaceSidebarWin = new BrowserWindow({
+    width: s.width, height: s.height, x: s.x, y: s.y,
+    minWidth: 220, minHeight: 24,
+    title: '페이지 목록',
+    frame: false,
+    backgroundColor: '#ffffff',
+    alwaysOnTop: s.alwaysOnTop,
+    skipTaskbar: false,
+    resizable: true,
+    minimizable: true,
+    maximizable: false,
+    icon: path.join(__dirname, 'build', 'icon.ico'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+    show: false,
+  });
+  workspaceSidebarWin.loadFile(path.join(__dirname, 'renderer', 'workspace-sidebar.html'));
+  workspaceSidebarWin.once('ready-to-show', () => workspaceSidebarWin.show());
+  attachWidgetBehavior(workspaceSidebarWin, '__workspace_sidebar');
+  workspaceSidebarWin.on('closed', () => { workspaceSidebarWin = null; });
+}
+
+// ────────────────────────────────────────────────
+// AI 위젯 (작은 채팅 박스)
+// ────────────────────────────────────────────────
+function openAIWidget() {
+  if (aiWidgetWin && !aiWidgetWin.isDestroyed()) {
+    aiWidgetWin.focus();
+    return;
+  }
+  const s = getSavedState('__ai_widget', { width: 360, height: 480 });
+  aiWidgetWin = new BrowserWindow({
+    width: s.width, height: s.height, x: s.x, y: s.y,
+    minWidth: 240, minHeight: 24,
+    title: 'AI 빠른 질문',
+    frame: false,
+    backgroundColor: '#fafafa',
+    alwaysOnTop: s.alwaysOnTop,
+    skipTaskbar: false,
+    resizable: true,
+    minimizable: true,
+    maximizable: false,
+    icon: path.join(__dirname, 'build', 'icon.ico'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+    show: false,
+  });
+  aiWidgetWin.loadFile(path.join(__dirname, 'renderer', 'ai-widget.html'));
+  aiWidgetWin.once('ready-to-show', () => aiWidgetWin.show());
+  attachWidgetBehavior(aiWidgetWin, '__ai_widget');
+  aiWidgetWin.on('closed', () => { aiWidgetWin = null; });
+}
+
+// ────────────────────────────────────────────────
+// AI 전체 화면 (큰 창) — ERP 의 AI 탭만 띄움
+// ────────────────────────────────────────────────
+function openAIFull() {
+  if (aiFullWin && !aiFullWin.isDestroyed()) {
+    aiFullWin.focus();
+    return;
+  }
+  aiFullWin = new BrowserWindow({
+    width: 1100,
+    height: 760,
+    title: 'AI — 대림에스엠',
+    icon: path.join(__dirname, 'build', 'icon.ico'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  // ERP 의 AI 탭으로 직접 진입 (다른 메뉴 안 보이게 desktop=1 플래그 + #ai 해시)
+  aiFullWin.loadURL(getServerUrl() + '/?desktop=1#ai');
+  aiFullWin.on('closed', () => { aiFullWin = null; });
+
+  // 외부 링크는 시스템 브라우저
+  aiFullWin.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+}
+
+// ────────────────────────────────────────────────
 // 시스템 트레이
 // ────────────────────────────────────────────────
 function buildTrayMenu() {
@@ -543,6 +715,14 @@ function buildTrayMenu() {
         { label: '📋 전체 목록 보기', click: () => openContactsFull() },
       ],
     },
+    {
+      label: '🤖 AI',
+      submenu: [
+        { label: '💬 빠른 질문 위젯', click: () => openAIWidget() },
+        { label: '⛶ 전체 화면 (큰 창)', click: () => openAIFull() },
+      ],
+    },
+    { label: '🚀 런처 (4버튼 박스)', click: () => openLauncher() },
     { type: 'separator' },
     {
       label: '⚙ 설정',
@@ -860,6 +1040,15 @@ ipcMain.handle('memo:copy-text', (_e, text) => {
   catch (e) { return { ok: false, error: e.message }; }
 });
 
+// ── 런처 / 워크스페이스 사이드바 / AI ──
+ipcMain.handle('launcher:open', (_e, kind) => {
+  if (kind === 'memo-list') showMemoList();
+  else if (kind === 'contacts-widget') openContactsWidget();
+  else if (kind === 'workspace-sidebar') openWorkspaceSidebar();
+  else if (kind === 'ai-widget') openAIWidget();
+});
+ipcMain.handle('ai:open-full', () => openAIFull());
+
 // ────────────────────────────────────────────────
 // 앱 라이프사이클
 // ────────────────────────────────────────────────
@@ -896,13 +1085,15 @@ app.whenReady().then(async () => {
   if (!status.loggedIn) {
     openLoginWindow();
   } else {
-    // 로그인된 상태 — 즐겨찾기 메모 자동 띄우기 (옵션)
+    // 로그인된 상태 — 즐겨찾기 메모 자동 띄우기
     const pinned = cfg.get('pinnedPages', []);
-    if (pinned.length === 0) {
+    for (const p of pinned) openMemoWindow(p.id, { title: p.title });
+    // 런처 자동 띄우기 (사용자가 끈 적 없으면)
+    if (cfg.get('autoOpenLauncher', true)) {
+      openLauncher();
+    } else if (pinned.length === 0) {
+      // 런처도 안 띄우는데 즐겨찾기도 없으면 메모 목록 보여주기
       showMemoList();
-    } else {
-      // 즐겨찾기 자동 오픈
-      for (const p of pinned) openMemoWindow(p.id, { title: p.title });
     }
   }
 });

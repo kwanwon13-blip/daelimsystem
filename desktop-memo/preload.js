@@ -44,6 +44,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   contactsOpenFull: () => ipcRenderer.invoke('contacts:open-full'),
   copyText: (text) => ipcRenderer.invoke('memo:copy-text', text),
 
+  // 런처 / AI / 워크스페이스 사이드바
+  launcherOpen: (kind) => ipcRenderer.invoke('launcher:open', kind),
+  aiOpenFull: () => ipcRenderer.invoke('ai:open-full'),
+
   // 환경 정보
   isDesktopApp: true,
   platform: process.platform,

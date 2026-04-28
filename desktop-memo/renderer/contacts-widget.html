@@ -158,6 +158,12 @@
   }
   .toast.show { opacity: 1; }
 
+  /* 미니 모드 — 헤더만 */
+  body[data-mini="1"] .search-wrap,
+  body[data-mini="1"] .body,
+  body[data-mini="1"] .footer { display: none !important; }
+  body[data-mini="1"] .hdr { border-bottom: none; }
+
   /* 푸터 (모드 전환) */
   .footer {
     border-top: 1px solid #e5e7eb;
@@ -188,6 +194,7 @@
   <div class="hdr">
     <span class="hdr-title">📞 연락처</span>
     <button class="hdr-btn" id="btnPin" title="항상 위에 표시">📌</button>
+    <button class="hdr-btn" id="btnMini" title="미니 / 원래 크기">▭</button>
     <button class="hdr-btn close" id="btnClose" title="닫기">✕</button>
   </div>
 
@@ -359,9 +366,20 @@
     const next = await api.toggleAlwaysOnTop();
     showToast(next ? '항상 위' : '항상 위 해제');
   });
+  let isMini = false;
+  document.getElementById('btnMini').addEventListener('click', () => {
+    isMini = !isMini;
+    document.body.setAttribute('data-mini', isMini ? '1' : '0');
+    if (api.setMini) api.setMini(isMini, isMini ? 200 : 290, isMini ? 24 : 460);
+  });
   document.getElementById('btnClose').addEventListener('click', () => window.close());
   document.getElementById('btnSearch').addEventListener('click', () => api.contactsOpenSearch());
   document.getElementById('btnFull').addEventListener('click', () => api.contactsOpenFull());
+
+  document.querySelector('.hdr').addEventListener('dblclick', (e) => {
+    if (e.target.closest('button')) return;
+    document.getElementById('btnMini').click();
+  });
 
   // 첫 로드
   loadAll();
