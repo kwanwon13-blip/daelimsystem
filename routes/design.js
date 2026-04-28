@@ -520,14 +520,7 @@ router.get('/design/debug', requireAdmin, (req, res) => {
 });
 
 
-// 외부 모듈(routes/product-design.js 등)에서 designIndex 직접 접근하기 위한 export
-router.getDesignIndex = () => designIndex;
-router.getDesignIndexStatus = () => designIndexStatus;
-router.getDesignRoot = () => DESIGN_ROOT;
-router.toNetworkPath = toNetworkPath;
-
-module.exports = router;
-oduct-design.js 등)에서 designIndex 직접 접근하기 위한 export
+// design index 외부 노출 (다른 라우터에서 재사용)
 router.getDesignIndex = () => designIndex;
 router.getDesignIndexStatus = () => designIndexStatus;
 router.getDesignRoot = () => DESIGN_ROOT;
