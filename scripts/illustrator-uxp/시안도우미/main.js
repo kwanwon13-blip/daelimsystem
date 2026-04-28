@@ -1,14 +1,30 @@
 /**
- * 시안 도우미 — UXP 플러그인 main 로직
+ * 시안 도우미 — 단순화 버전 (네이티브 UXP API)
  *
- * 이 파일은 UXP 환경에서 실행됨.
- * Illustrator 조작은 ExtendScript를 app.executeScript로 호출 (가장 안정적).
+ * 핵심 변경:
+ * - 모든 입력 필드를 항상 보이게 (drawer/popup 제거)
+ * - HTML datalist 로 네이티브 콤보박스 (타이핑 + 자동완성)
+ * - + 옵션은 inline sub-panel 토글
+ * - 시안 저장 form 항상 보임 — 한 화면에 다
  */
 
-// ── UXP API 핸들 ──
 const ilst = require('illustrator');
-const app = ilst.app;
+const { app, core } = ilst;
 const lfs = require('uxp').storage.localFileSystem;
+
+// 저장 옵션 클래스 (UXP 글로벌)
+let IllustratorSaveOptions, PDFSaveOptions, ExportOptionsJPEG;
+let Compatibility, PDFCompatibility, ExportType, OutputFlattening, Justification;
+try {
+  IllustratorSaveOptions = ilst.IllustratorSaveOptions || globalThis.IllustratorSaveOptions;
+  PDFSaveOptions = ilst.PDFSaveOptions || globalThis.PDFSaveOptions;
+  ExportOptionsJPEG = ilst.ExportOptionsJPEG || globalThis.ExportOptionsJPEG;
+  Compatibility = ilst.Compatibility || globalThis.Compatibility;
+  PDFCompatibility = ilst.PDFCompatibility || globalThis.PDFCompatibility;
+  ExportType = ilst.ExportType || globalThis.ExportType;
+  OutputFlattening = ilst.OutputFlattening || globalThis.OutputFlattening;
+  Justification = ilst.Justification || globalThis.Justification;
+} catch (e) { /* fall through */ }
 
 // ── 마스터 사전 ──
 const KIND_DICT = [
@@ -32,18 +48,15 @@ const KIND_DICT = [
   "페인트","래커","락카","볼트","피스",
   "LED","전구","형광등","스위치","케이블"
 ];
-
 const BRAND_DICT = [
   "포스코이앤씨","DL이앤씨","현대산업개발","요진건설","동명이엔지","삼성라코스",
   "두산","쌍용건설","이상테크윈","대림건설","한신공영","우정은","보성세이프",
   "GC녹십자EM","오엠알오","극동건설","관보토건(주)","글로벌텍 나이스텍"
 ];
-
 const VENDOR_DICT = [
   "공장","코리아","한진","라코스","현진","대풍","배너스토어","한양안전",
   "세계로","풍아몰","이용전","대영","현대상사","건우","동방사","서진","kep","풍아"
 ];
-
 const OPTION_DICT = [
   "양면","단면",
   "사방타공","상단1타공","상단2타공","상단3타공","4방타공","6방타공",
@@ -78,7 +91,6 @@ function buildFileName(d, purpose) {
   if (purpose && purpose !== "원본") base += `-발주(${purpose})`;
   return base;
 }
-
 function buildFolder(d) {
   const root = DESIGN_ROOT.replace(/[\\\/]+$/, "");
   const folders = [root];
@@ -88,8 +100,6 @@ function buildFolder(d) {
   if (d.현장) folders.push(sanitize(d.현장));
   return folders.join("\\");
 }
-
-// ── 상태 표시 ──
 function showStatus(msg, level) {
   const el = $("status");
   el.textContent = msg;
@@ -97,7 +107,32 @@ function showStatus(msg, level) {
   if (msg) setTimeout(() => { el.textContent = ""; el.className = ""; }, 8000);
 }
 
-// ── 미리보기 빌드 ──
+// ── datalist 채우기 (네이티브 콤보박스) ──
+function populateDatalist(id, items) {
+  const list = $(id);
+  list.innerHTML = "";
+  items.forEach(item => {
+    const opt = document.createElement("option");
+    opt.value = item;
+    list.appendChild(opt);
+  });
+}
+
+// ── 옵션 그리드 ──
+function populateOptionGrid() {
+  const grid = $("opt-grid");
+  grid.innerHTML = "";
+  OPTION_DICT.forEach(item => {
+    const div = document.createElement("div");
+    div.className = "opt-item";
+    div.textContent = item;
+    div.dataset.value = item;
+    div.addEventListener("click", () => div.classList.toggle("checked"));
+    grid.appendChild(div);
+  });
+}
+
+// ── 미리보기 ──
 function buildQty() {
   const mode = document.querySelector('input[name="qty-mode"]:checked').value;
   if (mode === "multi") {
@@ -108,7 +143,6 @@ function buildQty() {
   const q = $("qty-single").value.trim();
   return q ? `${q}개` : "";
 }
-
 function updatePreview() {
   const spec = $("spec").value.trim();
   const kind = $("kind").value.trim();
@@ -124,211 +158,114 @@ function updatePreview() {
   const m = $("date-month").value.trim();
   const d = $("date-day").value.trim();
   $("preview-line2").textContent = (m && d) ? `납품: ${m}/${d}` : "";
-}
-
-// ── 입력 이벤트 ──
-function wireInputs() {
-  ["spec","kind","opt","qty-single","qty-each","qty-total","date-month","date-day"].forEach(id => {
-    const el = $(id);
-    if (el) el.addEventListener("input", updatePreview);
-  });
-  document.querySelectorAll('input[name="qty-mode"]').forEach(rb => {
-    rb.addEventListener("change", () => {
-      const mode = document.querySelector('input[name="qty-mode"]:checked').value;
-      $("qty-multi-row").classList.toggle("hidden", mode !== "multi");
-      $("qty-single").disabled = (mode === "multi");
-      updatePreview();
-    });
-  });
-  // 날짜 초기값
-  const d = new Date();
-  $("date-month").value = d.getMonth() + 1;
-  $("date-day").value = d.getDate();
-}
-
-// ══════════════════════════════════════════════════════════
-// DRAWER 제어
-// ══════════════════════════════════════════════════════════
-let drawerTargetInput = null;
-
-function openDrawer(paneId) {
-  $("drawer").classList.remove("hidden");
-  ["pane-pick","pane-option","pane-save"].forEach(id => {
-    $(id).classList.toggle("hidden", id !== paneId);
-  });
-}
-
-function closeDrawer() {
-  $("drawer").classList.add("hidden");
-  drawerTargetInput = null;
-}
-
-// ── 사전 검색 (pane-pick) ──
-let pickCurrentDict = [];
-function openPick(dict, target) {
-  drawerTargetInput = target;
-  pickCurrentDict = dict;
-  $("pick-search").value = target.value || "";
-  refreshPickList();
-  openDrawer("pane-pick");
-  $("pick-search").focus();
-}
-
-function refreshPickList() {
-  const query = $("pick-search").value.toLowerCase();
-  const list = $("pick-list");
-  list.innerHTML = "";
-  pickCurrentDict.forEach(item => {
-    if (!query || item.toLowerCase().includes(query)) {
-      const div = document.createElement("div");
-      div.className = "item";
-      div.textContent = item;
-      div.addEventListener("click", () => {
-        // 단일 선택 강조
-        list.querySelectorAll(".item.selected").forEach(el => el.classList.remove("selected"));
-        div.classList.add("selected");
-      });
-      div.addEventListener("dblclick", () => {
-        if (drawerTargetInput) {
-          drawerTargetInput.value = item;
-          drawerTargetInput.dispatchEvent(new Event("input"));
-        }
-        closeDrawer();
-      });
-      list.appendChild(div);
-    }
-  });
-}
-
-function pickConfirm() {
-  const sel = $("pick-list").querySelector(".item.selected");
-  if (drawerTargetInput) {
-    if (sel) drawerTargetInput.value = sel.textContent;
-    else if ($("pick-search").value) drawerTargetInput.value = $("pick-search").value;
-    drawerTargetInput.dispatchEvent(new Event("input"));
+  // 저장 form 의 종류/옵션도 자동 동기화 (비어있을 때만)
+  if (!$("save-kind").value || $("save-kind").dataset.auto) {
+    $("save-kind").value = kind;
+    $("save-kind").dataset.auto = "1";
   }
-  closeDrawer();
-}
-
-// ── 옵션 다중 선택 (pane-option) ──
-function openOption(target) {
-  drawerTargetInput = target;
-  $("opt-search").value = "";
-  $("opt-custom").value = "";
-  refreshOptList();
-  openDrawer("pane-option");
-}
-
-function refreshOptList() {
-  const query = $("opt-search").value.toLowerCase();
-  const list = $("opt-list");
-  list.innerHTML = "";
-  OPTION_DICT.forEach(item => {
-    if (!query || item.toLowerCase().includes(query)) {
-      const div = document.createElement("div");
-      div.className = "item";
-      div.textContent = item;
-      div.dataset.value = item;
-      div.addEventListener("click", () => {
-        div.classList.toggle("checked");
-      });
-      list.appendChild(div);
-    }
-  });
-}
-
-function optionAdd() {
-  const checkedItems = Array.from($("opt-list").querySelectorAll(".item.checked"))
-    .map(el => el.dataset.value);
-  const customs = $("opt-custom").value.split(",").map(s => s.trim()).filter(Boolean);
-  const all = [...checkedItems, ...customs];
-  if (all.length > 0 && drawerTargetInput) {
-    let current = drawerTargetInput.value;
-    all.forEach(opt => current += "+" + opt);
-    drawerTargetInput.value = current;
-    drawerTargetInput.dispatchEvent(new Event("input"));
+  if (!$("save-opt").value || $("save-opt").dataset.auto) {
+    $("save-opt").value = opt;
+    $("save-opt").dataset.auto = "1";
   }
-  closeDrawer();
-}
-
-// ── 시안 저장 form (pane-save) ──
-function openSave() {
-  $("save-date").value = todayMMDD();
-  $("save-kind").value = $("kind").value;
-  $("save-opt").value = $("opt").value;
   updateSaveFolder();
-  openDrawer("pane-save");
 }
-
 function updateSaveFolder() {
   $("save-folder").textContent = buildFolder({
     건설사: $("save-brand").value,
     현장: $("save-site").value
-  });
+  }) || "D:\\...";
+}
+
+// ── 옵션 추가 패널 토글 ──
+function toggleOptPanel() {
+  $("opt-panel").classList.toggle("hidden");
+}
+function applyOptions() {
+  const checked = Array.from($("opt-grid").querySelectorAll(".opt-item.checked"))
+    .map(el => el.dataset.value);
+  const customs = $("opt-custom").value.split(",").map(s => s.trim()).filter(Boolean);
+  const all = [...checked, ...customs];
+  if (all.length === 0) { showStatus("⚠️ 옵션 1개 이상 선택", "warn"); return; }
+  let cur = $("kind").value;
+  all.forEach(o => cur += "+" + o);
+  $("kind").value = cur;
+  $("kind").dispatchEvent(new Event("input"));
+  // 초기화
+  $("opt-grid").querySelectorAll(".opt-item.checked").forEach(el => el.classList.remove("checked"));
+  $("opt-custom").value = "";
+  $("opt-panel").classList.add("hidden");
+  showStatus("✓ 옵션 추가됨: " + all.join(", "));
 }
 
 // ══════════════════════════════════════════════════════════
-// 일러스트 동작 — ExtendScript 브리지
-// (UXP의 Illustrator API가 아직 일부만 지원되어
-//  안정적인 ExtendScript via executeScript 사용)
+// 텍스트 삽입 (네이티브 UXP)
 // ══════════════════════════════════════════════════════════
-
-async function runES(code) {
-  try {
-    // Illustrator UXP에서는 app.activeDocument 등의 API를 직접 쓸 수 있지만
-    // 이전 .jsx 로직을 그대로 활용하기 위해 ExtendScript 브리지 사용
-    // app.executeScript는 Illustrator UXP에서 제공
-    return await app.executeScript(code);
-  } catch (e) {
-    throw new Error("ExtendScript 실행 실패: " + (e.message || e));
-  }
-}
-
 async function insertText() {
   const line1 = $("preview-line1").textContent;
   const line2 = $("preview-line2").textContent;
   if (line1 === "(입력하면 여기 표시)" || !line1) {
-    showStatus("⚠️ 규격 또는 상품명 입력하세요", "warn");
-    return;
+    showStatus("⚠️ 규격 또는 상품명 입력하세요", "warn"); return;
   }
-
-  const code = `
-    (function() {
-      if (!app.documents.length) return "NO_DOC";
-      var doc = app.activeDocument;
-      var centerX = 300, topY = 0;
+  if (!app.documents || app.documents.length === 0) {
+    showStatus("⚠️ 열린 문서가 없습니다", "warn"); return;
+  }
+  try {
+    await core.executeAsModal(async () => {
+      const doc = app.activeDocument;
+      let centerX = 300, topY = 0;
       try {
-        var ab = doc.artboards[doc.artboards.getActiveArtboardIndex()];
-        var rect = ab.artboardRect;
+        const ab = doc.artboards[doc.artboards.getActiveArtboardIndex()];
+        const rect = ab.artboardRect;
         centerX = (rect[0] + rect[2]) / 2;
         topY = rect[1] - 50;
-      } catch(e) {}
-      var tf1 = doc.textFrames.add();
-      tf1.contents = ${JSON.stringify(line1)};
+      } catch (e) {}
+
+      const tf1 = doc.textFrames.add();
+      tf1.contents = line1;
       try { tf1.position = [centerX - 200, topY]; } catch(e) {}
       try {
         tf1.textRange.characterAttributes.size = 24;
-        tf1.textRange.paragraphAttributes.justification = Justification.CENTER;
+        if (Justification && Justification.CENTER) {
+          tf1.textRange.paragraphAttributes.justification = Justification.CENTER;
+        }
       } catch(e) {}
-      ${line2 ? `
-      var tf2 = doc.textFrames.add();
-      tf2.contents = ${JSON.stringify(line2)};
-      try { tf2.position = [centerX - 100, topY - 44]; } catch(e) {}
-      try {
-        tf2.textRange.characterAttributes.size = 18;
-        tf2.textRange.paragraphAttributes.justification = Justification.CENTER;
-      } catch(e) {}
-      ` : ''}
-      return "OK";
-    })();
-  `;
 
-  try {
-    const result = await runES(code);
-    if (result === "NO_DOC") showStatus("⚠️ 열린 문서가 없습니다", "warn");
-    else showStatus("✓ 삽입 완료: " + line1.substring(0, 40));
+      if (line2) {
+        const tf2 = doc.textFrames.add();
+        tf2.contents = line2;
+        try { tf2.position = [centerX - 100, topY - 44]; } catch(e) {}
+        try {
+          tf2.textRange.characterAttributes.size = 18;
+          if (Justification && Justification.CENTER) {
+            tf2.textRange.paragraphAttributes.justification = Justification.CENTER;
+          }
+        } catch(e) {}
+      }
+    }, { commandName: "시안 텍스트 삽입" });
+    showStatus("✓ 삽입 완료: " + line1.substring(0, 40));
   } catch (e) {
-    showStatus("⚠️ 삽입 오류: " + e.message, "error");
+    showStatus("⚠️ 삽입 오류: " + (e.message || e), "error");
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// 폴더 생성 + 시안 저장 (네이티브 UXP)
+// ══════════════════════════════════════════════════════════
+async function ensureFolderNative(folderPath) {
+  const url = "file://" + folderPath.replace(/\\/g, "/");
+  try {
+    return await lfs.getEntryWithUrl(url);
+  } catch (e) {
+    const parts = folderPath.split("\\").filter(Boolean);
+    let curEntry = null;
+    try { curEntry = await lfs.getEntryWithUrl("file://" + parts[0] + "/"); } catch (e2) {
+      throw new Error("루트 접근 실패: " + parts[0]);
+    }
+    for (let i = 1; i < parts.length; i++) {
+      try { curEntry = await curEntry.getEntry(parts[i]); }
+      catch (e3) { curEntry = await curEntry.createFolder(parts[i]); }
+    }
+    return curEntry;
   }
 }
 
@@ -342,6 +279,9 @@ async function saveDocument() {
   if (!fmtAI && !fmtCS6 && !fmtJPG && !fmtPDF) {
     showStatus("⚠️ 저장 형식 1개 이상 선택", "warn"); return;
   }
+  if (!app.documents || app.documents.length === 0) {
+    showStatus("⚠️ 열린 문서가 없습니다", "warn"); return;
+  }
 
   const data = {
     월일: $("save-date").value,
@@ -352,130 +292,150 @@ async function saveDocument() {
     버전: $("save-ver").value,
     발주처: $("save-vendor").value
   };
-  const folder = buildFolder(data);
+  const folderPath = buildFolder(data);
   const baseName = buildFileName(data, "원본");
   const orderName = data.발주처 ? buildFileName(data, data.발주처) : baseName;
 
-  // ExtendScript로 저장 실행 — 폴더 생성 + 4가지 형식
-  const code = `
-    (function() {
-      if (!app.documents.length) return "NO_DOC";
-      var doc = app.activeDocument;
-      var folder = ${JSON.stringify(folder)};
-      var baseName = ${JSON.stringify(baseName)};
-      var orderName = ${JSON.stringify(orderName)};
-      var saved = [];
-      var errors = [];
-
-      // 폴더 생성
-      var fObj = new Folder(folder);
-      if (!fObj.exists) fObj.create();
-
-      function saveAI(filePath, comp) {
-        var opts = new IllustratorSaveOptions();
-        opts.compatibility = comp;
-        opts.fontSubsetThreshold = 100.0;
-        opts.pdfCompatible = true;
-        opts.embedICCProfile = true;
-        opts.compressed = true;
-        opts.embedLinkedFiles = false;
-        opts.saveMultipleArtboards = false;
-        opts.flattenOutput = OutputFlattening.PRESERVEAPPEARANCE;
-        doc.saveAs(new File(filePath), opts);
-      }
-      function savePDF(filePath) {
-        var opts = new PDFSaveOptions();
-        opts.compatibility = PDFCompatibility.ACROBAT7;
-        opts.preserveEditability = true;
-        opts.generateThumbnails = true;
-        opts.optimization = false;
-        opts.viewAfterSaving = false;
-        opts.acrobatLayers = true;
-        doc.saveAs(new File(filePath), opts);
-      }
-      function expJPG(filePath) {
-        var opts = new ExportOptionsJPEG();
-        opts.qualitySetting = 60;
-        opts.antiAliasing = true;
-        opts.optimization = true;
-        doc.exportFile(new File(filePath), ExportType.JPEG, opts);
-      }
-
-      ${fmtAI ? `try { var p1 = folder + "\\\\" + baseName + ".ai"; saveAI(p1, Compatibility.ILLUSTRATOR); saved.push(p1); } catch(e) { errors.push("원본 .ai: " + e.message); }` : ''}
-      ${fmtJPG ? `try { var p2 = folder + "\\\\" + orderName + ".jpg"; expJPG(p2); saved.push(p2); } catch(e) { errors.push("JPG: " + e.message); }` : ''}
-      ${fmtCS6 ? `try {
-        var p3 = folder + "\\\\" + orderName + ".ai";
-        if (p3 === folder + "\\\\" + baseName + ".ai") p3 = folder + "\\\\" + baseName + "-cs6.ai";
-        saveAI(p3, Compatibility.ILLUSTRATOR16);
-        saved.push(p3);
-      } catch(e) { errors.push("CS6 .ai: " + e.message); }` : ''}
-      ${fmtPDF ? `try { var p4 = folder + "\\\\" + orderName + ".pdf"; savePDF(p4); saved.push(p4); } catch(e) { errors.push("PDF: " + e.message); }` : ''}
-
-      return JSON.stringify({ saved: saved.length, errors: errors });
-    })();
-  `;
+  let saved = 0;
+  const errors = [];
 
   try {
-    const result = await runES(code);
-    if (result === "NO_DOC") { showStatus("⚠️ 열린 문서가 없습니다", "warn"); return; }
-    const parsed = JSON.parse(result);
-    if (parsed.errors && parsed.errors.length > 0) {
-      showStatus(`⚠️ 저장 ${parsed.saved}개 / 오류 ${parsed.errors.length}건: ${parsed.errors[0]}`, "warn");
+    const folderEntry = await ensureFolderNative(folderPath);
+    await core.executeAsModal(async () => {
+      const doc = app.activeDocument;
+      if (fmtAI) {
+        try {
+          const file = await folderEntry.createFile(baseName + ".ai", { overwrite: true });
+          const opts = new IllustratorSaveOptions();
+          opts.compatibility = Compatibility.ILLUSTRATOR;
+          opts.fontSubsetThreshold = 100.0;
+          opts.pdfCompatible = true;
+          opts.embedICCProfile = true;
+          opts.compressed = true;
+          opts.embedLinkedFiles = false;
+          opts.saveMultipleArtboards = false;
+          if (OutputFlattening) opts.flattenOutput = OutputFlattening.PRESERVEAPPEARANCE;
+          await doc.saveAs(file, opts);
+          saved++;
+        } catch (e) { errors.push("원본 .ai: " + (e.message || e)); }
+      }
+      if (fmtJPG) {
+        try {
+          const file = await folderEntry.createFile(orderName + ".jpg", { overwrite: true });
+          const opts = new ExportOptionsJPEG();
+          opts.qualitySetting = 60;
+          opts.antiAliasing = true;
+          opts.optimization = true;
+          await doc.exportFile(file, ExportType.JPEG, opts);
+          saved++;
+        } catch (e) { errors.push("JPG: " + (e.message || e)); }
+      }
+      if (fmtCS6) {
+        try {
+          let cs6Name = orderName + ".ai";
+          if (cs6Name === baseName + ".ai") cs6Name = baseName + "-cs6.ai";
+          const file = await folderEntry.createFile(cs6Name, { overwrite: true });
+          const opts = new IllustratorSaveOptions();
+          opts.compatibility = Compatibility.ILLUSTRATOR16;
+          opts.fontSubsetThreshold = 100.0;
+          opts.pdfCompatible = true;
+          opts.embedICCProfile = true;
+          opts.compressed = true;
+          opts.embedLinkedFiles = false;
+          opts.saveMultipleArtboards = false;
+          if (OutputFlattening) opts.flattenOutput = OutputFlattening.PRESERVEAPPEARANCE;
+          await doc.saveAs(file, opts);
+          saved++;
+        } catch (e) { errors.push("CS6 .ai: " + (e.message || e)); }
+      }
+      if (fmtPDF) {
+        try {
+          const file = await folderEntry.createFile(orderName + ".pdf", { overwrite: true });
+          const opts = new PDFSaveOptions();
+          opts.compatibility = PDFCompatibility.ACROBAT7;
+          opts.preserveEditability = true;
+          opts.generateThumbnails = true;
+          opts.optimization = false;
+          opts.viewAfterSaving = false;
+          opts.acrobatLayers = true;
+          await doc.saveAs(file, opts);
+          saved++;
+        } catch (e) { errors.push("PDF: " + (e.message || e)); }
+      }
+    }, { commandName: "시안 저장" });
+
+    if (errors.length > 0) {
+      showStatus(`⚠️ ${saved}개 저장 / 오류 ${errors.length}: ${errors[0]}`, "warn");
     } else {
-      showStatus(`✓ 저장 완료: ${parsed.saved}개 파일 (${folder})`);
+      showStatus(`✓ ${saved}개 파일 저장 완료`);
     }
-    closeDrawer();
   } catch (e) {
-    showStatus("⚠️ 저장 오류: " + e.message, "error");
+    showStatus("⚠️ 저장 오류: " + (e.message || e), "error");
   }
 }
 
 // ══════════════════════════════════════════════════════════
 // 이벤트 와이어링
 // ══════════════════════════════════════════════════════════
-function wireEvents() {
-  // 콤보 버튼
-  $("kind-pick").addEventListener("click", () => openPick(KIND_DICT, $("kind")));
-  $("kind-opt").addEventListener("click", () => openOption($("kind")));
+function clearAll() {
+  ["spec","kind","opt","qty-each","qty-total"].forEach(id => $(id).value = "");
+  $("qty-single").value = "1";
+  document.querySelector('input[value="single"]').checked = true;
+  $("qty-multi-row").classList.add("hidden");
+  $("qty-single").disabled = false;
+  const d = new Date();
+  $("date-month").value = d.getMonth() + 1;
+  $("date-day").value = d.getDate();
+  $("save-kind").value = "";
+  $("save-opt").value = "";
+  delete $("save-kind").dataset.auto;
+  delete $("save-opt").dataset.auto;
+  updatePreview();
+  showStatus("초기화됨");
+}
+
+function init() {
+  // datalist 채우기
+  populateDatalist("kind-list", KIND_DICT);
+  populateDatalist("brand-list", BRAND_DICT);
+  populateDatalist("vendor-list", VENDOR_DICT);
+  populateOptionGrid();
+
+  // 입력 이벤트
+  ["spec","kind","opt","qty-single","qty-each","qty-total","date-month","date-day"].forEach(id => {
+    $(id).addEventListener("input", updatePreview);
+  });
+  document.querySelectorAll('input[name="qty-mode"]').forEach(rb => {
+    rb.addEventListener("change", () => {
+      const mode = document.querySelector('input[name="qty-mode"]:checked').value;
+      $("qty-multi-row").classList.toggle("hidden", mode !== "multi");
+      $("qty-single").disabled = (mode === "multi");
+      updatePreview();
+    });
+  });
+  // 저장 form 입력 이벤트
+  ["save-brand","save-site"].forEach(id => $(id).addEventListener("input", updateSaveFolder));
+  // 종류/옵션 직접 수정 시 자동 동기화 해제
+  $("save-kind").addEventListener("input", () => delete $("save-kind").dataset.auto);
+  $("save-opt").addEventListener("input", () => delete $("save-opt").dataset.auto);
+
+  // 초기값
+  const d = new Date();
+  $("date-month").value = d.getMonth() + 1;
+  $("date-day").value = d.getDate();
+  $("save-date").value = todayMMDD();
+
+  // 옵션 추가 패널
+  $("kind-opt-btn").addEventListener("click", toggleOptPanel);
+  $("opt-add-btn").addEventListener("click", applyOptions);
+  $("opt-close-btn").addEventListener("click", () => $("opt-panel").classList.add("hidden"));
 
   // 메인 액션
   $("btn-insert").addEventListener("click", insertText);
-  $("btn-clear").addEventListener("click", () => {
-    ["spec","kind","opt","qty-each","qty-total"].forEach(id => $(id).value = "");
-    $("qty-single").value = "1";
-    document.querySelector('input[value="single"]').checked = true;
-    $("qty-multi-row").classList.add("hidden");
-    $("qty-single").disabled = false;
-    const d = new Date();
-    $("date-month").value = d.getMonth() + 1;
-    $("date-day").value = d.getDate();
-    updatePreview();
-    showStatus("초기화됨");
-  });
-  $("btn-save").addEventListener("click", openSave);
+  $("btn-clear").addEventListener("click", clearAll);
+  $("btn-save").addEventListener("click", saveDocument);
 
-  // PICK
-  $("pick-search").addEventListener("input", refreshPickList);
-  $("pick-ok").addEventListener("click", pickConfirm);
-  $("pick-cancel").addEventListener("click", closeDrawer);
-
-  // OPTION
-  $("opt-search").addEventListener("input", refreshOptList);
-  $("opt-add").addEventListener("click", optionAdd);
-  $("opt-cancel").addEventListener("click", closeDrawer);
-
-  // SAVE
-  $("save-brand").addEventListener("input", updateSaveFolder);
-  $("save-site").addEventListener("input", updateSaveFolder);
-  $("save-brand-pick").addEventListener("click", () => openPick(BRAND_DICT, $("save-brand")));
-  $("save-vendor-pick").addEventListener("click", () => openPick(VENDOR_DICT, $("save-vendor")));
-  $("save-exec").addEventListener("click", saveDocument);
-  $("save-cancel").addEventListener("click", closeDrawer);
+  updatePreview();
 }
 
-// ══════════════════════════════════════════════════════════
-// 초기화
-// ══════════════════════════════════════════════════════════
-wireInputs();
-wireEvents();
-updatePreview();
+init();
