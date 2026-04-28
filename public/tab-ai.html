@@ -187,6 +187,10 @@
   .ai-icon-btn:hover { background:#f3f4f6; color:#4338ca; }
   .ai-icon-btn.on { background:#eef2ff; color:#4338ca; }
   .ai-icon-btn.image-mode.on { background:linear-gradient(135deg,#fef3c7,#fde68a); color:#92400e; }
+  .ai-icon-btn.agent-mode.on { background:linear-gradient(135deg,#dbeafe,#bfdbfe); color:#1e40af; }
+  .ai-send-btn.agent { background:linear-gradient(135deg,#3b82f6,#1d4ed8); }
+  @keyframes ai-agent-spin { to { transform: rotate(360deg); } }
+  .ai-agent-spin { display:inline-block; animation: ai-agent-spin 1.5s linear infinite; }
   .ai-icon-btn .label { font-size:11.5px; font-weight:500; margin-left:3px; }
   .ai-icon-btn.with-label { width:auto; padding:0 10px; gap:3px; }
   .ai-icon-btn:disabled { opacity:.4; cursor:not-allowed; }
@@ -387,10 +391,10 @@
         </div>
         <!-- 백엔드 상태 (CLI 모드면 배지 표시) -->
         <span x-show="backendMode === 'cli'" style="font-size:10px;padding:3px 8px;background:#fef3c7;color:#92400e;border-radius:10px;font-weight:600;" title="CLI 모드 — 동시 사용 제한됨. API 키 설정하면 자동 전환">CLI</span>
-        <!-- 오늘 사용량 (API 모드만) -->
-        <span x-show="backendMode === 'api'"
-              style="font-size:10px;padding:3px 8px;background:#f3f4f6;color:#6b7280;border-radius:10px;"
-              :title="'오늘 ' + usageToday.count + '/' + usageToday.limit + '회 사용'"
+        <!-- 오늘 사용량 — 항상 표시 (직원이 잔여 한도 볼 수 있게) -->
+        <span x-show="usageToday.limit > 0"
+              :style="'font-size:10px;padding:3px 10px;border-radius:10px;font-weight:600;cursor:default;'+(usageToday.remaining < 10 ? 'background:#fef2f2;color:#dc2626;' : (usageToday.remaining < 30 ? 'background:#fef3c7;color:#92400e;' : 'background:#f0fdf4;color:#166534;'))"
+              :title="'오늘 ' + usageToday.count + '/' + usageToday.limit + '회 사용 — 남은 횟수: ' + usageToday.remaining"
               x-text="'오늘 ' + (usageToday.count || 0) + '/' + (usageToday.limit || 0)"></span>
         <button @click="startNewThread()">+ 새 대화</button>
       </div>
@@ -514,8 +518,51 @@
                     </div>
                   </div>
                 </template>
-                <template x-if="m.kind !== 'image'">
+                <template x-if="m.kind !== 'image' && m.kind !== 'agent'">
                   <div x-text="m.content"></div>
+                </template>
+                <!-- 🤖 Agent 모드 메시지 — 진행상황 + 출력 + 생성된 파일 -->
+                <template x-if="m.kind === 'agent'">
+                  <div>
+                    <div style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:#374151;">
+                      <template x-if="m.agentStatus==='running'"><span class="ai-agent-spin">⚙️</span></template>
+                      <template x-if="m.agentStatus==='done'"><span style="color:#10b981;">✓</span></template>
+                      <template x-if="m.agentStatus==='error'"><span style="color:#dc2626;">✗</span></template>
+                      <template x-if="m.agentStatus==='cancelled'"><span style="color:#6b7280;">⏹</span></template>
+                      <span x-text="m.content"></span>
+                    </div>
+                    <!-- 진행 출력 (collapsible) -->
+                    <details x-show="m.agentOutput" style="margin-top:6px;">
+                      <summary style="cursor:pointer;font-size:11px;color:#6b7280;user-select:none;">▸ Claude 출력 보기</summary>
+                      <pre style="font-size:11px;line-height:1.5;background:#f9fafb;padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;max-height:300px;white-space:pre-wrap;color:#374151;border:1px solid #e5e7eb;" x-text="m.agentOutput"></pre>
+                    </details>
+                    <!-- 생성된 파일 카드들 -->
+                    <template x-if="m.agentFiles && m.agentFiles.length">
+                      <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px;">
+                        <template x-for="f in m.agentFiles" :key="f.relPath">
+                          <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;">
+                            <span style="font-size:18px;" x-text="
+                              {'.xlsx':'📊','.xls':'📊','.csv':'📊','.pdf':'📕','.png':'🖼️','.jpg':'🖼️','.jpeg':'🖼️','.docx':'📝','.doc':'📝','.pptx':'📑','.txt':'📄','.md':'📄','.html':'📄','.json':'⚙️','.zip':'📦'}[f.ext] || '📎'
+                            "></span>
+                            <div style="flex:1;min-width:0;">
+                              <div style="font-size:12px;font-weight:600;color:#0c4a6e;" x-text="f.name"></div>
+                              <div style="font-size:10px;color:#6b7280;" x-text="formatSize(f.size) + ' · ' + (f.ext||'').replace('.','').toUpperCase()"></div>
+                            </div>
+                            <template x-if="isPreviewable(f)">
+                              <a :href="agentFileUrl(m, f) + '?inline=1'" target="_blank"
+                                style="font-size:11px;color:#0369a1;text-decoration:none;padding:4px 8px;border-radius:4px;background:#e0f2fe;">미리보기</a>
+                            </template>
+                            <a :href="agentFileUrl(m, f)" download
+                              style="font-size:11px;color:#fff;text-decoration:none;padding:5px 10px;border-radius:4px;background:#0369a1;font-weight:600;">⬇ 다운</a>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+                    <!-- 진행 중 취소 버튼 -->
+                    <template x-if="m.agentStatus==='running'">
+                      <button @click="cancelAgent()" style="margin-top:8px;font-size:11px;color:#6b7280;background:#f3f4f6;border:1px solid #e5e7eb;padding:4px 10px;border-radius:4px;cursor:pointer;">⏹ 작업 중단</button>
+                    </template>
+                  </div>
                 </template>
                 <template x-if="m.attachments_parsed && m.attachments_parsed.length">
                   <div class="atts">
@@ -607,7 +654,7 @@
 
           <!-- 텍스트 입력 -->
           <textarea class="ai-input" x-ref="inputArea"
-            :placeholder="imageMode ? (hasImageAttachment ? '첨부한 이미지를 어떻게 편집할까요? (예: 배경을 밤하늘로 바꿔줘)' : '생성할 이미지를 설명해 주세요.') : '무엇이든 물어보세요. 파일은 드래그하거나 붙여넣으세요.'"
+            :placeholder="agentMode ? '🤖 Agent 작업 요청 (예: 첨부한 엑셀 거래처별 정렬해줘 / 매출 차트 만들어줘 / PPT 보고서)' : (imageMode ? (hasImageAttachment ? '첨부한 이미지를 어떻게 편집할까요?' : '생성할 이미지를 설명해 주세요.') : '무엇이든 물어보세요. 파일은 드래그하거나 붙여넣으세요.')"
             x-model="draft"
             @input="autoGrow($event)"
             @keydown.enter.prevent="onEnter($event)"
@@ -620,7 +667,26 @@
               <button class="ai-icon-btn" @click="$refs.fileInput.click()"
                 :disabled="loading" title="파일 첨부 (드래그/붙여넣기 가능)">📎</button>
               <button class="ai-icon-btn image-mode" :class="imageMode ? 'on' : ''"
-                @click="imageMode = !imageMode" title="이미지 생성 모드">🎨</button>
+                @click="imageMode = !imageMode; if(imageMode) agentMode=false;" title="이미지 생성 모드 (gpt-image-2)">🎨</button>
+              <button class="ai-icon-btn agent-mode" :class="agentMode ? 'on' : ''"
+                @click="agentMode = !agentMode; if(agentMode){imageMode=false;} try{localStorage.setItem('aiTab:agentMode', agentMode?'1':'0')}catch(e){}"
+                title="🤖 Agent 모드 — 엑셀/파일/ERP 자동 작업 (코워크식)">🤖</button>
+              <!-- 이미지 품질 선택 (imageMode 일 때만 노출) -->
+              <template x-if="imageMode">
+                <div class="ai-quality-picker" style="display:inline-flex;background:#f3f4f6;border-radius:6px;padding:2px;gap:2px;align-items:center;">
+                  <span style="font-size:10px;color:#6b7280;padding:0 6px;font-weight:600;">품질</span>
+                  <template x-for="q in [
+                    {key:'low', label:'초안', cost:'~₩8'},
+                    {key:'medium', label:'시안', cost:'~₩70'},
+                    {key:'high', label:'최종', cost:'~₩280'}
+                  ]" :key="q.key">
+                    <button @click="imageQuality=q.key; try{localStorage.setItem('aiTab:imgQuality', q.key)}catch(e){}"
+                      :style="'font-size:10px;padding:3px 8px;border-radius:4px;cursor:pointer;border:none;font-weight:600;'+(imageQuality===q.key ? 'background:#4f6ef7;color:#fff;' : 'background:transparent;color:#6b7280;')"
+                      :title="q.label + ' (' + q.cost + ')'"
+                      x-text="q.label"></button>
+                  </template>
+                </div>
+              </template>
               <div style="position:relative;">
                 <button class="ai-icon-btn with-label" :class="currentProjectId ? 'on' : ''"
                   @click="showProjectPicker = !showProjectPicker" title="프로젝트 선택">
@@ -652,17 +718,19 @@
             </div>
             <div class="ai-input-right">
               <span class="ai-input-hint">
-                <span x-show="!imageMode">Enter 전송 · Shift+Enter 줄바꿈</span>
-                <span x-show="imageMode && !hasImageAttachment">🎨 최대 3분 소요</span>
+                <span x-show="!imageMode && !agentMode">Enter 전송 · Shift+Enter 줄바꿈</span>
+                <span x-show="agentMode">🤖 Agent — 파일/엑셀/Python/ERP 자동 작업 (최대 5분)</span>
+                <span x-show="imageMode && !hasImageAttachment" x-text="'🎨 ' + (imageQuality==='low'?'초안 (~₩8/장)':imageQuality==='high'?'최종품질 (~₩280/장)':'시안품질 (~₩70/장)')"></span>
                 <span x-show="imageMode && hasImageAttachment">✏️ 첨부 이미지를 편집합니다</span>
               </span>
-              <button class="ai-send-btn" :class="imageMode ? 'image' : ''"
+              <button class="ai-send-btn" :class="imageMode ? 'image' : (agentMode ? 'agent' : '')"
                 @click="send()"
-                :disabled="loading || (!draft.trim() && pendingAttachments.length===0)">
-                <span x-show="!loading && !imageMode">전송 ↑</span>
-                <span x-show="!loading && imageMode && !hasImageAttachment">🎨 그리기</span>
-                <span x-show="!loading && imageMode && hasImageAttachment">✏️ 편집하기</span>
-                <span x-show="loading">…</span>
+                :disabled="loading || agentRunning || (!draft.trim() && pendingAttachments.length===0)">
+                <span x-show="!loading && !agentRunning && !imageMode && !agentMode">전송 ↑</span>
+                <span x-show="!loading && !agentRunning && agentMode">🤖 작업 시작</span>
+                <span x-show="!loading && !agentRunning && imageMode && !hasImageAttachment">🎨 그리기</span>
+                <span x-show="!loading && !agentRunning && imageMode && hasImageAttachment">✏️ 편집하기</span>
+                <span x-show="loading || agentRunning">…</span>
               </button>
             </div>
           </div>
@@ -778,10 +846,18 @@ function aiApp() {
     // 입력
     draft: '',
     imageMode: false,
+    agentMode: localStorage.getItem('aiTab:agentMode') === '1',  // 🤖 Agent 모드 (코워크식 작업)
+    imageQuality: localStorage.getItem('aiTab:imgQuality') || 'medium',  // low/medium/high
     loading: false,
     pendingAttachments: [],
     currentProjectId: null,
     showProjectPicker: false,
+
+    // Agent 스트리밍 상태
+    agentRunning: false,         // SSE 진행 중
+    agentEvents: [],             // 현재 Agent 작업의 이벤트 스트림 (output/file 등)
+    agentSessionInfo: null,      // {sessionId, dir, files} — 완료 후
+    _agentEventSource: null,     // SSE 연결 핸들 (취소용)
 
     // 파일 업로드 UX
     dragOver: false,
@@ -976,6 +1052,14 @@ function aiApp() {
             // metadata 에 들어있는 artifacts 를 꺼냄
             if (!m.artifacts_parsed && m.metadata_parsed && Array.isArray(m.metadata_parsed.artifacts)) {
               m.artifacts_parsed = m.metadata_parsed.artifacts;
+            }
+            // Agent 메시지: metadata 의 files/sessionId 를 화면 표시용 필드로 복원
+            if (m.kind === 'agent' && m.role !== 'user' && m.metadata_parsed) {
+              m.agentFiles = Array.isArray(m.metadata_parsed.files) ? m.metadata_parsed.files : [];
+              m.agentOutput = m.metadata_parsed.outputTail || '';
+              m.sessionId = m.metadata_parsed.sessionId || null;
+              m.userIdForFile = (this.getAuth && this.getAuth().userId) || 'anon';
+              m.agentStatus = m.status === 'error' ? 'error' : 'done';
             }
           }
           try { localStorage.setItem('aiTab:lastThreadId', String(d.thread.id)); } catch(e) {}
@@ -1241,12 +1325,15 @@ function aiApp() {
 
     async send() {
       const prompt = (this.draft || '').trim();
-      if (!prompt || this.loading) return;
+      if (!prompt || this.loading || this.agentRunning) return;
       if (!this.aiReady) {
         alert('AI 기능이 서버에서 비활성화 상태입니다. 서버 관리자에게 문의하세요.');
         return;
       }
 
+      if (this.agentMode) {
+        return this.sendAgent(prompt);
+      }
       if (this.imageMode) {
         return this.sendImage(prompt);
       }
@@ -1292,8 +1379,8 @@ function aiApp() {
           }
           await this.loadThreads();
           this.pendingAttachments = [];
-          // 사용량 뱃지 갱신 (API 모드)
-          if (this.backendMode === 'api') this.loadUsageToday();
+          // 사용량 뱃지 갱신 (모드 무관 — 항상)
+          this.loadUsageToday();
           // 파일 생성되면 토스트
           if (Array.isArray(d.artifacts) && d.artifacts.length > 0) {
             this._toast(`📎 ${d.artifacts.length}개 파일이 생성되었습니다 — 대화창 하단 확인`);
@@ -1366,7 +1453,8 @@ function aiApp() {
             threadId: this.currentThreadId || null,
             projectId: projectId,
             prompt: prompt,
-            attachmentIds: attIds
+            attachmentIds: attIds,
+            quality: this.imageQuality || 'medium'
           })
         });
         const d = await res.json();
@@ -1397,6 +1485,194 @@ function aiApp() {
       }
       this.loading = false;
       this.$nextTick(() => this.scrollToBottom());
+    },
+
+    // ──────────────────────────────────────────────────────
+    // 🤖 Agent 모드 — Claude CLI 가 격리된 workspace 에서 도구 자유 사용
+    //   엑셀 처리, Python 실행, 파일 생성, ERP 조회, 이미지 생성 등 자율 작업
+    //   SSE 스트리밍으로 진행상황을 실시간 표시
+    // ──────────────────────────────────────────────────────
+    async sendAgent(prompt) {
+      if (this.agentRunning) return;
+      this.agentRunning = true;
+      this.agentEvents = [];
+      this.agentSessionInfo = null;
+
+      // 첨부 파일 ID
+      const attIds = this.pendingAttachments.map(a => a.id);
+
+      // 낙관적 UI: 사용자 메시지 추가
+      const userMsg = {
+        id: 'tmp-' + Date.now(),
+        role: 'user', kind: 'text',
+        content: '🤖 ' + prompt,
+        created_at: new Date().toISOString().replace('T',' ').slice(0,19),
+        attachments_parsed: this.pendingAttachments.map(a => ({ id:a.id, original_name:a.original_name, kind:a.kind }))
+      };
+      this.currentMessages.push(userMsg);
+
+      // 진행상황 메시지 (살아있는 동안 계속 업데이트)
+      const liveMsgId = 'live-' + Date.now();
+      const liveMsg = {
+        id: liveMsgId,
+        role: 'assistant', kind: 'agent',
+        content: '🤖 작업 시작 중...',
+        agentOutput: '',
+        agentFiles: [],
+        agentStatus: 'running',
+        created_at: new Date().toISOString().replace('T',' ').slice(0,19)
+      };
+      this.currentMessages.push(liveMsg);
+
+      this.draft = '';
+      this.$nextTick(() => {
+        if (this.$refs.inputArea) this.$refs.inputArea.style.height = 'auto';
+        this.scrollToBottom();
+      });
+
+      // SSE 는 fetch 로 직접 처리 (EventSource 는 POST 안 됨)
+      const ctrl = new AbortController();
+      this._agentAbort = ctrl;
+      try {
+        const resp = await fetch('/api/ai/agent/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            task: prompt,
+            attachmentIds: attIds,
+            threadId: this.currentThreadId || null,
+            projectId: this.currentProjectId || null,
+          }),
+          signal: ctrl.signal,
+        });
+        if (!resp.ok) {
+          const t = await resp.text();
+          throw new Error('HTTP ' + resp.status + ': ' + t.slice(0, 200));
+        }
+        if (!resp.body) throw new Error('SSE 본문 없음');
+
+        // 자체 SSE 파서
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        let currentEvent = 'message';
+        let userId = (this.getAuth && this.getAuth().userId) || 'anon';
+        let sessionId = null;
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split(/\r?\n/);
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            if (line.startsWith(':')) continue;
+            if (line.startsWith('event: ')) { currentEvent = line.slice(7).trim(); continue; }
+            if (line.startsWith('data: ')) {
+              const dataStr = line.slice(6);
+              try {
+                const data = JSON.parse(dataStr);
+                this._onAgentEvent(currentEvent, data, liveMsg);
+                if (data.sessionId) sessionId = data.sessionId;
+                if (currentEvent === 'done') {
+                  this.agentSessionInfo = { ...data, userId };
+                }
+              } catch(e) { console.warn('[agent] SSE parse:', e, dataStr); }
+              currentEvent = 'message';
+            }
+          }
+          this.$nextTick(() => this.scrollToBottom());
+        }
+
+        liveMsg.agentStatus = 'done';
+        if (!liveMsg.content || liveMsg.content === '🤖 작업 시작 중...') {
+          liveMsg.content = '✓ 작업 완료';
+        }
+        this.pendingAttachments = [];
+      } catch (e) {
+        if (e.name === 'AbortError') {
+          liveMsg.agentStatus = 'cancelled';
+          liveMsg.content = '⏹️ 작업 취소됨';
+        } else {
+          liveMsg.agentStatus = 'error';
+          liveMsg.content = '❌ ' + e.message;
+        }
+      } finally {
+        this.agentRunning = false;
+        this._agentAbort = null;
+        this.$nextTick(() => this.scrollToBottom());
+        // 사용량 갱신
+        this.loadUsageToday && this.loadUsageToday();
+      }
+    },
+
+    _onAgentEvent(type, data, liveMsg) {
+      switch (type) {
+        case 'queued':
+          if (data.waiting > 0) liveMsg.content = `⏳ 대기 중 (앞에 ${data.waiting}개 작업)`;
+          else liveMsg.content = '🚀 시작합니다';
+          break;
+        case 'started':
+          liveMsg.content = '🤖 작업 중...';
+          liveMsg.sessionId = data.sessionId;
+          // 백엔드가 만든 thread 가 있으면 채팅 컨텍스트로 등록
+          if (data.threadId && !this.currentThreadId) {
+            this.currentThreadId = data.threadId;
+            try { localStorage.setItem('aiTab:lastThreadId', String(data.threadId)); } catch(e) {}
+          }
+          if (data.attachments && data.attachments.length) {
+            liveMsg.agentOutput += '📎 첨부파일: ' + data.attachments.join(', ') + '\n\n';
+          }
+          break;
+        case 'saved':
+          // 결과가 DB 에 저장됨 → 스레드 목록 갱신 + 메시지 ID 매칭
+          liveMsg.savedMessageId = data.messageId;
+          if (data.threadId) {
+            this.loadThreads && this.loadThreads();
+          }
+          break;
+        case 'output':
+          liveMsg.agentOutput += data.text || '';
+          // 미리보기로 마지막 200자 노출
+          const tail = liveMsg.agentOutput.slice(-200).trim();
+          if (tail) liveMsg.content = '🤖 ' + tail.slice(-80);
+          break;
+        case 'stderr':
+          // stderr는 보조 정보로만
+          break;
+        case 'file':
+          liveMsg.agentFiles.push({ ...data, isNew: true });
+          liveMsg.content = `📂 ${data.name} 생성됨`;
+          break;
+        case 'done':
+          liveMsg.agentStatus = 'done';
+          liveMsg.content = `✅ 완료 (${data.files?.length || 0}개 파일, ${Math.round((data.durationMs||0)/1000)}초)`;
+          liveMsg.agentFiles = data.files || liveMsg.agentFiles;
+          liveMsg.sessionId = data.sessionId;
+          liveMsg.userIdForFile = (this.getAuth && this.getAuth().userId) || 'anon';
+          break;
+        case 'error':
+          liveMsg.agentStatus = 'error';
+          liveMsg.content = '❌ ' + (data.message || '알 수 없는 에러');
+          if (data.files) liveMsg.agentFiles = data.files;
+          break;
+      }
+    },
+
+    cancelAgent() {
+      if (this._agentAbort) {
+        try { this._agentAbort.abort(); } catch(_) {}
+      }
+    },
+
+    agentFileUrl(msg, file) {
+      const userId = msg.userIdForFile || ((this.getAuth && this.getAuth().userId) || 'anon');
+      return '/api/ai/agent/file/' + encodeURIComponent(userId) + '/' + encodeURIComponent(msg.sessionId) + '/' + encodeURIComponent(file.relPath);
+    },
+
+    isPreviewable(file) {
+      const ext = (file.ext || '').toLowerCase();
+      return ['.png','.jpg','.jpeg','.gif','.webp','.bmp','.pdf','.txt','.md','.csv','.json','.svg','.html'].includes(ext);
     },
 
     scrollToBottom() {

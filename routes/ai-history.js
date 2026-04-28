@@ -1024,7 +1024,7 @@ router.get('/usage/summary', requireAdminInline, (req, res) => {
 // ──────────────────────────────────────────────────────────
 router.post('/chat-image', async (req, res) => {
   try {
-    const { threadId, projectId, prompt, sourcePageId, attachmentIds } = req.body || {};
+    const { threadId, projectId, prompt, sourcePageId, attachmentIds, quality } = req.body || {};
     if (!prompt || !String(prompt).trim()) return res.status(400).json({ error: 'prompt 필수' });
 
     let thread;
@@ -1063,8 +1063,19 @@ router.post('/chat-image', async (req, res) => {
       metadata: { sourcePageId: sourcePageId || null, sourceImageCount: sourcePaths.length }
     });
 
-    // Gemini 호출 (참고 이미지 경로 포함)
-    const result = await callGeminiImage(prompt, sourcePaths);
+    // OpenAI gpt-image-2 우선 사용. 미설정 시 Gemini CLI fallback.
+    let openaiClient = null;
+    try { openaiClient = require('../lib/openai-client'); } catch(_) {}
+    let result;
+    if (openaiClient && openaiClient.apiKeyAvailable()) {
+      result = await openaiClient.generateImage({
+        prompt: String(prompt).trim(),
+        quality: quality || undefined,
+        refImagePaths: sourcePaths.length ? sourcePaths : undefined,
+      });
+    } else {
+      result = await callGeminiImage(prompt, sourcePaths);
+    }
     const status = result.ok ? 'ok' : 'error';
     const aiMsg = ai.threads.addMessage(thread.id, {
       role: 'ai', kind: 'image',

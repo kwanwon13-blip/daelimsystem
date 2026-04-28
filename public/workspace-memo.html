@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>📌 메모 — 대림에스엠</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Editor.js + plugins (워크스페이스와 동일) -->
+  <script src="https://cdn.jsdelivr.net/npm/@editorjs/editorjs@2.29.1/dist/editorjs.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@editorjs/header@2.8.7/dist/header.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@editorjs/checklist@1.6.0/dist/checklist.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@editorjs/list@1.9.0/dist/list.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@editorjs/delimiter@1.4.2/dist/delimiter.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@editorjs/quote@2.7.2/dist/quote.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@editorjs/marker@1.4.0/dist/marker.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@editorjs/image@2.9.0/dist/image.umd.js"></script>
+  <script src="/workspace-blocks.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+
+    /* ─── 색상 테마 변수 ─── */
+    :root {
+      --memo-bg: #fffbeb;
+      --memo-header-bg: linear-gradient(180deg, #fde68a, #fcd34d);
+      --memo-header-border: #f59e0b;
+      --memo-header-fg: #78350f;
+      --memo-status-bg: rgba(255,255,255,.5);
+      --memo-status-fg: #92400e;
+      --memo-text: #1f2937;
+      --memo-footer-bg: rgba(254,243,199,.55);
+      --memo-footer-border: rgba(245,158,11,.3);
+      --memo-footer-fg: #92400e;
+    }
+    body[data-color="pink"] {
+      --memo-bg: #fff1f2;
+      --memo-header-bg: linear-gradient(180deg, #fecdd3, #fda4af);
+      --memo-header-border: #f43f5e;
+      --memo-header-fg: #881337;
+      --memo-footer-bg: rgba(255,228,230,.55);
+      --memo-footer-border: rgba(244,63,94,.3);
+      --memo-footer-fg: #9f1239;
+    }
+    body[data-color="blue"] {
+      --memo-bg: #eff6ff;
+      --memo-header-bg: linear-gradient(180deg, #bfdbfe, #93c5fd);
+      --memo-header-border: #3b82f6;
+      --memo-header-fg: #1e3a8a;
+      --memo-footer-bg: rgba(219,234,254,.55);
+      --memo-footer-border: rgba(59,130,246,.3);
+      --memo-footer-fg: #1e40af;
+    }
+    body[data-color="green"] {
+      --memo-bg: #f0fdf4;
+      --memo-header-bg: linear-gradient(180deg, #bbf7d0, #86efac);
+      --memo-header-border: #22c55e;
+      --memo-header-fg: #14532d;
+      --memo-footer-bg: rgba(220,252,231,.55);
+      --memo-footer-border: rgba(34,197,94,.3);
+      --memo-footer-fg: #166534;
+    }
+    body[data-color="purple"] {
+      --memo-bg: #faf5ff;
+      --memo-header-bg: linear-gradient(180deg, #e9d5ff, #d8b4fe);
+      --memo-header-border: #a855f7;
+      --memo-header-fg: #581c87;
+      --memo-footer-bg: rgba(243,232,255,.55);
+      --memo-footer-border: rgba(168,85,247,.3);
+      --memo-footer-fg: #6b21a8;
+    }
+    body[data-color="white"] {
+      --memo-bg: #ffffff;
+      --memo-header-bg: linear-gradient(180deg, #f3f4f6, #e5e7eb);
+      --memo-header-border: #9ca3af;
+      --memo-header-fg: #374151;
+      --memo-footer-bg: rgba(243,244,246,.55);
+      --memo-footer-border: rgba(156,163,175,.3);
+      --memo-footer-fg: #4b5563;
+    }
+    body[data-color="dark"] {
+      --memo-bg: #1f2937;
+      --memo-header-bg: linear-gradient(180deg, #374151, #1f2937);
+      --memo-header-border: #4b5563;
+      --memo-header-fg: #f3f4f6;
+      --memo-text: #e5e7eb;
+      --memo-footer-bg: rgba(31,41,55,.55);
+      --memo-footer-border: rgba(75,85,99,.5);
+      --memo-footer-fg: #d1d5db;
+    }
+
+    body {
+      font-family: 'Noto Sans KR', sans-serif;
+      background: var(--memo-bg);
+      color: var(--memo-text);
+      font-size: 13.5px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: background-color .2s;
+    }
+
+    /* ─── 헤더 ─── */
+    .memo-header {
+      background: var(--memo-header-bg);
+      padding: 7px 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      border-bottom: 1px solid var(--memo-header-border);
+      flex-shrink: 0;
+    }
+    .memo-header .icon { font-size: 13px; }
+    .memo-title-input {
+      flex: 1;
+      border: none;
+      background: transparent;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--memo-header-fg);
+      outline: none;
+      min-width: 0;
+    }
+    .memo-title-input::placeholder { color: var(--memo-header-fg); opacity: .5; }
+    .memo-status {
+      font-size: 9px;
+      color: var(--memo-status-fg);
+      padding: 2px 6px;
+      background: var(--memo-status-bg);
+      border-radius: 8px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+    .memo-status.saving { color: #4f6ef7; background: rgba(79,110,247,.15); }
+    .memo-status.saved  { color: #16a34a; background: rgba(22,163,74,.12); }
+    .memo-status.error  { color: #dc2626; background: rgba(220,38,38,.12); }
+
+    .memo-btn {
+      font-size: 13px;
+      cursor: pointer;
+      color: var(--memo-header-fg);
+      background: none;
+      border: none;
+      padding: 2px 5px;
+      border-radius: 4px;
+      flex-shrink: 0;
+      line-height: 1;
+    }
+    .memo-btn:hover { background: rgba(255,255,255,.5); }
+
+    /* 색상 팔레트 */
+    .color-palette {
+      position: absolute;
+      top: 36px;
+      right: 50px;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 8px;
+      display: none;
+      gap: 6px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.15);
+      z-index: 100;
+    }
+    .color-palette.open { display: flex; }
+    .color-swatch {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: transform .1s, border-color .15s;
+    }
+    .color-swatch:hover { transform: scale(1.15); }
+    .color-swatch.active { border-color: #4f6ef7; }
+    .cs-yellow { background: linear-gradient(135deg, #fde68a, #fcd34d); }
+    .cs-pink   { background: linear-gradient(135deg, #fecdd3, #fda4af); }
+    .cs-blue   { background: linear-gradient(135deg, #bfdbfe, #93c5fd); }
+    .cs-green  { background: linear-gradient(135deg, #bbf7d0, #86efac); }
+    .cs-purple { background: linear-gradient(135deg, #e9d5ff, #d8b4fe); }
+    .cs-white  { background: linear-gradient(135deg, #f3f4f6, #e5e7eb); }
+    .cs-dark   { background: linear-gradient(135deg, #4b5563, #1f2937); }
+
+    /* ─── 본문 (Editor.js) ─── */
+    .memo-body {
+      flex: 1;
+      padding: 8px 4px 8px 4px;
+      overflow-y: auto;
+      color: var(--memo-text);
+    }
+    /* Editor.js 미니 모드 — 기본 패딩 줄임 */
+    .codex-editor { padding: 0 !important; }
+    .codex-editor__redactor { padding-bottom: 80px !important; }
+    .ce-block__content,
+    .ce-toolbar__content { max-width: 100% !important; padding: 0 8px; }
+    .ce-paragraph { line-height: 1.6; font-size: 13px; }
+    .ce-header { line-height: 1.3; }
+    h2.ce-header { font-size: 17px; }
+    h3.ce-header { font-size: 14.5px; }
+    .ce-block { margin: 0; }
+    .ce-toolbar__plus { color: var(--memo-header-fg); }
+    .ce-toolbar__settings-btn { color: var(--memo-header-fg); }
+    /* 다크 모드: Editor.js 텍스트 색상 보정 */
+    body[data-color="dark"] .ce-paragraph,
+    body[data-color="dark"] .ce-header,
+    body[data-color="dark"] .cdx-checklist__item-text,
+    body[data-color="dark"] .cdx-list__item,
+    body[data-color="dark"] .cdx-quote__text {
+      color: #e5e7eb;
+    }
+
+    /* ─── 푸터 ─── */
+    .memo-footer {
+      padding: 5px 10px;
+      font-size: 9.5px;
+      color: var(--memo-footer-fg);
+      border-top: 1px solid var(--memo-footer-border);
+      background: var(--memo-footer-bg);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .memo-footer a { color: #4f6ef7; text-decoration: none; }
+    .memo-footer a:hover { text-decoration: underline; }
+    body[data-color="dark"] .memo-footer a { color: #93c5fd; }
+
+    /* 에러/로딩 화면 */
+    .memo-error, .memo-loading {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      text-align: center;
+      color: #6b7280;
+      gap: 8px;
+    }
+    .memo-error .ic { font-size: 32px; opacity: .5; }
+    .memo-error .msg { font-size: 13px; font-weight: 600; }
+    .memo-error .hint { font-size: 11px; color: #9ca3af; }
+  </style>
+</head>
+<body data-color="yellow">
+  <div class="memo-header">
+    <span class="icon">📌</span>
+    <input class="memo-title-input" id="title" placeholder="제목 없음" />
+    <span class="memo-status" id="status">대기</span>
+    <button class="memo-btn" id="colorBtn" title="색상 변경">🎨</button>
+    <button class="memo-btn" id="closeBtn" title="창 닫기 (페이지는 저장됨)">×</button>
+  </div>
+
+  <!-- 색상 팔레트 -->
+  <div class="color-palette" id="colorPalette">
+    <div class="color-swatch cs-yellow" data-color="yellow" title="노랑"></div>
+    <div class="color-swatch cs-pink"   data-color="pink"   title="핑크"></div>
+    <div class="color-swatch cs-blue"   data-color="blue"   title="파랑"></div>
+    <div class="color-swatch cs-green"  data-color="green"  title="초록"></div>
+    <div class="color-swatch cs-purple" data-color="purple" title="보라"></div>
+    <div class="color-swatch cs-white"  data-color="white"  title="화이트"></div>
+    <div class="color-swatch cs-dark"   data-color="dark"   title="다크"></div>
+  </div>
+
+  <div class="memo-body" id="body">
+    <div class="memo-loading">불러오는 중...</div>
+  </div>
+
+  <div class="memo-footer">
+    <span>💡 항상 위: <b>Win+Ctrl+T</b> (PowerToys)</span>
+    <a href="#" id="openInApp" title="ERP 앱에서 전체 편집기로 열기">전체 편집 ↗</a>
+  </div>
+
+<script>
+(() => {
+  const params = new URLSearchParams(location.search);
+  const pageId = params.get('id') || (location.pathname.split('/').pop());
+  const titleEl = document.getElementById('title');
+  const bodyEl = document.getElementById('body');
+  const statusEl = document.getElementById('status');
+  const colorBtn = document.getElementById('colorBtn');
+  const colorPalette = document.getElementById('colorPalette');
+  const closeBtn = document.getElementById('closeBtn');
+  const openInApp = document.getElementById('openInApp');
+
+  closeBtn.addEventListener('click', () => window.close());
+  openInApp.href = '/?wsopen=' + encodeURIComponent(pageId) + '#workspace';
+
+  // ── 색상 테마 ──
+  const COLOR_KEY = 'wsMemo:color:' + pageId;
+  const initialColor = localStorage.getItem(COLOR_KEY) || localStorage.getItem('wsMemo:color') || 'yellow';
+  document.body.setAttribute('data-color', initialColor);
+  function applyColor(color) {
+    document.body.setAttribute('data-color', color);
+    try {
+      localStorage.setItem(COLOR_KEY, color);
+      localStorage.setItem('wsMemo:color', color); // 다음 메모 기본값
+    } catch(e) {}
+    // 활성 표시
+    [...colorPalette.querySelectorAll('.color-swatch')].forEach(sw => {
+      sw.classList.toggle('active', sw.dataset.color === color);
+    });
+  }
+  applyColor(initialColor);
+  colorBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    colorPalette.classList.toggle('open');
+  });
+  colorPalette.addEventListener('click', (e) => {
+    const sw = e.target.closest('.color-swatch');
+    if (!sw) return;
+    applyColor(sw.dataset.color);
+    colorPalette.classList.remove('open');
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.color-palette') && !e.target.closest('#colorBtn')) {
+      colorPalette.classList.remove('open');
+    }
+  });
+
+  // ── 상태 표시 ──
+  function setStatus(text, cls) {
+    statusEl.textContent = text;
+    statusEl.className = 'memo-status' + (cls ? ' ' + cls : '');
+  }
+
+  // ── Editor.js 초기화 ──
+  let editor = null;
+  let saveTimer = null;
+  let dirty = false;
+
+  // 이미지 업로드 (워크스페이스와 동일한 방식 — base64 JSON)
+  async function uploadImageFile(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const base64 = reader.result; // data:image/...;base64,...
+          // 직접 데이터 URL 사용 (서버 업로드 안 하고 페이지에 인라인)
+          // 워크스페이스 페이지가 base64 이미지 지원함 (DOMPurify 의 ALLOWED_URI_REGEXP 에 data:)
+          resolve({ success: 1, file: { url: base64 } });
+        } catch (e) { reject(e); }
+      };
+      reader.onerror = () => reject(new Error('파일 읽기 실패'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function buildTools() {
+    const tools = {
+      header: { class: Header, config: { levels: [2, 3], defaultLevel: 2 } },
+      checklist: { class: Checklist },
+      list: { class: List, inlineToolbar: true },
+      delimiter: Delimiter,
+      quote: { class: Quote },
+      marker: { class: Marker },
+      image: {
+        class: ImageTool,
+        config: {
+          uploader: {
+            uploadByFile: uploadImageFile,
+            uploadByUrl: (url) => Promise.resolve({ success: 1, file: { url } })
+          },
+          captionPlaceholder: '이미지 설명 (선택)',
+          buttonContent: '📷 이미지 선택'
+        }
+      }
+    };
+    if (typeof DataTableTool !== 'undefined') tools.dataTable = { class: DataTableTool };
+    if (typeof FormBlockTool !== 'undefined') tools.formBlock = { class: FormBlockTool };
+    return tools;
+  }
+
+  async function load() {
+    try {
+      const r = await fetch('/api/workspace/pages/' + encodeURIComponent(pageId), { credentials: 'include' });
+      if (!r.ok) {
+        if (r.status === 401 || r.status === 403) {
+          showError('🔒', '로그인이 필요하거나 접근 권한이 없습니다', 'ERP 에 로그인 후 다시 시도하세요');
+          return;
+        }
+        if (r.status === 404) {
+          showError('🔍', '페이지를 찾을 수 없습니다', '삭제되었거나 ID 가 잘못됐습니다');
+          return;
+        }
+        throw new Error('HTTP ' + r.status);
+      }
+      const d = await r.json();
+      if (!d.ok || !d.page) throw new Error('서버 응답 오류');
+      const page = d.page;
+      titleEl.value = page.title || '';
+      document.title = '📌 ' + (page.title || '메모') + ' — 대림에스엠';
+      titleEl.addEventListener('input', () => { dirty = true; scheduleSave(); document.title = '📌 ' + (titleEl.value || '메모') + ' — 대림에스엠'; });
+
+      // body 영역 → Editor.js 컨테이너로
+      bodyEl.innerHTML = '<div id="editorjs"></div>';
+
+      const editorData = (page.content && Array.isArray(page.content.blocks) && page.content.blocks.length)
+        ? page.content
+        : { blocks: [{ type: 'paragraph', data: { text: '' } }] };
+
+      editor = new EditorJS({
+        holder: 'editorjs',
+        placeholder: "/ 를 눌러 블록 추가",
+        data: editorData,
+        tools: buildTools(),
+        onChange: () => { dirty = true; scheduleSave(); },
+        i18n: {
+          messages: {
+            ui: { blockTunes: { toggler: { 'Click to tune': '블록 설정' } } },
+            toolNames: { 'Text': '텍스트', 'Heading': '제목', 'Checklist': '체크리스트', 'List': '목록', 'Delimiter': '구분선', 'Quote': '인용', 'Marker': '형광펜', 'Image': '이미지', '데이터 표': '데이터 표', '입력 폼': '입력 폼' },
+            tools: { header: { 'Heading 2': '중제목', 'Heading 3': '소제목' } }
+          }
+        }
+      });
+
+      setStatus('자동저장', 'saved');
+    } catch (e) {
+      showError('⚠️', '불러오기 실패', e.message);
+    }
+  }
+
+  function showError(icon, msg, hint) {
+    bodyEl.innerHTML = `<div class="memo-error"><div class="ic">${icon}</div><div class="msg">${msg}</div><div class="hint">${hint||''}</div></div>`;
+    setStatus('실패', 'error');
+  }
+
+  function scheduleSave() {
+    setStatus('수정 중...', 'saving');
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(save, 1000);
+  }
+
+  async function save() {
+    if (!dirty || !editor) return;
+    setStatus('저장 중...', 'saving');
+    try {
+      const saved = await editor.save();
+      const r = await fetch('/api/workspace/pages/' + encodeURIComponent(pageId), {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: titleEl.value, content: saved }),
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      dirty = false;
+      setStatus('자동저장', 'saved');
+    } catch (e) {
+      setStatus('저장 실패', 'error');
+      console.warn('[memo] save failed:', e);
+    }
+  }
+
+  // 창 닫히기 전 마지막 저장 시도
+  window.addEventListener('beforeunload', () => {
+    if (dirty) {
+      try {
+        // 동기적 fetch 는 없지만 navigator.sendBeacon 사용 시도
+        if (editor && navigator.sendBeacon) {
+          editor.save().then(saved => {
+            const blob = new Blob([JSON.stringify({ title: titleEl.value, content: saved })], { type: 'application/json' });
+            navigator.sendBeacon('/api/workspace/pages/' + encodeURIComponent(pageId) + '?_method=PUT', blob);
+          }).catch(()=>{});
+        }
+      } catch(e) {}
+    }
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>

@@ -404,10 +404,10 @@
      견적 작성 팝업 (전체화면 레이아웃)
      ════════════════════════════════════════════ -->
 <template x-if="quotePopup.open">
-  <div class="ec-popup-backdrop" @click.self="quotePopup.open=false"
+  <div class="ec-popup-backdrop" @click.self="closeQuotePopupWithBackup()"
        @mousemove.window="onPopupDrag(quotePopup, $event); onPopupResize(quotePopup, $event)"
        @mouseup.window="quotePopup.dragging=false; quotePopup.resizing=false;"
-       @keydown.escape.window="quotePopup.open=false"
+       @keydown.escape.window="closeQuotePopupWithBackup()"
        style="cursor:default;"></div>
 </template>
 
@@ -433,7 +433,7 @@
         <button class="ec-popup-ctrl-btn" @click.stop="quotePopup.minimized = !quotePopup.minimized" title="최소화">
           <span class="material-symbols-outlined" style="font-size:14px;" x-text="quotePopup.minimized ? 'add' : 'remove'"></span>
         </button>
-        <button class="ec-popup-ctrl-btn close" @click.stop="quotePopup.open=false" title="닫기">
+        <button class="ec-popup-ctrl-btn close" @click.stop="closeQuotePopupWithBackup()" title="닫기 (자동 백업 — 다시 열면 복구 가능)">
           <span class="material-symbols-outlined" style="font-size:14px;">close</span>
         </button>
       </div>
@@ -1644,6 +1644,22 @@
             class="sidebar-nav-item w-full text-left">
             <span class="material-symbols-outlined" style="font-size:17px">image_search</span>
             <span style="font-size:12px;">시안 검색</span>
+          </button>
+        </template>
+        <template x-if="tabs.find(t=>t.id==='productDesign')">
+          <button @click="currentTab = 'productDesign'"
+            :class="currentTab === 'productDesign' ? 'active' : ''"
+            class="sidebar-nav-item w-full text-left">
+            <span class="material-symbols-outlined" style="font-size:17px">auto_awesome</span>
+            <span style="font-size:12px;">시안 자동분석</span>
+          </button>
+        </template>
+        <template x-if="tabs.find(t=>t.id==='photos')">
+          <button @click="currentTab = 'photos'"
+            :class="currentTab === 'photos' ? 'active' : ''"
+            class="sidebar-nav-item w-full text-left">
+            <span class="material-symbols-outlined" style="font-size:17px">photo_library</span>
+            <span style="font-size:12px;">사진 라이브러리</span>
           </button>
         </template>
         <template x-if="tabs.find(t=>t.id==='contacts')">
@@ -4538,6 +4554,16 @@
         <!--INCLUDE:tab-gps-attendance.html-->
       </template>
 
+      <!-- 시안 자동분석 탭 (시안 → e2e 등록양식 추출) -->
+      <template x-if="currentTab === 'productDesign'">
+        <!--INCLUDE:tab-product-design.html-->
+      </template>
+
+      <!-- 사진 라이브러리 탭 (47K 카톡 사진 검색·필터·편집·라벨링) -->
+      <template x-if="currentTab === 'photos'">
+        <!--INCLUDE:tab-photos.html-->
+      </template>
+
       <!-- CONTACTS TAB (연락처) - 업체 > 현장 > 사람 3단 구조 -->
       <template x-if="currentTab === 'contacts'">
         <div class="fade-in" x-data="contactsApp()">
@@ -6120,6 +6146,8 @@ function app() {
       { id: 'options', label: '옵션 관리' },
       { id: 'vendors', label: '업체 관리' },
       { id: 'design', label: '시안 검색' },
+      { id: 'productDesign', label: '시안 자동분석' },
+      { id: 'photos', label: '사진 라이브러리' },
       { id: 'contacts', label: '연락처' },
       { id: 'calendar', label: '캘린더' },
       { id: 'approval', label: '결재' },
@@ -6232,6 +6260,8 @@ function app() {
           { id: 'approval', label: '결재' }, { id: 'orgchart', label: '조직도' },
           { id: 'salesLookup', label: '과거단가조회' },
           { id: 'stats', label: '통계' }, { id: 'design', label: '시안 검색' },
+          { id: 'productDesign', label: '시안 자동분석' },
+          { id: 'photos', label: '사진 라이브러리' },
           { id: 'contacts', label: '연락처' }, { id: 'calendar', label: '캘린더' }, { id: 'notices', label: '공지사항' }, { id: 'settings', label: '설정' },
           { id: 'workspace', label: '워크스페이스' },
           { id: 'ai', label: 'AI 챗' },
@@ -6419,6 +6449,65 @@ function app() {
     },
 
     // 견적 팝업 열기
+    // ── 견적 작업 자동 백업 + 복구 ──
+    closeQuotePopupWithBackup() {
+      // 현재 작업 내용을 localStorage 에 백업 (실수로 ESC 눌러도 복구 가능)
+      try {
+        // 새 견적 (editingQuoteId 없음) + 입력된 내용이 있을 때만 백업
+        const hasContent = !this.editingQuoteId && (
+          (this.quoteHeader && (this.quoteHeader.siteName || this.quoteHeader.quoteName || this.quoteHeader.manager)) ||
+          (Array.isArray(this.quoteItems) && this.quoteItems.length > 0)
+        );
+        if (hasContent) {
+          const draft = {
+            quoteHeader: this.quoteHeader,
+            quoteItems: this.quoteItems,
+            savedAt: new Date().toISOString(),
+            popupSize: { width: this.quotePopup.width, height: this.quotePopup.height, x: this.quotePopup.x, y: this.quotePopup.y },
+          };
+          localStorage.setItem('quoteDraft:' + (this.auth?.userId || 'anon'), JSON.stringify(draft));
+        }
+      } catch(e) { /* localStorage 사용 불가해도 닫기는 진행 */ }
+      this.quotePopup.open = false;
+    },
+    hasQuoteDraft() {
+      try {
+        const raw = localStorage.getItem('quoteDraft:' + (this.auth?.userId || 'anon'));
+        if (!raw) return null;
+        const draft = JSON.parse(raw);
+        // 24시간 지난 백업은 무시 (혼란 방지)
+        const ageMs = Date.now() - new Date(draft.savedAt).getTime();
+        if (ageMs > 24*3600*1000) {
+          localStorage.removeItem('quoteDraft:' + (this.auth?.userId || 'anon'));
+          return null;
+        }
+        return draft;
+      } catch(e) { return null; }
+    },
+    restoreQuoteDraft() {
+      const draft = this.hasQuoteDraft();
+      if (!draft) return;
+      this.quoteHeader = draft.quoteHeader || this.quoteHeader;
+      this.quoteItems = draft.quoteItems || [];
+      this.editingQuoteId = null;
+      if (draft.popupSize) {
+        Object.assign(this.quotePopup, draft.popupSize);
+      } else {
+        this.quotePopup.width = Math.round(window.innerWidth * 0.95);
+        this.quotePopup.height = Math.round(window.innerHeight * 0.9);
+        this.quotePopup.x = Math.round(window.innerWidth * 0.025);
+        this.quotePopup.y = Math.round(window.innerHeight * 0.05);
+      }
+      this.quotePopup.minimized = false;
+      this.quotePopup.tab = 'form';
+      this.quotePopup.open = true;
+      // 복구 시 백업 삭제 (한 번 복구하면 끝)
+      try { localStorage.removeItem('quoteDraft:' + (this.auth?.userId || 'anon')); } catch(e) {}
+    },
+    discardQuoteDraft() {
+      try { localStorage.removeItem('quoteDraft:' + (this.auth?.userId || 'anon')); } catch(e) {}
+    },
+
     async openQuotePopup(quote) {
       if (quote) {
         // 목록 API는 items 없이 요약만 반환하므로 즉시 팝업 열고 항목은 API로 별도 로드
@@ -6458,6 +6547,21 @@ function app() {
           }
         } catch(e) { console.warn('견적 로드 실패', e); }
       } else {
+        // ── 직전 작업 백업이 있으면 복구 여부 묻기 ──
+        const draft = this.hasQuoteDraft();
+        if (draft) {
+          const itemCount = (draft.quoteItems || []).length;
+          const minutesAgo = Math.floor((Date.now() - new Date(draft.savedAt).getTime()) / 60000);
+          const ageStr = minutesAgo < 1 ? '방금 전' : (minutesAgo < 60 ? minutesAgo + '분 전' : Math.floor(minutesAgo/60) + '시간 전');
+          const summary = (draft.quoteHeader?.siteName || draft.quoteHeader?.quoteName || '제목없음')
+            + ' · ' + itemCount + '개 항목 · ' + ageStr + ' 작업';
+          if (confirm('📂 직전에 작성하던 견적이 있습니다.\n\n' + summary + '\n\n복구하시겠어요?\n(취소 = 새 견적으로 시작, 백업 삭제됨)')) {
+            this.restoreQuoteDraft();
+            return;
+          } else {
+            this.discardQuoteDraft();
+          }
+        }
         this.quoteHeader = { vendorId: '', siteName: '', quoteName: '', manager: '', vendorManager: '', quoteDate: new Date().toISOString().slice(0,10) };
         this.quoteItems = [];
         this.editingQuoteId = null;
@@ -10591,27 +10695,4 @@ function gpsLocationAdmin() {
 
     async toggleActive(loc) {
       try {
-        const r = await fetch('/api/gps-attendance/locations/' + loc.id, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ active: loc.active ? 0 : 1 })
-        });
-        const d = await r.json();
-        if (d.ok) this.locations = d.locations || [];
-      } catch (e) { alert(e.message); }
-    },
-
-    async remove(loc) {
-      if (!confirm('"' + loc.name + '" 사업장을 삭제할까요? 기존 출퇴근 기록은 유지됩니다.')) return;
-      try {
-        const r = await fetch('/api/gps-attendance/locations/' + loc.id, { method: 'DELETE' });
-        const d = await r.json();
-        if (d.ok) this.locations = d.locations || [];
-      } catch (e) { alert(e.message); }
-    }
-  };
-}
-</script>
-</body>
-</html>
-
+        const r = await f

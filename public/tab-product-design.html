@@ -1,0 +1,238 @@
+<!-- tab-product-design.html — 시안 자동분석 + e2e 등록양식 추출 -->
+<div x-data="productDesignApp()" x-init="init()" class="p-6">
+  <style>
+    .pd-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:20px; margin-bottom:16px; }
+    .pd-h { font-size:14px; font-weight:700; color:#1a1d23; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+    .pd-row { display:grid; grid-template-columns:120px 1fr; gap:8px 12px; align-items:center; margin-bottom:8px; font-size:13px; }
+    .pd-row label { color:#6b7280; font-weight:500; }
+    .pd-row input, .pd-row select { padding:6px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; outline:none; }
+    .pd-row input:focus, .pd-row select:focus { border-color:#4f6ef7; }
+    .pd-btn { padding:8px 14px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; border:none; }
+    .pd-btn-primary { background:linear-gradient(135deg,#4f6ef7,#3b5ce4); color:#fff; }
+    .pd-btn-primary:hover { filter:brightness(1.06); }
+    .pd-btn-ghost { background:#fff; border:1px solid #d1d5db; color:#374151; }
+    .pd-btn-ghost:hover { background:#f9fafb; }
+    .pd-drop { border:2px dashed #d1d5db; border-radius:12px; padding:30px; text-align:center; color:#6b7280; cursor:pointer; transition:all .15s; }
+    .pd-drop:hover, .pd-drop.dragover { border-color:#4f6ef7; background:#eef2ff; color:#4338ca; }
+    .pd-result { background:#f8f9fb; border:1px solid #e5e7eb; border-radius:8px; padding:14px; margin-top:14px; font-family:'Work Sans',sans-serif; }
+    .pd-tag { display:inline-block; padding:2px 8px; border-radius:99px; background:#eef2ff; color:#4338ca; font-size:11px; font-weight:600; margin-right:4px; }
+    .pd-tag.warn { background:#fef3c7; color:#92400e; }
+    .pd-search-result { max-height:220px; overflow-y:auto; border:1px solid #e5e7eb; border-radius:8px; }
+    .pd-search-item { padding:8px 12px; cursor:pointer; border-bottom:1px solid #f3f4f6; font-size:12px; }
+    .pd-search-item:hover { background:#f0f9ff; }
+    .pd-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+    .pd-table th { text-align:left; background:#4472C4; color:#fff; padding:8px; font-weight:600; }
+    .pd-table td { padding:7px 8px; border-bottom:1px solid #f0f1f3; }
+    .pd-tsv { font-family:Consolas,monospace; font-size:12px; background:#1e293b; color:#e2e8f0; padding:14px; border-radius:8px; white-space:pre; overflow-x:auto; }
+  </style>
+
+  <div class="pd-card">
+    <div class="pd-h">📐 시안 자동 분석 → e2e 등록 양식 추출</div>
+    <p style="color:#6b7280; font-size:12.5px; margin-bottom:16px;">
+      시안 파일을 선택하거나 검색하면 파일명에서 자동으로 정보 추출. 추출된 데이터를 e2e 등록 양식으로 변환해 클립보드에 복사.
+    </p>
+
+    <!-- 입력 방식 선택 -->
+    <div style="display:flex; gap:10px; margin-bottom:16px;">
+      <button @click="mode='search'" class="pd-btn" :class="mode==='search' ? 'pd-btn-primary' : 'pd-btn-ghost'">시안 검색</button>
+      <button @click="mode='manual'" class="pd-btn" :class="mode==='manual' ? 'pd-btn-primary' : 'pd-btn-ghost'">파일경로 직접 입력</button>
+    </div>
+
+    <!-- 시안 검색 모드 -->
+    <div x-show="mode==='search'">
+      <input type="text" x-model="searchQ" @input.debounce.300ms="doSearch()" placeholder="시안 검색 (예: 두산 성수장미)" style="width:100%; padding:10px; border:1px solid #d1d5db; border-radius:8px; margin-bottom:8px;" />
+      <template x-if="searchResults.length > 0">
+        <div class="pd-search-result">
+          <template x-for="r in searchResults" :key="r.path">
+            <div class="pd-search-item" @click="selectFile(r.path)">
+              <div style="font-weight:600; color:#1a1d23;" x-text="r.name"></div>
+              <div style="color:#9ca3af; font-size:11px;" x-text="r.rel"></div>
+            </div>
+          </template>
+        </div>
+      </template>
+    </div>
+
+    <!-- 파일경로 직접 입력 모드 -->
+    <div x-show="mode==='manual'">
+      <input type="text" x-model="manualPath" placeholder="D:\★두산\2026\성수장미\0429-두산-성수장미-A형철판-실명제-v1-발주(공장).jpg" style="width:100%; padding:10px; border:1px solid #d1d5db; border-radius:8px; margin-bottom:8px; font-family:Consolas,monospace; font-size:12px;" />
+      <button @click="parsePath(manualPath)" class="pd-btn pd-btn-primary">파싱</button>
+    </div>
+  </div>
+
+  <!-- 추출 결과 -->
+  <div x-show="parsed" x-cloak class="pd-card">
+    <div class="pd-h">✨ 추출 결과 (수정 가능)</div>
+
+    <table class="pd-table">
+      <tr><th style="width:140px;">필드</th><th>값</th></tr>
+      <tr><td>월일</td><td><input type="text" x-model="parsed.월일" style="width:100%; padding:5px 8px; border:1px solid #e5e7eb; border-radius:4px;"></td></tr>
+      <tr><td>건설사</td><td><input type="text" x-model="parsed.건설사" style="width:100%; padding:5px 8px; border:1px solid #e5e7eb; border-radius:4px;"></td></tr>
+      <tr><td>현장</td><td><input type="text" x-model="parsed.현장" style="width:100%; padding:5px 8px; border:1px solid #e5e7eb; border-radius:4px;"></td></tr>
+      <tr><td>종류</td><td><input type="text" x-model="parsed.종류" style="width:100%; padding:5px 8px; border:1px solid #e5e7eb; border-radius:4px;"></td></tr>
+      <tr><td>내용</td><td><input type="text" x-model="parsed.내용" style="width:100%; padding:5px 8px; border:1px solid #e5e7eb; border-radius:4px;"></td></tr>
+      <tr><td>버전</td><td><input type="text" x-model="parsed.버전" style="width:100%; padding:5px 8px; border:1px solid #e5e7eb; border-radius:4px;"></td></tr>
+      <tr><td>발주처</td><td>
+        <template x-for="v in parsed.발주처"><span class="pd-tag" x-text="v"></span></template>
+        <span x-show="parsed.발주처.length===0" style="color:#9ca3af;">(없음)</span>
+      </td></tr>
+      <tr><td>대분류 / 소분류</td><td>
+        <span class="pd-tag" x-text="parsed.대분류"></span>
+        <span class="pd-tag" x-text="parsed.소분류"></span>
+      </td></tr>
+      <tr><td>제안 상품코드</td><td><strong x-text="parsed.제안코드"></strong></td></tr>
+      <tr><td>규격 ⚠️</td><td><input type="text" x-model="manualSpec" placeholder="예: 600*900 (시안 이미지 보고 입력)" style="width:100%; padding:5px 8px; border:1px solid #fde68a; background:#fffbeb; border-radius:4px;"></td></tr>
+      <tr><td>수량 ⚠️</td><td><input type="number" x-model="manualQty" placeholder="예: 5" style="width:100%; padding:5px 8px; border:1px solid #fde68a; background:#fffbeb; border-radius:4px;"></td></tr>
+    </table>
+  </div>
+
+  <!-- e2e 양식 출력 -->
+  <div x-show="parsed" x-cloak class="pd-card">
+    <div class="pd-h">📋 e2e 등록 양식</div>
+    <p style="color:#6b7280; font-size:12px; margin-bottom:10px;">아래 텍스트를 e2e 그리드에 Ctrl+V로 붙여넣기 하세요. 탭(Tab) 구분 형식.</p>
+    <pre class="pd-tsv" x-text="buildTsv()"></pre>
+    <div style="display:flex; gap:8px; margin-top:12px;">
+      <button @click="copyTsv()" class="pd-btn pd-btn-primary">📋 클립보드 복사</button>
+      <button @click="downloadExcel()" class="pd-btn pd-btn-ghost">📥 엑셀 다운로드</button>
+      <button @click="reset()" class="pd-btn pd-btn-ghost">🔄 초기화</button>
+    </div>
+    <div x-show="copyMsg" x-cloak style="margin-top:8px; color:#16a34a; font-size:12px; font-weight:600;" x-text="copyMsg"></div>
+  </div>
+
+  <!-- 마스터 정보 (참고용) -->
+  <div x-show="masters" x-cloak class="pd-card">
+    <div class="pd-h">📊 시안 인덱스 마스터 (자동 추출)</div>
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; font-size:12px;">
+      <div>
+        <strong style="color:#4338ca;">발주처</strong> (<span x-text="masters.vendors.length"></span>개)
+        <div style="max-height:160px; overflow-y:auto; margin-top:4px;">
+          <template x-for="v in masters.vendors.slice(0,30)">
+            <div><span class="pd-tag" x-text="v.name"></span> <span style="color:#9ca3af;" x-text="v.count"></span></div>
+          </template>
+        </div>
+      </div>
+      <div>
+        <strong style="color:#4338ca;">건설사</strong> (<span x-text="masters.brands.length"></span>개)
+        <div style="max-height:160px; overflow-y:auto; margin-top:4px;">
+          <template x-for="b in masters.brands.slice(0,30)">
+            <div><span class="pd-tag" x-text="b.name"></span> <span style="color:#9ca3af;" x-text="b.count"></span></div>
+          </template>
+        </div>
+      </div>
+      <div>
+        <strong style="color:#4338ca;">현장 (상위 30)</strong>
+        <div style="max-height:160px; overflow-y:auto; margin-top:4px;">
+          <template x-for="s in masters.sites.slice(0,30)">
+            <div><span class="pd-tag" x-text="s.name.substring(0,20)"></span> <span style="color:#9ca3af;" x-text="s.count"></span></div>
+          </template>
+        </div>
+      </div>
+    </div>
+    <p style="color:#9ca3af; font-size:11px; margin-top:10px;">
+      ※ 인덱스 <strong x-text="masters.indexedCount"></strong>개 파일 분석 결과 (캐시: 1일)
+      <button @click="loadMasters(true)" style="background:none; border:none; color:#4338ca; cursor:pointer; font-size:11px;">🔄 새로고침</button>
+    </p>
+  </div>
+</div>
+
+<script>
+function productDesignApp() {
+  return {
+    mode: 'search',
+    searchQ: '',
+    searchResults: [],
+    manualPath: '',
+    parsed: null,
+    manualSpec: '',
+    manualQty: '',
+    masters: null,
+    copyMsg: '',
+
+    init() {
+      this.loadMasters();
+    },
+
+    async loadMasters(force) {
+      try {
+        const r = await fetch('/api/product-design/masters' + (force ? '?refresh=1' : ''), { credentials: 'include' });
+        const j = await r.json();
+        if (j.ok) this.masters = j.masters;
+      } catch(e) { console.error('마스터 로드 실패', e); }
+    },
+
+    async doSearch() {
+      if (!this.searchQ || this.searchQ.length < 2) { this.searchResults = []; return; }
+      try {
+        const r = await fetch('/api/design/search?q=' + encodeURIComponent(this.searchQ) + '&pageSize=20', { credentials: 'include' });
+        const j = await r.json();
+        this.searchResults = j.items || [];
+      } catch(e) { console.error(e); }
+    },
+
+    async selectFile(filePath) {
+      this.searchResults = [];
+      this.manualPath = filePath;
+      await this.parsePath(filePath);
+    },
+
+    async parsePath(filePath) {
+      if (!filePath) return;
+      try {
+        const r = await fetch('/api/product-design/parse?path=' + encodeURIComponent(filePath), { credentials: 'include' });
+        const j = await r.json();
+        if (j.ok) {
+          this.parsed = j.parsed;
+          this.manualSpec = '';
+          this.manualQty = '';
+        } else {
+          alert('파싱 실패: ' + (j.error || '알수없음'));
+        }
+      } catch(e) { alert('파싱 오류: ' + e.message); }
+    },
+
+    buildTsv() {
+      if (!this.parsed) return '';
+      const p = this.parsed;
+      const lines = [
+        ['상품명', p.종류 + (p.내용 ? ('+' + p.내용) : '')],
+        ['규격', this.manualSpec || '(직접 입력 필요)'],
+        ['수량', this.manualQty || '(직접 입력 필요)'],
+        ['거래처', p.건설사],
+        ['프로젝트', p.현장],
+        ['상품코드', p.제안코드],
+        ['대분류', p.대분류],
+        ['소분류', p.소분류],
+        ['비고', (p.내용 || '') + (p.발주처.length ? ` / 발주: ${p.발주처.join(', ')}` : '')]
+      ];
+      return lines.map(([k, v]) => `${k}\t${v}`).join('\n');
+    },
+
+    async copyTsv() {
+      try {
+        await navigator.clipboard.writeText(this.buildTsv());
+        this.copyMsg = '✓ 클립보드 복사됨. e2e에 Ctrl+V로 붙여넣기.';
+        setTimeout(() => this.copyMsg = '', 3000);
+      } catch(e) { alert('복사 실패: ' + e.message); }
+    },
+
+    async downloadExcel() {
+      // 간단 구현: TSV를 .tsv 파일로 다운로드
+      const blob = new Blob([this.buildTsv()], { type: 'text/tab-separated-values;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `e2e등록_${this.parsed.월일 || ''}_${(this.parsed.건설사 || '').replace(/\s/g,'')}.tsv`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    },
+
+    reset() {
+      this.parsed = null;
+      this.manualPath = '';
+      this.searchQ = '';
+      this.manualSpec = '';
+      this.manualQty = '';
+    }
+  }
+}
+</script>

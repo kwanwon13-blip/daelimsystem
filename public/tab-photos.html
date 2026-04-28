@@ -1,0 +1,421 @@
+<!-- tab-photos.html — 사진 라이브러리 (47K 카톡 사진 검색·필터·편집·라벨링) -->
+<div x-data="photosApp()" x-init="init()" class="p-6">
+  <style>
+    .ph-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px; margin-bottom:14px; }
+    .ph-h { font-size:14px; font-weight:700; color:#1a1d23; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+    .ph-btn { padding:7px 14px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; border:none; transition: all .15s; }
+    .ph-btn-primary { background:linear-gradient(135deg,#4f6ef7,#3b5ce4); color:#fff; }
+    .ph-btn-primary:hover { filter:brightness(1.06); }
+    .ph-btn-ghost { background:#fff; border:1px solid #d1d5db; color:#374151; }
+    .ph-btn-ghost:hover { background:#f9fafb; }
+    .ph-btn-sm { padding:4px 10px; font-size:12px; }
+    .ph-input { padding:8px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:13px; outline:none; transition:border-color .15s; }
+    .ph-input:focus { border-color:#4f6ef7; }
+    .ph-tag { display:inline-block; padding:2px 8px; border-radius:99px; background:#eef2ff; color:#4338ca; font-size:11px; font-weight:600; margin-right:4px; margin-bottom:2px; }
+    .ph-tag.cat { background:#1f6feb; color:#fff; }
+    .ph-tag.cat-site { background:#2ea043; color:#fff; }
+    .ph-tag.cat-doc { background:#db6d28; color:#fff; }
+    .ph-tag.cat-order { background:#8957e5; color:#fff; }
+    .ph-tag.cat-etc { background:#6e7681; color:#fff; }
+
+    /* 레이아웃 */
+    .ph-layout { display:grid; grid-template-columns: 240px 1fr; gap:14px; align-items:start; }
+    .ph-side h4 { font-size:11px; text-transform:uppercase; color:#6b7280; letter-spacing:0.5px; margin: 14px 0 6px; font-weight:700; }
+    .ph-side h4:first-child { margin-top:0; }
+    .ph-side ul { list-style:none; padding:0; margin:0; max-height:240px; overflow-y:auto; }
+    .ph-side li { padding:5px 8px; cursor:pointer; border-radius:5px; font-size:12.5px; color:#374151; display:flex; justify-content:space-between; }
+    .ph-side li:hover { background:#f3f4f6; }
+    .ph-side li.active { background:#4f6ef7; color:#fff; }
+    .ph-side li .n { color:#9ca3af; font-size:11px; }
+    .ph-side li.active .n { color: rgba(255,255,255,0.85); }
+    .ph-side .filter-input { width:100%; padding:5px 8px; font-size:12px; border:1px solid #e5e7eb; border-radius:5px; margin-bottom:5px; }
+
+    /* 그리드 */
+    .ph-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:12px; }
+    .ph-thumb { background:#fff; border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; cursor:pointer; transition: all .15s; position:relative; }
+    .ph-thumb:hover { border-color:#4f6ef7; transform:translateY(-2px); box-shadow:0 4px 12px rgba(79,110,247,0.12); }
+    .ph-thumb img { width:100%; aspect-ratio:1; object-fit:cover; display:block; background:#f3f4f6; }
+    .ph-thumb .meta { padding:7px 9px; font-size:11px; line-height:1.4; }
+    .ph-thumb .meta .con { color:#1a1d23; font-weight:600; }
+    .ph-thumb .meta .site { color:#6b7280; }
+    .ph-thumb .badge-row { padding: 0 9px 7px; }
+    .ph-thumb .star { position:absolute; top:6px; right:6px; font-size:14px; }
+    .ph-thumb .hidden-mark { position:absolute; top:6px; left:6px; background:#ef4444; color:#fff; font-size:10px; padding:1px 6px; border-radius:99px; }
+
+    /* 모달 */
+    .ph-modal-bg { position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000; display:none; align-items:center; justify-content:center; padding:20px; }
+    .ph-modal-bg.show { display:flex; }
+    .ph-modal { background:#fff; border-radius:12px; max-width:1200px; max-height:95vh; width:100%; display:grid; grid-template-columns:1fr 360px; overflow:hidden; }
+    .ph-modal .img-wrap { background:#0e1116; display:flex; align-items:center; justify-content:center; }
+    .ph-modal .img-wrap img { max-width:100%; max-height:95vh; }
+    .ph-modal .info { padding:20px; overflow-y:auto; max-height:95vh; }
+    .ph-modal .info h3 { margin:0 0 10px; font-size:14px; font-weight:700; color:#1a1d23; word-break:break-all; }
+    .ph-modal .info dl { margin:0; }
+    .ph-modal .info dt { font-size:11px; color:#6b7280; text-transform:uppercase; margin-top:12px; font-weight:600; }
+    .ph-modal .info dd { margin:4px 0 0; font-size:13px; color:#1a1d23; line-height:1.45; }
+    .ph-modal .info dd input, .ph-modal .info dd textarea { width:100%; padding:6px 10px; border:1px solid #e5e7eb; border-radius:6px; font-size:13px; font-family:inherit; }
+    .ph-modal .info dd textarea { min-height:60px; resize:vertical; }
+    .ph-modal .actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:16px; }
+
+    .ph-pager { margin-top:16px; text-align:center; display:flex; align-items:center; justify-content:center; gap:10px; }
+    .ph-pager .pi { color:#6b7280; font-size:12.5px; }
+    .ph-empty { grid-column:1 / -1; text-align:center; padding:60px 20px; color:#9ca3af; font-size:13px; }
+  </style>
+
+  <!-- 상단 검색 + 통계 -->
+  <div class="ph-card" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+    <div class="ph-h" style="margin:0;">📷 사진 라이브러리</div>
+    <input
+      type="text"
+      class="ph-input"
+      style="flex:1; min-width:300px;"
+      placeholder="검색 — 제품, 슬로건, 회사, 현장, 키워드 통합 검색"
+      x-model="searchQ"
+      @input.debounce.250ms="search()"
+    />
+    <span class="pi" style="color:#6b7280; font-size:12.5px;" x-text="`총 ${stats.visible || 0} 장 / 결과 ${total} 장`"></span>
+    <button class="ph-btn ph-btn-ghost ph-btn-sm" @click="reset()">초기화</button>
+    <button class="ph-btn ph-btn-primary ph-btn-sm" @click="syncOpen=true">📥 카톡 사진 가져오기</button>
+  </div>
+
+  <div class="ph-layout">
+    <!-- 좌측 사이드바 -->
+    <aside>
+      <div class="ph-card ph-side">
+        <h4>카테고리</h4>
+        <ul>
+          <li :class="{active: filterCat===''}" @click="filterCat=''; search()">
+            <span>전체</span><span class="n" x-text="stats.visible"></span>
+          </li>
+          <template x-for="c in stats.byCategory" :key="c.category">
+            <li :class="{active: filterCat===c.category}" @click="filterCat=c.category; search()">
+              <span x-text="c.category"></span><span class="n" x-text="c.n"></span>
+            </li>
+          </template>
+        </ul>
+
+        <h4>건설사</h4>
+        <input class="filter-input" placeholder="검색..." x-model="conQ" />
+        <ul>
+          <template x-for="c in filteredConstructors()" :key="c.name">
+            <li :class="{active: filterCon===c.name}" @click="filterCon = filterCon===c.name ? '' : c.name; search()">
+              <span x-text="c.name"></span><span class="n" x-text="c.n"></span>
+            </li>
+          </template>
+        </ul>
+
+        <h4>현장</h4>
+        <input class="filter-input" placeholder="검색..." x-model="siteQ" />
+        <ul>
+          <template x-for="s in filteredSites()" :key="s.name">
+            <li :class="{active: filterSite===s.name}" @click="filterSite = filterSite===s.name ? '' : s.name; search()">
+              <span x-text="s.name"></span><span class="n" x-text="s.n"></span>
+            </li>
+          </template>
+        </ul>
+
+        <h4>표시 옵션</h4>
+        <label style="font-size:12px; display:flex; align-items:center; gap:6px; cursor:pointer; padding:4px 0;">
+          <input type="checkbox" x-model="bestOnly" @change="search()" /> 베스트샷만
+        </label>
+        <label style="font-size:12px; display:flex; align-items:center; gap:6px; cursor:pointer; padding:4px 0;">
+          <input type="checkbox" x-model="includeHidden" @change="search()" /> 숨긴 사진 포함
+        </label>
+      </div>
+    </aside>
+
+    <!-- 메인 그리드 -->
+    <main>
+      <div class="ph-card">
+        <div class="ph-grid">
+          <template x-for="p in items" :key="p.id">
+            <div class="ph-thumb" @click="openModal(p)">
+              <img loading="lazy" :src="`/photos/file/${encodeURIComponent(p.filename)}`" :alt="p.filename" onerror="this.style.opacity=0.2; this.style.background='#f3f4f6'">
+              <span class="star" x-show="p.is_best">⭐</span>
+              <span class="hidden-mark" x-show="p.is_hidden">숨김</span>
+              <div class="badge-row">
+                <span class="ph-tag" :class="catClass(p.category)" x-text="p.category"></span>
+              </div>
+              <div class="meta">
+                <div class="con" x-text="p.norm_constructor || '(회사 없음)'"></div>
+                <div class="site" x-text="p.norm_site || ''"></div>
+              </div>
+            </div>
+          </template>
+          <div x-show="items.length === 0" class="ph-empty">검색 결과가 없습니다.</div>
+        </div>
+
+        <div class="ph-pager" x-show="total > limit">
+          <button class="ph-btn ph-btn-ghost ph-btn-sm" :disabled="offset===0" @click="prev()">← 이전</button>
+          <span class="pi">
+            <span x-text="offset + 1"></span> – <span x-text="Math.min(offset + limit, total)"></span>
+            / <span x-text="total"></span>
+          </span>
+          <button class="ph-btn ph-btn-ghost ph-btn-sm" :disabled="offset + limit >= total" @click="next()">다음 →</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- 모달: 큰 이미지 + 편집 -->
+  <div class="ph-modal-bg" :class="{show: !!selected}" @click.self="closeModal()">
+    <div class="ph-modal" x-show="selected" x-cloak>
+      <div class="img-wrap" x-show="selected">
+        <img :src="selected ? `/photos/file/${encodeURIComponent(selected.filename)}` : ''">
+      </div>
+      <div class="info" x-show="selected">
+        <h3 x-text="selected?.filename"></h3>
+
+        <div class="actions" style="margin-bottom:8px; margin-top:0;">
+          <button class="ph-btn ph-btn-sm" :class="selected?.is_best ? 'ph-btn-primary' : 'ph-btn-ghost'" @click="toggleBest()">
+            <span x-text="selected?.is_best ? '⭐ 베스트샷' : '☆ 베스트샷으로'"></span>
+          </button>
+          <button class="ph-btn ph-btn-sm" :class="selected?.is_hidden ? 'ph-btn-primary' : 'ph-btn-ghost'" @click="toggleHidden()">
+            <span x-text="selected?.is_hidden ? '🚫 숨김' : '갤러리에 표시'"></span>
+          </button>
+        </div>
+
+        <dl>
+          <dt>카테고리</dt><dd>
+            <select x-model="edit.category" class="ph-input" style="width:100%; padding:6px 10px;">
+              <option value="">(없음)</option>
+              <option>용품</option>
+              <option>시공현장</option>
+              <option>시안주문서</option>
+              <option>문서영수증</option>
+              <option>기타</option>
+            </select>
+          </dd>
+          <dt>건설사</dt><dd><input x-model="edit.constructor" /></dd>
+          <dt>현장</dt><dd><input x-model="edit.site" /></dd>
+          <dt>제품</dt><dd><textarea x-model="edit.product"></textarea></dd>
+          <dt>사이즈/수량</dt><dd><input x-model="edit.size_qty" /></dd>
+          <dt>슬로건</dt><dd><textarea x-model="edit.slogan"></textarea></dd>
+          <dt>키워드</dt><dd><textarea x-model="edit.keywords"></textarea></dd>
+          <dt>메모</dt><dd><textarea x-model="edit.notes" placeholder="개인 메모"></textarea></dd>
+          <dt>촬영일</dt><dd x-text="selected?.taken_at || '-'"></dd>
+        </dl>
+
+        <div class="actions">
+          <button class="ph-btn ph-btn-primary" @click="save()">💾 저장</button>
+          <button class="ph-btn ph-btn-ghost" @click="closeModal()">닫기</button>
+        </div>
+        <div x-show="saveMsg" x-cloak style="margin-top:8px; color:#16a34a; font-size:12px; font-weight:600;" x-text="saveMsg"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 카톡 사진 가져오기 모달 -->
+  <div class="ph-modal-bg" :class="{show: syncOpen}" @click.self="syncOpen=false">
+    <div class="ph-modal" style="grid-template-columns: 1fr; max-width:560px;" x-show="syncOpen" x-cloak>
+      <div class="info" style="max-height:none;">
+        <h3>📥 카톡 사진 가져오기</h3>
+        <p style="font-size:12.5px; color:#6b7280;">
+          다운로드 폴더에서 카톡 사진(KakaoTalk_*, YYYYMMDD_*)만 골라서<br>
+          신규 사진을 라이브러리에 추가합니다.
+        </p>
+
+        <dl>
+          <dt>다운로드 폴더 경로</dt>
+          <dd><input x-model="syncDir" placeholder="C:\Users\NAMGW\Downloads"></dd>
+        </dl>
+
+        <div class="actions">
+          <button class="ph-btn ph-btn-primary" @click="syncPreview()">스캔 (미리보기)</button>
+          <button class="ph-btn ph-btn-ghost" @click="syncOpen=false">취소</button>
+        </div>
+
+        <div x-show="syncResult" x-cloak style="margin-top:16px; padding:12px; background:#f8f9fb; border-radius:8px; font-size:12.5px;">
+          <div>📂 다운로드 폴더 카톡 사진: <strong x-text="syncResult?.total"></strong> 장</div>
+          <div>✅ 이미 라이브러리에 있음: <strong x-text="syncResult?.duplicate"></strong> 장</div>
+          <div>🆕 신규 (분류 필요): <strong x-text="syncResult?.newCount" style="color:#4f6ef7;"></strong> 장</div>
+          <div x-show="syncResult?.newCount > 0" style="margin-top:8px;">
+            <button class="ph-btn ph-btn-primary ph-btn-sm" @click="alert('Phase 6 — Claude CLI 분류 구현 후 가능합니다.')">
+              모두 분류 시작
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function photosApp() {
+  return {
+    // 검색 상태
+    searchQ: '',
+    filterCat: '',
+    filterCon: '',
+    filterSite: '',
+    bestOnly: false,
+    includeHidden: false,
+    conQ: '',
+    siteQ: '',
+
+    // 데이터
+    items: [],
+    total: 0,
+    limit: 100,
+    offset: 0,
+    stats: { visible: 0, byCategory: [], topConstructors: [], topSites: [] },
+
+    // 모달
+    selected: null,
+    edit: {},
+    saveMsg: '',
+
+    // 동기화 모달
+    syncOpen: false,
+    syncDir: 'C:\\Users\\NAMGW\\Downloads',
+    syncResult: null,
+
+    async init() {
+      await this.loadStats();
+      await this.search();
+    },
+
+    async loadStats() {
+      try {
+        const r = await fetch('/api/photos/stats').then(r => r.json());
+        if (r.ok) this.stats = r;
+      } catch (e) { console.error(e); }
+    },
+
+    async search(resetPage = true) {
+      if (resetPage) this.offset = 0;
+      const params = new URLSearchParams();
+      if (this.searchQ.trim()) params.set('q', this.searchQ.trim());
+      if (this.filterCat) params.set('category', this.filterCat);
+      if (this.filterCon) params.set('constructor', this.filterCon);
+      if (this.filterSite) params.set('site', this.filterSite);
+      if (this.bestOnly) params.set('best', '1');
+      if (this.includeHidden) params.set('hidden', '1');
+      params.set('limit', this.limit);
+      params.set('offset', this.offset);
+      try {
+        const r = await fetch('/api/photos?' + params).then(r => r.json());
+        if (r.ok) {
+          this.items = r.items;
+          this.total = r.total;
+        }
+      } catch (e) { console.error(e); }
+    },
+
+    next() { this.offset += this.limit; this.search(false); window.scrollTo(0, 0); },
+    prev() { this.offset = Math.max(0, this.offset - this.limit); this.search(false); window.scrollTo(0, 0); },
+
+    reset() {
+      this.searchQ = ''; this.filterCat = ''; this.filterCon = ''; this.filterSite = '';
+      this.bestOnly = false; this.includeHidden = false;
+      this.conQ = ''; this.siteQ = '';
+      this.search();
+    },
+
+    catClass(cat) {
+      const m = { '용품':'cat', '시공현장':'cat-site', '시안주문서':'cat-order', '문서영수증':'cat-doc', '기타':'cat-etc' };
+      return m[cat] || 'cat-etc';
+    },
+
+    filteredConstructors() {
+      const q = this.conQ.toLowerCase();
+      const arr = q ? this.stats.topConstructors.filter(c => c.name.toLowerCase().includes(q)) : this.stats.topConstructors;
+      return arr.slice(0, 30);
+    },
+    filteredSites() {
+      const q = this.siteQ.toLowerCase();
+      const arr = q ? this.stats.topSites.filter(s => s.name.toLowerCase().includes(q)) : this.stats.topSites;
+      return arr.slice(0, 30);
+    },
+
+    openModal(p) {
+      this.selected = p;
+      this.edit = {
+        category: p.category || '',
+        constructor: p.constructor || '',
+        site: p.site || '',
+        product: p.product || '',
+        size_qty: p.size_qty || '',
+        slogan: p.slogan || '',
+        keywords: p.keywords || '',
+        notes: p.notes || '',
+      };
+      this.saveMsg = '';
+    },
+    closeModal() { this.selected = null; this.saveMsg = ''; },
+
+    async save() {
+      if (!this.selected) return;
+      try {
+        const r = await fetch('/api/photos/' + this.selected.id, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.edit),
+        }).then(r => r.json());
+        if (r.ok) {
+          this.selected = r.photo;
+          this.saveMsg = '저장됨';
+          // 그리드 갱신
+          const idx = this.items.findIndex(x => x.id === r.photo.id);
+          if (idx >= 0) this.items[idx] = r.photo;
+          // 통계 다시
+          this.loadStats();
+        } else {
+          this.saveMsg = '저장 실패: ' + r.error;
+        }
+      } catch (e) {
+        this.saveMsg = '에러: ' + e.message;
+      }
+    },
+
+    async toggleBest() {
+      if (!this.selected) return;
+      const newVal = !this.selected.is_best;
+      const r = await fetch(`/api/photos/${this.selected.id}/label`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_best: newVal }),
+      }).then(r => r.json());
+      if (r.ok) {
+        this.selected = r.photo;
+        const idx = this.items.findIndex(x => x.id === r.photo.id);
+        if (idx >= 0) this.items[idx] = r.photo;
+      }
+    },
+    async toggleHidden() {
+      if (!this.selected) return;
+      const newVal = !this.selected.is_hidden;
+      const r = await fetch(`/api/photos/${this.selected.id}/label`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_hidden: newVal }),
+      }).then(r => r.json());
+      if (r.ok) {
+        this.selected = r.photo;
+        if (!this.includeHidden && r.photo.is_hidden) {
+          // 그리드에서 빼기
+          this.items = this.items.filter(x => x.id !== r.photo.id);
+          this.total--;
+        }
+      }
+    },
+
+    async syncPreview() {
+      try {
+        const r = await fetch('/api/photos/sync-preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ downloadDir: this.syncDir }),
+        }).then(r => r.json());
+        if (r.ok) {
+          this.syncResult = r;
+        } else {
+          alert('스캔 실패: ' + r.error);
+        }
+      } catch (e) {
+        alert('에러: ' + e.message);
+      }
+    },
+  };
+}
+</script>

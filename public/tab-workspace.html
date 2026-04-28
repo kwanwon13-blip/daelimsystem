@@ -339,8 +339,16 @@
                 :value="currentPage.title"
                 @input="currentPage.title = $event.target.value; saveDebounced()"
                 @keydown.enter.prevent="focusEditor()" />
-              <div class="ws-author-info"
-                x-text="currentPage.author_name + ' · ' + formatDate(currentPage.updated_at) + ' 수정'"></div>
+              <div style="display:flex;align-items:center;gap:8px;margin:4px 0 20px;">
+                <div class="ws-author-info" style="margin:0;flex:1;"
+                  x-text="currentPage.author_name + ' · ' + formatDate(currentPage.updated_at) + ' 수정'"></div>
+                <!-- 📌 데스크탑 메모로 띄우기 -->
+                <button @click="openAsDesktopMemo()" :disabled="!currentPage.id"
+                  title="작은 창으로 띄워서 다른 작업 옆에 두고 보기 (Win+Ctrl+T 로 항상 위에 표시 — PowerToys 필요)"
+                  style="font-size:11px;padding:4px 10px;border-radius:6px;background:linear-gradient(135deg,#fde68a,#fcd34d);color:#78350f;border:1px solid #f59e0b;cursor:pointer;font-weight:600;display:flex;align-items:center;gap:4px;flex-shrink:0;">
+                  📌 메모로 띄우기
+                </button>
+              </div>
 
               <!-- Editor.js 영역 -->
               <div id="editorjs"></div>
@@ -1282,6 +1290,42 @@ function workspaceApp() {
         this.aiError = '서버 연결 실패';
       }
       this.aiActionLoading = false;
+    },
+
+    // 📌 현재 페이지를 작은 데스크탑 메모창으로 띄우기 (S메모 스타일)
+    openAsDesktopMemo() {
+      if (!this.currentPage || !this.currentPage.id) return;
+      const url = '/workspace/memo/' + encodeURIComponent(this.currentPage.id);
+      // 데스크탑 메모 창 (Editor.js 들어가서 좀 넉넉히). 우상단 근처
+      const w = 420, h = 560;
+      const left = Math.max(0, (window.screen.availWidth || 1280) - w - 40);
+      const top = 60;
+      const features = [
+        'width=' + w,
+        'height=' + h,
+        'left=' + left,
+        'top=' + top,
+        'menubar=no',
+        'toolbar=no',
+        'location=no',
+        'status=no',
+        'resizable=yes',
+        'scrollbars=yes',
+      ].join(',');
+      const win = window.open(url, 'wsmemo_' + this.currentPage.id, features);
+      if (!win) {
+        alert('팝업이 차단됐습니다.\n브라우저 주소창 우측의 팝업 차단 아이콘을 클릭해서 허용으로 바꿔주세요.');
+        return;
+      }
+      // 첫 사용자에게 한 번만 안내 (항상 위 표시 방법)
+      try {
+        if (!localStorage.getItem('wsMemo:tipShown')) {
+          setTimeout(() => {
+            this._toast && this._toast('💡 메모창을 항상 위에 표시: Microsoft PowerToys 의 "Always On Top" (Win+Ctrl+T)');
+            localStorage.setItem('wsMemo:tipShown', '1');
+          }, 1500);
+        }
+      } catch(e) {}
     },
 
     formatDate(d) {

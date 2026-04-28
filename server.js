@@ -96,6 +96,12 @@ app.get(['/', '/index.html'], (req, res) => {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ── 워크스페이스 데스크탑 메모 (로그인된 사용자, 본인/공유된 페이지를 작은 창으로) ──
+// 사용: window.open('/workspace/memo/<pageId>', 'memo_xxx', 'width=320,height=480')
+app.get('/workspace/memo/:pageId', (req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'workspace-memo.html'));
+});
+
 // ── 워크스페이스 공유 링크 뷰어 ──
 // - 로그인된 내부 사용자: 편집 가능한 메인 앱의 워크스페이스 탭으로 자동 리디렉트
 // - 비로그인 / 외부 사용자: 읽기전용 workspace-view.html 서빙
@@ -280,6 +286,9 @@ app.use('/api/vendors', require('./routes/vendors'));
 // VBS(쿠키없음) 요청이 design.js 에 도달하기 전 401 로 차단됨. 그래서 앞으로 이동.
 app.use('/api', require('./routes/design'));
 
+// ── 시안 자동분석 + 일러스트 자동저장 연동 (routes/product-design.js) ──
+app.use('/api/product-design', require('./routes/product-design'));
+
 // ── 업체별 단가 (routes/vendorPrices.js) ──
 app.use('/api', require('./routes/vendorPrices'));
 
@@ -363,6 +372,16 @@ app.use('/api/workspace', require('./routes/workspace'));
 // ── AI 히스토리/프로젝트/템플릿/첨부 (routes/ai-history.js) ──
 app.use('/api/ai', require('./routes/ai-history'));
 
+// ── AI Agent — Claude CLI 풀 코워크 모드 + OpenAI 이미지 (routes/ai-agent.js) ──
+// /api/ai/agent/run (SSE), /api/ai/agent/file/..., /api/ai/agent/image
+app.use('/api/ai/agent', require('./routes/ai-agent'));
+
+// ── 사진 라이브러리 (routes/photos.js) ──
+// /api/photos        검색/통계/편집/라벨링
+// /photos/file/...   사진 파일 정적 서빙 (썸네일 표시용)
+app.use('/api/photos', require('./routes/photos'));
+app.use('/photos/file', express.static(path.join(__dirname, 'data', 'photos'), { maxAge: '7d' }));
+
 app.listen(PORT, '0.0.0.0', () => {
   const nets = require('os').networkInterfaces();
   let localIP = 'localhost';
@@ -372,6 +391,7 @@ app.listen(PORT, '0.0.0.0', () => {
     }
   }
   console.log(`\n✅ 단가표 서버 실행 중 (v2026-04-04 admin-fix)`);
+  console.log(`   로컬: http://localhost:${PORT}`);
   console.log(`   로컬: http://localhost:${PORT}`);
   console.log(`   네트워크: http://${localIP}:${PORT}  ← 직원들은 이 주소로 접속`);
   console.log(`   자동동기화: 08:35, 11:35, 14:05, 19:05 (평일)
