@@ -97,15 +97,20 @@
     font-size: 14px;
     line-height: 1.5;
     word-break: break-word;
-    display: inline-block;          /* 진짜 내용만큼만 */
-    text-align: left;                /* 안의 텍스트는 좌측정렬 */
+    display: inline-block;
+    text-align: left;
     max-width: 100%;
     height: auto !important;
     min-height: 0 !important;
     max-height: none !important;
-    /* white-space 는 pre-wrap → 코드/줄바꿈 보존, 단 trailing newline 은 JS 에서 제거 */
-    white-space: pre-wrap;
+    /* ⚠ 핵심: bubble 은 normal — <template> 사이 들여쓰기 공백/개행 무시.
+       텍스트 div 안에서만 pre-wrap 으로 사용자가 입력한 줄바꿈 보존 */
+    white-space: normal;
   }
+  /* 실제 텍스트 컨테이너는 pre-wrap — 코드/사용자 줄바꿈 보존 */
+  .ai-msg .bubble > div { white-space: pre-wrap; }
+  /* template 자체는 무조건 invisible (브라우저 기본이지만 안전망) */
+  .ai-msg .bubble > template { display: none; }
   .ai-msg.user .bubble {
     background: #f3f4f6;
     color: #1f2937;
