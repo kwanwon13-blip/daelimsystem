@@ -7,7 +7,7 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; font-family: 'Noto Sans KR', 'Segoe UI', sans-serif; font-size: 12px; color: #1f2937; background: #fffbeb; overflow: hidden; }
 
-  /* 헤더 — drag 영역 */
+  /* 헤더 */
   .hdr {
     -webkit-app-region: drag;
     background: #fde68a;
@@ -37,51 +37,150 @@
   .hdr-btn.close:hover { background: #ef4444; color: #fff; }
 
   /* 검색 */
-  .search-wrap { padding: 6px 8px; border-bottom: 1px solid #f59e0b40; background: #fef9c3; }
+  .search-wrap { padding: 4px 6px; border-bottom: 1px solid #f59e0b40; background: #fef9c3; display: flex; gap: 4px; }
   .search-wrap input {
-    width: 100%;
-    padding: 5px 8px;
+    flex: 1;
+    padding: 3px 6px;
     border: 1px solid #d1d5db;
     border-radius: 4px;
-    font-size: 12px;
+    font-size: 11.5px;
     outline: none;
+    background: #fff;
   }
   .search-wrap input:focus { border-color: #f59e0b; }
+  .search-wrap .expand-all-btn {
+    background: #fff;
+    border: 1px solid #f59e0b50;
+    border-radius: 4px;
+    padding: 0 6px;
+    cursor: pointer;
+    font-size: 10px;
+    color: #78350f;
+    white-space: nowrap;
+  }
+  .search-wrap .expand-all-btn:hover { background: #fde68a; }
 
   /* 본문 */
-  .body { flex: 1; overflow-y: auto; height: calc(100vh - 64px); }
+  .body { flex: 1; overflow-y: auto; height: calc(100vh - 28px - 26px - 30px); }
   .body::-webkit-scrollbar { width: 6px; }
   .body::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
 
-  /* 섹션 */
-  .section-title {
-    font-size: 10px;
+  /* 즐겨찾기 헤더 */
+  .fav-section-title {
+    font-size: 9.5px;
     font-weight: 700;
-    color: #6b7280;
-    padding: 6px 8px 2px;
+    color: #92400e;
+    padding: 5px 8px 2px;
+    background: #fef3c7;
+    border-bottom: 1px solid #fde68a;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.4px;
   }
+
+  /* 빈 상태 */
   .empty {
-    padding: 20px 12px;
+    padding: 16px 12px;
     text-align: center;
     color: #9ca3af;
-    font-size: 11px;
+    font-size: 10.5px;
     line-height: 1.5;
   }
-  .empty .hint { font-size: 10px; color: #d1d5db; margin-top: 4px; }
 
-  /* 연락처 항목 */
+  /* 업체 헤더 (1단) */
+  .company-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    cursor: pointer;
+    background: #fef3c7;
+    border-bottom: 1px solid #fde68a;
+    user-select: none;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #78350f;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
+  .company-row:hover { background: #fde68a; }
+  .arrow { font-size: 8.5px; width: 9px; flex-shrink: 0; color: #92400e; }
+  .company-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .count-badge {
+    font-size: 9px;
+    color: #92400e;
+    background: rgba(255,255,255,0.7);
+    padding: 0 5px;
+    border-radius: 99px;
+    flex-shrink: 0;
+  }
+  .company-row.internal { background: #dbeafe; color: #1e40af; border-bottom-color: #93c5fd; }
+  .company-row.internal .arrow { color: #1e40af; }
+  .company-row.internal .count-badge { color: #1e40af; }
+
+  /* 현장 헤더 (2단) */
+  .project-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px 2px 18px;
+    cursor: pointer;
+    background: #fffbeb;
+    border-bottom: 1px solid #fef3c7;
+    user-select: none;
+    font-size: 11px;
+    font-weight: 600;
+    color: #78350f;
+  }
+  .project-row:hover { background: #fef3c7; }
+  .project-row.internal { background: #eff6ff; color: #1e40af; }
+  .project-row.internal:hover { background: #dbeafe; }
+  .project-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* 연락처 행 (3단) */
   .contact-item {
-    padding: 6px 8px;
-    border-bottom: 1px solid #fde68a80;
+    padding: 3px 8px 3px 28px;
+    border-bottom: 1px solid #fde68a40;
     cursor: pointer;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
+    min-height: 24px;
   }
+  .contact-item.in-favorites { padding-left: 8px; }
   .contact-item:hover { background: #fef3c7; }
   .contact-item.expanded { background: #fde68a; }
+
+  .star {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #d1d5db;
+    font-size: 13px;
+    border-radius: 3px;
+  }
+  .star.fav { color: #fbbf24; }
+  .star:hover { background: rgba(0,0,0,0.05); }
+
+  .contact-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; }
+  .contact-name {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #1f2937;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .contact-position {
+    font-size: 10px;
+    color: #6b7280;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
   .quick-copy {
     flex-shrink: 0;
     width: 22px;
@@ -101,48 +200,15 @@
   .quick-copy:active { background: #fbbf24; color: #fff; }
   .quick-copy:disabled { opacity: 0.3; cursor: not-allowed; }
 
-  .star {
-    flex-shrink: 0;
-    width: 18px;
-    height: 18px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    color: #d1d5db;
-    font-size: 14px;
-    border-radius: 3px;
-  }
-  .star.fav { color: #fbbf24; }
-  .star:hover { background: rgba(0,0,0,0.05); }
-
-  .contact-main { flex: 1; min-width: 0; }
-  .contact-name {
-    font-size: 12px;
-    font-weight: 600;
-    color: #1f2937;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .contact-meta {
-    font-size: 10px;
-    color: #6b7280;
-    margin-top: 1px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
   /* 펼친 디테일 */
   .detail {
-    padding: 4px 12px 8px 32px;
+    padding: 5px 12px 8px 32px;
     background: #fffbeb;
-    border-bottom: 1px solid #f3f4f6;
-    font-size: 11px;
+    border-bottom: 1px solid #fde68a;
+    font-size: 10.5px;
   }
-  .detail-row { display: flex; gap: 6px; padding: 2px 0; align-items: center; }
-  .detail-label { color: #6b7280; min-width: 36px; font-size: 10px; }
+  .detail-row { display: flex; gap: 6px; padding: 1px 0; align-items: center; }
+  .detail-label { color: #6b7280; min-width: 48px; font-size: 10px; flex-shrink: 0; }
   .detail-value {
     flex: 1;
     color: #1f2937;
@@ -157,6 +223,19 @@
   }
   .detail-value.copyable:hover { background: #fde68a; }
   .detail-value.copyable:active { background: #fbbf24; color: #fff; }
+  .copy-all-btn {
+    width: 100%;
+    margin-top: 4px;
+    padding: 4px 8px;
+    background: #fbbf24;
+    color: #78350f;
+    border: none;
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .copy-all-btn:hover { background: #f59e0b; color: #fff; }
 
   /* 토스트 */
   .toast {
@@ -173,16 +252,13 @@
     transition: opacity 0.2s;
     pointer-events: none;
     z-index: 100;
+    max-width: 90%;
+    text-align: center;
+    word-break: keep-all;
   }
   .toast.show { opacity: 1; }
 
-  /* 미니 모드 — 헤더만 */
-  body[data-mini="1"] .search-wrap,
-  body[data-mini="1"] .body,
-  body[data-mini="1"] .footer { display: none !important; }
-  body[data-mini="1"] .hdr { border-bottom: none; }
-
-  /* 푸터 (모드 전환) */
+  /* 푸터 — 모드 전환 */
   .footer {
     border-top: 1px solid #f59e0b40;
     background: #fef9c3;
@@ -207,6 +283,38 @@
     transition: all 0.1s;
   }
   .mode-btn:hover { background: #fde68a; border-color: #d97706; }
+
+  /* ✨ 자석 스냅 시각 효과 */
+  body.snap-flash::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    border: 3px solid #f59e0b;
+    border-radius: 6px;
+    pointer-events: none;
+    animation: snapBorder 0.5s ease-out forwards;
+    z-index: 9999;
+  }
+  @keyframes snapBorder {
+    0% { opacity: 0; transform: scale(1.05); }
+    25% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1); }
+  }
+
+  /* 미니 모드 — 헤더가 전체를 채움 (빈 칸 없음) */
+  body[data-mini="1"] {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  body[data-mini="1"] .search-wrap,
+  body[data-mini="1"] .body,
+  body[data-mini="1"] .footer { display: none !important; }
+  body[data-mini="1"] .hdr {
+    flex: 1;
+    border-bottom: none;
+    height: auto;
+  }
 </style>
 </head>
 <body>
@@ -218,7 +326,8 @@
   </div>
 
   <div class="search-wrap">
-    <input id="search" type="text" placeholder="이름·회사·전화로 검색" autocomplete="off">
+    <input id="search" type="text" placeholder="이름·회사·현장·번호 검색" autocomplete="off">
+    <button class="expand-all-btn" id="btnExpandAll" title="모두 펼치기/접기">⊕</button>
   </div>
 
   <div class="body" id="body">
@@ -234,10 +343,21 @@
 
 <script>
   const api = window.electronAPI;
-  let allContacts = [];     // 전체 연락처
-  let favoriteIds = [];     // 즐겨찾기 ID 배열
-  let expandedId = null;    // 현재 펼쳐진 ID
+  let tree = [];                    // [{id, name, projects, directContacts}]
+  let allContacts = [];             // flat (즐겨찾기/검색용)
+  let favoriteIds = [];
+  let expandedId = null;            // 현재 펼친 연락처 ID
   let searchQ = '';
+
+  // 업체/현장 접기 상태 (localStorage 영속)
+  const collapsedComps = new Set(JSON.parse(localStorage.getItem('cw:collapsedComps') || '[]'));
+  const collapsedProjs = new Set(JSON.parse(localStorage.getItem('cw:collapsedProjs') || '[]'));
+  function saveCollapsed() {
+    try {
+      localStorage.setItem('cw:collapsedComps', JSON.stringify([...collapsedComps]));
+      localStorage.setItem('cw:collapsedProjs', JSON.stringify([...collapsedProjs]));
+    } catch(_) {}
+  }
 
   const $body = document.getElementById('body');
   const $search = document.getElementById('search');
@@ -246,25 +366,72 @@
   function showToast(msg) {
     $toast.textContent = msg;
     $toast.classList.add('show');
-    setTimeout(() => $toast.classList.remove('show'), 1200);
-  }
-
-  async function loadAll() {
-    try {
-      const [listRes, favRes] = await Promise.all([
-        api.contactsList(),
-        api.contactsFavorites(),
-      ]);
-      if (listRes && listRes.ok) allContacts = listRes.contacts || [];
-      if (favRes && favRes.ok) favoriteIds = favRes.favoriteIds || [];
-      render();
-    } catch (e) {
-      $body.innerHTML = '<div class="empty">오류: ' + (e.message || e) + '</div>';
-    }
+    setTimeout(() => $toast.classList.remove('show'), 1500);
   }
 
   function escapeHtml(s) {
     return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  // 내부 회사 (대림SM / 내부) 감지 — copyText 와 동일 규칙
+  function isInternal(compName) {
+    const n = String(compName || '');
+    return n.indexOf('대림SM') >= 0 || n.indexOf('내부') >= 0;
+  }
+
+  // 너의 copyText 함수와 동일한 형식
+  function buildCopyText(c, compName, siteName) {
+    const lines = [];
+    let nameStr = c.name || '';
+    if (c.position) nameStr += ' ' + c.position;
+    if (compName) nameStr += ' (' + compName + ')';
+    lines.push(nameStr);
+    if (siteName) {
+      lines.push((isInternal(compName) ? '소속: ' : '현장: ') + siteName);
+    }
+    if (c.mobile) lines.push('휴대폰: ' + c.mobile);
+    if (c.phone) lines.push('내선: ' + c.phone);
+    if (c.email) lines.push('이메일: ' + c.email);
+    return lines.join('\n');
+  }
+
+  // 연락처 → 자기 소속 업체/현장 찾기
+  function findContext(c) {
+    let compName = c.company || '';
+    let siteName = c.note || '';
+    for (const comp of tree) {
+      if (comp.id === c.companyId) compName = compName || comp.name;
+      for (const p of (comp.projects || [])) {
+        if (p.id === c.projectId) {
+          siteName = p.name || siteName;
+          if (!compName) compName = comp.name;
+        }
+      }
+    }
+    return { compName, siteName };
+  }
+
+  async function loadAll() {
+    try {
+      const [treeRes, listRes, favRes] = await Promise.all([
+        api.contactsTree(),
+        api.contactsList(),
+        api.contactsFavorites(),
+      ]);
+      tree = (treeRes && treeRes.ok && Array.isArray(treeRes.tree)) ? treeRes.tree : [];
+      if (listRes && listRes.ok) allContacts = listRes.contacts || [];
+      if (favRes && favRes.ok) favoriteIds = favRes.favoriteIds || [];
+      // 첫 로드 시 내부(대림SM) 회사는 자동 펼침
+      if (collapsedComps.size === 0 && collapsedProjs.size === 0) {
+        for (const comp of tree) {
+          if (!isInternal(comp.name)) collapsedComps.add(comp.id);
+        }
+        saveCollapsed();
+      }
+      render();
+    } catch (e) {
+      $body.innerHTML = '<div class="empty">오류: ' + (e.message || e) + '</div>';
+    }
   }
 
   function matchSearch(c, q) {
@@ -276,94 +443,148 @@
       (c.position || '').toLowerCase().includes(k) ||
       (c.phone || '').includes(k) ||
       (c.mobile || '').includes(k) ||
+      (c.email || '').toLowerCase().includes(k) ||
       (c.note || '').toLowerCase().includes(k)
     );
+  }
+
+  function renderContact(c, compName, siteName, isInFavSection = false) {
+    const expanded = expandedId === c.id;
+    const isFav = favoriteIds.includes(c.id);
+    const phone = c.mobile || c.phone || '';
+    const fullText = buildCopyText(c, compName, siteName);
+
+    let html = '<div class="contact-item ' + (expanded ? 'expanded' : '') + (isInFavSection ? ' in-favorites' : '') + '" data-id="' + c.id + '">';
+    html += '<span class="star ' + (isFav ? 'fav' : '') + '" data-fav="' + c.id + '">' + (isFav ? '★' : '☆') + '</span>';
+    html += '<div class="contact-main" data-toggle="' + c.id + '">';
+    html += '<span class="contact-name">' + escapeHtml(c.name || '(이름 없음)') + '</span>';
+    if (c.position) html += '<span class="contact-position">' + escapeHtml(c.position) + '</span>';
+    html += '</div>';
+    // 빠른 복사 = 너의 copyText 형식 그대로 (전체 정보)
+    html += '<button class="quick-copy" data-quick-copy="' + escapeHtml(fullText) + '" title="복사 (이름/직급/소속/번호 모두)">📋</button>';
+    html += '</div>';
+
+    if (expanded) {
+      html += '<div class="detail">';
+      // 첫 줄 — 이름 + 직급 + (회사)
+      let nameLine = c.name || '';
+      if (c.position) nameLine += ' ' + c.position;
+      if (compName) nameLine += ' (' + compName + ')';
+      html += '<div class="detail-row"><span class="detail-label">이름</span><span class="detail-value copyable" data-copy="' + escapeHtml(nameLine) + '">' + escapeHtml(nameLine) + '</span></div>';
+      if (siteName) {
+        const label = isInternal(compName) ? '소속' : '현장';
+        html += '<div class="detail-row"><span class="detail-label">' + label + '</span><span class="detail-value copyable" data-copy="' + escapeHtml(siteName) + '">' + escapeHtml(siteName) + '</span></div>';
+      }
+      if (c.mobile) html += '<div class="detail-row"><span class="detail-label">📱 휴대폰</span><span class="detail-value copyable" data-copy="' + escapeHtml(c.mobile) + '">' + escapeHtml(c.mobile) + '</span></div>';
+      if (c.phone) html += '<div class="detail-row"><span class="detail-label">☎ 내선</span><span class="detail-value copyable" data-copy="' + escapeHtml(c.phone) + '">' + escapeHtml(c.phone) + '</span></div>';
+      if (c.email) html += '<div class="detail-row"><span class="detail-label">✉ 이메일</span><span class="detail-value copyable" data-copy="' + escapeHtml(c.email) + '">' + escapeHtml(c.email) + '</span></div>';
+      if (c.dept) html += '<div class="detail-row"><span class="detail-label">부서</span><span class="detail-value">' + escapeHtml(c.dept) + '</span></div>';
+      html += '<button class="copy-all-btn" data-quick-copy="' + escapeHtml(fullText) + '">📋 전체 정보 복사</button>';
+      html += '</div>';
+    }
+    return html;
   }
 
   function render() {
     let html = '';
 
     if (searchQ) {
-      // 검색 모드 — 전체에서 매칭
+      // 검색 모드 — flat 결과
       const matched = allContacts.filter(c => matchSearch(c, searchQ));
-      html += '<div class="section-title">검색 결과 (' + matched.length + ')</div>';
+      html += '<div class="fav-section-title">🔍 검색 결과 (' + matched.length + ')</div>';
       if (matched.length === 0) {
         html += '<div class="empty">결과 없음</div>';
       } else {
-        html += matched.slice(0, 50).map(c => renderItem(c, favoriteIds.includes(c.id))).join('');
+        for (const c of matched.slice(0, 100)) {
+          const { compName, siteName } = findContext(c);
+          html += renderContact(c, compName, siteName, true);
+        }
       }
     } else {
-      // 일반 모드 — 즐겨찾기 + 전체 둘 다 보임
+      // 즐겨찾기 (있으면 위에 별도)
       const favs = favoriteIds
         .map(id => allContacts.find(c => c.id === id))
         .filter(Boolean);
-      const others = allContacts.filter(c => !favoriteIds.includes(c.id));
-      // 회사명 → 이름 순 정렬
-      others.sort((a, b) => {
-        const ca = (a.company || '').localeCompare(b.company || '', 'ko');
-        if (ca !== 0) return ca;
-        return (a.name || '').localeCompare(b.name || '', 'ko');
-      });
-
       if (favs.length > 0) {
-        html += '<div class="section-title">⭐ 즐겨찾기 (' + favs.length + ')</div>';
-        html += favs.map(c => renderItem(c, true)).join('');
+        html += '<div class="fav-section-title">⭐ 즐겨찾기 (' + favs.length + ')</div>';
+        for (const c of favs) {
+          const { compName, siteName } = findContext(c);
+          html += renderContact(c, compName, siteName, true);
+        }
       }
-      html += '<div class="section-title">📇 전체 (' + others.length + ')</div>';
-      if (others.length === 0 && favs.length === 0) {
-        html += '<div class="empty">연락처가 없습니다.<div class="hint">ERP 에서 추가하세요.</div></div>';
-      } else if (others.length === 0) {
-        html += '<div class="empty" style="padding:8px;font-size:10px;">모든 연락처가 즐겨찾기에 있습니다.</div>';
+
+      if (tree.length === 0) {
+        html += '<div class="empty">연락처가 없습니다.<br><span style="font-size:9.5px;">ERP 에서 추가하세요.</span></div>';
       } else {
-        // 첫 50개 + 더보기
-        const showCount = window._wsContactsShowAll ? others.length : Math.min(50, others.length);
-        html += others.slice(0, showCount).map(c => renderItem(c, false)).join('');
-        if (others.length > showCount) {
-          html += '<div class="empty" style="padding:8px;font-size:10px;cursor:pointer;color:#b45309;" id="showMoreBtn">▼ 더보기 (' + (others.length - showCount) + '개)</div>';
+        // 업체별 트리
+        for (const comp of tree) {
+          const compCollapsed = collapsedComps.has(comp.id);
+          const internal = isInternal(comp.name);
+          const compClass = 'company-row' + (internal ? ' internal' : '');
+
+          // 업체 내 연락처 수
+          let compTotal = (comp.directContacts || []).length;
+          for (const p of (comp.projects || [])) compTotal += (p.contacts || []).length;
+          if (compTotal === 0) continue; // 빈 업체 숨김
+
+          html += '<div class="' + compClass + '" data-comp="' + comp.id + '">';
+          html += '<span class="arrow">' + (compCollapsed ? '▶' : '▼') + '</span>';
+          html += '<span class="company-name">' + escapeHtml(comp.name) + '</span>';
+          html += '<span class="count-badge">' + compTotal + '</span>';
+          html += '</div>';
+
+          if (!compCollapsed) {
+            // 미배정 연락처 (현장 없음)
+            for (const c of (comp.directContacts || [])) {
+              html += renderContact(c, comp.name, '', false);
+            }
+            // 현장별
+            for (const proj of (comp.projects || [])) {
+              if ((proj.contacts || []).length === 0) continue;
+              const projCollapsed = collapsedProjs.has(proj.id);
+              const projClass = 'project-row' + (internal ? ' internal' : '');
+              html += '<div class="' + projClass + '" data-proj="' + proj.id + '">';
+              html += '<span class="arrow">' + (projCollapsed ? '▶' : '▼') + '</span>';
+              html += '<span class="project-name">' + escapeHtml(proj.name) + '</span>';
+              html += '<span class="count-badge">' + proj.contacts.length + '</span>';
+              html += '</div>';
+              if (!projCollapsed) {
+                for (const c of proj.contacts) {
+                  html += renderContact(c, comp.name, proj.name, false);
+                }
+              }
+            }
+          }
         }
       }
     }
 
     $body.innerHTML = html;
-    bindItemEvents();
-    const btn = document.getElementById('showMoreBtn');
-    if (btn) btn.addEventListener('click', () => { window._wsContactsShowAll = true; render(); });
+    bindEvents();
   }
 
-  function renderItem(c, isFav) {
-    const expanded = expandedId === c.id;
-    const meta = [c.position, c.company].filter(Boolean).join(' · ');
-    const phone = c.mobile || c.phone || '';
-
-    let html = '<div class="contact-item ' + (expanded ? 'expanded' : '') + '" data-id="' + c.id + '">';
-    html += '<span class="star ' + (isFav ? 'fav' : '') + '" data-fav="' + c.id + '">' + (isFav ? '★' : '☆') + '</span>';
-    html += '<div class="contact-main" data-toggle="' + c.id + '">';
-    html += '<div class="contact-name">' + escapeHtml(c.name || '(이름 없음)') + '</div>';
-    if (meta) html += '<div class="contact-meta">' + escapeHtml(meta) + '</div>';
-    else if (phone) html += '<div class="contact-meta">' + escapeHtml(phone) + '</div>';
-    html += '</div>';
-    // 빠른 복사 버튼 — 휴대폰/사무실 번호 즉시 복사
-    if (phone) {
-      html += '<button class="quick-copy" data-quick-copy="' + escapeHtml(phone) + '" title="번호 복사: ' + escapeHtml(phone) + '">📋</button>';
-    } else {
-      html += '<button class="quick-copy" disabled title="번호 없음">📋</button>';
-    }
-    html += '</div>';
-
-    if (expanded) {
-      html += '<div class="detail">';
-      if (c.mobile) html += '<div class="detail-row"><span class="detail-label">휴대폰</span><span class="detail-value copyable" data-copy="' + escapeHtml(c.mobile) + '">' + escapeHtml(c.mobile) + '</span></div>';
-      if (c.phone) html += '<div class="detail-row"><span class="detail-label">사무실</span><span class="detail-value copyable" data-copy="' + escapeHtml(c.phone) + '">' + escapeHtml(c.phone) + '</span></div>';
-      if (c.email) html += '<div class="detail-row"><span class="detail-label">이메일</span><span class="detail-value copyable" data-copy="' + escapeHtml(c.email) + '">' + escapeHtml(c.email) + '</span></div>';
-      if (c.dept) html += '<div class="detail-row"><span class="detail-label">부서</span><span class="detail-value">' + escapeHtml(c.dept) + '</span></div>';
-      if (c.note) html += '<div class="detail-row"><span class="detail-label">메모</span><span class="detail-value">' + escapeHtml(c.note) + '</span></div>';
-      html += '</div>';
-    }
-
-    return html;
-  }
-
-  function bindItemEvents() {
+  function bindEvents() {
+    // 업체 헤더
+    $body.querySelectorAll('[data-comp]').forEach(el => {
+      el.addEventListener('click', () => {
+        const id = el.dataset.comp;
+        if (collapsedComps.has(id)) collapsedComps.delete(id);
+        else collapsedComps.add(id);
+        saveCollapsed();
+        render();
+      });
+    });
+    // 현장 헤더
+    $body.querySelectorAll('[data-proj]').forEach(el => {
+      el.addEventListener('click', () => {
+        const id = el.dataset.proj;
+        if (collapsedProjs.has(id)) collapsedProjs.delete(id);
+        else collapsedProjs.add(id);
+        saveCollapsed();
+        render();
+      });
+    });
+    // ★ 즐겨찾기
     $body.querySelectorAll('[data-fav]').forEach(el => {
       el.addEventListener('click', async (e) => {
         e.stopPropagation();
@@ -377,6 +598,7 @@
         } catch (err) { showToast('실패: ' + err.message); }
       });
     });
+    // 연락처 펼치기/접기
     $body.querySelectorAll('[data-toggle]').forEach(el => {
       el.addEventListener('click', () => {
         const id = el.dataset.toggle;
@@ -384,26 +606,27 @@
         render();
       });
     });
+    // 개별 필드 복사
     $body.querySelectorAll('[data-copy]').forEach(el => {
       el.addEventListener('click', async (e) => {
         e.stopPropagation();
         const txt = el.dataset.copy;
         await api.copyText(txt);
-        showToast('복사됨: ' + txt);
+        showToast('복사됨: ' + txt.split('\n')[0].slice(0, 30));
       });
     });
-    // 빠른 복사 버튼 (행에 항상 보임)
+    // 빠른 복사 (전체)
     $body.querySelectorAll('[data-quick-copy]').forEach(el => {
       el.addEventListener('click', async (e) => {
         e.stopPropagation();
         const txt = el.dataset.quickCopy;
         await api.copyText(txt);
-        showToast('📋 복사됨: ' + txt);
+        showToast('📋 ' + (txt.split('\n')[0] || '복사됨'));
       });
     });
   }
 
-  // 검색 입력
+  // 검색
   let searchTimer = null;
   $search.addEventListener('input', (e) => {
     if (searchTimer) clearTimeout(searchTimer);
@@ -413,16 +636,46 @@
     }, 150);
   });
 
+  // 모두 펼치기/접기
+  document.getElementById('btnExpandAll').addEventListener('click', () => {
+    if (collapsedComps.size === 0 && collapsedProjs.size === 0) {
+      // 모두 펼쳐있음 → 모두 접기
+      for (const c of tree) {
+        collapsedComps.add(c.id);
+        for (const p of (c.projects || [])) collapsedProjs.add(p.id);
+      }
+    } else {
+      collapsedComps.clear();
+      collapsedProjs.clear();
+    }
+    saveCollapsed();
+    render();
+  });
+
   // 헤더 버튼
   document.getElementById('btnPin').addEventListener('click', async () => {
     const next = await api.toggleAlwaysOnTop();
     showToast(next ? '항상 위' : '항상 위 해제');
   });
   let isMini = false;
+  let savedSize = null;
+  const SIZE_KEY = 'contactsWidget:savedSize';
+  try { savedSize = JSON.parse(localStorage.getItem(SIZE_KEY) || 'null'); } catch(_) {}
   document.getElementById('btnMini').addEventListener('click', () => {
-    isMini = !isMini;
-    document.body.setAttribute('data-mini', isMini ? '1' : '0');
-    if (api.setMini) api.setMini(isMini, isMini ? 200 : 290, isMini ? 24 : 460);
+    if (!isMini) {
+      try {
+        const cur = { w: window.outerWidth, h: window.outerHeight };
+        if (cur.h > 40) { localStorage.setItem(SIZE_KEY, JSON.stringify(cur)); savedSize = cur; }
+      } catch(_) {}
+      isMini = true;
+      document.body.setAttribute('data-mini', '1');
+      if (api.setMini) api.setMini(true, savedSize ? savedSize.w : 320, 28);
+    } else {
+      isMini = false;
+      document.body.setAttribute('data-mini', '0');
+      const restore = savedSize || { w: 320, h: 540 };
+      if (api.setMini) api.setMini(false, restore.w, restore.h);
+    }
   });
   document.getElementById('btnClose').addEventListener('click', () => window.close());
   document.getElementById('btnSearch').addEventListener('click', () => api.contactsOpenSearch());
@@ -433,16 +686,26 @@
     document.getElementById('btnMini').click();
   });
 
-  // 첫 로드
-  loadAll();
-
-  // ESC 로 닫기 (검색 중이면 검색 클리어)
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       if ($search.value) { $search.value = ''; searchQ = ''; render(); }
       else window.close();
     }
   });
+
+  // ✨ 자석 스냅 시각 효과
+  if (api.onSnapFlash) {
+    api.onSnapFlash(() => {
+      document.body.classList.remove('snap-flash');
+      void document.body.offsetWidth;
+      document.body.classList.add('snap-flash');
+      setTimeout(() => document.body.classList.remove('snap-flash'), 600);
+    });
+  }
+
+  // 첫 로드 + 30초마다 갱신
+  loadAll();
+  setInterval(loadAll, 30000);
 </script>
 </body>
 </html>

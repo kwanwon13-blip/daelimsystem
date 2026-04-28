@@ -26,8 +26,8 @@ try {
   Justification = ilst.Justification || globalThis.Justification;
 } catch (e) { /* fall through */ }
 
-// ── 마스터 사전 ──
-const KIND_DICT = [
+// ── 마스터 사전 (폴백 — 서버 API 실패 시 사용) ──
+let KIND_DICT = [
   "현수막","배너","타포린","깃발","어깨띠",
   "포맥스","3t포맥스","5t포맥스","1t포맥스","10t포맥스",
   "후렉스","그레이플렉스","폼보드","화이트보드",
@@ -48,24 +48,30 @@ const KIND_DICT = [
   "페인트","래커","락카","볼트","피스",
   "LED","전구","형광등","스위치","케이블"
 ];
-const BRAND_DICT = [
+let BRAND_DICT = [
   "포스코이앤씨","DL이앤씨","현대산업개발","요진건설","동명이엔지","삼성라코스",
   "두산","쌍용건설","이상테크윈","대림건설","한신공영","우정은","보성세이프",
   "GC녹십자EM","오엠알오","극동건설","관보토건(주)","글로벌텍 나이스텍"
 ];
-const VENDOR_DICT = [
+let VENDOR_DICT = [
   "공장","코리아","한진","라코스","현진","대풍","배너스토어","한양안전",
   "세계로","풍아몰","이용전","대영","현대상사","건우","동방사","서진","kep","풍아"
 ];
-const OPTION_DICT = [
-  "양면","단면",
-  "사방타공","상단1타공","상단2타공","상단3타공","4방타공","6방타공",
-  "양면테이프","리무버양면테이프",
-  "화이트보드코팅","유포부착","유포유광","축광시트","바니쉬코팅",
-  "자립","프레임","상단걸이","아일렛","아일렛타공","집게부착","벨크로부착",
-  "A4아크릴포켓","A3아크릴포켓","파일케이스","클리어파일",
-  "고무자석부착","음성경보기","멀티넘버링N4"
+// OPTION_DICT — 서버 마스터 API 에서 동적 로드. 실패 시 아래 폴백 사용.
+// 폴백: v7 마스터 빈도 Top (오프라인 모드 안전망)
+let OPTION_DICT = [
+  "양면","단면","사방타공","타공",
+  "양면테이프","벨크로",
+  "아일렛","자립","집게","클램프",
+  "아크릴포켓","클리어파일","은경아크릴",
+  "화이트보드코팅","반사시트","축광시트",
+  "넘버링","LED",
+  "이마돌출","상단처마","천정다보","이동식바퀴","아스테지"
 ];
+
+// 서버 마스터 API 설정
+const MASTER_API_BASE = "http://192.168.0.133:3000/api/master";
+const DESIGNER_TOKEN = "designer-default-key-change-in-env";  // env 와 동일
 
 const DESIGN_ROOT = "D:\\";
 const YEAR = new Date().getFullYear() + "시안작업";
@@ -394,8 +400,47 @@ function clearAll() {
   showStatus("초기화됨");
 }
 
-function init() {
-  // datalist 채우기
+// ══════════════════════════════════════════════════════════
+// 서버 마스터 로드 (v7 엑셀 → 서버 → UXP)
+// ══════════════════════════════════════════════════════════
+async function loadServerMaster() {
+  const headers = { "X-Designer-Token": DESIGNER_TOKEN };
+  try {
+    // 옵션 + 종류 병렬 호출
+    const [optRes, kindRes, statusRes] = await Promise.all([
+      fetch(`${MASTER_API_BASE}/options?limit=40&minCount=2`, { headers }),
+      fetch(`${MASTER_API_BASE}/kinds`, { headers }),
+      fetch(`${MASTER_API_BASE}/status`, { headers })
+    ]);
+    if (!optRes.ok || !kindRes.ok) throw new Error("API 응답 실패");
+
+    const optData = await optRes.json();
+    const kindData = await kindRes.json();
+    const statusData = await statusRes.json();
+
+    if (Array.isArray(optData.items) && optData.items.length > 0) {
+      OPTION_DICT = optData.items.map(o => o.name);
+    }
+    if (Array.isArray(kindData.items) && kindData.items.length > 0) {
+      KIND_DICT = kindData.items;
+    }
+
+    const lastP = statusData.lastParsed
+      ? new Date(statusData.lastParsed).toLocaleString("ko-KR")
+      : "?";
+    showStatus(`✓ 서버 마스터 로드 (옵션 ${OPTION_DICT.length}, 종류 ${KIND_DICT.length}) — ${lastP}`);
+    return true;
+  } catch (e) {
+    showStatus(`⚠ 서버 연결 실패 (오프라인 모드): ${e.message || e}`, "warn");
+    return false;
+  }
+}
+
+async function init() {
+  // 1. 서버 마스터 시도 (실패 시 폴백 사용)
+  await loadServerMaster();
+
+  // 2. datalist + 옵션 그리드 채우기
   populateDatalist("kind-list", KIND_DICT);
   populateDatalist("brand-list", BRAND_DICT);
   populateDatalist("vendor-list", VENDOR_DICT);

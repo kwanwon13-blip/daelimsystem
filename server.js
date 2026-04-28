@@ -289,6 +289,9 @@ app.use('/api', require('./routes/design'));
 // ── 시안 자동분석 + 일러스트 자동저장 연동 (routes/product-design.js) ──
 app.use('/api/product-design', require('./routes/product-design'));
 
+// ── 품목 마스터 엑셀 (routes/master.js) — v7 엑셀 watch + API ──
+app.use('/api/master', require('./routes/master'));
+
 // ── 업체별 단가 (routes/vendorPrices.js) ──
 app.use('/api', require('./routes/vendorPrices'));
 

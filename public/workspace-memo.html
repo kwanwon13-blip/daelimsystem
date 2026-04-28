@@ -107,29 +107,52 @@
     body[data-opacity="60"]:not(:hover) { opacity: 0.6; }
     body[data-opacity="40"]:not(:hover) { opacity: 0.4; }
 
-    /* ─── 미니 모드 — 본문 숨기고 헤더만 (제목+복원버튼+닫기) ─── */
+    /* ✨ 자석 스냅 시각 효과 — 데스크탑 모드에서만 */
+    body.snap-flash::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      border: 3px solid #f59e0b;
+      border-radius: 6px;
+      pointer-events: none;
+      animation: snapBorder 0.5s ease-out forwards;
+      z-index: 9999;
+    }
+    body[data-color="pink"].snap-flash::after { border-color: #f43f5e; }
+    body[data-color="blue"].snap-flash::after { border-color: #3b82f6; }
+    body[data-color="green"].snap-flash::after { border-color: #10b981; }
+    body[data-color="purple"].snap-flash::after { border-color: #a855f7; }
+    body[data-color="dark"].snap-flash::after { border-color: #f3f4f6; }
+    @keyframes snapBorder {
+      0% { opacity: 0; transform: scale(1.05); }
+      25% { opacity: 1; transform: scale(1); }
+      100% { opacity: 0; transform: scale(1); }
+    }
+
+    /* ─── 미니 모드 — 헤더가 윈도우 전체 높이를 채움 (빈 칸 없음) ─── */
+    body[data-mini="1"] {
+      display: flex !important;
+      flex-direction: column;
+      overflow: hidden;
+      height: 100% !important;
+      min-height: 0 !important;
+    }
     body[data-mini="1"] .memo-body,
     body[data-mini="1"] .memo-footer,
+    body[data-mini="1"] .ai-prompt,
     body[data-mini="1"] .color-palette { display: none !important; }
     body[data-mini="1"] .memo-header {
+      flex: 1;                /* 헤더가 body 전체 채움 */
       border-bottom: none;
-      min-height: 28px;
+      height: auto;
+      min-height: 0;
     }
-    /* 미니 모드: 제목 + 📌 + ⤢ + ✕ 만 보임. opacityBtn / colorBtn / aiBtn / icon / status 숨김 */
+    /* 미니 모드: 제목 + 📌 + ⤢ + ✕ 만 보임 */
     body[data-mini="1"] #opacityBtn,
     body[data-mini="1"] #colorBtn,
     body[data-mini="1"] #aiBtn,
     body[data-mini="1"] .memo-header .icon,
     body[data-mini="1"] .memo-status { display: none !important; }
-    body[data-mini="1"] html,
-    body[data-mini="1"] body {
-      overflow: hidden;
-      height: auto !important;
-      min-height: 0 !important;
-    }
-    body[data-mini="1"] {
-      display: block;
-    }
 
     /* ─── 데스크탑 모드 (Electron) — 윈도우 자체 frameless / 드래그 활성 ─── */
     body.desktop-mode .memo-header {
@@ -468,6 +491,16 @@
 
   // ❌ 클릭 = 그냥 창 닫기 (메모는 DB 에 저장된 상태로 살아있음, 트레이/목록에서 다시 열 수 있음)
   closeBtn.addEventListener('click', () => window.close());
+
+  // ✨ 자석 스냅 시각 효과 (데스크탑 모드만)
+  if (isDesktop && window.electronAPI && window.electronAPI.onSnapFlash) {
+    window.electronAPI.onSnapFlash(() => {
+      document.body.classList.remove('snap-flash');
+      void document.body.offsetWidth;
+      document.body.classList.add('snap-flash');
+      setTimeout(() => document.body.classList.remove('snap-flash'), 600);
+    });
+  }
   // 전체 편집 링크 — 데스크탑 모드에선 외부 브라우저로 (앱 내부 navigation 방지)
   if (openInApp) {
     if (isDesktop) {

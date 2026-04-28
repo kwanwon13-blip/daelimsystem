@@ -88,11 +88,41 @@
   .lb-ico { font-size: 17px; line-height: 1; }
   .lb-lbl { font-size: 10px; font-weight: 700; }
 
-  /* 미니 모드 — 본문 숨김 */
+  /* ✨ 자석 스냅 시각 효과 — 붙을 때 잠깐 빛남 */
+  body.snap-flash {
+    animation: snapFlash 0.5s ease-out;
+  }
+  body.snap-flash::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    border: 3px solid #4f6ef7;
+    border-radius: 6px;
+    pointer-events: none;
+    animation: snapBorder 0.5s ease-out forwards;
+    z-index: 9999;
+  }
+  @keyframes snapFlash {
+    0% { box-shadow: inset 0 0 0 0 rgba(79, 110, 247, 0); }
+    25% { box-shadow: inset 0 0 30px 4px rgba(79, 110, 247, 0.6); }
+    100% { box-shadow: inset 0 0 0 0 rgba(79, 110, 247, 0); }
+  }
+  @keyframes snapBorder {
+    0% { opacity: 0; transform: scale(1.05); }
+    25% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1); }
+  }
+
+  /* 미니 모드 — 헤더가 body 전체를 채움 (빈 칸 없음) */
+  body[data-mini="1"] {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
   body[data-mini="1"] .body { display: none !important; }
-  body[data-mini="1"] .hdr { border-bottom: none; }
-  body[data-mini="1"] html,
-  body[data-mini="1"] body {
+  body[data-mini="1"] .hdr {
+    flex: 1;
+    border-bottom: none;
     height: auto;
   }
 </style>
@@ -105,10 +135,6 @@
     <button class="hdr-btn close" id="btnClose" title="닫기">✕</button>
   </div>
   <div class="body">
-    <div class="lb" data-action="new-memo">
-      <span class="lb-ico">➕</span>
-      <span class="lb-lbl">새 메모</span>
-    </div>
     <div class="lb" data-action="workspace">
       <span class="lb-ico">📋</span>
       <span class="lb-lbl">워크스페이스</span>
@@ -136,13 +162,33 @@
     });
   });
 
-  // 미니 모드 — IPC
+  // 미니 모드 — IPC + 직전 크기 기억해서 복원
   const $body = document.body;
   let isMini = false;
+  let savedSize = null;     // 미니 진입 직전 크기 (가로 X 세로)
+  const SIZE_KEY = 'launcher:savedSize';
+  try { savedSize = JSON.parse(localStorage.getItem(SIZE_KEY) || 'null'); } catch(_) {}
+
   document.getElementById('btnMini').addEventListener('click', () => {
-    isMini = !isMini;
-    $body.setAttribute('data-mini', isMini ? '1' : '0');
-    if (api.setMini) api.setMini(isMini, isMini ? 180 : 360, isMini ? 24 : 80);
+    if (!isMini) {
+      // 미니 진입 — 현재 크기 저장
+      try {
+        const cur = { w: window.outerWidth, h: window.outerHeight };
+        if (cur.h > 40) {  // 미니 상태가 아닐 때만 저장
+          localStorage.setItem(SIZE_KEY, JSON.stringify(cur));
+          savedSize = cur;
+        }
+      } catch(_) {}
+      isMini = true;
+      $body.setAttribute('data-mini', '1');
+      if (api.setMini) api.setMini(true, savedSize ? savedSize.w : 360, 24);
+    } else {
+      // 복원 — 저장된 크기로
+      isMini = false;
+      $body.setAttribute('data-mini', '0');
+      const restore = savedSize || { w: 360, h: 80 };
+      if (api.setMini) api.setMini(false, restore.w, restore.h);
+    }
   });
 
   document.getElementById('btnPin').addEventListener('click', async () => {
@@ -156,6 +202,16 @@
     if (e.target.closest('button')) return;
     document.getElementById('btnMini').click();
   });
+
+  // ✨ 자석 스냅 시각 효과
+  if (api.onSnapFlash) {
+    api.onSnapFlash(() => {
+      document.body.classList.remove('snap-flash');
+      void document.body.offsetWidth;  // reflow trigger
+      document.body.classList.add('snap-flash');
+      setTimeout(() => document.body.classList.remove('snap-flash'), 600);
+    });
+  }
 </script>
 </body>
 </html>

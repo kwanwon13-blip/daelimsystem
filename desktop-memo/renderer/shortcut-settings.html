@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>캡쳐 단축키 설정</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    font-family: 'Noto Sans KR', 'Segoe UI', sans-serif;
+    background: #f8fafc;
+    color: #1f2937;
+    user-select: none;
+  }
+  .wrap { padding: 18px; display: flex; flex-direction: column; height: 100%; gap: 12px; }
+  h1 { font-size: 14px; font-weight: 700; color: #312e81; display: flex; align-items: center; gap: 6px; }
+  .desc { font-size: 11.5px; color: #6b7280; line-height: 1.5; }
+  .current {
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    color: #4338ca;
+  }
+  .current b { font-family: 'Consolas', monospace; font-weight: 700; }
+  .capture-box {
+    background: #fff;
+    border: 2px dashed #6366f1;
+    border-radius: 8px;
+    padding: 14px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .capture-box:hover, .capture-box.recording {
+    background: #eef2ff;
+    border-style: solid;
+    border-color: #4f46e5;
+  }
+  .capture-prompt {
+    font-size: 12px;
+    color: #6b7280;
+    margin-bottom: 6px;
+  }
+  .capture-display {
+    font-size: 16px;
+    font-weight: 700;
+    font-family: 'Consolas', monospace;
+    color: #4338ca;
+    min-height: 24px;
+    letter-spacing: 1px;
+  }
+  .capture-display.empty { color: #9ca3af; font-weight: 400; font-size: 12px; }
+  .hint {
+    font-size: 10.5px;
+    color: #9ca3af;
+    text-align: center;
+  }
+  .hint b { color: #4338ca; }
+  .actions {
+    display: flex;
+    gap: 8px;
+    margin-top: auto;
+  }
+  button {
+    flex: 1;
+    padding: 8px 12px;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .btn-save {
+    background: linear-gradient(135deg, #4f6ef7, #4338ca);
+    color: #fff;
+  }
+  .btn-save:hover { filter: brightness(1.06); }
+  .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-cancel {
+    background: #fff;
+    color: #6b7280;
+    border: 1px solid #d1d5db;
+  }
+  .btn-cancel:hover { background: #f3f4f6; }
+  .btn-reset {
+    background: #fff;
+    color: #b45309;
+    border: 1px solid #fde68a;
+  }
+  .btn-reset:hover { background: #fef3c7; }
+  .err {
+    font-size: 11px;
+    color: #dc2626;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    padding: 6px 10px;
+    margin-top: -6px;
+    display: none;
+  }
+  .err.show { display: block; }
+  .ok {
+    font-size: 11px;
+    color: #059669;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 6px;
+    padding: 6px 10px;
+    margin-top: -6px;
+    display: none;
+  }
+  .ok.show { display: block; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>🎹 캡쳐 단축키 설정</h1>
+    <div class="desc">
+      영역 캡쳐를 시작할 단축키를 정합니다.<br>
+      이 단축키는 다른 앱 사용 중에도 동작합니다 (전역).
+    </div>
+
+    <div class="current">
+      현재 단축키: <b id="currentDisplay">—</b>
+    </div>
+
+    <div class="capture-box" id="captureBox" tabindex="0">
+      <div class="capture-prompt" id="capturePrompt">아래 박스 클릭 후 새 단축키 입력</div>
+      <div class="capture-display empty" id="captureDisplay">대기 중...</div>
+    </div>
+
+    <div class="hint">
+      예시: <b>Ctrl+Shift+S</b> · <b>Alt+C</b> · <b>Ctrl+Alt+1</b><br>
+      반드시 <b>Ctrl / Alt / Shift</b> 중 하나 이상 + 일반 키
+    </div>
+
+    <div class="err" id="errMsg"></div>
+    <div class="ok" id="okMsg"></div>
+
+    <div class="actions">
+      <button class="btn-cancel" id="btnCancel">취소</button>
+      <button class="btn-reset" id="btnReset" title="기본값 (Ctrl+Shift+S)">초기화</button>
+      <button class="btn-save" id="btnSave" disabled>저장</button>
+    </div>
+  </div>
+
+<script>
+  const api = window.electronAPI;
+  let currentShortcut = '';
+  let pendingShortcut = '';
+
+  const $box = document.getElementById('captureBox');
+  const $prompt = document.getElementById('capturePrompt');
+  const $display = document.getElementById('captureDisplay');
+  const $current = document.getElementById('currentDisplay');
+  const $err = document.getElementById('errMsg');
+  const $ok = document.getElementById('okMsg');
+  const $save = document.getElementById('btnSave');
+
+  function formatDisplay(s) {
+    if (!s) return '없음';
+    return String(s).replace(/CommandOrControl/g, 'Ctrl').replace(/CmdOrCtrl/g, 'Ctrl');
+  }
+
+  // 키 이벤트 → Electron accelerator 문자열
+  function eventToAccelerator(e) {
+    const parts = [];
+    if (e.ctrlKey || e.metaKey) parts.push('CommandOrControl');
+    if (e.altKey) parts.push('Alt');
+    if (e.shiftKey) parts.push('Shift');
+
+    let key = e.key;
+    // 수식자 키만 누른 경우는 수집만
+    if (['Control', 'Alt', 'Shift', 'Meta', 'CommandOrControl'].includes(key)) return null;
+
+    // 키 정규화
+    if (key === ' ') key = 'Space';
+    else if (key === 'ArrowUp') key = 'Up';
+    else if (key === 'ArrowDown') key = 'Down';
+    else if (key === 'ArrowLeft') key = 'Left';
+    else if (key === 'ArrowRight') key = 'Right';
+    else if (key === 'Escape') key = 'Esc';
+    else if (key.length === 1) key = key.toUpperCase();
+
+    parts.push(key);
+    return parts.join('+');
+  }
+
+  function isValidAccelerator(s) {
+    if (!s) return false;
+    const parts = s.split('+');
+    if (parts.length < 2) return false;
+    const hasModifier = parts.some(p =>
+      ['CommandOrControl', 'Cmd', 'Ctrl', 'Alt', 'Shift', 'Super', 'Option'].includes(p)
+    );
+    return hasModifier;
+  }
+
+  // 박스 포커스 시 키 캡쳐
+  $box.addEventListener('click', () => $box.focus());
+  $box.addEventListener('focus', () => {
+    $box.classList.add('recording');
+    $prompt.textContent = '🎹 단축키를 누르세요...';
+  });
+  $box.addEventListener('blur', () => {
+    $box.classList.remove('recording');
+    if (!pendingShortcut) $prompt.textContent = '아래 박스 클릭 후 새 단축키 입력';
+  });
+  $box.addEventListener('keydown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const accel = eventToAccelerator(e);
+    if (!accel) return;
+
+    if (!isValidAccelerator(accel)) {
+      $err.textContent = '⚠ Ctrl / Alt / Shift 중 하나 이상 + 일반 키 조합이어야 합니다';
+      $err.classList.add('show');
+      $ok.classList.remove('show');
+      return;
+    }
+    pendingShortcut = accel;
+    $display.textContent = formatDisplay(accel);
+    $display.classList.remove('empty');
+    $err.classList.remove('show');
+    $ok.classList.remove('show');
+    $save.disabled = (accel === currentShortcut);
+  });
+
+  // 저장
+  $save.addEventListener('click', async () => {
+    if (!pendingShortcut) return;
+    $save.disabled = true;
+    $save.textContent = '...';
+    try {
+      const res = await api.captureSetShortcut(pendingShortcut);
+      if (res && res.ok) {
+        currentShortcut = pendingShortcut;
+        $current.textContent = formatDisplay(currentShortcut);
+        $ok.textContent = '✅ 저장됨 — 이제 ' + formatDisplay(currentShortcut) + ' 누르면 캡쳐 시작';
+        $ok.classList.add('show');
+        $err.classList.remove('show');
+        setTimeout(() => window.close(), 1200);
+      } else {
+        $err.textContent = '❌ ' + (res.error || '저장 실패');
+        $err.classList.add('show');
+        $save.disabled = false;
+      }
+    } catch (e) {
+      $err.textContent = '❌ ' + e.message;
+      $err.classList.add('show');
+      $save.disabled = false;
+    } finally {
+      $save.textContent = '저장';
+    }
+  });
+
+  // 초기화 (기본값)
+  document.getElementById('btnReset').addEventListener('click', () => {
+    pendingShortcut = 'CommandOrControl+Shift+S';
+    $display.textContent = formatDisplay(pendingShortcut);
+    $display.classList.remove('empty');
+    $err.classList.remove('show');
+    $save.disabled = false;
+    $box.focus();
+  });
+
+  // 취소
+  document.getElementById('btnCancel').addEventListener('click', () => window.close());
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.activeElement !== $box) window.close();
+  });
+
+  // 첫 로드 — 현재 단축키 표시
+  (async () => {
+    try {
+      const res = await api.captureGetShortcut();
+      currentShortcut = res.shortcut || 'CommandOrControl+Shift+S';
+      $current.textContent = formatDisplay(currentShortcut);
+    } catch (_) {}
+  })();
+</script>
+</body>
+</html>

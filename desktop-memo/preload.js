@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 연락처 (3모드)
   contactsList: () => ipcRenderer.invoke('contacts:list'),
+  contactsTree: () => ipcRenderer.invoke('contacts:tree'),
   contactsFavorites: () => ipcRenderer.invoke('contacts:favorites'),
   contactsToggleFavorite: (contactId) => ipcRenderer.invoke('contacts:toggle-favorite', contactId),
   contactsOpenWidget: () => ipcRenderer.invoke('contacts:open-widget'),
@@ -47,6 +48,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 런처 / AI / 워크스페이스 사이드바
   launcherOpen: (kind) => ipcRenderer.invoke('launcher:open', kind),
   aiOpenFull: () => ipcRenderer.invoke('ai:open-full'),
+
+  // 자석 스냅 시각 효과 — main 이 보내는 'snap:flash' 이벤트
+  onSnapFlash: (callback) => {
+    const wrapper = () => callback();
+    ipcRenderer.on('snap:flash', wrapper);
+    return () => ipcRenderer.removeListener('snap:flash', wrapper);
+  },
 
   // AI Agent SSE — 메인 프로세스로 우회 (쿠키 직접 첨부)
   aiRun: (task, threadId) => ipcRenderer.invoke('ai:run', { task, threadId }),
@@ -64,6 +72,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('capture:image', wrapper);
     return () => ipcRenderer.removeListener('capture:image', wrapper);
   },
+  captureGetShortcut: () => ipcRenderer.invoke('capture:get-shortcut'),
+  captureSetShortcut: (shortcut) => ipcRenderer.invoke('capture:set-shortcut', { shortcut }),
+  captureOpenFolder: () => ipcRenderer.invoke('capture:open-folder'),
 
   // 환경 정보
   isDesktopApp: true,

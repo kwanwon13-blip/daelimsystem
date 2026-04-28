@@ -240,8 +240,8 @@ function openMemoWindow(pageId, options = {}) {
   const win = new BrowserWindow({
     width: Math.max(320, savedState.width || 420),
     height: Math.max(280, savedState.height || 560),
-    minWidth: 300,           // 헤더 버튼들이 다 보이는 최소 크기
-    minHeight: 50,           // 미니 모드 최소
+    minWidth: 200,           // 미니 모드 가로 줄일 수 있게
+    minHeight: 28,           // 미니 모드 = 헤더만 (28px)
     x: savedState.x,
     y: savedState.y,
     frame: false,             // 프레임 없음 (S메모 스타일)
@@ -315,13 +315,24 @@ function openMemoWindow(pageId, options = {}) {
 }
 
 // ────────────────────────────────────────────────
-// 자석 스냅 — 다른 메모창 / 화면 가장자리 근처에서 정렬
+// 자석 스냅 — 모든 위젯 창들 + 화면 가장자리 근처에서 정렬
+// 메모/연락처/런처/워크스페이스/AI 위젯 — 모두 서로 붙음
 // ────────────────────────────────────────────────
 const SNAP_THRESHOLD = 16;  // 16px 이내면 스냅
+
+function getAllSnapWindows() {
+  const list = [...memoWindows.values()];
+  if (launcherWin && !launcherWin.isDestroyed()) list.push(launcherWin);
+  if (workspaceSidebarWin && !workspaceSidebarWin.isDestroyed()) list.push(workspaceSidebarWin);
+  if (contactsWidgetWin && !contactsWidgetWin.isDestroyed()) list.push(contactsWidgetWin);
+  if (aiWidgetWin && !aiWidgetWin.isDestroyed()) list.push(aiWidgetWin);
+  if (listWindow && !listWindow.isDestroyed()) list.push(listWindow);
+  return list;
+}
+
 function snapWindow(win, finalize = false) {
   if (!win || win.isDestroyed()) return;
   const me = win.getBounds();
-  const { screen } = require('electron');
   const display = screen.getDisplayNearestPoint({ x: me.x + me.width/2, y: me.y + me.height/2 });
   const work = display.workArea;
 
@@ -339,8 +350,8 @@ function snapWindow(win, finalize = false) {
     newY = work.y + work.height - me.height; snappedY = true;
   }
 
-  // 2. 다른 메모창과 스냅
-  for (const other of memoWindows.values()) {
+  // 2. 모든 다른 위젯 창과 스냅 (메모/연락처/런처/워크스페이스/AI)
+  for (const other of getAllSnapWindows()) {
     if (other === win || other.isDestroyed()) continue;
     const o = other.getBounds();
 
@@ -384,6 +395,23 @@ function snapWindow(win, finalize = false) {
     // finalize 시에만 실제 setBounds (드래그 중 매번 호출 시 부드럽지 못함)
     if (finalize) {
       win.setBounds({ x: newX, y: newY, width: me.width, height: me.height });
+      // ✨ 시각 효과 — 붙은 두 창 모두에 플래시 신호 전송
+      try {
+        if (!win.isDestroyed() && win.webContents) win.webContents.send('snap:flash');
+      } catch (_) {}
+      // 어떤 창에 붙었는지 찾아서 같이 플래시
+      for (const other of getAllSnapWindows()) {
+        if (other === win || other.isDestroyed()) continue;
+        const o = other.getBounds();
+        // 붙어있는 창 (가장자리 1px 이내 접촉) 찾기
+        const touchH = Math.abs((newX + me.width) - o.x) <= 1 || Math.abs(newX - (o.x + o.width)) <= 1;
+        const touchV = Math.abs((newY + me.height) - o.y) <= 1 || Math.abs(newY - (o.y + o.height)) <= 1;
+        const sameX = newX === o.x || (newX + me.width) === (o.x + o.width);
+        const sameY = newY === o.y || (newY + me.height) === (o.y + o.height);
+        if (touchH || touchV || sameX || sameY) {
+          try { if (other.webContents) other.webContents.send('snap:flash'); } catch (_) {}
+        }
+      }
     }
   }
 }
@@ -552,6 +580,43 @@ function openContactsFull() {
 // ────────────────────────────────────────────────
 // 영역 캡쳐 (S메모 스타일) — 전체화면 캡쳐 → 오버레이에서 영역 선택 → 클립보드
 // ────────────────────────────────────────────────
+// Electron accelerator 포맷 → 사용자에게 보여줄 한글/예쁜 형태
+function formatShortcutForDisplay(s) {
+  if (!s) return '없음';
+  return String(s)
+    .replace(/CommandOrControl/g, 'Ctrl')
+    .replace(/CmdOrCtrl/g, 'Ctrl')
+    .replace(/Command/g, 'Cmd')
+    .replace(/\+/g, '+');
+}
+
+// 단축키 설정 창 — 사용자가 키 조합 직접 입력
+let shortcutSettingsWin = null;
+function openShortcutSettings() {
+  if (shortcutSettingsWin && !shortcutSettingsWin.isDestroyed()) {
+    shortcutSettingsWin.focus();
+    return;
+  }
+  shortcutSettingsWin = new BrowserWindow({
+    width: 460,
+    height: 320,
+    title: '캡쳐 단축키 설정',
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    alwaysOnTop: true,
+    icon: path.join(__dirname, 'build', 'icon.ico'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  shortcutSettingsWin.setMenu(null);
+  shortcutSettingsWin.loadFile(path.join(__dirname, 'renderer', 'shortcut-settings.html'));
+  shortcutSettingsWin.on('closed', () => { shortcutSettingsWin = null; });
+}
+
 async function startCapture() {
   if (captureOverlayWin && !captureOverlayWin.isDestroyed()) {
     captureOverlayWin.focus();
@@ -835,11 +900,15 @@ function buildTrayMenu() {
         { label: '⛶ 전체 화면 (큰 창)', click: () => openAIFull() },
       ],
     },
-    { label: '🚀 런처 (4버튼 박스)', click: () => openLauncher() },
+    { label: '🚀 런처', click: () => openLauncher() },
     { type: 'separator' },
-    // ── 영역 캡쳐 (S메모 스타일) — 토글 ON 일 때만 활성화 ──
+    // ── 영역 캡쳐 (S메모 스타일) — 기본 OFF, 켜야 단축키 활성 ──
     ...(cfg.get('captureEnabled', false) ? [
-      { label: '📸 영역 캡쳐', accelerator: 'Ctrl+Shift+S', click: () => startCapture() },
+      {
+        label: `📸 영역 캡쳐 [${formatShortcutForDisplay(cfg.get('captureShortcut', 'CommandOrControl+Shift+S'))}]`,
+        accelerator: cfg.get('captureShortcut', 'CommandOrControl+Shift+S'),
+        click: () => startCapture(),
+      },
     ] : []),
     {
       label: '📸 영역 캡쳐 기능 사용',
@@ -847,14 +916,24 @@ function buildTrayMenu() {
       checked: cfg.get('captureEnabled', false),
       click: (item) => {
         cfg.set('captureEnabled', item.checked);
+        const shortcut = cfg.get('captureShortcut', 'CommandOrControl+Shift+S');
         // 단축키 갱신
-        try { globalShortcut.unregister('CommandOrControl+Shift+S'); } catch (_) {}
+        try { globalShortcut.unregister(shortcut); } catch (_) {}
         if (item.checked) {
-          try { globalShortcut.register('CommandOrControl+Shift+S', () => startCapture()); } catch (_) {}
+          try { globalShortcut.register(shortcut, () => startCapture()); } catch (_) {}
         }
         buildTrayMenu();
       },
     },
+    ...(cfg.get('captureEnabled', false) ? [
+      { label: '🎹 캡쳐 단축키 변경...', click: () => openShortcutSettings() },
+      { label: '📁 캡쳐 폴더 열기 (Pictures\\대림에스엠 캡쳐)', click: () => {
+        const os = require('os');
+        const dir = cfg.get('captureSaveDir') || path.join(os.homedir(), 'Pictures', '대림에스엠 캡쳐');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        shell.openPath(dir);
+      } },
+    ] : []),
     { type: 'separator' },
     {
       label: '⚙ 설정',
@@ -1075,23 +1154,24 @@ ipcMain.handle('memo:minimize-to-tray', (e) => {
   if (!w) return;
   w.hide();
 });
-// 미니 모드 — 정확한 윈도우 크기 변경 (minHeight 제약 임시 해제)
+// 미니 모드 — 정확한 윈도우 크기 변경 + 세로 LOCK (드래그로 키워도 본문 안 나옴)
 ipcMain.handle('memo:set-mini', (e, on, width, height) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   if (!w) return;
   const W = Math.max(180, parseInt(width, 10) || 280);
   const H = Math.max(28, parseInt(height, 10) || 30);
   if (on) {
-    // 미니: minHeight 를 충분히 작게 (28px = 헤더만)
-    w.setMinimumSize(180, 28);
-    const b = w.getBounds();
-    w.setBounds({ x: b.x, y: b.y, width: W, height: H });
-    w.setResizable(true); // 가로 드래그 리사이즈 가능
+    // 미니 모드: 세로 LOCK — 가로만 리사이즈 가능, 세로는 헤더 높이로 고정
+    // 순서 중요: 1) max 풀고 → 2) bounds → 3) min/max 잠금
+    w.setMaximumSize(0, 0);                    // 일단 풀기 (이전 잠금 해제)
+    w.setMinimumSize(180, H);                  // 가로 최소 180, 세로 = 미니 높이
+    w.setBounds({ x: w.getBounds().x, y: w.getBounds().y, width: W, height: H });
+    w.setMaximumSize(99999, H);                // 세로 LOCK (드래그해도 H 이상 안 늘어남)
   } else {
-    // 복원: 원래 minHeight
+    // 복원: 세로 잠금 해제 + 원래 크기
+    w.setMaximumSize(0, 0);                    // 세로 잠금 해제 (0,0 = unlimited)
     w.setMinimumSize(280, 200);
-    const b = w.getBounds();
-    w.setBounds({ x: b.x, y: b.y, width: W, height: H });
+    w.setBounds({ x: w.getBounds().x, y: w.getBounds().y, width: W, height: H });
   }
 });
 ipcMain.handle('memo:list-pages', async () => {
@@ -1177,6 +1257,19 @@ ipcMain.handle('contacts:list', async () => {
   }
 });
 
+ipcMain.handle('contacts:tree', async () => {
+  try {
+    const status = await checkLoggedIn();
+    if (!status.loggedIn) return { ok: false, error: 'not_logged_in' };
+    const resp = await fetchWithCookies('/api/contacts/tree');
+    if (!resp.ok) return { ok: false, error: 'HTTP ' + resp.status };
+    const tree = await resp.json();
+    return { ok: true, tree };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
 ipcMain.handle('contacts:favorites', async () => {
   try {
     const status = await checkLoggedIn();
@@ -1225,6 +1318,38 @@ ipcMain.handle('ai:open-full', () => openAIFull());
 // ── 영역 캡쳐 IPC ──
 ipcMain.handle('capture:start', () => startCapture());
 ipcMain.handle('capture:cancel', () => closeCapture());
+ipcMain.handle('capture:get-shortcut', () => ({
+  shortcut: cfg.get('captureShortcut', 'CommandOrControl+Shift+S'),
+  enabled: cfg.get('captureEnabled', false),
+}));
+ipcMain.handle('capture:set-shortcut', (_e, payload) => {
+  try {
+    const newShortcut = String((payload && payload.shortcut) || '').trim();
+    if (!newShortcut) return { ok: false, error: '단축키 비어있음' };
+    const oldShortcut = cfg.get('captureShortcut', 'CommandOrControl+Shift+S');
+    // 기존 단축키 해제
+    try { globalShortcut.unregister(oldShortcut); } catch (_) {}
+    // 새 단축키 검증 + 등록
+    let registered = false;
+    try {
+      registered = globalShortcut.register(newShortcut, () => startCapture());
+    } catch (e) {
+      // 실패 — 기존 것 복원
+      try { globalShortcut.register(oldShortcut, () => startCapture()); } catch (_) {}
+      return { ok: false, error: '단축키 등록 실패: ' + e.message };
+    }
+    if (!registered) {
+      try { globalShortcut.register(oldShortcut, () => startCapture()); } catch (_) {}
+      return { ok: false, error: '단축키가 이미 다른 곳에서 사용 중' };
+    }
+    cfg.set('captureShortcut', newShortcut);
+    cfg.set('captureEnabled', true);
+    buildTrayMenu();
+    return { ok: true, shortcut: newShortcut };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
 ipcMain.handle('capture:crop', (_e, rect) => {
   try {
     if (!_lastCaptureImg) return { ok: false, error: '캡쳐 원본 없음' };
@@ -1234,9 +1359,41 @@ ipcMain.handle('capture:crop', (_e, rect) => {
     const w = Math.max(1, Math.round(r.w || 1));
     const h = Math.max(1, Math.round(r.h || 1));
     const cropped = _lastCaptureImg.crop({ x, y, width: w, height: h });
+
+    // 1. 클립보드 (Ctrl+V 로 붙여넣기 가능)
     clipboard.writeImage(cropped);
+
+    // 2. 파일 자동 저장 — Pictures\대림에스엠 캡쳐\YYYY-MM-DD_HHmmss.png
+    const os = require('os');
+    let savedPath = null;
+    try {
+      const captureDir = cfg.get('captureSaveDir') || path.join(os.homedir(), 'Pictures', '대림에스엠 캡쳐');
+      if (!fs.existsSync(captureDir)) fs.mkdirSync(captureDir, { recursive: true });
+      const t = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      const fname = `${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())}_${pad(t.getHours())}${pad(t.getMinutes())}${pad(t.getSeconds())}.png`;
+      savedPath = path.join(captureDir, fname);
+      fs.writeFileSync(savedPath, cropped.toPNG());
+      console.log('[capture] 저장:', savedPath);
+    } catch (e) {
+      console.warn('[capture] 파일 저장 실패:', e.message);
+    }
+
     closeCapture();
-    return { ok: true, width: w, height: h };
+    return { ok: true, width: w, height: h, savedPath };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+// 캡쳐 폴더 변경 / 열기
+ipcMain.handle('capture:open-folder', () => {
+  try {
+    const os = require('os');
+    const dir = cfg.get('captureSaveDir') || path.join(os.homedir(), 'Pictures', '대림에스엠 캡쳐');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    shell.openPath(dir);
+    return { ok: true, dir };
   } catch (e) {
     return { ok: false, error: e.message };
   }
@@ -1336,12 +1493,14 @@ app.whenReady().then(async () => {
   } catch (e) {
     console.warn('globalShortcut F 등록 실패:', e.message);
   }
-  // 전역 단축키: Ctrl+Shift+S → 영역 캡쳐 (사용자가 캡쳐 ON 한 경우만)
+  // 전역 단축키 — 캡쳐 (기본 OFF, 사용자가 켤 때만 활성)
   if (cfg.get('captureEnabled', false)) {
+    const shortcut = cfg.get('captureShortcut', 'CommandOrControl+Shift+S');
     try {
-      globalShortcut.register('CommandOrControl+Shift+S', () => startCapture());
+      globalShortcut.register(shortcut, () => startCapture());
+      console.log('[capture] 단축키 등록:', shortcut);
     } catch (e) {
-      console.warn('globalShortcut S 등록 실패:', e.message);
+      console.warn('globalShortcut 캡쳐 등록 실패:', e.message);
     }
   }
 

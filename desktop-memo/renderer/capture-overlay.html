@@ -200,9 +200,13 @@
     try {
       const res = await api.captureCrop(rect);
       if (res && res.ok) {
-        $toast.textContent = '✅ 클립보드에 복사됨 (' + res.width + '×' + res.height + ') — Ctrl+V';
+        const fname = res.savedPath ? res.savedPath.split(/[\\/]/).pop() : null;
+        const msg = fname
+          ? `✅ 저장됨: ${fname} (${res.width}×${res.height}) · Ctrl+V 도 가능`
+          : `✅ 클립보드 복사됨 (${res.width}×${res.height}) — Ctrl+V`;
+        $toast.textContent = msg;
         $toast.classList.add('show');
-        setTimeout(() => api.captureCancel(), 600);
+        setTimeout(() => api.captureCancel(), 900);
       } else {
         alert('캡쳐 저장 실패: ' + (res?.error || '알 수 없음'));
       }

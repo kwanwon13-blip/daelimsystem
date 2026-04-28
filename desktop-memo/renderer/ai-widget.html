@@ -35,9 +35,36 @@
   .hdr-btn:hover { background: rgba(255,255,255,0.5); }
   .hdr-btn.close:hover { background: #ef4444; color: #fff; }
 
+  /* ✨ 자석 스냅 시각 효과 */
+  body.snap-flash::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    border: 3px solid #6366f1;
+    border-radius: 6px;
+    pointer-events: none;
+    animation: snapBorder 0.5s ease-out forwards;
+    z-index: 9999;
+  }
+  @keyframes snapBorder {
+    0% { opacity: 0; transform: scale(1.05); }
+    25% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1); }
+  }
+
+  /* 미니 모드 — 헤더가 전체 높이 채움 */
+  body[data-mini="1"] {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
   body[data-mini="1"] .messages,
   body[data-mini="1"] .input-area { display: none !important; }
-  body[data-mini="1"] .hdr { border-bottom: none; }
+  body[data-mini="1"] .hdr {
+    flex: 1;
+    border-bottom: none;
+    height: auto;
+  }
 
   .messages {
     flex: 1;
@@ -267,10 +294,24 @@
     if (api.aiOpenFull) api.aiOpenFull();
   });
   let isMini = false;
+  let savedSize = null;
+  const SIZE_KEY = 'aiWidget:savedSize';
+  try { savedSize = JSON.parse(localStorage.getItem(SIZE_KEY) || 'null'); } catch(_) {}
   document.getElementById('btnMini').addEventListener('click', () => {
-    isMini = !isMini;
-    document.body.setAttribute('data-mini', isMini ? '1' : '0');
-    if (api.setMini) api.setMini(isMini, isMini ? 200 : 360, isMini ? 24 : 480);
+    if (!isMini) {
+      try {
+        const cur = { w: window.outerWidth, h: window.outerHeight };
+        if (cur.h > 40) { localStorage.setItem(SIZE_KEY, JSON.stringify(cur)); savedSize = cur; }
+      } catch(_) {}
+      isMini = true;
+      document.body.setAttribute('data-mini', '1');
+      if (api.setMini) api.setMini(true, savedSize ? savedSize.w : 360, 24);
+    } else {
+      isMini = false;
+      document.body.setAttribute('data-mini', '0');
+      const restore = savedSize || { w: 360, h: 480 };
+      if (api.setMini) api.setMini(false, restore.w, restore.h);
+    }
   });
   document.getElementById('btnPin').addEventListener('click', async () => {
     if (api.toggleAlwaysOnTop) await api.toggleAlwaysOnTop();
@@ -281,6 +322,16 @@
     if (e.target.closest('button')) return;
     document.getElementById('btnMini').click();
   });
+
+  // ✨ 자석 스냅 시각 효과
+  if (api.onSnapFlash) {
+    api.onSnapFlash(() => {
+      document.body.classList.remove('snap-flash');
+      void document.body.offsetWidth;
+      document.body.classList.add('snap-flash');
+      setTimeout(() => document.body.classList.remove('snap-flash'), 600);
+    });
+  }
 
   $input.focus();
 </script>
