@@ -610,9 +610,11 @@
                     </div>
                   </div>
                 </template>
-                <!-- 일반 텍스트 / 이미지 생성 사용자 프롬프트 — trim 으로 trailing newline 제거 (DB 옛날 데이터 호환) -->
+                <!-- 일반 텍스트 / 이미지 생성 사용자 프롬프트 —
+                     중간에 끼어있는 다중 newline 도 압축 (DB 옛날 데이터 호환).
+                     입력 시 textarea 에서 잘못 들어간 빈 줄 정리 -->
                 <template x-if="m.kind !== 'agent' && (m.kind !== 'image' || !m.image_url)">
-                  <div x-text="(m.content || '').replace(/^\s+|\s+$/g, '')"></div>
+                  <div x-text="String(m.content || '').replace(/\n{2,}/g, '\n').replace(/[ \t]+\n/g, '\n').trim()"></div>
                 </template>
                 <!-- 🤖 Agent 모드 메시지 — 진행상황 + 출력 + 생성된 파일 -->
                 <template x-if="m.kind === 'agent'">
@@ -1474,7 +1476,7 @@ function aiApp() {
     },
 
     async send() {
-      const prompt = (this.draft || '').trim();
+      const prompt = String(this.draft || '').replace(/\n{2,}/g, '\n').replace(/[ \t]+\n/g, '\n').trim();
       if (!prompt || this.loading || this.agentRunning) return;
       if (!this.aiReady) {
         alert('AI 기능이 서버에서 비활성화 상태입니다. 서버 관리자에게 문의하세요.');
