@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>시안 도우미</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- 시안 정보 -->
+    <section class="card">
+      <h3>시안 정보</h3>
+
+      <div class="row">
+        <label>규격</label>
+        <input type="text" id="spec" placeholder="예: 600*900 / 550파이 / 1020mm*50M" />
+      </div>
+
+      <div class="row">
+        <label>상품명</label>
+        <input type="text" id="kind" placeholder="예: A형철판 (옵션은 + 옵션 버튼)" />
+        <button class="mini" id="kind-pick" title="사전 검색">▼</button>
+        <button class="mini" id="kind-opt" title="옵션 추가">+옵션</button>
+      </div>
+
+      <div class="row">
+        <label>옵션</label>
+        <input type="text" id="opt" placeholder="예: 반사실사/단면" />
+      </div>
+
+      <div class="row">
+        <label>수량</label>
+        <span class="qty-mode">
+          <label><input type="radio" name="qty-mode" value="single" checked> 단일</label>
+          <input type="number" id="qty-single" value="1" min="1" style="width:60px"> 개
+          <label><input type="radio" name="qty-mode" value="multi"> 다중</label>
+        </span>
+      </div>
+
+      <div class="row qty-multi-row hidden" id="qty-multi-row">
+        <label></label>
+        <span>각 <input type="number" id="qty-each" min="1" style="width:60px"> 개씩 총
+          <input type="number" id="qty-total" min="1" style="width:80px"> 개</span>
+      </div>
+
+      <div class="row">
+        <label>납품일</label>
+        <input type="number" id="date-month" min="1" max="12" style="width:50px">
+        <span>/</span>
+        <input type="number" id="date-day" min="1" max="31" style="width:50px">
+        <span class="hint">(M/D)</span>
+      </div>
+    </section>
+
+    <!-- 미리보기 -->
+    <section class="card">
+      <h3>미리보기</h3>
+      <div class="preview" id="preview-line1">(입력하면 여기 표시)</div>
+      <div class="preview-sub" id="preview-line2"></div>
+    </section>
+
+    <!-- 상태 -->
+    <div id="status"></div>
+
+    <!-- 메인 액션 -->
+    <div class="actions">
+      <button class="primary" id="btn-insert">텍스트 삽입</button>
+      <button id="btn-clear">초기화</button>
+      <button class="primary" id="btn-save">💾 시안 저장</button>
+    </div>
+
+    <!-- DRAWER (검색/옵션/저장 — inline) -->
+    <section class="drawer hidden" id="drawer">
+      <!-- 검색 -->
+      <div class="drawer-pane hidden" id="pane-pick">
+        <h3>🔍 사전 검색</h3>
+        <input type="text" id="pick-search" placeholder="타이핑하면 자동 필터" />
+        <div class="list-box" id="pick-list"></div>
+        <div class="actions">
+          <button class="primary" id="pick-ok">선택</button>
+          <button id="pick-cancel">닫기</button>
+        </div>
+      </div>
+
+      <!-- 옵션 -->
+      <div class="drawer-pane hidden" id="pane-option">
+        <h3>+ 옵션 추가 (다중 선택)</h3>
+        <input type="text" id="opt-search" placeholder="옵션 검색" />
+        <div class="list-box multi" id="opt-list"></div>
+        <div class="row">
+          <label>직접</label>
+          <input type="text" id="opt-custom" placeholder="쉼표로 구분 (양면,사방타공)">
+        </div>
+        <div class="actions">
+          <button class="primary" id="opt-add">상품명에 추가</button>
+          <button id="opt-cancel">닫기</button>
+        </div>
+      </div>
+
+      <!-- 저장 -->
+      <div class="drawer-pane hidden" id="pane-save">
+        <h3>💾 시안 저장</h3>
+        <div class="row"><label>월일</label><input type="text" id="save-date" /></div>
+        <div class="row">
+          <label>건설사</label>
+          <input type="text" id="save-brand" placeholder="예: 두산">
+          <button class="mini" id="save-brand-pick">▼</button>
+        </div>
+        <div class="row"><label>현장</label><input type="text" id="save-site" placeholder="예: 성수장미"></div>
+        <div class="row"><label>종류</label><input type="text" id="save-kind" placeholder="예: A형철판"></div>
+        <div class="row"><label>옵션</label><input type="text" id="save-opt" placeholder="예: 반사실사/단면"></div>
+        <div class="row"><label>버전</label><input type="text" id="save-ver" value="v1" style="width:60px"></div>
+        <div class="row">
+          <label>발주처</label>
+          <input type="text" id="save-vendor" value="공장">
+          <button class="mini" id="save-vendor-pick">▼</button>
+        </div>
+        <div class="row">
+          <label>형식</label>
+          <span class="fmt-row">
+            <label><input type="checkbox" id="fmt-ai" checked> 원본 .ai (CC)</label>
+            <label><input type="checkbox" id="fmt-cs6" checked> 발주 .ai (CS6)</label>
+            <label><input type="checkbox" id="fmt-jpg" checked> .jpg</label>
+            <label><input type="checkbox" id="fmt-pdf"> .pdf</label>
+          </span>
+        </div>
+        <div class="row">
+          <label>폴더</label>
+          <span class="folder-preview" id="save-folder"></span>
+        </div>
+        <div class="actions">
+          <button class="primary" id="save-exec">💾 한 번에 저장</button>
+          <button id="save-cancel">닫기</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>

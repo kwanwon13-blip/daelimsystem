@@ -176,8 +176,8 @@
   <!-- 적재 현황 (하단) -->
   <div x-show="!loading && stats" class="mt-8 text-center">
     <p class="text-xs text-gray-300">
-      데이터: <span x-text="stats.total?.toLocaleString()"></span>건
-      (<span x-text="stats.vendors?.length"></span>개 거래처)
+      데이터: <span x-text="stats?.total?.toLocaleString() ?? '-'"></span>건
+      (<span x-text="stats?.vendors?.length ?? 0"></span>개 거래처)
     </p>
   </div>
 </div>

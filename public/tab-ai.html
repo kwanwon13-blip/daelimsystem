@@ -75,21 +75,24 @@
   .ai-msg.user .avatar { background:#e0e7ff; color:#4338ca; font-weight:700; }
   .ai-msg.ai .avatar { background:linear-gradient(135deg,#4f6ef7,#7c3aed); color:#fff; }
   .ai-msg .bubble {
-    padding: 9px 13px;
+    padding: 8px 12px;
     border-radius: 14px;
     font-size: 13.5px;
-    line-height: 1.65;
+    line-height: 1.5;             /* 1.65 → 1.5 — 줄 간격 줄임 */
     white-space: pre-wrap;
     max-width: 82%;
-    width: fit-content;          /* 내용 크기에 딱 맞춤 — 짧은 메시지도 작게 */
+    width: fit-content;            /* 가로: 내용 크기 */
+    height: fit-content;           /* 세로: 내용 크기 — 절대 늘어나지 않음 */
     word-break: break-word;
+    display: inline-block;         /* block 컨텍스트 차단 — 내용 높이만 */
+    align-self: flex-start;        /* flex 부모가 stretch 시도해도 차단 */
   }
   .ai-msg.user { justify-content: flex-end; }
   .ai-msg.user .bubble {
     background: linear-gradient(135deg, #eef2ff, #e0e7ff);
     color: #1a1d23;
     border-top-right-radius: 4px;
-    margin-left: auto;            /* 우측 정렬 */
+    margin-left: auto;
   }
   .ai-msg.ai .bubble {
     background: #fff;
@@ -97,11 +100,16 @@
     border: 1px solid #e5e7eb;
     border-top-left-radius: 4px;
   }
-  /* 이미지/agent/template 등 큰 컨텐츠가 있는 bubble 은 fit-content 해제 (전체 너비 사용) */
+  /* 버블 내부 직계 div 도 자연 높이 */
+  .ai-msg .bubble > div { min-height: 0; }
+  /* 이미지/agent 등 큰 컨텐츠가 있는 bubble 은 fit-content 해제 (전체 너비 사용) */
   .ai-msg .bubble:has(img.ai-img),
   .ai-msg .bubble:has(.ai-upscale-bar),
   .ai-msg .bubble:has(.ai-artifacts),
   .ai-msg .bubble:has(details) { width: auto; }
+  /* 메시지 행 자체도 stretch 방지 */
+  .ai-msg { align-items: flex-start !important; }
+  .ai-msg > div { align-self: flex-start; }
   .ai-msg.ai.error .bubble { background:#fef2f2; border-color:#fecaca; color:#b91c1c; }
   /* 시스템 에러 배너 (AI 답변이 아닌 서버 에러 전용) */
   .ai-system-error { display:flex; align-items:flex-start; gap:10px; margin:12px auto; padding:12px 14px; max-width:560px; background:#fef2f2; border:1px solid #fecaca; border-radius:12px; box-shadow:0 1px 3px rgba(220,38,38,0.08); }
