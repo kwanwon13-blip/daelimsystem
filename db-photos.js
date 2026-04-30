@@ -198,6 +198,7 @@ function searchPhotos(opts = {}) {
     typeof opts.constructor === 'string' ? opts.constructor : null;
   const site = typeof opts.site === 'string' ? opts.site : null;
   const includeHidden = !!opts.includeHidden;
+  const onlyHidden = !!opts.onlyHidden;
   const bestOnly = !!opts.bestOnly;
   const includeAllCats = !!opts.includeAllCats;
   const productType = typeof opts.productType === 'string' ? opts.productType : null;
@@ -207,7 +208,8 @@ function searchPhotos(opts = {}) {
 
   const where = [];
   const params = {};
-  if (!includeHidden) where.push('is_hidden = 0');
+  if (onlyHidden) where.push('is_hidden = 1');
+  else if (!includeHidden) where.push('is_hidden = 0');
   if (bestOnly) where.push('is_best = 1');
   if (category) {
     where.push('category = @category');
@@ -241,7 +243,9 @@ function searchPhotos(opts = {}) {
       norm_site LIKE @q OR
       size_qty LIKE @q OR
       product_type LIKE @q OR
-      size_value LIKE @q
+      size_value LIKE @q OR
+      notes LIKE @q OR
+      custom_tags LIKE @q
     )`);
     params.q = `%${q}%`;
   }
@@ -265,6 +269,7 @@ function countPhotos(opts = {}) {
     typeof opts.constructor === 'string' ? opts.constructor : null;
   const site = typeof opts.site === 'string' ? opts.site : null;
   const includeHidden = !!opts.includeHidden;
+  const onlyHidden = !!opts.onlyHidden;
   const bestOnly = !!opts.bestOnly;
   const includeAllCats = !!opts.includeAllCats;
   const productType = typeof opts.productType === 'string' ? opts.productType : null;
@@ -272,7 +277,8 @@ function countPhotos(opts = {}) {
 
   const where = [];
   const params = {};
-  if (!includeHidden) where.push('is_hidden = 0');
+  if (onlyHidden) where.push('is_hidden = 1');
+  else if (!includeHidden) where.push('is_hidden = 0');
   if (bestOnly) where.push('is_best = 1');
   if (category) {
     where.push('category = @category');
@@ -305,7 +311,9 @@ function countPhotos(opts = {}) {
       norm_site LIKE @q OR
       size_qty LIKE @q OR
       product_type LIKE @q OR
-      size_value LIKE @q
+      size_value LIKE @q OR
+      notes LIKE @q OR
+      custom_tags LIKE @q
     )`);
     params.q = `%${q}%`;
   }

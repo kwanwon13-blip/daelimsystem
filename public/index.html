@@ -39,6 +39,7 @@
   <script src="/contacts.js"></script>
   <script src="/approval.js"></script>
   <script src="/photos.js"></script>
+  <script src="/ocr.js"></script>
   <script src="/orgchart.js"></script>
   <!-- Chart.js (홈 대시보드 그래프) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -6179,7 +6180,7 @@ function app() {
       { id: 'options', label: '옵션 관리' },
       { id: 'vendors', label: '업체 관리' },
       { id: 'design', label: '시안 검색' },
-      { id: 'productDesign', label: '시안 자동분석' },
+      // { id: 'productDesign', label: '시안 자동분석' },  // 숨김 — 미완성 기능
       { id: 'ocr', label: 'OCR 텍스트 추출' },
       { id: 'photos', label: '사진 라이브러리' },
       { id: 'contacts', label: '연락처' },
@@ -6294,7 +6295,7 @@ function app() {
           { id: 'approval', label: '결재' }, { id: 'orgchart', label: '조직도' },
           { id: 'salesLookup', label: '과거단가조회' },
           { id: 'stats', label: '통계' }, { id: 'design', label: '시안 검색' },
-          { id: 'productDesign', label: '시안 자동분석' },
+          // { id: 'productDesign', label: '시안 자동분석' },  // 숨김 — 미완성 기능
           { id: 'ocr', label: 'OCR 텍스트 추출' },
           { id: 'photos', label: '사진 라이브러리' },
           { id: 'contacts', label: '연락처' }, { id: 'calendar', label: '캘린더' }, { id: 'notices', label: '공지사항' }, { id: 'settings', label: '설정' },

@@ -147,6 +147,10 @@
       <span class="lb-ico">🤖</span>
       <span class="lb-lbl">AI</span>
     </div>
+    <div class="lb" data-action="ocr">
+      <span class="lb-ico">📝</span>
+      <span class="lb-lbl">OCR</span>
+    </div>
   </div>
 
 <script>
@@ -159,6 +163,7 @@
       else if (action === 'workspace') api.launcherOpen('workspace-sidebar');
       else if (action === 'contacts') api.launcherOpen('contacts-widget');
       else if (action === 'ai') api.launcherOpen('ai-widget');
+      else if (action === 'ocr') api.launcherOpen('ocr-widget');
     });
   });
 

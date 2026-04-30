@@ -34,6 +34,7 @@ router.get('/', (req, res) => {
       sizeValue: s(req.query.sizeValue),
       bestOnly: req.query.best === '1' || req.query.best === 'true',
       includeHidden: req.query.hidden === '1' || req.query.hidden === 'true',
+      onlyHidden: req.query.onlyHidden === '1' || req.query.onlyHidden === 'true',
       includeAllCats: req.query.all === '1' || req.query.all === 'true',
       limit: Math.min(parseInt(req.query.limit) || 100, 500),
       offset: parseInt(req.query.offset) || 0,

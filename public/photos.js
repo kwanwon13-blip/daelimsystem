@@ -10,6 +10,7 @@ function photosApp() {
     filterSize: '',
     bestOnly: false,
     includeHidden: false,
+    onlyHidden: false,
     conQ: '',
     siteQ: '',
     ptypeQ: '',
@@ -58,6 +59,7 @@ function photosApp() {
       if (this.filterSize) params.set('sizeValue', this.filterSize);
       if (this.bestOnly) params.set('best', '1');
       if (this.includeHidden) params.set('hidden', '1');
+      if (this.onlyHidden) params.set('onlyHidden', '1');
       params.set('limit', this.limit);
       params.set('offset', this.offset);
       try {
@@ -75,7 +77,7 @@ function photosApp() {
     reset() {
       this.searchQ = ''; this.filterCat = ''; this.filterCon = ''; this.filterSite = '';
       this.filterPType = ''; this.filterSize = '';
-      this.bestOnly = false; this.includeHidden = false;
+      this.bestOnly = false; this.includeHidden = false; this.onlyHidden = false;
       this.conQ = ''; this.siteQ = ''; this.ptypeQ = ''; this.sizeQ = '';
       this.search();
     },
@@ -145,6 +147,50 @@ function photosApp() {
         }
       } catch (e) {
         this.saveMsg = '에러: ' + e.message;
+      }
+    },
+
+    // 그리드에서 hover 버튼으로 빠른 토글 (모달 안 열고)
+    async quickToggleHidden(p) {
+      const newVal = !p.is_hidden;
+      const r = await fetch(`/api/photos/${p.id}/label`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_hidden: newVal }),
+      }).then(r => r.json());
+      if (r.ok) {
+        // 현재 모드와 충돌하면 그리드에서 제거
+        if (newVal && !this.includeHidden && !this.onlyHidden) {
+          // 보이는 것만 모드인데 숨김 처리 → 그리드에서 빼기
+          this.items = this.items.filter(x => x.id !== p.id);
+          this.total = Math.max(0, this.total - 1);
+        } else if (!newVal && this.onlyHidden) {
+          // 숨긴 것만 모드인데 숨김 해제 → 그리드에서 빼기
+          this.items = this.items.filter(x => x.id !== p.id);
+          this.total = Math.max(0, this.total - 1);
+        } else {
+          // 모드와 일치 → 데이터만 갱신
+          const idx = this.items.findIndex(x => x.id === p.id);
+          if (idx >= 0) this.items[idx] = r.photo;
+        }
+      }
+    },
+
+    async quickToggleBest(p) {
+      const newVal = !p.is_best;
+      const r = await fetch(`/api/photos/${p.id}/label`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_best: newVal }),
+      }).then(r => r.json());
+      if (r.ok) {
+        const idx = this.items.findIndex(x => x.id === p.id);
+        if (idx >= 0) this.items[idx] = r.photo;
+        // 베스트샷만 모드 + 베스트 해제 시 그리드에서 빼기
+        if (this.bestOnly && !newVal) {
+          this.items = this.items.filter(x => x.id !== p.id);
+          this.total = Math.max(0, this.total - 1);
+        }
       }
     },
 

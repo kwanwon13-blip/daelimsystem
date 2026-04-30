@@ -504,7 +504,7 @@ function runClaudeCli(prompt) {
     const child = spawn('claude', ['-p'], {
       cwd: tmpDir,                              // ← 격리된 cwd 로 병렬 가능
       shell: true,
-      env: { ...process.env, LANG: 'ko_KR.UTF-8' },
+      env: { ...process.env, LANG: 'ko_KR.UTF-8', TZ: 'Asia/Seoul' },
       windowsHide: true,
     });
     let out = '', err = '';

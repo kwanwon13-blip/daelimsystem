@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Bash(rm:*)",
+      "Bash(del:*)",
+      "Bash(rmdir:*)",
+      "Bash(format:*)",
+      "Bash(diskpart:*)",
+      "Bash(reg delete:*)",
+      "Bash(net user:*)",
+      "Bash(taskkill:*)",
+      "Bash(*--force*)",
+      "Bash(*-rf*)",
+      "Bash(*DROP TABLE*)",
+      "Bash(*DROP DATABASE*)",
+      "Bash(*TRUNCATE*)",
+      "Bash(*DELETE FROM*)",
+      "Edit(data/photos.db)",
+      "Edit(data/ai기록.db)",
+      "Edit(data/data.json)",
+      "Edit(data/settings.json)",
+      "Edit(.env)",
+      "Edit(server.js)",
+      "Edit(package.json)",
+      "Write(data/photos.db)",
+      "Write(data/ai기록.db)",
+      "Write(data/data.json)",
+      "Write(data/settings.json)",
+      "Write(.env)",
+      "Write(server.js)",
+      "Write(package.json)"
+    ],
+    "allow": [
+      "Read(**/*)",
+      "Skill(*)",
+      "Bash(node:*)",
+      "Bash(python:*)",
+      "Bash(dir:*)",
+      "Bash(ls:*)",
+      "Bash(echo:*)",
+      "Bash(type:*)",
+      "Bash(cat:*)",
+      "Write(./outputs/**)",
+      "Write(./data/ai_outputs/**)",
+      "Edit(./outputs/**)",
+      "Edit(./data/ai_outputs/**)"
+    ]
+  }
+}

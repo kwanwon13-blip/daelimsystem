@@ -55,6 +55,7 @@ let launcherWin = null;          // 런처 (4버튼 박스)
 let workspaceSidebarWin = null;  // 워크스페이스 사이드바 패널
 let aiWidgetWin = null;          // AI 빠른 질문 위젯
 let aiFullWin = null;            // AI 전체 화면 (큰 창)
+let ocrWidgetWin = null;         // OCR 위젯
 let captureOverlayWin = null;    // 캡쳐 영역 선택 오버레이
 let _lastCaptureImg = null;      // 마지막 전체 화면 캡쳐 (nativeImage) — crop 용
 let isQuitting = false;
@@ -326,6 +327,7 @@ function getAllSnapWindows() {
   if (workspaceSidebarWin && !workspaceSidebarWin.isDestroyed()) list.push(workspaceSidebarWin);
   if (contactsWidgetWin && !contactsWidgetWin.isDestroyed()) list.push(contactsWidgetWin);
   if (aiWidgetWin && !aiWidgetWin.isDestroyed()) list.push(aiWidgetWin);
+  if (ocrWidgetWin && !ocrWidgetWin.isDestroyed()) list.push(ocrWidgetWin);
   if (listWindow && !listWindow.isDestroyed()) list.push(listWindow);
   return list;
 }
@@ -828,6 +830,40 @@ function openAIWidget() {
 }
 
 // ────────────────────────────────────────────────
+// OCR 위젯 — Claude Vision 으로 이미지 → 텍스트
+// ────────────────────────────────────────────────
+function openOcrWidget() {
+  if (ocrWidgetWin && !ocrWidgetWin.isDestroyed()) {
+    ocrWidgetWin.focus();
+    return;
+  }
+  const s = getSavedState('__ocr_widget', { width: 360, height: 540 });
+  ocrWidgetWin = new BrowserWindow({
+    width: s.width, height: s.height, x: s.x, y: s.y,
+    minWidth: 280, minHeight: 28,
+    title: 'OCR — 텍스트 추출',
+    frame: false,
+    backgroundColor: '#fafafa',
+    alwaysOnTop: s.alwaysOnTop,
+    skipTaskbar: false,
+    resizable: true,
+    minimizable: true,
+    maximizable: false,
+    icon: path.join(__dirname, 'build', 'icon.ico'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+    show: false,
+  });
+  ocrWidgetWin.loadFile(path.join(__dirname, 'renderer', 'ocr-widget.html'));
+  ocrWidgetWin.once('ready-to-show', () => ocrWidgetWin.show());
+  attachWidgetBehavior(ocrWidgetWin, '__ocr_widget');
+  ocrWidgetWin.on('closed', () => { ocrWidgetWin = null; });
+}
+
+// ────────────────────────────────────────────────
 // AI 전체 화면 (큰 창) — ERP 의 AI 탭만 띄움
 // ────────────────────────────────────────────────
 function openAIFull() {
@@ -900,6 +936,7 @@ function buildTrayMenu() {
         { label: '⛶ 전체 화면 (큰 창)', click: () => openAIFull() },
       ],
     },
+    { label: '📝 OCR (이미지 → 텍스트)', click: () => openOcrWidget() },
     { label: '🚀 런처', click: () => openLauncher() },
     { type: 'separator' },
     // ── 영역 캡쳐 (S메모 스타일) — 기본 OFF, 켜야 단축키 활성 ──
@@ -1312,6 +1349,41 @@ ipcMain.handle('launcher:open', (_e, kind) => {
   else if (kind === 'contacts-widget') openContactsWidget();
   else if (kind === 'workspace-sidebar') openWorkspaceSidebar();
   else if (kind === 'ai-widget') openAIWidget();
+  else if (kind === 'ocr-widget') openOcrWidget();
+});
+
+// OCR 실행 — multipart upload 를 메인 프로세스가 cookie 와 함께 서버에 프록시
+ipcMain.handle('ocr:run', async (_e, payload) => {
+  try {
+    const status = await checkLoggedIn();
+    if (!status.loggedIn) return { ok: false, error: 'not_logged_in' };
+    const { imageBase64, mime, mode, filename } = payload || {};
+    if (!imageBase64) return { ok: false, error: 'image required' };
+
+    // base64 → Blob → FormData
+    const bin = Buffer.from(imageBase64, 'base64');
+    const FormData = globalThis.FormData;
+    const Blob = globalThis.Blob;
+    const form = new FormData();
+    form.append('image', new Blob([bin], { type: mime || 'image/png' }), filename || 'ocr.png');
+    form.append('mode', mode || 'plain');
+
+    const cookies = await session.defaultSession.cookies.get({ url: getServerUrl() });
+    const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+
+    const resp = await fetch(getServerUrl() + '/api/ai/ocr', {
+      method: 'POST',
+      headers: { Cookie: cookieHeader },
+      body: form,
+    });
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      return { ok: false, error: 'HTTP ' + resp.status + (errText ? ' — ' + errText.slice(0, 200) : '') };
+    }
+    return await resp.json();
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
 });
 ipcMain.handle('ai:open-full', () => openAIFull());
 

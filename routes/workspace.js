@@ -772,15 +772,25 @@ router.post('/ai', async (req, res) => {
         : `당신은 ERP 시스템 내 워크스페이스 AI 도우미입니다. 한국어로 간결하고 실용적으로 답변해주세요.\n\n${prompt}`;
     }
 
+    // 한국 시간(KST/Asia/Seoul) 프롬프트 앞에 prepend — Claude 가 정확한 현재 시간으로 답변
+    const kstNow = new Date(Date.now() + 9 * 60 * 60 * 1000)
+      .toISOString().replace('T', ' ').slice(0, 19);
+    const days = ['일', '월', '화', '수', '목', '금', '토'];
+    const kstDate = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    const dayName = days[kstDate.getUTCDay()];
+    fullPrompt = `[현재 시간: ${kstNow} (KST/Asia/Seoul, ${dayName}요일)]\n\n${fullPrompt}`;
+
     // Claude CLI --print 모드 사용 (Pro Max 구독으로 동작)
     // ──────────────────────────────────────────────────
     // - Windows 에서 claude.cmd 도 찾을 수 있도록 shell: true
     // - 프롬프트는 argv 가 아닌 stdin 으로 전달해서 cmd 이스케이프 문제 원천 차단
     //   (한국어/줄바꿈/특수문자 안전)
+    // - cwd: price-list-app 루트 — .claude/skills/ 폴더가 거기 있어야 CLI 가 발견
     const aiText = await new Promise((resolve, reject) => {
       const child = spawn('claude', ['-p'], {
         shell: true,  // Windows claude.cmd 호환
-        env: { ...process.env, LANG: 'ko_KR.UTF-8' },
+        env: { ...process.env, LANG: 'ko_KR.UTF-8', TZ: 'Asia/Seoul' },
+        cwd: path.join(__dirname, '..'),
         windowsHide: true
       });
       let out = '', err = '';

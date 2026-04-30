@@ -45,9 +45,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   contactsOpenFull: () => ipcRenderer.invoke('contacts:open-full'),
   copyText: (text) => ipcRenderer.invoke('memo:copy-text', text),
 
-  // 런처 / AI / 워크스페이스 사이드바
+  // 런처 / AI / 워크스페이스 사이드바 / OCR
   launcherOpen: (kind) => ipcRenderer.invoke('launcher:open', kind),
   aiOpenFull: () => ipcRenderer.invoke('ai:open-full'),
+
+  // OCR 위젯 (이미지 base64 로 보내서 main 이 cookie 첨부해 서버에 업로드)
+  ocrRun: (payload) => ipcRenderer.invoke('ocr:run', payload),
 
   // 자석 스냅 시각 효과 — main 이 보내는 'snap:flash' 이벤트
   onSnapFlash: (callback) => {

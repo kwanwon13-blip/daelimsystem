@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>OCR 텍스트 추출</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; font-family: 'Noto Sans KR', 'Segoe UI', sans-serif; font-size: 12px; color: #1f2937; background: #fafafa; overflow: hidden; }
+
+  /* 헤더 */
+  .hdr {
+    -webkit-app-region: drag;
+    background: linear-gradient(135deg, #c4b5fd, #a78bfa);
+    border-bottom: 1px solid #8b5cf6;
+    padding: 4px 6px 4px 8px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 28px;
+  }
+  .hdr-title { flex: 1; font-size: 12px; font-weight: 700; color: #4c1d95; }
+  .hdr-btn {
+    -webkit-app-region: no-drag;
+    background: transparent;
+    border: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #4c1d95;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .hdr-btn:hover { background: rgba(255,255,255,0.4); }
+  .hdr-btn.close:hover { background: #ef4444; color: #fff; }
+
+  /* 미니 모드 */
+  body[data-mini="1"] {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  body[data-mini="1"] .body { display: none !important; }
+  body[data-mini="1"] .hdr {
+    flex: 1;
+    border-bottom: none;
+    height: auto;
+  }
+
+  /* ✨ 자석 스냅 효과 */
+  body.snap-flash::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    border: 3px solid #a78bfa;
+    border-radius: 6px;
+    pointer-events: none;
+    animation: snapBorder 0.5s ease-out forwards;
+    z-index: 9999;
+  }
+  @keyframes snapBorder {
+    0% { opacity: 0; transform: scale(1.05); }
+    25% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1); }
+  }
+
+  .body {
+    height: calc(100% - 28px);
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow: hidden;
+  }
+
+  /* 드롭존 */
+  .drop {
+    flex-shrink: 0;
+    min-height: 80px;
+    border: 2px dashed #c4b5fd;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all .15s;
+    background: #fff;
+    position: relative;
+    padding: 10px;
+  }
+  .drop:hover, .drop.dragover { border-color: #8b5cf6; background: #f5f3ff; }
+  .drop.has-image { padding: 0; min-height: 100px; max-height: 180px; overflow: hidden; }
+  .drop.has-image img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; }
+  .drop-hint {
+    text-align: center;
+    color: #6b7280;
+    font-size: 11px;
+    line-height: 1.5;
+  }
+  .drop-hint .icon { font-size: 22px; margin-bottom: 4px; }
+  .drop-hint kbd { background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 3px; padding: 1px 4px; font-size: 9.5px; font-family: Consolas, monospace; }
+
+  .clear-btn {
+    position: absolute; top: 4px; right: 4px;
+    background: rgba(0,0,0,0.6); color: #fff; border: none;
+    width: 20px; height: 20px; border-radius: 50%; cursor: pointer;
+    font-size: 10px;
+  }
+
+  /* 모드 선택 */
+  .modes {
+    flex-shrink: 0;
+    display: flex;
+    gap: 3px;
+    flex-wrap: wrap;
+  }
+  .mode-btn {
+    padding: 3px 8px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 99px;
+    font-size: 10px;
+    color: #6b7280;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .mode-btn:hover { background: #f3f4f6; }
+  .mode-btn.on { background: #8b5cf6; color: #fff; border-color: #8b5cf6; font-weight: 600; }
+
+  /* 실행 버튼 */
+  .run-btn {
+    flex-shrink: 0;
+    padding: 6px;
+    background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .run-btn:hover { filter: brightness(1.06); }
+  .run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* 결과 영역 */
+  .result-wrap {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .result-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 10px;
+    color: #6b7280;
+    font-weight: 600;
+  }
+  .result-actions { display: flex; gap: 3px; }
+  .action-btn {
+    padding: 2px 7px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    font-size: 10px;
+    color: #4b5563;
+    cursor: pointer;
+  }
+  .action-btn:hover { background: #f3f4f6; }
+  .action-btn.primary { background: #8b5cf6; color: #fff; border-color: #8b5cf6; }
+  .action-btn.primary:hover { background: #7c3aed; }
+
+  .result-text {
+    flex: 1;
+    min-height: 0;
+    padding: 8px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    font-family: Consolas, 'Noto Sans KR', monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    color: #1f2937;
+    white-space: pre-wrap;
+    overflow-y: auto;
+  }
+  .result-text.empty {
+    color: #9ca3af;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+  .loading-dots { display: inline-flex; gap: 3px; align-items: center; }
+  .loading-dots .dot { width: 5px; height: 5px; background: #8b5cf6; border-radius: 50%; animation: ocrPulse 1s infinite; }
+  .loading-dots .dot:nth-child(2) { animation-delay: 0.15s; }
+  .loading-dots .dot:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes ocrPulse { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
+
+  .toast {
+    position: fixed;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1f2937;
+    color: #fff;
+    padding: 6px 12px;
+    border-radius: 16px;
+    font-size: 11px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+    z-index: 100;
+    max-width: 90%;
+    text-align: center;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+  <div class="hdr">
+    <span class="hdr-title">📝 OCR</span>
+    <button class="hdr-btn" id="btnPaste" title="클립보드에서 이미지 붙여넣기 (Ctrl+V)">📥</button>
+    <button class="hdr-btn" id="btnPin" title="항상 위">📌</button>
+    <button class="hdr-btn" id="btnMini" title="미니 / 원래 크기">▭</button>
+    <button class="hdr-btn close" id="btnClose" title="닫기">✕</button>
+  </div>
+
+  <div class="body">
+    <!-- 드롭존 -->
+    <div class="drop" id="drop">
+      <div class="drop-hint" id="dropHint">
+        <div class="icon">📷</div>
+        <div>이미지 드래그 / 클릭 / <kbd>Ctrl+V</kbd></div>
+      </div>
+    </div>
+    <input type="file" id="fileInput" accept="image/*" style="display:none">
+
+    <!-- 모드 -->
+    <div class="modes">
+      <button class="mode-btn on" data-mode="plain">📄 일반</button>
+      <button class="mode-btn" data-mode="table">📊 표</button>
+      <button class="mode-btn" data-mode="numbers">🔢 숫자</button>
+      <button class="mode-btn" data-mode="translate">🌐 번역</button>
+      <button class="mode-btn" data-mode="receipt">🧾 영수증</button>
+    </div>
+
+    <!-- 실행 버튼 -->
+    <button class="run-btn" id="btnRun" disabled>🔍 텍스트 추출</button>
+
+    <!-- 결과 -->
+    <div class="result-wrap">
+      <div class="result-head">
+        <span id="resultLabel">결과</span>
+        <div class="result-actions">
+          <button class="action-btn" id="btnCopy" disabled>📋 복사</button>
+          <button class="action-btn primary" id="btnCopyAuto" disabled title="추출 즉시 자동 복사">⚡ 자동복사: <span id="autoCopyState">ON</span></button>
+        </div>
+      </div>
+      <div class="result-text empty" id="resultText">이미지 추가 후 추출 버튼</div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+  const api = window.electronAPI;
+  let imageFile = null;
+  let imagePreview = null;
+  let mode = 'plain';
+  let resultText = '';
+  let autoCopy = true;
+  try { autoCopy = JSON.parse(localStorage.getItem('ocr:autoCopy') || 'true'); } catch(_) {}
+
+  const $drop = document.getElementById('drop');
+  const $hint = document.getElementById('dropHint');
+  const $fileInput = document.getElementById('fileInput');
+  const $run = document.getElementById('btnRun');
+  const $resultText = document.getElementById('resultText');
+  const $resultLabel = document.getElementById('resultLabel');
+  const $copy = document.getElementById('btnCopy');
+  const $copyAuto = document.getElementById('btnCopyAuto');
+  const $autoCopyState = document.getElementById('autoCopyState');
+  const $toast = document.getElementById('toast');
+
+  function showToast(msg) {
+    $toast.textContent = msg;
+    $toast.classList.add('show');
+    setTimeout(() => $toast.classList.remove('show'), 1500);
+  }
+
+  function updateAutoCopyUI() {
+    $autoCopyState.textContent = autoCopy ? 'ON' : 'OFF';
+    $copyAuto.style.opacity = autoCopy ? '1' : '0.55';
+  }
+  updateAutoCopyUI();
+
+  function setImage(file) {
+    if (!file) return;
+    if (!file.type || !file.type.startsWith('image/')) {
+      showToast('이미지 파일만 가능');
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      showToast('20MB 초과');
+      return;
+    }
+    imageFile = file;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      imagePreview = e.target.result;
+      $hint.style.display = 'none';
+      $drop.classList.add('has-image');
+      // 기존 img 제거 후 새로
+      const existing = $drop.querySelector('img');
+      if (existing) existing.remove();
+      const img = document.createElement('img');
+      img.src = imagePreview;
+      $drop.appendChild(img);
+      // X 버튼
+      let clearBtn = $drop.querySelector('.clear-btn');
+      if (!clearBtn) {
+        clearBtn = document.createElement('button');
+        clearBtn.className = 'clear-btn';
+        clearBtn.textContent = '✕';
+        clearBtn.onclick = (e) => { e.stopPropagation(); clearImage(); };
+        $drop.appendChild(clearBtn);
+      }
+      $run.disabled = false;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function clearImage() {
+    imageFile = null;
+    imagePreview = null;
+    $drop.classList.remove('has-image');
+    $hint.style.display = '';
+    const img = $drop.querySelector('img');
+    if (img) img.remove();
+    const clearBtn = $drop.querySelector('.clear-btn');
+    if (clearBtn) clearBtn.remove();
+    $run.disabled = true;
+  }
+
+  // 드롭존 이벤트
+  $drop.addEventListener('click', (e) => {
+    if (imageFile) return;
+    $fileInput.click();
+  });
+  $drop.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    $drop.classList.add('dragover');
+  });
+  $drop.addEventListener('dragleave', () => $drop.classList.remove('dragover'));
+  $drop.addEventListener('drop', (e) => {
+    e.preventDefault();
+    $drop.classList.remove('dragover');
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) setImage(f);
+  });
+  $fileInput.addEventListener('change', (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (f) setImage(f);
+    e.target.value = '';
+  });
+
+  // Ctrl+V 클립보드 붙여넣기
+  window.addEventListener('paste', (e) => {
+    if (!e.clipboardData || !e.clipboardData.items) return;
+    for (const item of e.clipboardData.items) {
+      if (item.type && item.type.startsWith('image/')) {
+        const f = item.getAsFile();
+        if (f) {
+          setImage(f);
+          e.preventDefault();
+          break;
+        }
+      }
+    }
+  });
+
+  // 클립보드에서 이미지 가져오기 버튼
+  document.getElementById('btnPaste').addEventListener('click', async () => {
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        for (const t of item.types) {
+          if (t.startsWith('image/')) {
+            const blob = await item.getType(t);
+            const file = new File([blob], 'clipboard.png', { type: t });
+            setImage(file);
+            return;
+          }
+        }
+      }
+      showToast('클립보드에 이미지 없음');
+    } catch (e) {
+      showToast('Ctrl+V 로 붙여넣기 해주세요');
+    }
+  });
+
+  // 모드 선택
+  document.querySelectorAll('.mode-btn').forEach(el => {
+    el.addEventListener('click', () => {
+      document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('on'));
+      el.classList.add('on');
+      mode = el.dataset.mode;
+    });
+  });
+
+  // 추출 실행
+  $run.addEventListener('click', async () => {
+    if (!imageFile) return;
+    $run.disabled = true;
+    $run.textContent = '⏳ 추출 중...';
+    $resultText.classList.remove('empty');
+    $resultText.innerHTML = '<span class="loading-dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span> Claude Vision 처리 중...';
+
+    try {
+      // 파일을 base64 로 변환해서 IPC 로 main 에 보냄 (cookie 첨부해 서버 업로드)
+      const base64 = await new Promise((res, rej) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result;
+          const idx = dataUrl.indexOf(',');
+          res(idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl);
+        };
+        reader.onerror = rej;
+        reader.readAsDataURL(imageFile);
+      });
+      const r = await api.ocrRun({
+        imageBase64: base64,
+        mime: imageFile.type || 'image/png',
+        filename: imageFile.name || 'ocr.png',
+        mode,
+      });
+      if (r && r.ok) {
+        resultText = r.text || '(추출된 텍스트 없음)';
+        $resultText.textContent = resultText;
+        $resultLabel.textContent = '결과 (' + resultText.length + '자, ' + ((r.durationMs || 0) / 1000).toFixed(1) + '초)';
+        $copy.disabled = false;
+        // 자동 복사
+        if (autoCopy && r.text) {
+          await api.copyText(r.text);
+          showToast('✅ 추출 완료 + 클립보드 복사됨');
+        } else {
+          showToast('✅ 추출 완료');
+        }
+      } else {
+        $resultText.textContent = '❌ ' + ((r && r.error) || '추출 실패');
+        showToast('실패: ' + ((r && r.error) || '알 수 없음'));
+      }
+    } catch (e) {
+      $resultText.textContent = '❌ 오류: ' + e.message;
+      showToast('실패: ' + e.message);
+    } finally {
+      $run.disabled = false;
+      $run.textContent = '🔍 텍스트 추출';
+    }
+  });
+
+  // 복사 버튼
+  $copy.addEventListener('click', async () => {
+    if (!resultText) return;
+    await api.copyText(resultText);
+    showToast('📋 클립보드에 복사됨');
+  });
+  $copyAuto.addEventListener('click', () => {
+    autoCopy = !autoCopy;
+    try { localStorage.setItem('ocr:autoCopy', JSON.stringify(autoCopy)); } catch(_) {}
+    updateAutoCopyUI();
+    showToast('자동복사 ' + (autoCopy ? 'ON' : 'OFF'));
+  });
+
+  // 헤더 버튼 — 미니 토글
+  let isMini = false;
+  let savedSize = null;
+  const SIZE_KEY = 'ocrWidget:savedSize';
+  try { savedSize = JSON.parse(localStorage.getItem(SIZE_KEY) || 'null'); } catch(_) {}
+  document.getElementById('btnMini').addEventListener('click', () => {
+    if (!isMini) {
+      try {
+        const cur = { w: window.outerWidth, h: window.outerHeight };
+        if (cur.h > 40) { localStorage.setItem(SIZE_KEY, JSON.stringify(cur)); savedSize = cur; }
+      } catch(_) {}
+      isMini = true;
+      document.body.setAttribute('data-mini', '1');
+      if (api.setMini) api.setMini(true, savedSize ? savedSize.w : 320, 28);
+    } else {
+      isMini = false;
+      document.body.setAttribute('data-mini', '0');
+      const restore = savedSize || { w: 360, h: 540 };
+      if (api.setMini) api.setMini(false, restore.w, restore.h);
+    }
+  });
+  document.getElementById('btnPin').addEventListener('click', async () => {
+    if (api.toggleAlwaysOnTop) await api.toggleAlwaysOnTop();
+  });
+  document.getElementById('btnClose').addEventListener('click', () => window.close());
+  document.querySelector('.hdr').addEventListener('dblclick', (e) => {
+    if (e.target.closest('button')) return;
+    document.getElementById('btnMini').click();
+  });
+
+  // 자석 스냅 시각 효과
+  if (api.onSnapFlash) {
+    api.onSnapFlash(() => {
+      document.body.classList.remove('snap-flash');
+      void document.body.offsetWidth;
+      document.body.classList.add('snap-flash');
+      setTimeout(() => document.body.classList.remove('snap-flash'), 600);
+    });
+  }
+</script>
+</body>
+</html>

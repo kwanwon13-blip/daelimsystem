@@ -42,6 +42,15 @@
     .ph-thumb-size-slider { display:inline-flex; align-items:center; gap:6px; }
     .ph-thumb .star { position:absolute; top:6px; right:6px; font-size:14px; }
     .ph-thumb .hidden-mark { position:absolute; top:6px; left:6px; background:#ef4444; color:#fff; font-size:10px; padding:1px 6px; border-radius:99px; }
+    .ph-thumb .quick-actions { position:absolute; top:6px; right:6px; display:flex; gap:3px; opacity:0; transition:opacity 0.15s; }
+    .ph-thumb:hover .quick-actions { opacity:1; }
+    .ph-thumb .quick-btn {
+      width:24px; height:24px; padding:0; border:0; border-radius:50%;
+      background:rgba(0,0,0,0.6); color:#fff; cursor:pointer; font-size:13px;
+      display:flex; align-items:center; justify-content:center;
+    }
+    .ph-thumb .quick-btn:hover { background:rgba(239,68,68,0.9); }
+    .ph-thumb .quick-btn.best:hover { background:rgba(245,158,11,0.9); }
 
     /* 모달 */
     .ph-modal-bg { position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000; display:none; align-items:center; justify-content:center; padding:20px; }
@@ -196,10 +205,16 @@
 
         <h4>표시 옵션</h4>
         <label style="font-size:12px; display:flex; align-items:center; gap:6px; cursor:pointer; padding:4px 0;">
-          <input type="checkbox" x-model="bestOnly" @change="search()" /> 베스트샷만
+          <input type="checkbox" x-model="bestOnly" @change="search()" /> ⭐ 베스트샷만
         </label>
         <label style="font-size:12px; display:flex; align-items:center; gap:6px; cursor:pointer; padding:4px 0;">
-          <input type="checkbox" x-model="includeHidden" @change="search()" /> 숨긴 사진 포함
+          <input type="radio" name="hiddenMode" :checked="!includeHidden && !onlyHidden" @change="includeHidden=false; onlyHidden=false; search()" /> 보이는 것만
+        </label>
+        <label style="font-size:12px; display:flex; align-items:center; gap:6px; cursor:pointer; padding:4px 0;">
+          <input type="radio" name="hiddenMode" :checked="includeHidden && !onlyHidden" @change="includeHidden=true; onlyHidden=false; search()" /> 전체 (숨김 포함)
+        </label>
+        <label style="font-size:12px; display:flex; align-items:center; gap:6px; cursor:pointer; padding:4px 0; color:#ef4444;">
+          <input type="radio" name="hiddenMode" :checked="onlyHidden" @change="onlyHidden=true; includeHidden=false; search()" /> 🚫 숨긴 것만
         </label>
       </div>
     </aside>
@@ -213,8 +228,15 @@
               <div class="img-wrap" :style="`height:${Math.round(thumbSize)}px;`">
                 <img loading="lazy" decoding="async" :src="`/photos/thumb/${encodeURIComponent(p.filename)}`" :alt="p.filename" onerror="this.style.opacity=0.2; this.style.background='#f3f4f6'">
               </div>
-              <span class="star" x-show="p.is_best">⭐</span>
+              <span class="star" x-show="p.is_best && !p.is_hidden">⭐</span>
               <span class="hidden-mark" x-show="p.is_hidden">숨김</span>
+              <!-- hover 시 빠른 액션 -->
+              <div class="quick-actions" @click.stop>
+                <button class="quick-btn best" :title="p.is_best ? '베스트샷 해제' : '베스트샷 표시'"
+                  @click.stop="quickToggleBest(p)" x-text="p.is_best ? '★' : '☆'"></button>
+                <button class="quick-btn" :title="p.is_hidden ? '숨김 해제' : '숨기기'"
+                  @click.stop="quickToggleHidden(p)" x-text="p.is_hidden ? '👁' : '✕'"></button>
+              </div>
               <div x-show="thumbSize >= 120" class="badge-row">
                 <span class="ph-tag" :class="catClass(p.category)" x-text="p.category"></span>
               </div>
