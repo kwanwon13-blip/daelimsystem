@@ -114,6 +114,8 @@ function photosApp() {
       this.selected = p;
       this.edit = {
         category: p.category || '',
+        product_type: p.product_type || '',
+        size_value: p.size_value || '',
         constructor: p.constructor || '',
         site: p.site || '',
         product: p.product || '',

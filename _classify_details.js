@@ -24,6 +24,8 @@ try { db.exec('CREATE INDEX IF NOT EXISTS idx_photos_size_value ON photos(size_v
 // ========== 제품 종류 매핑 ==========
 // 키워드 매칭 우선순위 — 더 구체적인 게 먼저
 const PRODUCT_TYPE_RULES = [
+  { type: '시공예정표', keywords: ['시공예정표', '시공 예정표', '시공계획표', '시공일정', '공정표', '예정공정'] },
+  { type: '출타표', keywords: ['출타표', '출타현황', '출입표', '출타관리', '근태판', '출타게시판', '출타현황판'] },
   { type: '슬러지보관소', keywords: ['슬러지보관소', '슬러지 보관소', '슬러지'] },
   { type: '안전보건게시판', keywords: ['안전보건게시판', '안전보건 게시판', '안전보건판'] },
   { type: '도어 래핑', keywords: ['도어 래핑', '도어래핑', '도어 시트', '도어 시트지', '문 래핑'] },
