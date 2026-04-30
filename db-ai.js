@@ -38,7 +38,9 @@ try {
 }
 
 function nowIso() {
-  return new Date().toISOString().replace('T', ' ').slice(0, 19);
+  // 한국시간 (KST/Asia/Seoul, UTC+9) 으로 저장
+  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  return kst.toISOString().replace('T', ' ').slice(0, 19);
 }
 
 if (ready) {
