@@ -153,6 +153,11 @@
   .ai-artifact-icon { font-size:22px; flex-shrink:0; }
   .ai-artifact-body { flex:1; min-width:0; }
   .ai-artifact-name { font-size:13px; font-weight:600; color:#1f2937; word-break:break-all; }
+  /* 엑셀 미리보기 (SheetJS sheet_to_html 결과) */
+  .xlsx-preview table { border-collapse:collapse; width:100%; font-size:11.5px; }
+  .xlsx-preview th, .xlsx-preview td { border:1px solid #e5e7eb; padding:4px 8px; min-width:60px; vertical-align:top; }
+  .xlsx-preview tr:first-child th, .xlsx-preview tr:first-child td { background:#f3f4f6; font-weight:600; position:sticky; top:0; }
+  .xlsx-preview td:empty::before { content:'\00a0'; }
   .ai-artifact-meta { font-size:10px; color:#9ca3af; margin-top:2px; }
   .ai-artifact-dl { font-size:16px; color:#4f6ef7; flex-shrink:0; }
   /* 모델 선택 드롭다운 */
@@ -862,21 +867,37 @@
                     </template>
                   </div>
                 </template>
-                <!-- AI 가 생성한 파일 (엑셀/PDF 등) 다운로드 -->
+                <!-- AI 가 생성한 파일 (엑셀/PDF/SVG/HTML 등) 미리보기 + 다운로드 -->
                 <template x-if="m.artifacts_parsed && m.artifacts_parsed.length">
                   <div class="ai-artifacts">
                     <template x-for="a in m.artifacts_parsed" :key="a.id">
-                      <a :href="a.url" target="_blank" class="ai-artifact">
-                        <span class="ai-artifact-icon" x-text="artifactIcon(a.kind)"></span>
-                        <div class="ai-artifact-body">
-                          <div class="ai-artifact-name" x-text="a.name || ('#'+a.id)"></div>
-                          <div class="ai-artifact-meta">
-                            <span x-text="(a.kind || 'file').toUpperCase()"></span>
-                            <span x-show="a.size" x-text="' · ' + formatSize(a.size)"></span>
+                      <div>
+                        <!-- SVG 인라인 미리보기 (바로 렌더링) -->
+                        <template x-if="a.kind === 'svg'">
+                          <div style="background:#fff; border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; margin-bottom:6px;">
+                            <object :data="a.url" type="image/svg+xml" style="width:100%; max-height:500px; display:block;" @click="openArtifactModal(a)" :style="'cursor:zoom-in;'"></object>
                           </div>
-                        </div>
-                        <span class="ai-artifact-dl">⬇</span>
-                      </a>
+                        </template>
+                        <!-- HTML 인라인 미리보기 (iframe) -->
+                        <template x-if="a.kind === 'html'">
+                          <div style="background:#fff; border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; margin-bottom:6px;">
+                            <iframe :src="a.url" sandbox="allow-same-origin" style="width:100%; height:400px; border:0; display:block;"></iframe>
+                          </div>
+                        </template>
+                        <!-- 클릭 시 모달 미리보기 (엑셀/PDF/SVG/HTML/MD/TXT/JSON/CSV) -->
+                        <a :href="a.url" target="_blank" class="ai-artifact" @click.prevent="['excel','pdf','svg','html','markdown','text','json','csv'].includes(a.kind) ? openArtifactModal(a) : window.open(a.url,'_blank')">
+                          <span class="ai-artifact-icon" x-text="artifactIcon(a.kind)"></span>
+                          <div class="ai-artifact-body">
+                            <div class="ai-artifact-name" x-text="a.name || ('#'+a.id)"></div>
+                            <div class="ai-artifact-meta">
+                              <span x-text="(a.kind || 'file').toUpperCase()"></span>
+                              <span x-show="a.size" x-text="' · ' + formatSize(a.size)"></span>
+                              <span style="color:#4f6ef7; margin-left:6px;">👁 미리보기</span>
+                            </div>
+                          </div>
+                          <span class="ai-artifact-dl" @click.stop="window.open(a.url,'_blank')" title="다운로드">⬇</span>
+                        </a>
+                      </div>
                     </template>
                   </div>
                 </template>
@@ -1029,6 +1050,65 @@
       </div>
     </div>
   </div>
+
+  <!-- Artifact 미리보기 모달 (SVG/HTML/MD/JSON/CSV/TXT 큰 화면) -->
+  <template x-if="artifactModal">
+    <div style="position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:1000; display:flex; align-items:center; justify-content:center; padding:20px;" @click.self="closeArtifactModal()">
+      <div style="background:#fff; border-radius:12px; max-width:1100px; width:100%; max-height:95vh; display:flex; flex-direction:column; overflow:hidden;">
+        <!-- 헤더 -->
+        <div style="display:flex; align-items:center; gap:10px; padding:14px 18px; border-bottom:1px solid #e5e7eb;">
+          <span style="font-size:20px;" x-text="artifactIcon(artifactModal.kind)"></span>
+          <div style="flex:1; min-width:0;">
+            <div style="font-weight:600; font-size:14px; color:#1f2937;" x-text="artifactModal.name"></div>
+            <div style="font-size:11px; color:#9ca3af;">
+              <span x-text="(artifactModal.kind||'').toUpperCase()"></span>
+              <span x-show="artifactModal.size" x-text="' · ' + formatSize(artifactModal.size)"></span>
+            </div>
+          </div>
+          <a :href="artifactModal.url" target="_blank" download style="padding:6px 12px; background:#4f6ef7; color:#fff; border-radius:6px; font-size:12px; text-decoration:none;">⬇ 다운로드</a>
+          <button @click="closeArtifactModal()" style="background:none; border:0; font-size:22px; cursor:pointer; color:#6b7280;">✕</button>
+        </div>
+        <!-- 본문 (kind 별 렌더링) -->
+        <div style="flex:1; overflow:auto; background:#f9fafb;">
+          <template x-if="artifactModal.kind==='svg'">
+            <object :data="artifactModal.url" type="image/svg+xml" style="width:100%; height:80vh; display:block;"></object>
+          </template>
+          <template x-if="artifactModal.kind==='html'">
+            <iframe :src="artifactModal.url" sandbox="allow-same-origin" style="width:100%; height:80vh; border:0;"></iframe>
+          </template>
+          <template x-if="artifactModal.kind==='pdf'">
+            <iframe :src="artifactModal.url" style="width:100%; height:85vh; border:0;"></iframe>
+          </template>
+          <template x-if="artifactModal.kind==='excel'">
+            <div style="display:flex; flex-direction:column; height:85vh;">
+              <!-- 시트 탭 -->
+              <div x-show="artifactModal.sheets && artifactModal.sheets.length > 1" style="display:flex; gap:4px; padding:8px 14px; background:#fff; border-bottom:1px solid #e5e7eb; overflow-x:auto;">
+                <template x-for="(s, i) in artifactModal.sheets" :key="i">
+                  <button @click="artifactModal.activeSheet = i"
+                    :style="`padding:6px 14px; border:1px solid ${artifactModal.activeSheet===i?'#4f6ef7':'#e5e7eb'}; background:${artifactModal.activeSheet===i?'#4f6ef7':'#fff'}; color:${artifactModal.activeSheet===i?'#fff':'#374151'}; border-radius:6px; font-size:12px; cursor:pointer; white-space:nowrap;`"
+                    x-text="s.name"></button>
+                </template>
+              </div>
+              <!-- 시트 내용 -->
+              <div style="flex:1; overflow:auto; padding:14px; background:#fff;">
+                <div x-show="artifactModal.loading" style="color:#9ca3af; font-size:13px;">엑셀 파싱 중...</div>
+                <div x-show="!artifactModal.loading && artifactModal.sheets && artifactModal.sheets.length > 0"
+                  x-html="artifactModal.sheets[artifactModal.activeSheet]?.html || ''"
+                  style="font-size:12px;"
+                  class="xlsx-preview"></div>
+              </div>
+            </div>
+          </template>
+          <template x-if="['markdown','text','json','csv'].includes(artifactModal.kind)">
+            <div style="padding:18px;">
+              <div x-show="artifactModal.loading" style="color:#9ca3af; font-size:13px;">불러오는 중...</div>
+              <pre x-show="!artifactModal.loading" x-text="artifactModal.content" style="white-space:pre-wrap; word-break:break-word; font-family:Consolas, monospace; font-size:12.5px; line-height:1.55; color:#1f2937; margin:0;"></pre>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+  </template>
 
   <!-- 업스케일 모달 (호버 → 🔍 클릭 시 열림) -->
   <template x-if="upscaleModal.open">
@@ -1608,10 +1688,40 @@ function aiApp() {
         case 'excel': return '📊';
         case 'pdf': return '📄';
         case 'image': return '🖼️';
+        case 'svg': return '🎨';
+        case 'html': return '🌐';
+        case 'markdown': return '📝';
+        case 'json': return '📋';
+        case 'csv': return '📈';
         case 'text': return '📝';
         default: return '📁';
       }
     },
+
+    // Artifact 미리보기 모달
+    artifactModal: null,  // { url, name, kind, content, sheets, activeSheet }
+    async openArtifactModal(a) {
+      this.artifactModal = { ...a, content: '', loading: true, sheets: [], activeSheet: 0, html: '' };
+      try {
+        if (['markdown', 'text', 'json', 'csv'].includes(a.kind)) {
+          this.artifactModal.content = await fetch(a.url).then(r => r.text());
+        } else if (a.kind === 'excel' && window.XLSX) {
+          // 엑셀 → SheetJS 로 파싱 → HTML 테이블
+          const buf = await fetch(a.url).then(r => r.arrayBuffer());
+          const wb = XLSX.read(buf, { type: 'array' });
+          this.artifactModal.sheets = wb.SheetNames.map(name => ({
+            name,
+            html: XLSX.utils.sheet_to_html(wb.Sheets[name], { editable: false }),
+          }));
+          this.artifactModal.activeSheet = 0;
+        }
+        this.artifactModal.loading = false;
+      } catch (e) {
+        this.artifactModal.content = '미리보기 실패: ' + e.message;
+        this.artifactModal.loading = false;
+      }
+    },
+    closeArtifactModal() { this.artifactModal = null; },
 
     // 간단 토스트 (alert 대체)
     _toast(msg) {
@@ -1946,7 +2056,7 @@ function aiApp() {
         role: 'user',
         kind: 'text',
         content: prompt,
-        created_at: new Date().toISOString().replace('T',' ').slice(0,19),
+        created_at: new Date(Date.now()+9*3600*1000).toISOString().replace('T',' ').slice(0,19),
         attachments_parsed: this.pendingAttachments.map(a => ({ id:a.id, original_name:a.original_name }))
       };
       this.currentMessages.push(userMsg);
@@ -2002,7 +2112,7 @@ function aiApp() {
               role: 'system', kind:'error',
               content: d.error || 'AI 요청 실패',
               status: 'error',
-              created_at: new Date().toISOString().replace('T',' ').slice(0,19)
+              created_at: new Date(Date.now()+9*3600*1000).toISOString().replace('T',' ').slice(0,19)
             });
           }
         }
@@ -2013,7 +2123,7 @@ function aiApp() {
           role: 'system', kind:'error',
           content: '서버 연결 실패: ' + e.message,
           status: 'error',
-          created_at: new Date().toISOString().replace('T',' ').slice(0,19)
+          created_at: new Date(Date.now()+9*3600*1000).toISOString().replace('T',' ').slice(0,19)
         });
       }
       this.loading = false;
@@ -2034,7 +2144,7 @@ function aiApp() {
         role: 'user',
         kind: 'text',
         content: (isEdit ? '🎨 ✏️ ' : '🎨 ') + prompt,
-        created_at: new Date().toISOString().replace('T',' ').slice(0,19),
+        created_at: new Date(Date.now()+9*3600*1000).toISOString().replace('T',' ').slice(0,19),
         attachments_parsed: imageAttachments.map(a => ({ id:a.id, original_name:a.original_name, kind:a.kind }))
       };
       this.currentMessages.push(userMsg);
@@ -2071,7 +2181,7 @@ function aiApp() {
             role: 'assistant', kind:'text',
             content: d.error || '이미지 생성 실패' + (d.hint ? ' — ' + d.hint : ''),
             status: 'error',
-            created_at: new Date().toISOString().replace('T',' ').slice(0,19)
+            created_at: new Date(Date.now()+9*3600*1000).toISOString().replace('T',' ').slice(0,19)
           });
         }
       } catch(e) {
@@ -2080,7 +2190,7 @@ function aiApp() {
           role: 'assistant', kind:'text',
           content: '이미지 생성 실패: ' + e.message,
           status: 'error',
-          created_at: new Date().toISOString().replace('T',' ').slice(0,19)
+          created_at: new Date(Date.now()+9*3600*1000).toISOString().replace('T',' ').slice(0,19)
         });
       }
       this.loading = false;
@@ -2106,7 +2216,7 @@ function aiApp() {
         id: 'tmp-' + Date.now(),
         role: 'user', kind: 'text',
         content: '🤖 ' + prompt,
-        created_at: new Date().toISOString().replace('T',' ').slice(0,19),
+        created_at: new Date(Date.now()+9*3600*1000).toISOString().replace('T',' ').slice(0,19),
         attachments_parsed: this.pendingAttachments.map(a => ({ id:a.id, original_name:a.original_name, kind:a.kind }))
       };
       this.currentMessages.push(userMsg);
@@ -2120,7 +2230,7 @@ function aiApp() {
         agentOutput: '',
         agentFiles: [],
         agentStatus: 'running',
-        created_at: new Date().toISOString().replace('T',' ').slice(0,19)
+        created_at: new Date(Date.now()+9*3600*1000).toISOString().replace('T',' ').slice(0,19)
       };
       this.currentMessages.push(liveMsg);
 

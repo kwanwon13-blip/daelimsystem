@@ -406,11 +406,83 @@ const getCurrentDatetime = {
 };
 
 // ══════════════════════════════════════════════════════════════
+// 도구: 일반 파일 생성 (SVG, HTML, TXT, JSON, MD, CSV 등 모든 텍스트 파일)
+// ══════════════════════════════════════════════════════════════
+const createFile = {
+  name: 'create_file',
+  description: '텍스트 기반 파일을 생성합니다. SVG / HTML / TXT / JSON / MD / CSV / XML 등. 사용자가 다운로드/미리보기 가능한 artifact 로 등록됩니다. (엑셀은 create_excel, PDF 는 create_pdf 사용)',
+  input_schema: {
+    type: 'object',
+    properties: {
+      filename: { type: 'string', description: '파일명 (확장자 포함, 예: "flag_01.svg")' },
+      content: { type: 'string', description: '파일 내용 (텍스트)' },
+      mime: {
+        type: 'string',
+        description: 'MIME 타입 (예: image/svg+xml, text/html, text/plain, application/json, text/markdown, text/csv). 미지정 시 확장자로 자동 추정',
+      },
+    },
+    required: ['filename', 'content'],
+  },
+  async execute(input, ctx) {
+    const fs = require('fs');
+    const path = require('path');
+    const crypto = require('crypto');
+    const ai = require('../db-ai');
+
+    const ext = (input.filename.match(/\.([^./\\]+)$/) || [, ''])[1].toLowerCase();
+    const MIME_BY_EXT = {
+      svg: 'image/svg+xml', html: 'text/html', htm: 'text/html',
+      txt: 'text/plain', md: 'text/markdown', markdown: 'text/markdown',
+      json: 'application/json', xml: 'application/xml',
+      csv: 'text/csv', tsv: 'text/tab-separated-values',
+      js: 'text/javascript', css: 'text/css', yml: 'text/yaml', yaml: 'text/yaml',
+      py: 'text/x-python', sql: 'application/sql',
+    };
+    const KIND_BY_EXT = {
+      svg: 'svg', html: 'html', htm: 'html',
+      md: 'markdown', markdown: 'markdown',
+      json: 'json', csv: 'csv', txt: 'text',
+    };
+    const mime = input.mime || MIME_BY_EXT[ext] || 'text/plain';
+    const kind = KIND_BY_EXT[ext] || 'text';
+
+    const safeName = sanitizeFilename(input.filename.replace(/\.[^./\\]+$/, '')) + (ext ? '.' + ext : '');
+    const stored = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext || 'txt'}`;
+    const outDir = path.join(__dirname, '..', 'data', 'ai_outputs');
+    if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+    const outPath = path.join(outDir, stored);
+    fs.writeFileSync(outPath, input.content, 'utf8');
+    const size = Buffer.byteLength(input.content, 'utf8');
+
+    const art = ai.artifacts.create({
+      thread_id: ctx.threadId,
+      message_id: null,
+      created_by: ctx.userId,
+      filename: safeName,
+      stored,
+      size,
+      mime,
+      kind,
+    });
+
+    return {
+      ok: true,
+      filename: safeName,
+      size,
+      mime,
+      url: `/api/ai/artifacts/${art.id}/download`,
+      __artifact: art,
+    };
+  },
+};
+
+// ══════════════════════════════════════════════════════════════
 // 도구 레지스트리
 // ══════════════════════════════════════════════════════════════
 const ALL_TOOLS = [
   createExcel,
   createPdf,
+  createFile,
   queryEmployee,
   queryAttendance,
   querySales,
