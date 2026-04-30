@@ -384,8 +384,51 @@ app.use('/api/ai/ocr', require('./routes/ai-ocr'));
 
 // ── 사진 라이브러리 (routes/photos.js) ──
 // /api/photos        검색/통계/편집/라벨링
-// /photos/file/...   사진 파일 정적 서빙 (썸네일 표시용)
+// /photos/thumb/...  썸네일 (sharp 로 리사이즈 + 디스크 캐시)
+// /photos/file/...   사진 원본 (큰 이미지 모달용)
 app.use('/api/photos', require('./routes/photos'));
+{
+  const PHOTOS_DIR = path.join(__dirname, 'data', 'photos');
+  const THUMB_DIR = path.join(__dirname, 'data', 'photos-thumbs');
+  const crypto = require('crypto');
+  let sharp;
+  try { sharp = require('sharp'); } catch (e) { sharp = null; }
+  if (!fs.existsSync(THUMB_DIR)) fs.mkdirSync(THUMB_DIR, { recursive: true });
+
+  app.get('/photos/thumb/:filename', async (req, res) => {
+    try {
+      const filename = req.params.filename;
+      // 보안: 파일명 안에 / 또는 .. 금지
+      if (filename.includes('/') || filename.includes('..') || filename.includes('\\')) {
+        return res.status(400).send('bad filename');
+      }
+      const src = path.join(PHOTOS_DIR, filename);
+      if (!fs.existsSync(src)) return res.status(404).send('not found');
+
+      res.set('Cache-Control', 'public, max-age=86400');
+
+      if (sharp) {
+        const hash = crypto.createHash('md5').update(filename).digest('hex');
+        const thumbPath = path.join(THUMB_DIR, hash + '.jpg');
+        if (fs.existsSync(thumbPath)) return res.type('image/jpeg').sendFile(thumbPath);
+        try {
+          await sharp(src)
+            .resize(280, 280, { fit: 'cover', withoutEnlargement: true })
+            .jpeg({ quality: 65, mozjpeg: true })
+            .toFile(thumbPath);
+          return res.type('image/jpeg').sendFile(thumbPath);
+        } catch (e) {
+          // sharp 실패 시 fall-through
+        }
+      }
+      // sharp 없거나 실패 시 원본 (큰 이미지 그대로)
+      res.sendFile(src);
+    } catch (e) {
+      console.error('[photos/thumb]', e.message);
+      res.status(500).send(e.message);
+    }
+  });
+}
 app.use('/photos/file', express.static(path.join(__dirname, 'data', 'photos'), { maxAge: '7d' }));
 
 app.listen(PORT, '0.0.0.0', () => {

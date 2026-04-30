@@ -30,15 +30,16 @@
     .ph-side li.active .n { color: rgba(255,255,255,0.85); }
     .ph-side .filter-input { width:100%; padding:5px 8px; font-size:12px; border:1px solid #e5e7eb; border-radius:5px; margin-bottom:5px; }
 
-    /* 그리드 */
-    .ph-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:12px; }
-    .ph-thumb { background:#fff; border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; cursor:pointer; transition: all .15s; position:relative; }
-    .ph-thumb:hover { border-color:#4f6ef7; transform:translateY(-2px); box-shadow:0 4px 12px rgba(79,110,247,0.12); }
-    .ph-thumb img { width:100%; aspect-ratio:1; object-fit:cover; display:block; background:#f3f4f6; }
-    .ph-thumb .meta { padding:7px 9px; font-size:11px; line-height:1.4; }
-    .ph-thumb .meta .con { color:#1a1d23; font-weight:600; }
-    .ph-thumb .meta .site { color:#6b7280; }
-    .ph-thumb .badge-row { padding: 0 9px 7px; }
+    /* 그리드 — 시안검색 스타일 (썸네일 슬라이더로 조절) */
+    .ph-thumb { background:#fff; border:1px solid #e5e7eb; border-radius:6px; overflow:hidden; cursor:pointer; transition: all .12s; position:relative; }
+    .ph-thumb:hover { border-color:#4f6ef7; transform:translateY(-1px); box-shadow:0 2px 8px rgba(79,110,247,0.15); }
+    .ph-thumb .img-wrap { width:100%; background:#f3f4f6; overflow:hidden; }
+    .ph-thumb .img-wrap img { width:100%; height:100%; object-fit:cover; display:block; }
+    .ph-thumb .meta { padding:5px 7px; font-size:11px; line-height:1.35; }
+    .ph-thumb .meta .con { color:#1a1d23; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .ph-thumb .meta .site { color:#6b7280; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .ph-thumb .badge-row { padding: 0 7px 4px; }
+    .ph-thumb-size-slider { display:inline-flex; align-items:center; gap:6px; }
     .ph-thumb .star { position:absolute; top:6px; right:6px; font-size:14px; }
     .ph-thumb .hidden-mark { position:absolute; top:6px; left:6px; background:#ef4444; color:#fff; font-size:10px; padding:1px 6px; border-radius:99px; }
 
@@ -74,6 +75,12 @@
       @input.debounce.250ms="search()"
     />
     <span class="pi" style="color:#6b7280; font-size:12.5px;" x-text="`총 ${stats.visible || 0} 장 / 결과 ${total} 장`"></span>
+    <div class="ph-thumb-size-slider" title="썸네일 크기">
+      <span style="font-size:11px;color:#94a3b8;">🔍</span>
+      <input type="range" x-model="thumbSize" min="80" max="280" step="20"
+        style="width:90px;accent-color:#4f6ef7;cursor:pointer;">
+      <span style="font-size:11px;color:#94a3b8;" x-text="thumbSize+'px'"></span>
+    </div>
     <button class="ph-btn ph-btn-ghost ph-btn-sm" @click="reset()">초기화</button>
     <button class="ph-btn ph-btn-primary ph-btn-sm" @click="syncOpen=true">📥 카톡 사진 가져오기</button>
   </div>
@@ -114,6 +121,26 @@
           </template>
         </ul>
 
+        <h4>제품 종류</h4>
+        <input class="filter-input" placeholder="검색..." x-model="ptypeQ" />
+        <ul>
+          <template x-for="p in filteredProductTypes()" :key="p.name">
+            <li :class="{active: filterPType===p.name}" @click="filterPType = filterPType===p.name ? '' : p.name; search()">
+              <span x-text="p.name"></span><span class="n" x-text="p.n"></span>
+            </li>
+          </template>
+        </ul>
+
+        <h4>사이즈/규격</h4>
+        <input class="filter-input" placeholder="검색..." x-model="sizeQ" />
+        <ul>
+          <template x-for="sz in filteredSizes()" :key="sz.name">
+            <li :class="{active: filterSize===sz.name}" @click="filterSize = filterSize===sz.name ? '' : sz.name; search()">
+              <span x-text="sz.name"></span><span class="n" x-text="sz.n"></span>
+            </li>
+          </template>
+        </ul>
+
         <h4>표시 옵션</h4>
         <label style="font-size:12px; display:flex; align-items:center; gap:6px; cursor:pointer; padding:4px 0;">
           <input type="checkbox" x-model="bestOnly" @change="search()" /> 베스트샷만
@@ -127,16 +154,18 @@
     <!-- 메인 그리드 -->
     <main>
       <div class="ph-card">
-        <div class="ph-grid">
+        <div :style="`display:grid; grid-template-columns:repeat(auto-fill, minmax(${thumbSize}px, 1fr)); gap:${thumbSize >= 180 ? 12 : 8}px;`">
           <template x-for="p in items" :key="p.id">
             <div class="ph-thumb" @click="openModal(p)">
-              <img loading="lazy" :src="`/photos/file/${encodeURIComponent(p.filename)}`" :alt="p.filename" onerror="this.style.opacity=0.2; this.style.background='#f3f4f6'">
+              <div class="img-wrap" :style="`height:${Math.round(thumbSize)}px;`">
+                <img loading="lazy" decoding="async" :src="`/photos/thumb/${encodeURIComponent(p.filename)}`" :alt="p.filename" onerror="this.style.opacity=0.2; this.style.background='#f3f4f6'">
+              </div>
               <span class="star" x-show="p.is_best">⭐</span>
               <span class="hidden-mark" x-show="p.is_hidden">숨김</span>
-              <div class="badge-row">
+              <div x-show="thumbSize >= 120" class="badge-row">
                 <span class="ph-tag" :class="catClass(p.category)" x-text="p.category"></span>
               </div>
-              <div class="meta">
+              <div x-show="thumbSize >= 120" class="meta">
                 <div class="con" x-text="p.norm_constructor || '(회사 없음)'"></div>
                 <div class="site" x-text="p.norm_site || ''"></div>
               </div>

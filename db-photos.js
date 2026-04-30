@@ -135,7 +135,10 @@ const stmts = {
   ),
 
   countAll: db.prepare('SELECT COUNT(*) as n FROM photos'),
-  countVisible: db.prepare('SELECT COUNT(*) as n FROM photos WHERE is_hidden = 0'),
+  countVisible: db.prepare(
+    `SELECT COUNT(*) as n FROM photos WHERE is_hidden = 0 AND category IN ('용품', '시공현장')`
+  ),
+  countTotalAll: db.prepare('SELECT COUNT(*) as n FROM photos WHERE is_hidden = 0'),
 };
 
 function insertPhoto(row) {
@@ -164,6 +167,9 @@ function bulkInsert(rows) {
   tx(rows);
 }
 
+// 기본 표시 카테고리 (시안주문서/문서영수증/기타 자동 숨김)
+const DEFAULT_VISIBLE_CATEGORIES = ['용품', '시공현장'];
+
 // 검색 — 카테고리/회사/현장/키워드 텍스트 검색
 function searchPhotos(opts = {}) {
   const q = typeof opts.q === 'string' ? opts.q : '';
@@ -174,6 +180,9 @@ function searchPhotos(opts = {}) {
   const site = typeof opts.site === 'string' ? opts.site : null;
   const includeHidden = !!opts.includeHidden;
   const bestOnly = !!opts.bestOnly;
+  const includeAllCats = !!opts.includeAllCats;
+  const productType = typeof opts.productType === 'string' ? opts.productType : null;
+  const sizeValue = typeof opts.sizeValue === 'string' ? opts.sizeValue : null;
   const limit = opts.limit;
   const offset = opts.offset;
 
@@ -184,6 +193,9 @@ function searchPhotos(opts = {}) {
   if (category) {
     where.push('category = @category');
     params.category = category;
+  } else if (!includeAllCats) {
+    // 카테고리 미지정 + 모든 카테고리 보기 X → 기본 가시 카테고리만 (용품+시공현장)
+    where.push(`category IN ('${DEFAULT_VISIBLE_CATEGORIES.join("','")}')`);
   }
   if (constructorName) {
     where.push('norm_constructor = @cname');
@@ -193,6 +205,14 @@ function searchPhotos(opts = {}) {
     where.push('norm_site = @site');
     params.site = site;
   }
+  if (productType) {
+    where.push('product_type = @ptype');
+    params.ptype = productType;
+  }
+  if (sizeValue) {
+    where.push('size_value LIKE @sv');
+    params.sv = `%${sizeValue}%`;
+  }
   if (q) {
     where.push(`(
       product LIKE @q OR
@@ -200,7 +220,9 @@ function searchPhotos(opts = {}) {
       slogan LIKE @q OR
       norm_constructor LIKE @q OR
       norm_site LIKE @q OR
-      size_qty LIKE @q
+      size_qty LIKE @q OR
+      product_type LIKE @q OR
+      size_value LIKE @q
     )`);
     params.q = `%${q}%`;
   }
@@ -225,6 +247,9 @@ function countPhotos(opts = {}) {
   const site = typeof opts.site === 'string' ? opts.site : null;
   const includeHidden = !!opts.includeHidden;
   const bestOnly = !!opts.bestOnly;
+  const includeAllCats = !!opts.includeAllCats;
+  const productType = typeof opts.productType === 'string' ? opts.productType : null;
+  const sizeValue = typeof opts.sizeValue === 'string' ? opts.sizeValue : null;
 
   const where = [];
   const params = {};
@@ -233,6 +258,8 @@ function countPhotos(opts = {}) {
   if (category) {
     where.push('category = @category');
     params.category = category;
+  } else if (!includeAllCats) {
+    where.push(`category IN ('${DEFAULT_VISIBLE_CATEGORIES.join("','")}')`);
   }
   if (constructorName) {
     where.push('norm_constructor = @cname');
@@ -242,6 +269,14 @@ function countPhotos(opts = {}) {
     where.push('norm_site = @site');
     params.site = site;
   }
+  if (productType) {
+    where.push('product_type = @ptype');
+    params.ptype = productType;
+  }
+  if (sizeValue) {
+    where.push('size_value LIKE @sv');
+    params.sv = `%${sizeValue}%`;
+  }
   if (q) {
     where.push(`(
       product LIKE @q OR
@@ -249,7 +284,9 @@ function countPhotos(opts = {}) {
       slogan LIKE @q OR
       norm_constructor LIKE @q OR
       norm_site LIKE @q OR
-      size_qty LIKE @q
+      size_qty LIKE @q OR
+      product_type LIKE @q OR
+      size_value LIKE @q
     )`);
     params.q = `%${q}%`;
   }
@@ -280,6 +317,30 @@ function getStats() {
        WHERE is_hidden = 0 AND norm_site IS NOT NULL AND norm_site != ''
        GROUP BY norm_site ORDER BY n DESC LIMIT 200`
     ).all(),
+    topProductTypes: (() => {
+      try {
+        return db.prepare(
+          `SELECT product_type as name, COUNT(*) as n FROM photos
+           WHERE is_hidden = 0 AND product_type IS NOT NULL AND product_type != ''
+           AND category IN ('용품', '시공현장')
+           GROUP BY product_type ORDER BY n DESC LIMIT 100`
+        ).all();
+      } catch (e) {
+        return [];  // 컬럼 아직 없을 때
+      }
+    })(),
+    topSizes: (() => {
+      try {
+        return db.prepare(
+          `SELECT size_value as name, COUNT(*) as n FROM photos
+           WHERE is_hidden = 0 AND size_value IS NOT NULL AND size_value != ''
+           AND category IN ('용품', '시공현장')
+           GROUP BY size_value ORDER BY n DESC LIMIT 100`
+        ).all();
+      } catch (e) {
+        return [];
+      }
+    })(),
   };
 }
 

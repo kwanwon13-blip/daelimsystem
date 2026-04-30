@@ -6,17 +6,24 @@ function photosApp() {
     filterCat: '',
     filterCon: '',
     filterSite: '',
+    filterPType: '',
+    filterSize: '',
     bestOnly: false,
     includeHidden: false,
     conQ: '',
     siteQ: '',
+    ptypeQ: '',
+    sizeQ: '',
 
     // 데이터
     items: [],
     total: 0,
     limit: 100,
     offset: 0,
-    stats: { visible: 0, byCategory: [], topConstructors: [], topSites: [] },
+
+    // UI
+    thumbSize: 160,
+    stats: { visible: 0, byCategory: [], topConstructors: [], topSites: [], topProductTypes: [], topSizes: [] },
 
     // 모달
     selected: null,
@@ -47,6 +54,8 @@ function photosApp() {
       if (this.filterCat) params.set('category', this.filterCat);
       if (this.filterCon) params.set('constructor', this.filterCon);
       if (this.filterSite) params.set('site', this.filterSite);
+      if (this.filterPType) params.set('productType', this.filterPType);
+      if (this.filterSize) params.set('sizeValue', this.filterSize);
       if (this.bestOnly) params.set('best', '1');
       if (this.includeHidden) params.set('hidden', '1');
       params.set('limit', this.limit);
@@ -65,8 +74,9 @@ function photosApp() {
 
     reset() {
       this.searchQ = ''; this.filterCat = ''; this.filterCon = ''; this.filterSite = '';
+      this.filterPType = ''; this.filterSize = '';
       this.bestOnly = false; this.includeHidden = false;
-      this.conQ = ''; this.siteQ = '';
+      this.conQ = ''; this.siteQ = ''; this.ptypeQ = ''; this.sizeQ = '';
       this.search();
     },
 
@@ -84,6 +94,18 @@ function photosApp() {
       const q = this.siteQ.toLowerCase();
       const arr = q ? this.stats.topSites.filter(s => s.name.toLowerCase().includes(q)) : this.stats.topSites;
       return arr.slice(0, 30);
+    },
+    filteredProductTypes() {
+      const q = this.ptypeQ.toLowerCase();
+      const list = this.stats.topProductTypes || [];
+      const arr = q ? list.filter(p => p.name.toLowerCase().includes(q)) : list;
+      return arr.slice(0, 50);
+    },
+    filteredSizes() {
+      const q = this.sizeQ.toLowerCase();
+      const list = this.stats.topSizes || [];
+      const arr = q ? list.filter(s => s.name.toLowerCase().includes(q)) : list;
+      return arr.slice(0, 50);
     },
 
     openModal(p) {
