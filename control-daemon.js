@@ -210,6 +210,32 @@ app.post('/restart', async (req, res) => {
   }
 });
 
+// POST /import-photos — 사진 메타데이터 일괄 DB 등록 (47K)
+// 형 PC 에서 _사진DB등록.bat 더블클릭하면 여기로 호출됨
+// body(optional): { csvPath: "data\\_분류결과_v2.csv" }
+app.use(express.json({ limit: '1mb' }));
+app.post('/import-photos', (req, res) => {
+  const csvPath = (req.body && req.body.csvPath) || path.join('data', '_분류결과_v2.csv');
+  const fullCsv = path.join(APP_DIR, csvPath);
+  if (!fs.existsSync(fullCsv)) {
+    return res.status(400).json({ ok: false, error: `CSV not found: ${fullCsv}` });
+  }
+  log('[import-photos] 시작:', fullCsv);
+  exec(`node _import-photos.js "${csvPath}"`, {
+    cwd: APP_DIR,
+    timeout: 5 * 60 * 1000,        // 5분 제한
+    maxBuffer: 20 * 1024 * 1024,   // 출력 20MB 까지
+    windowsHide: true,
+  }, (err, stdout, stderr) => {
+    if (err) {
+      log('[import-photos] 실패:', err.message);
+      return res.status(500).json({ ok: false, error: err.message, stdout, stderr });
+    }
+    log('[import-photos] 성공');
+    res.json({ ok: true, stdout, stderr });
+  });
+});
+
 // ── 서버 기동 ───────────────────────────────────────────
 app.listen(PORT, BIND, () => {
   log('============================================');

@@ -180,6 +180,267 @@
   .ai-welcome-sugg:hover { border-color:#c7d2fe; background:#eef2ff; color:#4338ca; transform:translateY(-1px); box-shadow:0 2px 8px rgba(79,110,247,.1); }
 
   /* ── 업스케일 컨트롤 ── */
+  /* ── 이미지 호버 액션 (우하단) ── */
+  .ai-img-wrap { position: relative; display: inline-block; max-width: 100%; }
+  .ai-img-wrap .ai-img-actions {
+    position: absolute;
+    right: 8px;
+    bottom: 12px;
+    display: flex;
+    gap: 6px;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+    pointer-events: none;
+  }
+  .ai-img-wrap:hover .ai-img-actions { opacity: 1; pointer-events: auto; }
+  .ai-img-action-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: rgba(15, 23, 42, 0.85);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    cursor: pointer;
+    font-size: 15px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.12s;
+    backdrop-filter: blur(6px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  }
+  .ai-img-action-btn:hover {
+    background: rgba(15, 23, 42, 0.98);
+    transform: scale(1.06);
+  }
+  .ai-img-action-btn:active { transform: scale(0.95); }
+
+  /* ── 업스케일 모달 ── */
+  .upscale-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.55);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    backdrop-filter: blur(2px);
+  }
+  .upscale-modal-card {
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    width: 100%;
+    max-width: 720px;
+    max-height: 90vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .upscale-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid #e5e7eb;
+    background: linear-gradient(135deg, #f8fafc, #fff);
+  }
+  .upscale-modal-header h2 {
+    font-size: 14px;
+    font-weight: 700;
+    color: #1f2937;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .upscale-modal-close {
+    background: transparent;
+    border: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    cursor: pointer;
+    color: #6b7280;
+    font-size: 14px;
+  }
+  .upscale-modal-close:hover { background: #f3f4f6; color: #1f2937; }
+  .upscale-modal-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    overflow: hidden;
+    flex: 1;
+    min-height: 0;
+  }
+  .upscale-modal-preview {
+    background: #1f2937;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: auto;
+  }
+  .upscale-modal-preview img {
+    max-width: 100%;
+    max-height: 320px;
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  }
+  .upscale-modal-preview .preview-info {
+    margin-top: 10px;
+    font-size: 11px;
+    color: #cbd5e1;
+    font-family: 'Consolas', monospace;
+  }
+  .upscale-modal-options {
+    padding: 16px 18px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .upscale-opt-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .upscale-opt-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .upscale-scale-row {
+    display: inline-flex;
+    background: #f3f4f6;
+    border-radius: 6px;
+    padding: 2px;
+    align-self: flex-start;
+  }
+  .upscale-scale-row button {
+    padding: 5px 14px;
+    background: none;
+    border: none;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #6b7280;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .upscale-scale-row button.on { background: #4f6ef7; color: #fff; }
+  .upscale-model-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .upscale-model-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    font-size: 12px;
+    transition: all 0.1s;
+  }
+  .upscale-model-item:hover { background: #f9fafb; }
+  .upscale-model-item.active { background: #eef2ff; border-color: #c7d2fe; }
+  .upscale-model-item input[type="radio"] {
+    margin: 0;
+    accent-color: #4f6ef7;
+    flex-shrink: 0;
+  }
+  .upscale-model-item .label {
+    font-weight: 600;
+    color: #1f2937;
+  }
+  .upscale-model-item .desc {
+    font-size: 10.5px;
+    color: #9ca3af;
+    margin-left: auto;
+  }
+  .upscale-result-info {
+    background: #f8fafc;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 11.5px;
+    color: #4b5563;
+    line-height: 1.6;
+  }
+  .upscale-result-info b { color: #1f2937; }
+  .upscale-modal-footer {
+    border-top: 1px solid #e5e7eb;
+    padding: 12px 18px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .upscale-cancel-btn {
+    padding: 7px 16px;
+    background: #fff;
+    color: #6b7280;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .upscale-cancel-btn:hover { background: #f3f4f6; }
+  .upscale-run-btn {
+    padding: 7px 18px;
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .upscale-run-btn:hover { filter: brightness(1.06); }
+  .upscale-run-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  .upscale-progress {
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 11.5px;
+    color: #4338ca;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .upscale-progress .dot {
+    width: 8px;
+    height: 8px;
+    background: #4f6ef7;
+    border-radius: 50%;
+    animation: upscalePulse 1.2s ease-in-out infinite;
+  }
+  @keyframes upscalePulse {
+    0%, 100% { opacity: 0.3; transform: scale(0.8); }
+    50% { opacity: 1; transform: scale(1.1); }
+  }
+  .upscale-error-box {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 11px;
+  }
+  /* 모바일 — 1열 stack */
+  @media (max-width: 600px) {
+    .upscale-modal-body { grid-template-columns: 1fr; }
+    .upscale-modal-preview { max-height: 200px; }
+  }
+
   /* 업스케일 컨트롤 — 컴팩트 */
   .ai-upscale-bar { margin-top:6px; padding:5px 7px; background:#fafafa; border:1px solid #e5e7eb; border-radius:6px; font-size:11px; }
   .ai-upscale-controls { display:flex; flex-wrap:wrap; align-items:center; gap:5px; }
@@ -535,84 +796,16 @@
             <div style="flex: 0 1 auto; min-width: 0; max-width: calc(100% - 50px); align-self: flex-start; height: auto;">
               <div class="bubble" style="display: inline-block; height: auto; min-height: 0; max-height: none; width: auto; max-width: 100%;">
                 <template x-if="m.kind==='image' && m.image_url">
-                  <div>
-                    <!-- 원본 이미지는 절대 교체되지 않음 — 업스케일 결과는 별도 메시지로 따로 추가됨 -->
+                  <div class="ai-img-wrap">
                     <img class="ai-img" :src="m.image_url" :alt="m.content || 'AI 이미지'" />
-                    <div x-show="m.content" x-text="m.content" style="margin-top:6px;font-size:12px;color:#6b7280;"></div>
-
-                    <!-- 업스케일 컨트롤 (원본 메시지 — 업스케일 안 된 원본 이미지에만) -->
-                    <div class="ai-upscale-bar" x-show="m.role !== 'user' && !(m.metadata_parsed && m.metadata_parsed.upscaledFrom)">
-                      <template x-if="upscaleStatus[m.id] && upscaleStatus[m.id].done">
-                        <div class="ai-upscale-done">
-                          <span x-text="'✓ ' + (upscaleStatus[m.id].scale || 4) + '배 업스케일 완료 (' + ((upscaleStatus[m.id].model && upscaleStatus[m.id].model.name) || '') + ') — 아래 새 메시지에서 확인'"></span>
-                        </div>
-                      </template>
-                      <template x-if="!upscaleStatus[m.id] || !upscaleStatus[m.id].done">
-                        <div class="ai-upscale-controls">
-                          <span class="ai-upscale-label">🔍 크게 만들기</span>
-                          <div class="ai-upscale-scales">
-                            <button :class="upscaleScale===2 ? 'on' : ''" @click="upscaleScale=2">2배</button>
-                            <button :class="upscaleScale===4 ? 'on' : ''" @click="upscaleScale=4">4배</button>
-                          </div>
-                          <div class="ai-upscale-model-box">
-                            <button class="ai-upscale-pick" @click="toggleUpscalePicker(m.id)">
-                              <template x-if="upscaleAutoPick"><span>✨ 자동 추천</span></template>
-                              <template x-if="!upscaleAutoPick">
-                                <span>
-                                  <span x-text="(getModelInfo(upscaleModelKey) && getModelInfo(upscaleModelKey).emoji) || '⚙️'"></span>
-                                  <span x-text="(getModelInfo(upscaleModelKey) && getModelInfo(upscaleModelKey).name) || upscaleModelKey"></span>
-                                </span>
-                              </template>
-                              <span style="margin-left:4px;color:#9ca3af;">▾</span>
-                            </button>
-                            <div class="ai-upscale-dropdown" x-show="upscalePickerOpen[m.id]" x-transition @click.away="upscalePickerOpen[m.id]=false">
-                              <label class="ai-upscale-auto">
-                                <input type="checkbox" x-model="upscaleAutoPick" />
-                                <div>
-                                  <div class="n">✨ 자동 추천</div>
-                                  <div class="s">프롬프트에 맞춰 자동 선택</div>
-                                </div>
-                              </label>
-                              <div class="ai-upscale-divider"></div>
-                              <template x-if="upscaleHealth && !upscaleHealth.ready">
-                                <div class="ai-upscale-notready">
-                                  <b>Real-ESRGAN 이 설치되지 않았습니다.</b><br>
-                                  <small>업스케일_설치가이드.md 참고</small>
-                                </div>
-                              </template>
-                              <template x-for="mdl in upscaleModels" :key="mdl.key">
-                                <label class="ai-upscale-option" :class="(upscaleModelKey===mdl.key ? 'active' : '') + (!mdl.installed ? ' disabled' : '')">
-                                  <input type="radio" :value="mdl.key" :checked="upscaleModelKey===mdl.key" :disabled="!mdl.installed" @change="selectUpscaleModel(mdl.key)" />
-                                  <div>
-                                    <div class="n">
-                                      <span x-text="mdl.emoji"></span>
-                                      <span x-text="mdl.name"></span>
-                                      <span x-show="mdl.recommended" class="badge-rec">추천</span>
-                                      <span x-show="!mdl.installed" class="badge-off">미설치</span>
-                                    </div>
-                                    <div class="s" x-text="mdl.tagline"></div>
-                                  </div>
-                                </label>
-                              </template>
-                            </div>
-                          </div>
-                          <button type="button" class="ai-upscale-run"
-                                  @click.stop="runUpscale(m)"
-                                  :disabled="!!(upscaleStatus[m.id] && upscaleStatus[m.id].loading === true)"
-                                  style="cursor:pointer;">
-                            <template x-if="upscaleStatus[m.id] && upscaleStatus[m.id].loading === true">
-                              <span>처리 중…</span>
-                            </template>
-                            <template x-if="!upscaleStatus[m.id] || upscaleStatus[m.id].loading !== true">
-                              <span>↑ 업스케일</span>
-                            </template>
-                          </button>
-                        </div>
-                      </template>
-                      <template x-if="upscaleStatus[m.id] && upscaleStatus[m.id].error">
-                        <div class="ai-upscale-error" x-text="upscaleStatus[m.id].error"></div>
-                      </template>
+                    <!-- 호버 액션 버튼 (우하단) — AI 메시지 + 원본 이미지에만 -->
+                    <div class="ai-img-actions" x-show="m.role !== 'user'">
+                      <button class="ai-img-action-btn" @click.stop="downloadImage(m.image_url, m.content)" title="다운로드">⬇</button>
+                      <button class="ai-img-action-btn"
+                              x-show="!(m.metadata_parsed && m.metadata_parsed.upscaledFrom)"
+                              @click.stop="openUpscaleModal(m)" title="업스케일">🔍</button>
                     </div>
+                    <div x-show="m.content" x-text="cleanMsgText(m.content)" style="margin-top:6px;font-size:12px;color:#6b7280;"></div>
                   </div>
                 </template>
                 <!-- 일반 텍스트 / 이미지 생성 사용자 프롬프트 — cleanMsgText 가 빈 줄 정리 -->
@@ -837,6 +1030,72 @@
     </div>
   </div>
 
+  <!-- 업스케일 모달 (호버 → 🔍 클릭 시 열림) -->
+  <template x-if="upscaleModal.open">
+    <div class="upscale-modal" @click.self="closeUpscaleModal()">
+      <div class="upscale-modal-card">
+        <div class="upscale-modal-header">
+          <h2>🔍 업스케일</h2>
+          <button class="upscale-modal-close" @click="closeUpscaleModal()" :disabled="upscaleModal.running">✕</button>
+        </div>
+        <div class="upscale-modal-body">
+          <!-- 좌: 미리보기 -->
+          <div class="upscale-modal-preview">
+            <img :src="upscaleModal.imageUrl" alt="원본" />
+            <div class="preview-info">원본 <span x-text="upscaleModal.origSize || '—'"></span></div>
+          </div>
+          <!-- 우: 옵션 -->
+          <div class="upscale-modal-options">
+            <div class="upscale-opt-row">
+              <label class="upscale-opt-label">배수</label>
+              <div class="upscale-scale-row">
+                <button :class="upscaleModal.scale===2 ? 'on' : ''" @click="upscaleModal.scale=2; updateUpscaleResult()" :disabled="upscaleModal.running">2배</button>
+                <button :class="upscaleModal.scale===4 ? 'on' : ''" @click="upscaleModal.scale=4; updateUpscaleResult()" :disabled="upscaleModal.running">4배</button>
+              </div>
+            </div>
+            <div class="upscale-opt-row">
+              <label class="upscale-opt-label">모델</label>
+              <div class="upscale-model-list">
+                <label class="upscale-model-item" :class="upscaleModal.useAuto ? 'active' : ''">
+                  <input type="radio" name="upscale-model" :checked="upscaleModal.useAuto" @change="upscaleModal.useAuto=true" :disabled="upscaleModal.running" />
+                  <span class="label">✨ 자동 (추천)</span>
+                  <span class="desc">프롬프트 기반 자동 선택</span>
+                </label>
+                <template x-for="mdl in upscaleModelsForModal" :key="mdl.key">
+                  <label class="upscale-model-item" :class="!upscaleModal.useAuto && upscaleModal.modelKey===mdl.key ? 'active' : ''">
+                    <input type="radio" name="upscale-model" :checked="!upscaleModal.useAuto && upscaleModal.modelKey===mdl.key" @change="upscaleModal.useAuto=false; upscaleModal.modelKey=mdl.key" :disabled="upscaleModal.running" />
+                    <span class="label" x-text="mdl.emoji + ' ' + mdl.name"></span>
+                    <span class="desc" x-text="mdl.tagline"></span>
+                  </label>
+                </template>
+              </div>
+            </div>
+            <div class="upscale-result-info">
+              결과 크기: <b x-text="upscaleModal.resultSize || '—'"></b><br>
+              예상 시간: <b x-text="upscaleModal.estimatedTime || '약 30초'"></b>
+            </div>
+            <template x-if="upscaleModal.error">
+              <div class="upscale-error-box" x-text="upscaleModal.error"></div>
+            </template>
+            <template x-if="upscaleModal.running">
+              <div class="upscale-progress">
+                <span class="dot"></span>
+                <span>업스케일 처리 중... <span x-show="upscaleModal.elapsed" x-text="'(' + upscaleModal.elapsed + '초 경과)'"></span></span>
+              </div>
+            </template>
+          </div>
+        </div>
+        <div class="upscale-modal-footer">
+          <button class="upscale-cancel-btn" @click="closeUpscaleModal()" :disabled="upscaleModal.running">닫기</button>
+          <button class="upscale-run-btn" @click="runUpscaleFromModal()" :disabled="upscaleModal.running">
+            <template x-if="!upscaleModal.running"><span>↑ 시작</span></template>
+            <template x-if="upscaleModal.running"><span>⏳ 처리 중...</span></template>
+          </button>
+        </div>
+      </div>
+    </div>
+  </template>
+
   <!-- 프로젝트 편집/생성 모달 -->
   <template x-if="showProjectModal">
     <div class="ai-proj-overlay" @click.self="closeProjectModal()">
@@ -931,6 +1190,28 @@ function aiApp() {
     scope: 'mine',   // 'mine' | 'team' | 'company' | 'invited'
     scopeLabels: { mine:'내 대화', team:'팀', company:'회사', invited:'초대받은' },
     scopeBadges: { private:'나만', team:'팀', company:'회사', invited:'초대' },
+
+    // 업스케일 모달 상태
+    upscaleModal: {
+      open: false,
+      msgId: null,
+      imageUrl: null,
+      origSize: '',
+      origW: 0,
+      origH: 0,
+      resultSize: '',
+      estimatedTime: '약 30초',
+      scale: 4,
+      useAuto: true,
+      modelKey: 'ultrasharp-4x',
+      running: false,
+      elapsed: 0,
+      _timer: null,
+      error: null,
+    },
+    get upscaleModelsForModal() {
+      return (this.upscaleModels || []).filter(m => m.installed);
+    },
 
 
     // 메시지 텍스트 정리 — 빈 줄 / 다중 newline 압축 / 앞뒤 공백 제거
@@ -1386,6 +1667,144 @@ function aiApp() {
 
     getModelInfo(key) {
       return this.upscaleModels.find(m => m.key === key) || null;
+    },
+
+    // 이미지 다운로드 (호버 ⬇ 버튼)
+    async downloadImage(url, alt) {
+      if (!url) return;
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const blob = await resp.blob();
+        const fname = (alt ? String(alt).replace(/[^\w가-힣]+/g, '_').slice(0, 30) : 'ai_image')
+          + '_' + new Date().toISOString().slice(0, 10) + '.png';
+        const objUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objUrl;
+        a.download = fname;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(objUrl), 1000);
+        this._toast('📥 다운로드: ' + fname);
+      } catch (e) {
+        this._toast('다운로드 실패: ' + e.message);
+      }
+    },
+
+    // 업스케일 모달 열기 (호버 🔍 버튼)
+    async openUpscaleModal(msg) {
+      if (!msg || !msg.image_url) return;
+      await this.loadUpscaleHealth(true);
+      this.upscaleModal.open = true;
+      this.upscaleModal.msgId = msg.id;
+      this.upscaleModal.imageUrl = msg.image_url;
+      this.upscaleModal.scale = 4;
+      this.upscaleModal.useAuto = true;
+      this.upscaleModal.running = false;
+      this.upscaleModal.error = null;
+      this.upscaleModal.elapsed = 0;
+      this.upscaleModal.origSize = '— × —';
+      this.upscaleModal.resultSize = '— × —';
+
+      // 자동 추천 모델 미리 가져오기
+      const hint = msg.content || '';
+      try {
+        const r = await fetch('/api/ai/upscale/recommend?hint=' + encodeURIComponent(hint));
+        const d = await r.json();
+        if (d.ok && d.model) this.upscaleModal.modelKey = d.model;
+      } catch (_) {}
+
+      // 원본 이미지 크기 측정
+      const probe = new Image();
+      probe.onload = () => {
+        this.upscaleModal.origW = probe.naturalWidth;
+        this.upscaleModal.origH = probe.naturalHeight;
+        this.upscaleModal.origSize = probe.naturalWidth + ' × ' + probe.naturalHeight;
+        this.updateUpscaleResult();
+      };
+      probe.src = msg.image_url;
+    },
+
+    closeUpscaleModal() {
+      if (this.upscaleModal.running) return;  // 처리 중엔 닫기 차단
+      this.upscaleModal.open = false;
+      if (this.upscaleModal._timer) {
+        clearInterval(this.upscaleModal._timer);
+        this.upscaleModal._timer = null;
+      }
+    },
+
+    updateUpscaleResult() {
+      const { origW, origH, scale } = this.upscaleModal;
+      if (origW && origH) {
+        this.upscaleModal.resultSize = (origW * scale) + ' × ' + (origH * scale);
+        const pixels = origW * origH * scale * scale;
+        const sec = Math.max(15, Math.round(pixels / 250000));
+        this.upscaleModal.estimatedTime = '약 ' + sec + '초';
+      }
+    },
+
+    async runUpscaleFromModal() {
+      const msg = this.currentMessages.find(m => m.id === this.upscaleModal.msgId);
+      if (!msg) return;
+      if (!this.upscaleHealth || !this.upscaleHealth.ready) {
+        this.upscaleModal.error = (this.upscaleHealth && this.upscaleHealth.diagnosis) || '업스케일 도구 미설치';
+        return;
+      }
+      this.upscaleModal.running = true;
+      this.upscaleModal.error = null;
+      this.upscaleModal.elapsed = 0;
+      this.upscaleModal._timer = setInterval(() => { this.upscaleModal.elapsed++; }, 1000);
+
+      const modelKey = this.upscaleModal.modelKey;
+      const scale = this.upscaleModal.scale;
+
+      const ctrl = new AbortController();
+      const abortTimer = setTimeout(() => ctrl.abort(), 6 * 60 * 1000);
+
+      try {
+        const r = await fetch('/api/ai/upscale', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: ctrl.signal,
+          body: JSON.stringify({
+            imageUrl: msg.image_url,
+            model: modelKey,
+            scale,
+            threadId: this.currentThreadId,
+          }),
+        });
+        clearTimeout(abortTimer);
+        const d = await r.json();
+        if (d.ok) {
+          if (d.message) {
+            const nm = d.message;
+            try { nm.metadata_parsed = typeof nm.metadata === 'string' ? JSON.parse(nm.metadata) : (nm.metadata || {}); } catch(_) { nm.metadata_parsed = {}; }
+            try { nm.attachments_parsed = typeof nm.attachments === 'string' ? JSON.parse(nm.attachments) : []; } catch(_) { nm.attachments_parsed = []; }
+            this.currentMessages.push(nm);
+            this.$nextTick(() => this.scrollToBottom());
+          }
+          this._toast('✅ ' + scale + '배 업스케일 완료');
+          if (this.upscaleModal._timer) clearInterval(this.upscaleModal._timer);
+          this.upscaleModal._timer = null;
+          this.upscaleModal.running = false;
+          this.upscaleModal.open = false;
+        } else {
+          this.upscaleModal.error = (d.error || '실패') + (d.hint ? ' — ' + d.hint : '');
+          this.upscaleModal.running = false;
+          if (this.upscaleModal._timer) clearInterval(this.upscaleModal._timer);
+          this.upscaleModal._timer = null;
+        }
+      } catch (e) {
+        clearTimeout(abortTimer);
+        this.upscaleModal.error = e.name === 'AbortError'
+          ? '6분 초과 — 서버에서 응답 없음'
+          : e.message;
+        this.upscaleModal.running = false;
+        if (this.upscaleModal._timer) clearInterval(this.upscaleModal._timer);
+        this.upscaleModal._timer = null;
+      }
     },
 
     async runUpscale(msg) {

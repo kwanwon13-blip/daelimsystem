@@ -425,6 +425,107 @@ router.get('/design/file-watermarked', requireAuth, async (req, res) => {
   }
 });
 
+// 일괄 ZIP 다운로드 — 워터마크 박힌 이미지 여러 장을 한 번에
+// POST { paths: [...], includeOriginal: false }
+router.post('/design/bulk-zip', requireAuth, async (req, res) => {
+  const { paths, includeOriginal } = req.body || {};
+  if (!Array.isArray(paths) || paths.length === 0) {
+    return res.status(400).json({ error: 'paths 배열 필수' });
+  }
+  if (paths.length > 200) {
+    return res.status(400).json({ error: '한 번에 최대 200개까지' });
+  }
+
+  // 모든 경로 검증 + 화이트리스트 (DESIGN_ROOT 안에 있어야 함)
+  const validPaths = [];
+  for (const p of paths) {
+    const resolved = path.resolve(p);
+    if (!resolved.toLowerCase().startsWith(path.resolve(DESIGN_ROOT).toLowerCase())) continue;
+    if (!fs.existsSync(resolved)) continue;
+    const ext = path.extname(resolved).toLowerCase();
+    if (!WATERMARK_IMG_EXTS.has(ext)) continue;  // 이미지만
+    validPaths.push(resolved);
+  }
+  if (validPaths.length === 0) {
+    return res.status(400).json({ error: '유효한 이미지 파일 없음' });
+  }
+
+  // 원본 다운로드 — 모든 사용자 허용
+  const wantOriginal = !!includeOriginal;
+  if (!wantOriginal && !sharp) {
+    return res.status(503).json({ error: 'sharp 라이브러리 미설치' });
+  }
+
+  // archiver 로 ZIP 스트리밍
+  let archiver;
+  try { archiver = require('archiver'); } catch (e) {
+    return res.status(503).json({ error: 'archiver 라이브러리 미설치' });
+  }
+
+  const ts = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const zipName = `시안_${ts.getFullYear()}-${pad(ts.getMonth()+1)}-${pad(ts.getDate())}_${validPaths.length}장${wantOriginal ? '_원본' : ''}.zip`;
+
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(zipName)}`);
+  res.setHeader('Cache-Control', 'private, no-cache');
+
+  const archive = archiver('zip', { zlib: { level: 6 } });
+  archive.on('error', (err) => {
+    console.error('[design/bulk-zip] archiver 오류:', err.message);
+    if (!res.headersSent) res.status(500).end();
+    else res.end();
+  });
+  archive.pipe(res);
+
+  try {
+    for (let i = 0; i < validPaths.length; i++) {
+      const p = validPaths[i];
+      const ext = path.extname(p).toLowerCase();
+      const baseName = path.basename(p, ext);
+
+      if (wantOriginal) {
+        // 원본 그대로 첨부
+        archive.file(p, { name: baseName + ext });
+      } else {
+        // 워터마크 합성 후 첨부
+        try {
+          const img = sharp(p, { failOn: 'none' });
+          const meta = await img.metadata();
+          const w = meta.width || 1024;
+          const h = meta.height || 768;
+          const MAX_DIM = 4096;
+          let resizedImg = img;
+          let outW = w, outH = h;
+          if (w > MAX_DIM || h > MAX_DIM) {
+            const ratio = MAX_DIM / Math.max(w, h);
+            outW = Math.round(w * ratio);
+            outH = Math.round(h * ratio);
+            resizedImg = img.resize(outW, outH, { fit: 'inside' });
+          }
+          const wmSvg = Buffer.from(buildWatermarkSvg(outW, outH), 'utf8');
+          const isPng = ext === '.png' || ext === '.webp';
+          const composited = await resizedImg
+            .composite([{ input: wmSvg, top: 0, left: 0 }])
+            .toBuffer({ resolveWithObject: false });
+          const outBuf = isPng
+            ? await sharp(composited).png({ quality: 90, compressionLevel: 6 }).toBuffer()
+            : await sharp(composited).jpeg({ quality: 88, progressive: true }).toBuffer();
+          const outExt = isPng ? '.png' : '.jpg';
+          archive.append(outBuf, { name: baseName + '_watermarked' + outExt });
+        } catch (procErr) {
+          console.warn('[design/bulk-zip] 파일 처리 실패 (스킵):', p, procErr.message);
+        }
+      }
+    }
+    await archive.finalize();
+  } catch (e) {
+    console.error('[design/bulk-zip] 실패:', e.message);
+    archive.destroy();
+    if (!res.headersSent) res.status(500).json({ error: e.message });
+  }
+});
+
 // 원본 보기 (inline 전송 — 라이트박스용)
 router.get('/design/view', requireAuth, (req, res) => {
   const filePath = req.query.path;

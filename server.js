@@ -379,6 +379,9 @@ app.use('/api/ai', require('./routes/ai-history'));
 // /api/ai/agent/run (SSE), /api/ai/agent/file/..., /api/ai/agent/image
 app.use('/api/ai/agent', require('./routes/ai-agent'));
 
+// ── AI OCR — Claude Vision 이미지 텍스트 추출 (routes/ai-ocr.js) ──
+app.use('/api/ai/ocr', require('./routes/ai-ocr'));
+
 // ── 사진 라이브러리 (routes/photos.js) ──
 // /api/photos        검색/통계/편집/라벨링
 // /photos/file/...   사진 파일 정적 서빙 (썸네일 표시용)

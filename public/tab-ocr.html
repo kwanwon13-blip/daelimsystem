@@ -1,0 +1,353 @@
+<!-- tab-ocr.html — OCR 전용 탭 (Claude Vision) -->
+<div x-data="ocrApp()" x-init="init()" style="height:100%;display:flex;flex-direction:column;background:#f8f9fb;">
+  <style>
+    .ocr-head { padding:10px 16px; background:#fff; border-bottom:1px solid #e5e7eb; display:flex; align-items:center; gap:10px; }
+    .ocr-head h1 { font-size:14px; font-weight:700; color:#1f2937; display:flex; align-items:center; gap:6px; }
+    .ocr-head .sub { font-size:11px; color:#9ca3af; }
+    .ocr-body { flex:1; overflow:hidden; display:grid; grid-template-columns:1fr 1fr; gap:0; min-height:0; }
+    /* 좌: 이미지 입력 */
+    .ocr-input-pane { background:#fff; border-right:1px solid #e5e7eb; display:flex; flex-direction:column; padding:14px; overflow-y:auto; }
+    .ocr-drop {
+      flex:1;
+      min-height:200px;
+      border:2px dashed #d1d5db;
+      border-radius:10px;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+      transition:all .15s;
+      background:#fafafa;
+      position:relative;
+      overflow:hidden;
+    }
+    .ocr-drop:hover, .ocr-drop.dragover { border-color:#4f6ef7; background:#eef2ff; }
+    .ocr-drop.has-image { border-style:solid; padding:0; }
+    .ocr-drop.has-image img { max-width:100%; max-height:100%; object-fit:contain; border-radius:8px; }
+    .ocr-drop-hint { color:#6b7280; font-size:12px; text-align:center; padding:30px; }
+    .ocr-drop-hint .icon { font-size:36px; margin-bottom:10px; opacity:.5; }
+    .ocr-drop-hint kbd { background:#fff; border:1px solid #d1d5db; border-radius:4px; padding:1px 6px; font-size:10.5px; font-family:Consolas,monospace; }
+    .ocr-clear-btn {
+      position:absolute; top:6px; right:6px;
+      background:rgba(0,0,0,0.6); color:#fff; border:none;
+      width:24px; height:24px; border-radius:50%; cursor:pointer;
+      font-size:11px; display:inline-flex; align-items:center; justify-content:center;
+    }
+    .ocr-clear-btn:hover { background:rgba(0,0,0,0.85); }
+
+    /* 모드 선택 */
+    .ocr-modes { display:flex; flex-wrap:wrap; gap:5px; margin-top:10px; }
+    .ocr-mode-btn {
+      padding:5px 11px; background:#fff; border:1px solid #e5e7eb; border-radius:99px;
+      font-size:11px; color:#6b7280; cursor:pointer; font-weight:500; white-space:nowrap;
+      transition:all .12s;
+    }
+    .ocr-mode-btn:hover { background:#f3f4f6; }
+    .ocr-mode-btn.on { background:#4f6ef7; color:#fff; border-color:#4f6ef7; font-weight:600; }
+    /* 실행 버튼 */
+    .ocr-run-btn {
+      width:100%; margin-top:10px;
+      padding:9px; background:linear-gradient(135deg,#4f6ef7,#3b5ce4); color:#fff; border:none;
+      border-radius:8px; font-size:13px; font-weight:700; cursor:pointer;
+      display:flex; align-items:center; justify-content:center; gap:6px;
+    }
+    .ocr-run-btn:hover { filter:brightness(1.06); }
+    .ocr-run-btn:disabled { opacity:.5; cursor:not-allowed; }
+
+    /* 우: 결과 */
+    .ocr-result-pane { background:#fff; display:flex; flex-direction:column; padding:14px; min-height:0; }
+    .ocr-result-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+    .ocr-result-head h2 { font-size:12.5px; font-weight:700; color:#1f2937; }
+    .ocr-result-info { font-size:10.5px; color:#9ca3af; }
+    .ocr-result-actions { display:flex; gap:5px; }
+    .ocr-action-btn {
+      padding:4px 10px; background:#f3f4f6; border:none; border-radius:5px;
+      font-size:11px; color:#4b5563; cursor:pointer; font-weight:600;
+    }
+    .ocr-action-btn:hover { background:#e5e7eb; color:#1f2937; }
+    .ocr-action-btn.primary { background:#4f6ef7; color:#fff; }
+    .ocr-action-btn.primary:hover { background:#3b5ce4; }
+
+    .ocr-result-text {
+      flex:1; min-height:0;
+      padding:12px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px;
+      font-family:Consolas,'Noto Sans KR',monospace; font-size:12.5px; line-height:1.6;
+      color:#1f2937; white-space:pre-wrap; overflow-y:auto;
+      min-height:200px;
+    }
+    .ocr-result-text.empty { color:#9ca3af; display:flex; align-items:center; justify-content:center; text-align:center; }
+
+    .ocr-loading { display:flex; align-items:center; gap:6px; color:#4f6ef7; font-size:12px; }
+    .ocr-loading .dot { width:6px; height:6px; background:#4f6ef7; border-radius:50%; animation:ocrPulse 1s ease-in-out infinite; }
+    @keyframes ocrPulse { 0%,100% { opacity:.3; } 50% { opacity:1; } }
+
+    .ocr-history-bar {
+      margin-top:12px; padding-top:10px; border-top:1px dashed #e5e7eb;
+    }
+    .ocr-history-title { font-size:10px; font-weight:700; color:#9ca3af; text-transform:uppercase; letter-spacing:.5px; margin-bottom:6px; }
+    .ocr-history-item {
+      display:flex; align-items:center; gap:6px; padding:5px 8px; border-radius:5px; cursor:pointer;
+      font-size:11px; color:#4b5563; min-height:24px;
+    }
+    .ocr-history-item:hover { background:#f3f4f6; }
+    .ocr-history-item .preview { width:20px; height:20px; border-radius:3px; object-fit:cover; flex-shrink:0; }
+    .ocr-history-item .text-preview { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .ocr-history-item .time { font-size:9.5px; color:#9ca3af; }
+
+    @media (max-width: 800px) {
+      .ocr-body { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+      .ocr-input-pane { border-right:none; border-bottom:1px solid #e5e7eb; }
+    }
+  </style>
+
+  <div class="ocr-head">
+    <h1>📝 OCR — 이미지에서 텍스트 추출</h1>
+    <span class="sub">Claude Vision · 한글/영어/숫자/표 모두 지원</span>
+  </div>
+
+  <div class="ocr-body">
+    <!-- 좌: 이미지 입력 -->
+    <div class="ocr-input-pane">
+      <div class="ocr-drop"
+           :class="(dragOver ? 'dragover' : '') + (imagePreview ? ' has-image' : '')"
+           @click="!imagePreview && $refs.fileInput.click()"
+           @dragover.prevent="dragOver=true"
+           @dragleave.prevent="dragOver=false"
+           @drop.prevent="onDrop($event)"
+           @paste.window="onPaste($event)">
+        <template x-if="!imagePreview">
+          <div class="ocr-drop-hint">
+            <div class="icon">📷</div>
+            <div style="font-size:13px;font-weight:600;color:#4b5563;margin-bottom:6px;">이미지를 드래그 / 클릭 / <kbd>Ctrl+V</kbd></div>
+            <div style="font-size:11px;color:#9ca3af;">PNG / JPG / WebP · 최대 20MB</div>
+          </div>
+        </template>
+        <template x-if="imagePreview">
+          <img :src="imagePreview" alt="미리보기">
+        </template>
+        <template x-if="imagePreview">
+          <button class="ocr-clear-btn" @click.stop="clearImage()" title="이미지 제거">✕</button>
+        </template>
+      </div>
+
+      <input type="file" x-ref="fileInput" style="display:none"
+             accept="image/*" @change="onFileSelect($event)">
+
+      <!-- 모드 선택 -->
+      <div style="margin-top:12px;font-size:10.5px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.4px;">추출 모드</div>
+      <div class="ocr-modes">
+        <button class="ocr-mode-btn" :class="mode==='plain' ? 'on' : ''" @click="mode='plain'">📄 일반 텍스트</button>
+        <button class="ocr-mode-btn" :class="mode==='table' ? 'on' : ''" @click="mode='table'">📊 표/양식</button>
+        <button class="ocr-mode-btn" :class="mode==='numbers' ? 'on' : ''" @click="mode='numbers'">🔢 숫자만</button>
+        <button class="ocr-mode-btn" :class="mode==='translate' ? 'on' : ''" @click="mode='translate'">🌐 번역 포함</button>
+        <button class="ocr-mode-btn" :class="mode==='receipt' ? 'on' : ''" @click="mode='receipt'">🧾 영수증 (JSON)</button>
+      </div>
+
+      <!-- 실행 버튼 -->
+      <button class="ocr-run-btn" @click="runOcr()" :disabled="!imageFile || loading">
+        <template x-if="!loading"><span>🔍 텍스트 추출</span></template>
+        <template x-if="loading"><span>⏳ 추출 중... (<span x-text="elapsed"></span>초)</span></template>
+      </button>
+
+      <!-- 최근 추출 (최대 5개, 세션 동안 유지) -->
+      <template x-if="history.length > 0">
+        <div class="ocr-history-bar">
+          <div class="ocr-history-title">최근 추출</div>
+          <template x-for="(h, i) in history" :key="i">
+            <div class="ocr-history-item" @click="restoreFromHistory(h)">
+              <img class="preview" :src="h.preview" alt="">
+              <span class="text-preview" x-text="(h.text || '').slice(0, 40)"></span>
+              <span class="time" x-text="h.timeAgo"></span>
+            </div>
+          </template>
+        </div>
+      </template>
+    </div>
+
+    <!-- 우: 결과 -->
+    <div class="ocr-result-pane">
+      <div class="ocr-result-head">
+        <h2 x-text="resultText ? '추출 결과 (' + (resultText.length) + '자)' : '추출 결과'"></h2>
+        <div class="ocr-result-actions">
+          <span class="ocr-result-info" x-show="durationMs" x-text="(durationMs/1000).toFixed(1) + '초'"></span>
+          <button class="ocr-action-btn" @click="copyResult()" :disabled="!resultText">📋 복사</button>
+          <button class="ocr-action-btn primary" @click="downloadResult()" :disabled="!resultText" title="텍스트 파일로 저장">⬇ TXT</button>
+        </div>
+      </div>
+      <div class="ocr-result-text" :class="!resultText && !loading && !errorMsg ? 'empty' : ''">
+        <template x-if="loading">
+          <div class="ocr-loading">
+            <span class="dot"></span>
+            <span>Claude Vision 으로 텍스트 추출 중...</span>
+          </div>
+        </template>
+        <template x-if="errorMsg">
+          <div style="color:#dc2626;" x-text="errorMsg"></div>
+        </template>
+        <template x-if="!loading && !errorMsg && resultText">
+          <span x-text="resultText"></span>
+        </template>
+        <template x-if="!loading && !errorMsg && !resultText">
+          <div>이미지를 추가하고 추출 버튼을 눌러주세요.</div>
+        </template>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function ocrApp() {
+  return {
+    imageFile: null,
+    imagePreview: null,
+    mode: 'plain',
+    loading: false,
+    elapsed: 0,
+    _timer: null,
+    resultText: '',
+    durationMs: 0,
+    errorMsg: '',
+    dragOver: false,
+    history: [],
+
+    init() {
+      // 세션 동안 history 유지
+      try {
+        const saved = sessionStorage.getItem('ocr:history');
+        if (saved) this.history = JSON.parse(saved);
+      } catch(_) {}
+    },
+
+    onFileSelect(e) {
+      const f = e.target.files && e.target.files[0];
+      if (f) this.acceptFile(f);
+      e.target.value = '';
+    },
+    onDrop(e) {
+      this.dragOver = false;
+      const f = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) this.acceptFile(f);
+    },
+    onPaste(e) {
+      // Ctrl+V 로 클립보드 이미지 붙여넣기
+      if (!e.clipboardData || !e.clipboardData.items) return;
+      for (const item of e.clipboardData.items) {
+        if (item.type && item.type.startsWith('image/')) {
+          const f = item.getAsFile();
+          if (f) {
+            this.acceptFile(f);
+            e.preventDefault();
+            break;
+          }
+        }
+      }
+    },
+    acceptFile(file) {
+      if (!file.type.startsWith('image/')) {
+        this.errorMsg = '이미지 파일만 가능합니다 (PNG/JPG/WebP)';
+        return;
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        this.errorMsg = '20MB 초과 — 더 작은 이미지로';
+        return;
+      }
+      this.errorMsg = '';
+      this.imageFile = file;
+      const reader = new FileReader();
+      reader.onload = (e) => { this.imagePreview = e.target.result; };
+      reader.readAsDataURL(file);
+    },
+    clearImage() {
+      this.imageFile = null;
+      this.imagePreview = null;
+      this.resultText = '';
+      this.errorMsg = '';
+      this.durationMs = 0;
+    },
+
+    async runOcr() {
+      if (!this.imageFile || this.loading) return;
+      this.loading = true;
+      this.resultText = '';
+      this.errorMsg = '';
+      this.elapsed = 0;
+      this._timer = setInterval(() => { this.elapsed++; }, 1000);
+
+      try {
+        const fd = new FormData();
+        fd.append('image', this.imageFile);
+        fd.append('mode', this.mode);
+
+        const r = await fetch('/api/ai/ocr', { method:'POST', body: fd });
+        const d = await r.json();
+        if (d.ok) {
+          this.resultText = d.text || '(추출된 텍스트 없음)';
+          this.durationMs = d.durationMs || 0;
+          // 히스토리에 추가
+          this.history.unshift({
+            preview: this.imagePreview,
+            text: this.resultText,
+            mode: this.mode,
+            timeAgo: '방금',
+            ts: Date.now(),
+          });
+          this.history = this.history.slice(0, 5);
+          try { sessionStorage.setItem('ocr:history', JSON.stringify(this.history)); } catch(_) {}
+        } else {
+          this.errorMsg = '❌ ' + (d.error || '추출 실패');
+        }
+      } catch (e) {
+        this.errorMsg = '❌ 네트워크 오류: ' + e.message;
+      } finally {
+        this.loading = false;
+        if (this._timer) { clearInterval(this._timer); this._timer = null; }
+      }
+    },
+
+    async copyResult() {
+      if (!this.resultText) return;
+      try {
+        await navigator.clipboard.writeText(this.resultText);
+        this._showCopiedBriefly();
+      } catch(_) {
+        // 폴백
+        const ta = document.createElement('textarea');
+        ta.value = this.resultText;
+        ta.style.cssText = 'position:fixed;left:-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        this._showCopiedBriefly();
+      }
+    },
+    _showCopiedBriefly() {
+      // 간단한 토스트
+      const t = document.createElement('div');
+      t.textContent = '✅ 클립보드에 복사됨';
+      t.style.cssText = 'position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#10b981;color:#fff;padding:8px 18px;border-radius:8px;font-size:12px;font-weight:600;z-index:9999;box-shadow:0 4px 12px rgba(16,185,129,.3);';
+      document.body.appendChild(t);
+      setTimeout(() => { t.remove(); }, 1500);
+    },
+
+    downloadResult() {
+      if (!this.resultText) return;
+      const blob = new Blob([this.resultText], { type: 'text/plain;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'ocr_' + new Date().toISOString().slice(0,19).replace(/[:T]/g,'-') + '.txt';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 200);
+    },
+
+    restoreFromHistory(h) {
+      this.imagePreview = h.preview;
+      this.imageFile = null;  // 재추출하려면 다시 업로드 필요
+      this.resultText = h.text;
+      this.mode = h.mode || 'plain';
+    },
+  };
+}
+</script>

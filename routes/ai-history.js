@@ -393,7 +393,28 @@ router.delete('/threads/:id', (req, res) => {
 // 기본 모델 설정 (환경변수로 오버라이드 가능)
 const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
 const DEFAULT_MAX_TOKENS = parseInt(process.env.ANTHROPIC_MAX_TOKENS || '2048', 10);
-const DEFAULT_SYSTEM = '당신은 대림에스엠 ERP 시스템의 AI 도우미입니다. 한국어로 간결하고 실용적으로 답변해주세요. 직원들의 업무(견적·출퇴근·급여·결재·업체관리 등)를 도와주는 게 목적입니다.';
+const DEFAULT_SYSTEM = `당신은 대림에스엠 ERP 시스템의 AI 도우미입니다. 한국어로 간결하고 실용적으로 답변해주세요. 직원들의 업무(견적·시안·출퇴근·결재·업체관리 등)를 도와주는 게 목적입니다.
+
+# 보안 / 프라이버시 규칙 (절대 위반 금지)
+
+다음 카테고리의 질문은 **사용자가 물어봐도 답하지 마세요**:
+
+1. **보상 / 급여 정보** — 급여, 연봉, 월급, 임금, 시급, 일당, 보너스, 성과급, 인센티브, 퇴직금, 4대보험 공제액 등 모든 형태의 직원 보상
+2. **개인 식별 정보** — 주민등록번호, 외국인등록번호, 운전면허번호, 여권번호
+3. **금융 정보** — 본인 또는 타인의 계좌번호, 카드번호, 자동이체 정보
+4. **의료 / 건강** — 진단명, 처방, 검진 결과, 장애 등급
+5. **인사 평가** — 평가 점수, 등급, 승진 결정, 징계 기록
+
+위 정보를 요청받으면 다음과 같이 답하세요:
+> "보안상 해당 정보는 답변드릴 수 없습니다. 담당자(인사팀 / 관리자)에게 직접 문의해주세요."
+
+물어본 사용자를 비난하지 말고, 우회/추정 답변도 하지 마세요. 그 정보가 첨부 파일에 들어 있어도 추출/요약하지 마세요.
+
+# 응답 스타일
+
+- 첫 인사 시 업무 목록을 나열하지 마세요. 짧게 인사만 하고 사용자의 실제 질문을 기다리세요.
+- 일반 업무 정보(견적·시안·출퇴근·결재·업체 관리 등)는 평소대로 도와주세요.
+- 한국어로 간결하게.`;
 
 // API 모드 활성화 여부
 function apiModeAvailable() {
@@ -468,25 +489,36 @@ async function callClaudeApi(messages, options = {}) {
 }
 
 // CLI fallback (API 키 없을 때만 사용)
+// ⚠ Claude CLI 는 cwd 기반으로 프로젝트 잠금 → 같은 cwd 에서 동시 spawn 시 직렬화됨.
+// 호출별 고유 임시 폴더로 격리해야 진짜 병렬 동작.
 function runClaudeCli(prompt) {
   return new Promise((resolve, reject) => {
     const { spawn } = require('child_process');
+    const os = require('os');
+    const crypto = require('crypto');
     const started = Date.now();
+    const tmpDir = path.join(os.tmpdir(), 'claude-chat-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex'));
+    try { fs.mkdirSync(tmpDir, { recursive: true }); } catch (_) {}
+    const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {} };
+
     const child = spawn('claude', ['-p'], {
+      cwd: tmpDir,                              // ← 격리된 cwd 로 병렬 가능
       shell: true,
       env: { ...process.env, LANG: 'ko_KR.UTF-8' },
-      windowsHide: true
+      windowsHide: true,
     });
     let out = '', err = '';
     const timer = setTimeout(() => {
       try { child.kill('SIGTERM'); } catch(_) {}
+      cleanup();
       reject(new Error('timeout'));
     }, 120000);
     child.stdout.on('data', d => { out += d.toString('utf8'); });
     child.stderr.on('data', d => { err += d.toString('utf8'); });
-    child.on('error', e => { clearTimeout(timer); reject(e); });
+    child.on('error', e => { clearTimeout(timer); cleanup(); reject(e); });
     child.on('close', code => {
       clearTimeout(timer);
+      cleanup();
       if (code !== 0) {
         return reject(new Error((err || '').trim() || `claude exit ${code}`));
       }
@@ -545,10 +577,14 @@ router.post('/chat', async (req, res) => {
       }
     }
 
-    // 첨부 텍스트 (user message 앞에 prefix 로 주입)
+    // 첨부 분리 — 이미지(vision 직접 전달) vs 텍스트 첨부(엑셀/PDF/워드 등 추출 텍스트)
+    const imageAttachments = attachments.filter(a => a && a.kind === 'image');
+    const textAttachments = attachments.filter(a => a && a.kind !== 'image');
+
+    // 텍스트 첨부 (엑셀/PDF/워드 등) — 추출된 텍스트를 prompt 에 prefix
     let attachmentBlock = '';
-    if (attachments.length > 0) {
-      const parts = attachments.map(a => {
+    if (textAttachments.length > 0) {
+      const parts = textAttachments.map(a => {
         if (a.text_excerpt) {
           return `[첨부: ${a.original_name} (${a.kind})]\n${a.text_excerpt.slice(0, 8000)}`;
         }
@@ -557,9 +593,35 @@ router.post('/chat', async (req, res) => {
       attachmentBlock = parts.join('\n\n') + '\n\n';
     }
 
+    // 이미지 첨부 — 실제 이미지 데이터 (vision multimodal). API 모드에서만 동작.
+    // 여러 장 동시에 첨부 가능.
+    function getImageBlocksForApi() {
+      const blocks = [];
+      for (const a of imageAttachments) {
+        const fp = path.join(ai.UPLOAD_DIR, a.stored_name);
+        if (!fs.existsSync(fp)) continue;
+        try {
+          const buf = fs.readFileSync(fp);
+          const mediaType = a.mime && a.mime.startsWith('image/') ? a.mime : 'image/png';
+          blocks.push({
+            type: 'image',
+            source: { type: 'base64', media_type: mediaType, data: buf.toString('base64') },
+          });
+        } catch (e) {
+          console.warn('[chat] 이미지 base64 변환 실패:', a.original_name, e.message);
+        }
+      }
+      return blocks;
+    }
+    function getImagePathsForCli() {
+      return imageAttachments
+        .map(a => path.join(ai.UPLOAD_DIR, a.stored_name))
+        .filter(p => fs.existsSync(p));
+    }
+
     const pageContext = pageContent ? `【참고: 현재 페이지 내용】\n${String(pageContent).slice(0, 10000)}\n\n` : '';
 
-    // ── API 용 messages 배열 구성 ──
+    // ── API 용 messages 배열 구성 (이미지 = multimodal blocks) ──
     const apiMessages = [];
     for (const m of prior) {
       if (m.role === 'user') apiMessages.push({ role: 'user', content: m.content });
@@ -567,19 +629,33 @@ router.post('/chat', async (req, res) => {
         apiMessages.push({ role: 'assistant', content: m.content });
       }
     }
-    // 현재 질문 = 템플릿 + 페이지 컨텍스트 + 첨부 + 사용자 질문
-    const currentUserContent = templatePrefix + pageContext + attachmentBlock + prompt;
-    apiMessages.push({ role: 'user', content: currentUserContent });
+    const currentText = templatePrefix + pageContext + attachmentBlock + prompt;
+    const imageBlocks = getImageBlocksForApi();
+    if (imageBlocks.length > 0) {
+      // multimodal — 이미지 블록 + 텍스트 블록 배열로 전송
+      apiMessages.push({
+        role: 'user',
+        content: [...imageBlocks, { type: 'text', text: currentText }],
+      });
+    } else {
+      apiMessages.push({ role: 'user', content: currentText });
+    }
 
-    // ── CLI fallback 용 fullPrompt (API 키 없을 때만 사용) ──
+    // ── CLI fallback 용 fullPrompt — 이미지는 파일 경로로 안내, Read 도구로 읽게 함 ──
     const contextLines = [];
     for (const m of prior) {
       if (m.role === 'user') contextLines.push(`[사용자] ${m.content}`);
       else if (m.role === 'ai' && m.status === 'ok') contextLines.push(`[Claude] ${m.content}`);
     }
+    const cliImagePaths = getImagePathsForCli();
+    let cliImageBlock = '';
+    if (cliImagePaths.length > 0) {
+      cliImageBlock = '\n\n## 첨부 이미지 (' + cliImagePaths.length + '장) — 모두 Read 도구로 읽고 종합해서 답해주세요\n'
+        + cliImagePaths.map((p, i) => `${i + 1}. ${p}`).join('\n') + '\n';
+    }
     const systemPrefix = DEFAULT_SYSTEM + '\n\n';
     const history = contextLines.length > 0 ? `【이전 대화】\n${contextLines.join('\n')}\n\n` : '';
-    const fullPrompt = systemPrefix + templatePrefix + pageContext + attachmentBlock + history + `【질문】\n${prompt}`;
+    const fullPrompt = systemPrefix + templatePrefix + pageContext + attachmentBlock + history + cliImageBlock + `【질문】\n${prompt}`;
 
     // 4. 사용자 메시지 저장 (Claude 호출 실패해도 남아있게)
     ai.threads.addMessage(thread.id, {
@@ -794,9 +870,13 @@ router.post('/chat-stream', async (req, res) => {
   if (Array.isArray(attachmentIds) && attachmentIds.length > 0) {
     attachments = ai.attachments.hydrate(attachmentIds.map(Number));
   }
+  // 이미지 vs 텍스트 첨부 분리 (멀티이미지 vision 지원)
+  const imageAttachmentsS = attachments.filter(a => a && a.kind === 'image');
+  const textAttachmentsS = attachments.filter(a => a && a.kind !== 'image');
+
   let attachmentBlock = '';
-  if (attachments.length > 0) {
-    attachmentBlock = attachments.map(a => {
+  if (textAttachmentsS.length > 0) {
+    attachmentBlock = textAttachmentsS.map(a => {
       if (a.text_excerpt) return `[첨부: ${a.original_name} (${a.kind})]\n${a.text_excerpt.slice(0, 8000)}`;
       return `[첨부: ${a.original_name} (${a.kind}, 텍스트 미추출)]`;
     }).join('\n\n') + '\n\n';
@@ -814,7 +894,25 @@ router.post('/chat-stream', async (req, res) => {
     if (m.role === 'user') apiMessages.push({ role: 'user', content: m.content });
     else if (m.role === 'ai' && m.status === 'ok' && m.content) apiMessages.push({ role: 'assistant', content: m.content });
   }
-  apiMessages.push({ role: 'user', content: templatePrefix + pageCtx + attachmentBlock + prompt });
+  // 이미지 첨부가 있으면 multimodal 콘텐츠 배열로 전송
+  const currentText = templatePrefix + pageCtx + attachmentBlock + prompt;
+  const imageBlocks = [];
+  for (const a of imageAttachmentsS) {
+    const fp = path.join(ai.UPLOAD_DIR, a.stored_name);
+    if (!fs.existsSync(fp)) continue;
+    try {
+      const buf = fs.readFileSync(fp);
+      const mediaType = a.mime && a.mime.startsWith('image/') ? a.mime : 'image/png';
+      imageBlocks.push({ type: 'image', source: { type: 'base64', media_type: mediaType, data: buf.toString('base64') } });
+    } catch (e) {
+      console.warn('[chat-stream] 이미지 base64 변환 실패:', a.original_name, e.message);
+    }
+  }
+  if (imageBlocks.length > 0) {
+    apiMessages.push({ role: 'user', content: [...imageBlocks, { type: 'text', text: currentText }] });
+  } else {
+    apiMessages.push({ role: 'user', content: currentText });
+  }
 
   // 사용자 메시지 저장
   ai.threads.addMessage(thread.id, {

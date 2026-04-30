@@ -1655,6 +1655,14 @@
             <span style="font-size:12px;">시안 자동분석</span>
           </button>
         </template>
+        <template x-if="tabs.find(t=>t.id==='ocr')">
+          <button @click="currentTab = 'ocr'"
+            :class="currentTab === 'ocr' ? 'active' : ''"
+            class="sidebar-nav-item w-full text-left">
+            <span class="material-symbols-outlined" style="font-size:17px">document_scanner</span>
+            <span style="font-size:12px;">OCR 텍스트 추출</span>
+          </button>
+        </template>
         <template x-if="tabs.find(t=>t.id==='photos')">
           <button @click="currentTab = 'photos'"
             :class="currentTab === 'photos' ? 'active' : ''"
@@ -3304,37 +3312,45 @@
             this.selectedPaths=this.results.filter(r=>this.isImageItem(r)).map(r=>r.path);
           },
           clearSelection(){this.selectedPaths=[];},
-          async downloadWatermarked(){
+          // ZIP 일괄 다운로드 — 한 번에 받음 (워터마크 박힘)
+          async downloadZip(includeOriginal){
             if(this.selectedPaths.length===0||this.watermarkBusy)return;
             this.watermarkBusy=true;
             const total=this.selectedPaths.length;
-            let failedCount=0;
-            for(let i=0;i<this.selectedPaths.length;i++){
-              this.watermarkProgress='처리 중 '+(i+1)+'/'+total;
-              const p=this.selectedPaths[i];
-              try{
-                const url='/api/design/file-watermarked?path='+encodeURIComponent(p);
-                const resp=await fetch(url,{credentials:'include'});
-                if(!resp.ok){failedCount++;continue;}
-                const blob=await resp.blob();
-                const cd=resp.headers.get('content-disposition')||'';
-                let filename='watermarked.jpg';
-                const m=cd.match(/filename\*=UTF-8''([^;]+)/i);
-                if(m)filename=decodeURIComponent(m[1]);
-                const a=document.createElement('a');
-                a.href=URL.createObjectURL(blob);
-                a.download=filename;
-                document.body.appendChild(a);
-                a.click();
-                setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},100);
-                await new Promise(r=>setTimeout(r,250));
-              }catch(e){failedCount++;}
+            this.watermarkProgress='ZIP 생성 중... ('+total+'개)';
+            try{
+              const resp=await fetch('/api/design/bulk-zip',{
+                method:'POST',
+                credentials:'include',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({paths:this.selectedPaths,includeOriginal:!!includeOriginal})
+              });
+              if(!resp.ok){
+                const errText=await resp.text().catch(()=>'HTTP '+resp.status);
+                alert('ZIP 다운로드 실패: '+errText.slice(0,200));
+                return;
+              }
+              const blob=await resp.blob();
+              const cd=resp.headers.get('content-disposition')||'';
+              let filename='시안_'+new Date().toISOString().slice(0,10)+'_'+total+'장.zip';
+              const m=cd.match(/filename\*=UTF-8''([^;]+)/i);
+              if(m)filename=decodeURIComponent(m[1]);
+              const a=document.createElement('a');
+              a.href=URL.createObjectURL(blob);
+              a.download=filename;
+              document.body.appendChild(a);
+              a.click();
+              setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},200);
+              this.selectedPaths=[];
+            }catch(e){
+              alert('ZIP 다운로드 실패: '+e.message);
+            }finally{
+              this.watermarkBusy=false;
+              this.watermarkProgress='';
             }
-            this.watermarkBusy=false;
-            this.watermarkProgress='';
-            if(failedCount>0)alert(total+'개 중 '+failedCount+'개 실패');
-            this.selectedPaths=[];
           },
+          // 호환성 유지 — 기존 버튼이 워터마크 다운로드 누르면 ZIP 으로
+          async downloadWatermarked(){return this.downloadZip(false);},
           fileTypes:[
             {id:'image',label:'이미지',icon:'image',color:'#4f6ef7'},
             {id:'pdf',label:'PDF',icon:'picture_as_pdf',color:'#dc2626'},
@@ -3561,7 +3577,7 @@
             <div>
               <p class="text-[12px] text-gray-400 mb-3" x-text="total+'개 결과 ('+results.length+'개 표시)'"></p>
 
-              <!-- 워터마크 다운로드 액션바 -->
+              <!-- 일괄 다운로드 액션바 (ZIP) -->
               <div x-show="selectedPaths.length>0 || watermarkBusy" x-transition
                 style="position:sticky;top:0;z-index:10;background:linear-gradient(90deg,#eef2ff,#fff);border:1px solid #c7d2fe;border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;box-shadow:0 4px 12px rgba(79,110,247,.15);">
                 <span style="font-size:13px;font-weight:600;color:#4338ca;">
@@ -3571,11 +3587,21 @@
                 <span x-show="watermarkProgress" x-text="watermarkProgress"
                   style="font-size:12px;color:#6b7280;animation:pulse 1.4s infinite;"></span>
                 <div style="flex:1;"></div>
-                <button @click="downloadWatermarked()" :disabled="watermarkBusy"
+                <!-- ZIP 다운로드 (워터마크 박힘) — 모든 사용자 -->
+                <button @click="downloadZip(false)" :disabled="watermarkBusy"
                   style="background:#4f6ef7;color:#fff;border:none;padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:4px;"
-                  :style="watermarkBusy?'opacity:.6;cursor:wait;':''">
-                  <span class="material-symbols-outlined" style="font-size:14px;">water_drop</span>
-                  워터마크 다운로드
+                  :style="watermarkBusy?'opacity:.6;cursor:wait;':''"
+                  title="선택한 시안을 워터마크 박은 후 ZIP 으로 한 번에 다운">
+                  <span class="material-symbols-outlined" style="font-size:14px;">folder_zip</span>
+                  ZIP 다운 (워터마크)
+                </button>
+                <!-- 원본 ZIP — 관리자만 -->
+                <button x-show="auth && auth.role === 'admin'"
+                  @click="downloadZip(true)" :disabled="watermarkBusy"
+                  style="background:#fff;color:#dc2626;border:1px solid #fecaca;padding:7px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;"
+                  :style="watermarkBusy?'opacity:.6;cursor:wait;':''"
+                  title="원본 (워터마크 없음) — 관리자만">
+                  🔓 원본 ZIP
                 </button>
                 <button @click="selectAllImages()"
                   style="background:#fff;color:#4f6ef7;border:1px solid #c7d2fe;padding:7px 12px;border-radius:6px;font-size:12px;cursor:pointer;">
@@ -4558,6 +4584,11 @@
       <!-- 시안 자동분석 탭 (시안 → e2e 등록양식 추출) -->
       <template x-if="currentTab === 'productDesign'">
         <!--INCLUDE:tab-product-design.html-->
+      </template>
+
+      <!-- OCR 탭 (이미지 → 텍스트 추출, Claude Vision) -->
+      <template x-if="currentTab === 'ocr'">
+        <!--INCLUDE:tab-ocr.html-->
       </template>
 
       <!-- 사진 라이브러리 탭 (47K 카톡 사진 검색·필터·편집·라벨링) -->
@@ -6149,6 +6180,7 @@ function app() {
       { id: 'vendors', label: '업체 관리' },
       { id: 'design', label: '시안 검색' },
       { id: 'productDesign', label: '시안 자동분석' },
+      { id: 'ocr', label: 'OCR 텍스트 추출' },
       { id: 'photos', label: '사진 라이브러리' },
       { id: 'contacts', label: '연락처' },
       { id: 'calendar', label: '캘린더' },
@@ -6263,6 +6295,7 @@ function app() {
           { id: 'salesLookup', label: '과거단가조회' },
           { id: 'stats', label: '통계' }, { id: 'design', label: '시안 검색' },
           { id: 'productDesign', label: '시안 자동분석' },
+          { id: 'ocr', label: 'OCR 텍스트 추출' },
           { id: 'photos', label: '사진 라이브러리' },
           { id: 'contacts', label: '연락처' }, { id: 'calendar', label: '캘린더' }, { id: 'notices', label: '공지사항' }, { id: 'settings', label: '설정' },
           { id: 'workspace', label: '워크스페이스' },
