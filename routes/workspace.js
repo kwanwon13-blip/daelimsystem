@@ -787,7 +787,11 @@ router.post('/ai', async (req, res) => {
     //   (한국어/줄바꿈/특수문자 안전)
     // - cwd: price-list-app 루트 — .claude/skills/ 폴더가 거기 있어야 CLI 가 발견
     const aiText = await new Promise((resolve, reject) => {
-      const child = spawn('claude', ['-p'], {
+      const child = spawn('claude', [
+        '-p',
+        '--model', 'claude-opus-4-7',
+        '--permission-mode', 'bypassPermissions',
+      ], {
         shell: true,  // Windows claude.cmd 호환
         env: { ...process.env, LANG: 'ko_KR.UTF-8', TZ: 'Asia/Seoul' },
         cwd: path.join(__dirname, '..'),

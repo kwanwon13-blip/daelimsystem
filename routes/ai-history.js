@@ -71,7 +71,7 @@ router.get('/health', (req, res) => {
     ok: true,
     ready: !!ai.ready,
     backend: apiOn ? 'api' : 'cli',
-    model: apiOn ? (process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6') : 'claude-cli',
+    model: apiOn ? (process.env.ANTHROPIC_MODEL || 'claude-opus-4-7') : 'claude-cli',
   });
 });
 
@@ -391,7 +391,7 @@ router.delete('/threads/:id', (req, res) => {
 // ──────────────────────────────────────────────────────────
 
 // 기본 모델 설정 (환경변수로 오버라이드 가능)
-const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
+const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL || 'claude-opus-4-7';
 const DEFAULT_MAX_TOKENS = parseInt(process.env.ANTHROPIC_MAX_TOKENS || '2048', 10);
 const DEFAULT_SYSTEM = `당신은 대림에스엠 ERP 시스템의 AI 도우미입니다. 한국어로 간결하고 실용적으로 답변해주세요. 직원들의 업무(견적·시안·출퇴근·결재·업체관리 등)를 도와주는 게 목적입니다.
 
@@ -501,7 +501,16 @@ function runClaudeCli(prompt) {
     try { fs.mkdirSync(tmpDir, { recursive: true }); } catch (_) {}
     const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {} };
 
-    const child = spawn('claude', ['-p'], {
+    // --add-dir: 격리 cwd 라도 ERP 의 .claude/skills/ 인식하게
+    // --model: 모든 답을 Opus 로
+    // --permission-mode bypassPermissions: 권한 동의 UI 없이 진행 (settings.json 의 deny 는 여전히 적용됨)
+    const APP_ROOT = path.join(__dirname, '..');
+    const child = spawn('claude', [
+      '-p',
+      '--model', 'claude-opus-4-7',
+      '--permission-mode', 'bypassPermissions',
+      '--add-dir', APP_ROOT,
+    ], {
       cwd: tmpDir,                              // ← 격리된 cwd 로 병렬 가능
       shell: true,
       env: { ...process.env, LANG: 'ko_KR.UTF-8', TZ: 'Asia/Seoul' },
