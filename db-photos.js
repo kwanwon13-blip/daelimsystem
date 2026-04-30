@@ -210,7 +210,8 @@ function searchPhotos({
     ORDER BY taken_at DESC, id DESC
     LIMIT ${lim} OFFSET ${off}
   `;
-  return db.prepare(sql).all(params);
+  const stmt = db.prepare(sql);
+  return Object.keys(params).length ? stmt.all(params) : stmt.all();
 }
 
 function countPhotos({
@@ -252,7 +253,8 @@ function countPhotos({
     SELECT COUNT(*) as n FROM photos
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
   `;
-  return db.prepare(sql).get(params).n;
+  const stmt = db.prepare(sql);
+  return (Object.keys(params).length ? stmt.get(params) : stmt.get()).n;
 }
 
 // 통계 — 카테고리/회사/현장 빈도
