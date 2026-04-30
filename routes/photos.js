@@ -23,11 +23,13 @@ const PHOTOS_DIR = path.join(__dirname, '..', 'data', 'photos');
 // ── 검색 / 페이징 ──────────────────────────────────────────
 router.get('/', (req, res) => {
   try {
+    // 안전한 string 추출 — req.query.constructor 같은 prototype 키 회피
+    const s = (v) => (typeof v === 'string' && v.trim()) ? v.trim() : null;
     const params = {
-      q: (req.query.q || '').trim(),
-      category: req.query.category || null,
-      constructor: req.query.constructor || null,
-      site: req.query.site || null,
+      q: s(req.query.q) || '',
+      category: s(req.query.category),
+      constructorName: s(req.query.constructor),
+      site: s(req.query.site),
       bestOnly: req.query.best === '1' || req.query.best === 'true',
       includeHidden: req.query.hidden === '1' || req.query.hidden === 'true',
       limit: Math.min(parseInt(req.query.limit) || 100, 500),

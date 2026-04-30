@@ -165,16 +165,18 @@ function bulkInsert(rows) {
 }
 
 // 검색 — 카테고리/회사/현장/키워드 텍스트 검색
-function searchPhotos({
-  q = '',
-  category = null,
-  constructor = null,
-  site = null,
-  includeHidden = false,
-  bestOnly = false,
-  limit = 100,
-  offset = 0,
-} = {}) {
+function searchPhotos(opts = {}) {
+  const q = typeof opts.q === 'string' ? opts.q : '';
+  const category = typeof opts.category === 'string' ? opts.category : null;
+  const constructorName =
+    typeof opts.constructorName === 'string' ? opts.constructorName :
+    typeof opts.constructor === 'string' ? opts.constructor : null;
+  const site = typeof opts.site === 'string' ? opts.site : null;
+  const includeHidden = !!opts.includeHidden;
+  const bestOnly = !!opts.bestOnly;
+  const limit = opts.limit;
+  const offset = opts.offset;
+
   const where = [];
   const params = {};
   if (!includeHidden) where.push('is_hidden = 0');
@@ -183,9 +185,9 @@ function searchPhotos({
     where.push('category = @category');
     params.category = category;
   }
-  if (constructor) {
-    where.push('norm_constructor = @constructor');
-    params.constructor = constructor;
+  if (constructorName) {
+    where.push('norm_constructor = @cname');
+    params.cname = constructorName;
   }
   if (site) {
     where.push('norm_site = @site');
@@ -214,14 +216,16 @@ function searchPhotos({
   return Object.keys(params).length ? stmt.all(params) : stmt.all();
 }
 
-function countPhotos({
-  q = '',
-  category = null,
-  constructor = null,
-  site = null,
-  includeHidden = false,
-  bestOnly = false,
-} = {}) {
+function countPhotos(opts = {}) {
+  const q = typeof opts.q === 'string' ? opts.q : '';
+  const category = typeof opts.category === 'string' ? opts.category : null;
+  const constructorName =
+    typeof opts.constructorName === 'string' ? opts.constructorName :
+    typeof opts.constructor === 'string' ? opts.constructor : null;
+  const site = typeof opts.site === 'string' ? opts.site : null;
+  const includeHidden = !!opts.includeHidden;
+  const bestOnly = !!opts.bestOnly;
+
   const where = [];
   const params = {};
   if (!includeHidden) where.push('is_hidden = 0');
@@ -230,9 +234,9 @@ function countPhotos({
     where.push('category = @category');
     params.category = category;
   }
-  if (constructor) {
-    where.push('norm_constructor = @constructor');
-    params.constructor = constructor;
+  if (constructorName) {
+    where.push('norm_constructor = @cname');
+    params.cname = constructorName;
   }
   if (site) {
     where.push('norm_site = @site');
