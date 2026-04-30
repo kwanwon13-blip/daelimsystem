@@ -202,14 +202,14 @@ function searchPhotos({
     )`);
     params.q = `%${q}%`;
   }
+  const lim = Math.max(1, Math.min(parseInt(limit, 10) || 100, 500));
+  const off = Math.max(0, parseInt(offset, 10) || 0);
   const sql = `
     SELECT * FROM photos
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     ORDER BY taken_at DESC, id DESC
-    LIMIT @limit OFFSET @offset
+    LIMIT ${lim} OFFSET ${off}
   `;
-  params.limit = limit;
-  params.offset = offset;
   return db.prepare(sql).all(params);
 }
 

@@ -1428,6 +1428,12 @@ function aiApp() {
 
     async openThread(threadId) {
       if (!this.aiReady) return;
+      // 다른 스레드로 전환 시 로딩 인디케이터 끄기 (이전 스레드 질문은 백그라운드에서 계속 진행)
+      // - 진행 중이던 fetch 가 완료되면 해당 스레드 데이터로 자동 갱신됨
+      // - 사용자에겐 "이 스레드는 로딩 중 아님" 으로 보여야 자연스러움
+      if (String(threadId) !== String(this.currentThreadId)) {
+        this.loading = false;
+      }
       try {
         const r = await fetch('/api/ai/threads/' + encodeURIComponent(threadId));
         const d = await r.json();
