@@ -122,7 +122,7 @@
         </ul>
 
         <h4>제품 종류</h4>
-        <input class="filter-input" placeholder="검색..." x-model="ptypeQ" />
+        <input class="filter-input" placeholder="입력 또는 아래 클릭 (예: 소화기)" x-model="filterPType" @input.debounce.250ms="search()" />
         <ul>
           <template x-for="p in filteredProductTypes()" :key="p.name">
             <li :class="{active: filterPType===p.name}" @click="filterPType = filterPType===p.name ? '' : p.name; search()">
@@ -132,7 +132,7 @@
         </ul>
 
         <h4>사이즈/규격</h4>
-        <input class="filter-input" placeholder="검색..." x-model="sizeQ" />
+        <input class="filter-input" placeholder="입력 또는 아래 클릭 (예: 3.3kg)" x-model="filterSize" @input.debounce.250ms="search()" />
         <ul>
           <template x-for="sz in filteredSizes()" :key="sz.name">
             <li :class="{active: filterSize===sz.name}" @click="filterSize = filterSize===sz.name ? '' : sz.name; search()">

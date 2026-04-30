@@ -206,8 +206,8 @@ function searchPhotos(opts = {}) {
     params.site = site;
   }
   if (productType) {
-    where.push('product_type = @ptype');
-    params.ptype = productType;
+    where.push('product_type LIKE @ptype');
+    params.ptype = `%${productType}%`;
   }
   if (sizeValue) {
     where.push('size_value LIKE @sv');
@@ -270,8 +270,8 @@ function countPhotos(opts = {}) {
     params.site = site;
   }
   if (productType) {
-    where.push('product_type = @ptype');
-    params.ptype = productType;
+    where.push('product_type LIKE @ptype');
+    params.ptype = `%${productType}%`;
   }
   if (sizeValue) {
     where.push('size_value LIKE @sv');

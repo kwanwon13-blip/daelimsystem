@@ -96,13 +96,13 @@ function photosApp() {
       return arr.slice(0, 30);
     },
     filteredProductTypes() {
-      const q = this.ptypeQ.toLowerCase();
+      const q = (this.filterPType || '').toLowerCase();
       const list = this.stats.topProductTypes || [];
       const arr = q ? list.filter(p => p.name.toLowerCase().includes(q)) : list;
       return arr.slice(0, 50);
     },
     filteredSizes() {
-      const q = this.sizeQ.toLowerCase();
+      const q = (this.filterSize || '').toLowerCase();
       const list = this.stats.topSizes || [];
       const arr = q ? list.filter(s => s.name.toLowerCase().includes(q)) : list;
       return arr.slice(0, 50);
