@@ -86,12 +86,12 @@ function photosApp() {
     },
 
     filteredConstructors() {
-      const q = this.conQ.toLowerCase();
+      const q = (this.filterCon || '').toLowerCase();
       const arr = q ? this.stats.topConstructors.filter(c => c.name.toLowerCase().includes(q)) : this.stats.topConstructors;
       return arr.slice(0, 30);
     },
     filteredSites() {
-      const q = this.siteQ.toLowerCase();
+      const q = (this.filterSite || '').toLowerCase();
       const arr = q ? this.stats.topSites.filter(s => s.name.toLowerCase().includes(q)) : this.stats.topSites;
       return arr.slice(0, 30);
     },

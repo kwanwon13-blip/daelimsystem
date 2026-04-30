@@ -51,6 +51,25 @@ CREATE INDEX IF NOT EXISTS idx_photos_category ON photos(category);
 CREATE INDEX IF NOT EXISTS idx_photos_taken_at ON photos(taken_at);
 CREATE INDEX IF NOT EXISTS idx_photos_is_best ON photos(is_best);
 CREATE INDEX IF NOT EXISTS idx_photos_is_hidden ON photos(is_hidden);
+`);
+
+// 컬럼 안전 추가 (이미 있으면 무시) — 세부 분류용
+function _safeAddCol(sql) {
+  try { db.exec(sql); } catch (e) {
+    if (!String(e.message).includes('duplicate column')) {
+      // 다른 에러면 로그만
+      console.warn('[db-photos] alter:', e.message);
+    }
+  }
+}
+_safeAddCol('ALTER TABLE photos ADD COLUMN product_type TEXT');
+_safeAddCol('ALTER TABLE photos ADD COLUMN size_value TEXT');
+try {
+  db.exec('CREATE INDEX IF NOT EXISTS idx_photos_product_type ON photos(product_type)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_photos_size_value ON photos(size_value)');
+} catch (e) {}
+
+db.exec(`
 
 -- 동기화 상태 (카톡 사진 가져오기 버튼)
 CREATE TABLE IF NOT EXISTS photo_sync_state (
@@ -198,12 +217,12 @@ function searchPhotos(opts = {}) {
     where.push(`category IN ('${DEFAULT_VISIBLE_CATEGORIES.join("','")}')`);
   }
   if (constructorName) {
-    where.push('norm_constructor = @cname');
-    params.cname = constructorName;
+    where.push('norm_constructor LIKE @cname');
+    params.cname = `%${constructorName}%`;
   }
   if (site) {
-    where.push('norm_site = @site');
-    params.site = site;
+    where.push('norm_site LIKE @site');
+    params.site = `%${site}%`;
   }
   if (productType) {
     where.push('product_type LIKE @ptype');
@@ -262,12 +281,12 @@ function countPhotos(opts = {}) {
     where.push(`category IN ('${DEFAULT_VISIBLE_CATEGORIES.join("','")}')`);
   }
   if (constructorName) {
-    where.push('norm_constructor = @cname');
-    params.cname = constructorName;
+    where.push('norm_constructor LIKE @cname');
+    params.cname = `%${constructorName}%`;
   }
   if (site) {
-    where.push('norm_site = @site');
-    params.site = site;
+    where.push('norm_site LIKE @site');
+    params.site = `%${site}%`;
   }
   if (productType) {
     where.push('product_type LIKE @ptype');

@@ -63,26 +63,83 @@
     .ph-empty { grid-column:1 / -1; text-align:center; padding:60px 20px; color:#9ca3af; font-size:13px; }
   </style>
 
-  <!-- 상단 검색 + 통계 -->
-  <div class="ph-card" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-    <div class="ph-h" style="margin:0;">📷 사진 라이브러리</div>
-    <input
-      type="text"
-      class="ph-input"
-      style="flex:1; min-width:300px;"
-      placeholder="검색 — 제품, 슬로건, 회사, 현장, 키워드 통합 검색"
-      x-model="searchQ"
-      @input.debounce.250ms="search()"
-    />
-    <span class="pi" style="color:#6b7280; font-size:12.5px;" x-text="`총 ${stats.visible || 0} 장 / 결과 ${total} 장`"></span>
-    <div class="ph-thumb-size-slider" title="썸네일 크기">
-      <span style="font-size:11px;color:#94a3b8;">🔍</span>
-      <input type="range" x-model="thumbSize" min="80" max="280" step="20"
-        style="width:90px;accent-color:#4f6ef7;cursor:pointer;">
-      <span style="font-size:11px;color:#94a3b8;" x-text="thumbSize+'px'"></span>
+  <!-- 상단: 검색 + 필터 한 곳에 -->
+  <div class="ph-card">
+    <!-- 1줄: 통합 검색 -->
+    <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+      <div class="ph-h" style="margin:0;">📷 사진 라이브러리</div>
+      <input
+        type="text"
+        class="ph-input"
+        style="flex:1; min-width:300px;"
+        placeholder="통합 검색 — 제품·슬로건·회사·현장·키워드"
+        x-model="searchQ"
+        @input.debounce.250ms="search()"
+      />
+      <span class="pi" style="color:#6b7280; font-size:12.5px;" x-text="`총 ${stats.visible || 0} / 결과 ${total}`"></span>
+      <div class="ph-thumb-size-slider" title="썸네일 크기">
+        <span style="font-size:11px;color:#94a3b8;">🔍</span>
+        <input type="range" x-model="thumbSize" min="80" max="280" step="20"
+          style="width:90px;accent-color:#4f6ef7;cursor:pointer;">
+        <span style="font-size:11px;color:#94a3b8;" x-text="thumbSize+'px'"></span>
+      </div>
+      <button class="ph-btn ph-btn-ghost ph-btn-sm" @click="reset()">초기화</button>
+      <button class="ph-btn ph-btn-primary ph-btn-sm" @click="syncOpen=true">📥 카톡 사진 가져오기</button>
     </div>
-    <button class="ph-btn ph-btn-ghost ph-btn-sm" @click="reset()">초기화</button>
-    <button class="ph-btn ph-btn-primary ph-btn-sm" @click="syncOpen=true">📥 카톡 사진 가져오기</button>
+    <!-- 2줄: 제품 종류 + 사이즈 + 회사 + 현장 빠른 필터 -->
+    <div style="display:flex; align-items:center; gap:8px; margin-top:10px; flex-wrap:wrap;">
+      <span style="font-size:11px; color:#6b7280; font-weight:600;">필터:</span>
+      <input
+        type="text"
+        class="ph-input ph-btn-sm"
+        style="flex:1; min-width:140px; padding:6px 10px; font-size:12px;"
+        placeholder="🛠 제품 종류 (예: 소화기)"
+        x-model="filterPType"
+        @input.debounce.250ms="search()"
+      />
+      <input
+        type="text"
+        class="ph-input ph-btn-sm"
+        style="flex:1; min-width:120px; padding:6px 10px; font-size:12px;"
+        placeholder="📏 사이즈 (예: 3.3kg)"
+        x-model="filterSize"
+        @input.debounce.250ms="search()"
+      />
+      <input
+        type="text"
+        class="ph-input ph-btn-sm"
+        style="flex:1; min-width:140px; padding:6px 10px; font-size:12px;"
+        placeholder="🏢 건설사 (예: HDC)"
+        x-model="filterCon"
+        @input.debounce.250ms="search()"
+      />
+      <input
+        type="text"
+        class="ph-input ph-btn-sm"
+        style="flex:1; min-width:140px; padding:6px 10px; font-size:12px;"
+        placeholder="🏗 현장 (예: 김포데이터센터)"
+        x-model="filterSite"
+        @input.debounce.250ms="search()"
+      />
+    </div>
+    <!-- 적용된 필터 칩 -->
+    <div x-show="filterCat || filterPType || filterSize || filterCon || filterSite" style="display:flex; flex-wrap:wrap; gap:5px; margin-top:8px;">
+      <template x-if="filterCat">
+        <span class="ph-tag" style="cursor:pointer;" @click="filterCat=''; search()" x-text="`✕ 카테고리: ${filterCat}`"></span>
+      </template>
+      <template x-if="filterPType">
+        <span class="ph-tag" style="cursor:pointer;" @click="filterPType=''; search()" x-text="`✕ 제품: ${filterPType}`"></span>
+      </template>
+      <template x-if="filterSize">
+        <span class="ph-tag" style="cursor:pointer;" @click="filterSize=''; search()" x-text="`✕ 사이즈: ${filterSize}`"></span>
+      </template>
+      <template x-if="filterCon">
+        <span class="ph-tag" style="cursor:pointer;" @click="filterCon=''; search()" x-text="`✕ 회사: ${filterCon}`"></span>
+      </template>
+      <template x-if="filterSite">
+        <span class="ph-tag" style="cursor:pointer;" @click="filterSite=''; search()" x-text="`✕ 현장: ${filterSite}`"></span>
+      </template>
+    </div>
   </div>
 
   <div class="ph-layout">
@@ -101,28 +158,7 @@
           </template>
         </ul>
 
-        <h4>건설사</h4>
-        <input class="filter-input" placeholder="검색..." x-model="conQ" />
-        <ul>
-          <template x-for="c in filteredConstructors()" :key="c.name">
-            <li :class="{active: filterCon===c.name}" @click="filterCon = filterCon===c.name ? '' : c.name; search()">
-              <span x-text="c.name"></span><span class="n" x-text="c.n"></span>
-            </li>
-          </template>
-        </ul>
-
-        <h4>현장</h4>
-        <input class="filter-input" placeholder="검색..." x-model="siteQ" />
-        <ul>
-          <template x-for="s in filteredSites()" :key="s.name">
-            <li :class="{active: filterSite===s.name}" @click="filterSite = filterSite===s.name ? '' : s.name; search()">
-              <span x-text="s.name"></span><span class="n" x-text="s.n"></span>
-            </li>
-          </template>
-        </ul>
-
-        <h4>제품 종류</h4>
-        <input class="filter-input" placeholder="입력 또는 아래 클릭 (예: 소화기)" x-model="filterPType" @input.debounce.250ms="search()" />
+        <h4>제품 종류 (자주 쓰이는)</h4>
         <ul>
           <template x-for="p in filteredProductTypes()" :key="p.name">
             <li :class="{active: filterPType===p.name}" @click="filterPType = filterPType===p.name ? '' : p.name; search()">
@@ -131,12 +167,29 @@
           </template>
         </ul>
 
-        <h4>사이즈/규격</h4>
-        <input class="filter-input" placeholder="입력 또는 아래 클릭 (예: 3.3kg)" x-model="filterSize" @input.debounce.250ms="search()" />
+        <h4>사이즈 (자주 쓰이는)</h4>
         <ul>
           <template x-for="sz in filteredSizes()" :key="sz.name">
             <li :class="{active: filterSize===sz.name}" @click="filterSize = filterSize===sz.name ? '' : sz.name; search()">
               <span x-text="sz.name"></span><span class="n" x-text="sz.n"></span>
+            </li>
+          </template>
+        </ul>
+
+        <h4>건설사 TOP</h4>
+        <ul>
+          <template x-for="c in filteredConstructors()" :key="c.name">
+            <li :class="{active: filterCon===c.name}" @click="filterCon = filterCon===c.name ? '' : c.name; search()">
+              <span x-text="c.name"></span><span class="n" x-text="c.n"></span>
+            </li>
+          </template>
+        </ul>
+
+        <h4>현장 TOP</h4>
+        <ul>
+          <template x-for="s in filteredSites()" :key="s.name">
+            <li :class="{active: filterSite===s.name}" @click="filterSite = filterSite===s.name ? '' : s.name; search()">
+              <span x-text="s.name"></span><span class="n" x-text="s.n"></span>
             </li>
           </template>
         </ul>
