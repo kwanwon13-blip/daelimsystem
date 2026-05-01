@@ -19,8 +19,82 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
+const JSZip = require('jszip');
 const { requireAuth } = require('../middleware/auth');
 const dbSt = require('../db-statements');
+
+// PPTX → 슬라이드별 시안 본체 이미지 추출
+// 한 슬라이드 = 한 매출 라인 = 한 명세서 (parent_pptx 메타로 묶임)
+async function splitPptxToSlides(pptxPath) {
+  const buf = fs.readFileSync(pptxPath);
+  const zip = await JSZip.loadAsync(buf);
+
+  // 슬라이드 파일 목록 (ppt/slides/slide{N}.xml)
+  const slideFiles = Object.keys(zip.files)
+    .filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n))
+    .sort((a, b) => {
+      const aN = parseInt(a.match(/slide(\d+)/)[1]);
+      const bN = parseInt(b.match(/slide(\d+)/)[1]);
+      return aN - bN;
+    });
+
+  const out = [];
+  for (const slideFile of slideFiles) {
+    const idx = parseInt(slideFile.match(/slide(\d+)/)[1]);
+    const relsFile = `ppt/slides/_rels/slide${idx}.xml.rels`;
+    const relsEntry = zip.file(relsFile);
+    if (!relsEntry) continue;
+    const relsXml = await relsEntry.async('string');
+
+    // 이미지 참조만 추출 (Type=image)
+    const imageRefs = [];
+    const relRegex = /<Relationship[^>]+Type="[^"]*\/image"[^>]+Target="([^"]+)"/g;
+    let m;
+    while ((m = relRegex.exec(relsXml)) !== null) {
+      // Target 은 보통 "../media/imageN.png" 형태 → "ppt/media/imageN.png" 로 변환
+      let target = m[1];
+      if (target.startsWith('../')) target = 'ppt/' + target.slice(3);
+      else if (!target.startsWith('ppt/')) target = 'ppt/slides/' + target;
+      imageRefs.push(target);
+    }
+
+    // 가장 큰 이미지 = 시안 본체로 간주
+    let biggest = null;
+    for (const target of imageRefs) {
+      const f = zip.file(target);
+      if (!f) continue;
+      const data = await f.async('nodebuffer');
+      if (!biggest || data.length > biggest.data.length) {
+        biggest = { target, data, ext: (target.split('.').pop() || 'png').toLowerCase() };
+      }
+    }
+
+    // 슬라이드 안의 텍스트도 같이 (시안 오타 검사 / 보조 정보용)
+    const slideEntry = zip.file(slideFile);
+    let slideText = '';
+    if (slideEntry) {
+      const xml = await slideEntry.async('string');
+      const tx = [];
+      const txRegex = /<a:t[^>]*>([^<]*)<\/a:t>/g;
+      let tm;
+      while ((tm = txRegex.exec(xml)) !== null) {
+        if (tm[1] && tm[1].trim()) tx.push(tm[1].trim());
+      }
+      slideText = tx.join(' | ');
+    }
+
+    if (biggest) {
+      out.push({
+        slideIndex: idx,
+        imageBuffer: biggest.data,
+        ext: biggest.ext,
+        slideText: slideText,
+      });
+    }
+  }
+
+  return out;
+}
 
 const UPLOAD_DIR = path.join(__dirname, '..', 'data', 'statements');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -35,7 +109,7 @@ const upload = multer({
       cb(null, `st_${ts}_${rand}${ext}`);
     },
   }),
-  limits: { fileSize: 30 * 1024 * 1024 }, // 30MB
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB (PPTX 도 받기 위해 증가)
 });
 
 // ── AI 큐 ────────────────────────────────────────────────────
@@ -53,10 +127,11 @@ function resetQueueStatsIfIdle() {
 }
 
 // AI 추출 — Claude Vision API 사용
-async function extractStatement(filePath, mimeType) {
+async function extractStatement(filePath, mimeType, hint) {
   const claudeClient = require('../lib/claude-client');
+  const hintText = hint ? `\n[힌트: ${hint}]\n` : '';
   const PROMPT = `이 이미지/PDF/시안은 대림에스엠(주) 또는 대림컴퍼니(주)의 거래 자료입니다.
-거래명세서, 세금계산서, 매입명세서, 영수증, 또는 디자인 시안(PPTX 슬라이드) 일 수 있습니다.
+거래명세서, 세금계산서, 매입명세서, 영수증, 또는 디자인 시안(PPTX 슬라이드) 일 수 있습니다.${hintText}
 
 다음 정보를 정확히 추출해서 **JSON 만 출력**하세요. (다른 설명/마크다운 X)
 
@@ -87,13 +162,21 @@ async function extractStatement(filePath, mimeType) {
 회사 자동분류 (company_code):
 - 받는회사/공급받는자가 "대림에스엠(주)" / "대림에스엠" / 사업자번호 (대림에스엠) → SM
 - 받는회사/공급받는자가 "대림컴퍼니(주)" / "대림컴퍼니" / 사업자번호 (대림컴퍼니) → COMPANY
-- PPTX 시안에 "DAELIM SM" 로고 박혀있음 → SM (시안의 발주는 에스엠으로 들어옴)
+- **PPTX 시안 (디자인 시안 슬라이드) → COMPANY** (시안 = 컴퍼니가 인쇄해서 매출 끊는 작업, 시안의 "DAELIM SM" 로고는 영업회사 표시일 뿐 등록 회사는 컴퍼니)
 - 어느 쪽도 명확하지 않으면 → null
 
 매입/매출 자동분류 (doc_class):
 - 우리 회사가 받는 사람(공급받는자)이면 → "매입" (=거래처에서 우리한테 매출)
 - 우리 회사가 보내는 사람(공급자)이면 → "매출" (=우리가 거래처에 매출)
 - PPTX 시안 / 디자인 발주서 → "매출" (시안 = 우리가 매출 작업하는 발주서)
+
+PPTX 시안 케이스 추출 가이드:
+- doc_type = "PPTX시안", doc_class = "매출", company_code = "COMPANY"
+- vendor_name = 시안 좌상단 거래처/시공사명 (예: "현대산업개발", "DL E&C", "라코스" 등)
+- norm_vendor = 시안 우상단 현장명 (예: "서울원 IPARK", "GTX-B3-1공구")
+- doc_date = 시안 안의 "납품 X/X" 또는 "설치 X/X" 날짜 (없으면 null)
+- items[0] = { item_name: 시안 가운데 표제 품명 (예: "AL 바닥 논슬립 스티커"), spec: 표제 안 규격 (예: "500*500"), quantity: 시안 옆 수량 합계 }
+- supply_amount, vat_amount, total_amount = null (시안에는 단가 정보 없음, 나중에 단가표에서 매칭)
 
 vendor_name 은 항상 "상대방 회사명" (우리 회사 X)
 
@@ -144,7 +227,7 @@ async function processQueueItem() {
   const item = queue.shift();
   processing++;
   try {
-    const ext = await extractStatement(item.filePath, item.mimeType);
+    const ext = await extractStatement(item.filePath, item.mimeType, item.hint);
     const p = ext.parsed || {};
     // 회사 코드 정규화 ("SM" / "COMPANY" / null 만 허용)
     const companyCode = (p.company_code === 'SM' || p.company_code === 'COMPANY') ? p.company_code : null;
@@ -197,23 +280,54 @@ function tickQueue() {
 
 // ── 라우트 ───────────────────────────────────────────────────
 
-// 다중 업로드 → 큐에 추가
-router.post('/upload-batch', requireAuth, upload.array('files', 100), (req, res) => {
+// 다중 업로드 → 큐에 추가 (PPTX 는 슬라이드별로 분리 후 큐에 넣음)
+router.post('/upload-batch', requireAuth, upload.array('files', 100), async (req, res) => {
   const files = req.files || [];
   if (files.length === 0) return res.status(400).json({ ok: false, error: '파일 없음' });
   resetQueueStatsIfIdle();
   if (queueStats.startedAt === null) queueStats.startedAt = Date.now();
+
+  let added = 0;
+  const errors = [];
   for (const f of files) {
-    queue.push({
-      filePath: f.path,
-      originalName: f.originalname,
-      mimeType: f.mimetype,
-      uploadedBy: req.user.userId,
-    });
-    queueStats.total++;
+    const ext = (path.extname(f.originalname || '').toLowerCase());
+    try {
+      if (ext === '.pptx') {
+        // PPTX 분리 → 슬라이드별 임시 이미지 저장 → 슬라이드 1장 = 큐 1건
+        const slides = await splitPptxToSlides(f.path);
+        for (const sl of slides) {
+          const imgName = `pptx_${path.basename(f.path, '.pptx')}_s${sl.slideIndex}.${sl.ext}`;
+          const imgPath = path.join(UPLOAD_DIR, imgName);
+          fs.writeFileSync(imgPath, sl.imageBuffer);
+          queue.push({
+            filePath: imgPath,
+            originalName: `${f.originalname} (슬라이드 ${sl.slideIndex})`,
+            mimeType: `image/${sl.ext === 'jpg' ? 'jpeg' : sl.ext}`,
+            uploadedBy: req.user.userId,
+            hint: `PPTX 시안 — 슬라이드 텍스트: "${sl.slideText}"`,
+            isPptxSlide: true,
+          });
+          queueStats.total++;
+          added++;
+        }
+        // 원본 PPTX 는 보관 (나중에 다시 분리하거나 다운로드용)
+      } else {
+        queue.push({
+          filePath: f.path,
+          originalName: f.originalname,
+          mimeType: f.mimetype,
+          uploadedBy: req.user.userId,
+        });
+        queueStats.total++;
+        added++;
+      }
+    } catch (e) {
+      console.error(`[statements] 업로드 처리 실패 - ${f.originalname}:`, e.message);
+      errors.push({ file: f.originalname, error: e.message });
+    }
   }
   tickQueue();
-  res.json({ ok: true, added: files.length, queue: { ...queueStats, queueLen: queue.length, processing } });
+  res.json({ ok: true, added, errors, queue: { ...queueStats, queueLen: queue.length, processing } });
 });
 
 // 큐 진행률
@@ -436,6 +550,147 @@ router.get('/export.xlsx', requireAuth, async (req, res) => {
   res.set('Content-Disposition', `attachment; filename*=UTF-8''${filename}`);
   await wb.xlsx.write(res);
   res.end();
+});
+
+// ── 시안 오타 확인 ──
+// PPTX 슬라이드별 텍스트 추출 → AI 가 맞춤법/오타/이상 표기 검사
+router.post('/spell-check', requireAuth, upload.array('files', 50), async (req, res) => {
+  const files = req.files || [];
+  if (files.length === 0) return res.status(400).json({ ok: false, error: '파일 없음' });
+  const claudeClient = require('../lib/claude-client');
+  const results = [];
+  for (const f of files) {
+    try {
+      const slides = await splitPptxToSlides(f.path);
+      for (const sl of slides) {
+        const text = sl.slideText || '';
+        if (!text.trim()) {
+          results.push({ file: f.originalname, slide: sl.slideIndex, text: '', issues: [] });
+          continue;
+        }
+        const PROMPT = `아래는 인쇄/사인물 시안(PPTX 슬라이드)의 텍스트입니다.
+한글 맞춤법, 오타, 사이즈 표기 일관성 (예: "500*500" vs "500x500"), 숫자 오류, 이상 표기를 검사하세요.
+
+[시안 텍스트]
+${text}
+
+JSON 만 출력:
+{
+  "issues": [
+    { "type": "맞춤법|오타|사이즈|숫자|기타", "message": "문제 설명 (10-30자)" }
+  ]
+}
+
+문제 없으면 issues=[]. JSON 외 텍스트 절대 X.`;
+        try {
+          const r = await claudeClient.callClaudeApi(
+            [{ role: 'user', content: [{ type: 'text', text: PROMPT }] }],
+            { maxTokens: 1024 }
+          );
+          const t = ((r && r.text) || '').trim();
+          let json = t.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/```\s*$/, '').trim();
+          const parsed = JSON.parse(json);
+          results.push({ file: f.originalname, slide: sl.slideIndex, text, issues: parsed.issues || [] });
+        } catch (e) {
+          results.push({ file: f.originalname, slide: sl.slideIndex, text, issues: [{ type: 'AI오류', message: e.message }] });
+        }
+      }
+      // 임시 파일 삭제
+      try { fs.unlinkSync(f.path); } catch(_){}
+    } catch (e) {
+      results.push({ file: f.originalname, slide: 0, text: '', issues: [{ type: '파싱오류', message: e.message }] });
+    }
+  }
+  res.json({ ok: true, results });
+});
+
+// ── 이카운트 일괄 등록 (에스엠 매입/매출) ──
+const ecount = require('../lib/ecount-client');
+
+// 이카운트 키 설정 여부
+router.get('/ecount/status', requireAuth, (req, res) => {
+  res.json({ ok: true, configured: ecount.isConfigured() });
+});
+
+// dry-run / 실제 등록 (분할 단위)
+router.post('/ecount/register', requireAuth, async (req, res) => {
+  const { docClass, month, dryRun = true } = req.body || {};
+  if (!ecount.isConfigured()) return res.status(400).json({ ok: false, error: '이카운트 키 미설정' });
+
+  // 에스엠 + 해당 분할의 확정된 명세서만
+  const stmts = dbSt.listStatements({
+    status: 'confirmed',
+    companyCode: 'SM',
+    docClass,
+    month: month || null,
+    limit: 1000,
+  });
+
+  // 명세서 → 라인아이템 펼치기 → 이카운트 BulkDatas 형식으로
+  const items = [];
+  for (const st of stmts) {
+    const full = dbSt.getById(st.id);
+    const lines = (full && full.items) || [];
+    if (lines.length === 0) {
+      items.push({
+        statement_id: st.id,
+        date: st.doc_date,
+        vendor_name: st.norm_vendor || st.vendor_name,
+        vendor_biz_no: st.vendor_biz_no,
+        item_name: st.norm_vendor || '',
+        spec: '',
+        qty: 1,
+        price: st.supply_amount || 0,
+        supply: st.supply_amount || 0,
+        vat: st.vat_amount || 0,
+        note: st.notes || '',
+      });
+    } else {
+      for (const ln of lines) {
+        items.push({
+          statement_id: st.id,
+          date: st.doc_date,
+          vendor_name: st.norm_vendor || st.vendor_name,
+          vendor_biz_no: st.vendor_biz_no,
+          item_name: ln.item_name || '',
+          spec: ln.spec || '',
+          qty: Number(ln.quantity) || 0,
+          price: Number(ln.unit_price) || 0,
+          supply: Number(ln.amount) || 0,
+          vat: Number(ln.vat) || Math.round((Number(ln.amount) || 0) * 0.1),
+          note: ln.notes || st.notes || '',
+        });
+      }
+    }
+  }
+
+  if (items.length === 0) return res.json({ ok: false, error: '등록할 항목 없음', items: 0 });
+
+  try {
+    const result = (docClass === '매입')
+      ? await ecount.savePurchase(items, { dryRun })
+      : await ecount.saveSale(items, { dryRun });
+    res.json({
+      ok: result.ok,
+      dryRun: !!dryRun,
+      docClass,
+      itemCount: items.length,
+      sample: items.slice(0, 3),
+      result,
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// 거래처 / 품목 마스터 조회 (디버그용)
+router.get('/ecount/customers', requireAuth, async (req, res) => {
+  try { res.json(await ecount.listCustomers({ dryRun: req.query.dryRun==='1' })); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+router.get('/ecount/products', requireAuth, async (req, res) => {
+  try { res.json(await ecount.listProducts({ dryRun: req.query.dryRun==='1' })); }
+  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
 // 서버 시작 시 — pending 항목 다시 큐에 넣지 않음 (이미 DB 저장됐고 raw_extract 있을 수도)

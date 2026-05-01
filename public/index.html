@@ -1687,8 +1687,8 @@
           <button @click="currentTab = 'statements'"
             :class="currentTab === 'statements' ? 'active' : ''"
             class="sidebar-nav-item w-full text-left">
-            <span class="material-symbols-outlined" style="font-size:17px">receipt_long</span>
-            <span style="font-size:12px;">명세서 스캔</span>
+            <span class="material-symbols-outlined" style="font-size:17px">document_scanner</span>
+            <span style="font-size:12px;">OCR 자동입력</span>
           </button>
         </template>
         <template x-if="tabs.find(t=>t.id==='contacts')">
@@ -6210,10 +6210,10 @@ function app() {
       { id: 'vendors', label: '업체 관리' },
       { id: 'design', label: '시안 검색' },
       // { id: 'productDesign', label: '시안 자동분석' },  // 숨김 — 미완성 기능
-      { id: 'ocr', label: 'OCR 텍스트 추출' },
-      { id: 'purchaseAuto', label: '매입 자동화' },
+      // { id: 'ocr', label: 'OCR 텍스트 추출' },          // 숨김 — OCR 자동입력으로 흡수
+      // { id: 'purchaseAuto', label: '매입 자동화' },     // 숨김 — OCR 자동입력으로 흡수
       { id: 'photos', label: '사진 라이브러리' },
-      { id: 'statements', label: '명세서 스캔' },
+      { id: 'statements', label: 'OCR 자동입력' },
       { id: 'contacts', label: '연락처' },
       { id: 'calendar', label: '캘린더' },
       { id: 'approval', label: '결재' },
@@ -6327,10 +6327,10 @@ function app() {
           { id: 'salesLookup', label: '과거단가조회' },
           { id: 'stats', label: '통계' }, { id: 'design', label: '시안 검색' },
           // { id: 'productDesign', label: '시안 자동분석' },  // 숨김 — 미완성 기능
-          { id: 'ocr', label: 'OCR 텍스트 추출' },
-          { id: 'purchaseAuto', label: '매입 자동화' },
+          // { id: 'ocr', label: 'OCR 텍스트 추출' },          // 숨김 — OCR 자동입력으로 흡수
+          // { id: 'purchaseAuto', label: '매입 자동화' },     // 숨김 — OCR 자동입력으로 흡수
           { id: 'photos', label: '사진 라이브러리' },
-          { id: 'statements', label: '명세서 스캔' },
+          { id: 'statements', label: 'OCR 자동입력' },
           { id: 'contacts', label: '연락처' }, { id: 'calendar', label: '캘린더' }, { id: 'notices', label: '공지사항' }, { id: 'settings', label: '설정' },
           { id: 'workspace', label: '워크스페이스' },
           { id: 'ai', label: 'AI 챗' },

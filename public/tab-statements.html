@@ -90,20 +90,202 @@
     </div>
   </template>
 
-  <!-- ═════ 에스엠 이카운트 모드 (STEP C 에서 구현, 임시 안내) ═════ -->
+  <!-- ═════ 에스엠 이카운트 모드 (캡처 모방) ═════ -->
   <template x-if="currentView==='sm-buy' || currentView==='sm-sell'">
+    <div>
+      <!-- 이카운트 헤더바 (진한 파랑) -->
+      <div style="background:#1E40FA; color:#fff; padding:6px 12px; font-size:12px; display:flex; align-items:center; gap:8px; border-radius:4px 4px 0 0;">
+        <button @click="exitMode()" style="background:rgba(255,255,255,0.15); border:0; color:#fff; padding:3px 10px; border-radius:3px; font-size:11px; cursor:pointer;">← 돌아가기</button>
+        <span x-text="currentView==='sm-buy' ? '구매수정 [OCR 자동입력]' : '판매수정 [OCR 자동입력]'"></span>
+        <div style="flex:1;"></div>
+        <a :href="exportUrl('SM')" style="background:rgba(255,255,255,0.15); border:0; color:#fff; padding:3px 10px; border-radius:3px; font-size:11px; text-decoration:none;">📊 엑셀</a>
+      </div>
+
+      <div style="background:#fff; border:1px solid #c7c9d1; border-top:0; border-radius:0 0 6px 6px; display:grid; grid-template-columns: 1.2fr 1fr; min-height:540px;">
+        <!-- 좌측: 이카운트 입력 폼 모방 -->
+        <div style="padding:14px; border-right:1px solid #c7c9d1; overflow:auto;">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+            <span style="color:#c7c9d1; font-size:14px;">★</span>
+            <span style="font-weight:500; font-size:13px;" x-text="currentView==='sm-buy' ? '구매수정' : '판매수정'"></span>
+            <div style="flex:1;"></div>
+            <button style="font-size:11px; padding:3px 10px; background:#fff; border:1px solid #c7c9d1; border-radius:3px;">확인취소</button>
+            <button style="font-size:11px; padding:3px 10px; background:#fff; border:1px solid #c7c9d1; border-radius:3px;">Option</button>
+            <button style="font-size:11px; padding:3px 10px; background:#fff; border:1px solid #c7c9d1; border-radius:3px;">도움말</button>
+          </div>
+          <div style="margin-bottom:10px;">
+            <span style="background:#1E40FA; color:#fff; font-size:11px; padding:4px 12px; border-radius:14px;" x-text="currentView==='sm-buy' ? '구매입력 ▼' : '거래명세서 ▼'"></span>
+            <button style="background:#fff; border:1px solid #c7c9d1; padding:4px 8px; border-radius:14px; font-size:11px; margin-left:4px;">+</button>
+          </div>
+
+          <!-- 상단 정보 영역 -->
+          <div style="display:grid; grid-template-columns:60px 1fr 60px 1fr; gap:5px 10px; font-size:11px; align-items:center; margin-bottom:10px;">
+            <span style="color:#444;">일자</span>
+            <input type="date" :value="selectedRow?.date || ''" style="height:24px; font-size:11px; border:1px solid #d4d6dd; border-radius:2px; padding:2px 4px;">
+            <span style="color:#444;">거래처</span>
+            <div style="display:flex; gap:4px; align-items:center;">
+              <input :value="selectedRow?.vendor_biz_no || ''" placeholder="사업자번호" style="width:100px; height:24px; font-size:11px; border:1px solid #d4d6dd; border-radius:2px; padding:2px 4px;">
+              <span style="color:#888;">🔍</span>
+              <span style="font-size:11px; flex:1;" x-text="selectedRow?.vendor || ''"></span>
+            </div>
+            <span style="color:#444;">담당자</span>
+            <input placeholder="담당자" style="height:24px; font-size:11px; border:1px solid #d4d6dd; border-radius:2px; padding:2px 4px;">
+            <span style="color:#444;" x-text="currentView==='sm-buy' ? '입고창고' : '출하창고'"></span>
+            <div style="display:flex; gap:4px;">
+              <input value="100" style="width:40px; height:24px; font-size:11px; border:1px solid #d4d6dd; border-radius:2px; padding:2px 4px;">
+              <span style="line-height:24px;">본사창고</span>
+            </div>
+            <span style="color:#444;">거래유형</span>
+            <select style="height:24px; font-size:11px; border:1px solid #d4d6dd;">
+              <option>부가세율 적용</option>
+            </select>
+            <span style="color:#444;">통화</span>
+            <select style="height:24px; font-size:11px; border:1px solid #d4d6dd;">
+              <option>내자</option>
+            </select>
+          </div>
+
+          <!-- 액션 버튼 행 -->
+          <div style="display:flex; gap:3px; flex-wrap:wrap; margin:8px 0; font-size:10px;">
+            <button style="padding:2px 7px; background:#fff; border:1px solid #c7c9d1; border-radius:2px;">찾기(F3)</button>
+            <button style="padding:2px 7px; background:#fff; border:1px solid #c7c9d1; border-radius:2px;">정렬</button>
+            <button style="padding:2px 7px; background:#fff; border:1px solid #c7c9d1; border-radius:2px;" x-text="currentView==='sm-buy' ? '거래내역보기(구매) ▼' : '거래내역보기(판매) ▼'"></button>
+            <button style="padding:2px 7px; background:#fff; border:1px solid #c7c9d1; border-radius:2px;">My품목 ▼</button>
+            <button style="padding:2px 7px; background:#fff; border:1px solid #c7c9d1; border-radius:2px;">할인</button>
+            <button style="padding:2px 7px; background:#fff; border:1px solid #c7c9d1; border-radius:2px;">전표불러오기</button>
+            <button style="padding:2px 7px; background:#fff; border:1px solid #c7c9d1; border-radius:2px;">바코드</button>
+          </div>
+
+          <!-- 라인 아이템 표 -->
+          <table style="width:100%; border-collapse:collapse; font-size:11px;">
+            <thead>
+              <tr style="background:#f3f4f6;">
+                <th style="border:1px solid #d4d6dd; padding:4px; width:18px;"></th>
+                <th style="border:1px solid #d4d6dd; padding:4px; width:22px;"></th>
+                <th style="border:1px solid #d4d6dd; padding:4px; font-weight:500;">품목코드</th>
+                <th style="border:1px solid #d4d6dd; padding:4px; font-weight:500;">품목명</th>
+                <th style="border:1px solid #d4d6dd; padding:4px; font-weight:500;">규격</th>
+                <th style="border:1px solid #d4d6dd; padding:4px; font-weight:500; width:50px;">수량</th>
+                <th style="border:1px solid #d4d6dd; padding:4px; font-weight:500; width:60px;">단가</th>
+                <th style="border:1px solid #d4d6dd; padding:4px; font-weight:500; width:80px;">공급가액</th>
+                <th style="border:1px solid #d4d6dd; padding:4px; font-weight:500; width:60px;">부가세</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(r, idx) in (modeRows||[])" :key="r._key">
+                <tr :class="{'selected-ec': selectedRowIdx===idx}" @click="selectModeRow(idx)" style="cursor:pointer;">
+                  <td style="border:1px solid #d4d6dd; padding:3px; text-align:center;">☐</td>
+                  <td style="border:1px solid #d4d6dd; padding:3px; text-align:center; color:#888; font-size:10px;" x-text="(idx+1)+'▽'"></td>
+                  <td style="border:1px solid #d4d6dd; padding:0;"><input x-model="r.item_code" placeholder="자동매칭" style="width:100%; padding:3px 5px; border:0; background:transparent; font-size:11px; outline:none;"></td>
+                  <td style="border:1px solid #d4d6dd; padding:0;"><input x-model="r.name" style="width:100%; padding:3px 5px; border:0; background:transparent; font-size:11px; outline:none;"></td>
+                  <td style="border:1px solid #d4d6dd; padding:0;"><input x-model="r.spec" style="width:100%; padding:3px 5px; border:0; background:transparent; font-size:11px; outline:none;"></td>
+                  <td style="border:1px solid #d4d6dd; padding:0;"><input type="number" x-model.number="r.qty" @input="recalc(r)" style="width:100%; padding:3px 5px; border:0; background:transparent; font-size:11px; outline:none; text-align:right;"></td>
+                  <td style="border:1px solid #d4d6dd; padding:0;"><input type="number" x-model.number="r.price" @input="recalc(r)" style="width:100%; padding:3px 5px; border:0; background:transparent; font-size:11px; outline:none; text-align:right;"></td>
+                  <td style="border:1px solid #d4d6dd; padding:0;"><input type="number" x-model.number="r.amount" @input="recalc(r, true)" style="width:100%; padding:3px 5px; border:0; background:transparent; font-size:11px; outline:none; text-align:right;"></td>
+                  <td style="border:1px solid #d4d6dd; padding:0;"><input type="number" x-model.number="r.vat" style="width:100%; padding:3px 5px; border:0; background:transparent; font-size:11px; outline:none; text-align:right;"></td>
+                </tr>
+              </template>
+              <tr x-show="!modeRows||modeRows.length===0">
+                <td colspan="9" style="text-align:center; padding:30px; color:#9ca3af;">이 분할에 등록할 명세서 없음</td>
+              </tr>
+              <tr style="background:#f9fafb;" x-show="modeRows && modeRows.length>0">
+                <td colspan="5" style="border:1px solid #d4d6dd; padding:3px;"></td>
+                <td style="border:1px solid #d4d6dd; padding:3px; text-align:right; font-weight:500;" x-text="modeRows.reduce((s,r)=>s+(Number(r.qty)||0),0)"></td>
+                <td style="border:1px solid #d4d6dd; padding:3px;"></td>
+                <td style="border:1px solid #d4d6dd; padding:3px; text-align:right; font-weight:500;" x-text="modeRows.reduce((s,r)=>s+(Number(r.amount)||0),0).toLocaleString()"></td>
+                <td style="border:1px solid #d4d6dd; padding:3px; text-align:right; font-weight:500;" x-text="modeRows.reduce((s,r)=>s+(Number(r.vat)||0),0).toLocaleString()"></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- 하단 액션 -->
+          <div style="display:flex; gap:4px; margin-top:14px; align-items:center;">
+            <span style="color:#1E40FA; font-size:13px;">✈</span>
+            <button @click="ecountRegister(currentView==='sm-buy'?'매입':'매출', true)" style="padding:5px 14px; background:#1E40FA; color:#fff; border:0; border-radius:3px; font-size:11px; font-weight:500;" title="실제 등록 전 dry-run 검증">⚡ 이카운트 dry-run</button>
+            <button @click="ecountRegister(currentView==='sm-buy'?'매입':'매출', false)" style="padding:5px 14px; background:#dc2626; color:#fff; border:0; border-radius:3px; font-size:11px; font-weight:500;">🔴 실제 등록</button>
+            <button class="back" @click="addBlankRow()" style="font-size:11px;">+ 행 추가</button>
+            <div style="flex:1;"></div>
+            <span style="color:#6b7280; font-size:11px;" x-text="`${(modeRows||[]).length}건 / 합계 ${modeSum().toLocaleString()}원`"></span>
+          </div>
+          <div x-show="ecountMsg" x-cloak style="margin-top:10px; padding:10px; background:#f3f4f6; border-radius:4px; font-size:11px; white-space:pre-wrap; max-height:140px; overflow:auto;" x-text="ecountMsg"></div>
+        </div>
+
+        <!-- 우측 미리보기 -->
+        <div class="ce-pane">
+          <h4>선택 행 원본 (1/<span x-text="(modeRows||[]).length"></span>)</h4>
+          <div class="ce-preview-img" x-show="selectedRow && selectedRow.statement_id">
+            <template x-if="selectedRow && (selectedRow.source_file||'').toLowerCase().endsWith('.pdf')">
+              <iframe :src="`/api/statements/${selectedRow.statement_id}/file`"></iframe>
+            </template>
+            <template x-if="selectedRow && !(selectedRow.source_file||'').toLowerCase().endsWith('.pdf')">
+              <img :src="`/api/statements/${selectedRow.statement_id}/file`" alt="원본">
+            </template>
+          </div>
+          <div class="ce-preview-img" x-show="!selectedRow || !selectedRow.statement_id" style="color:#9ca3af; font-size:12px;">
+            왼쪽 표에서 행을 클릭하면 원본 보임
+          </div>
+          <div x-show="selectedRow" style="font-size:11px; color:#6b7280;">
+            <div>거래처: <b x-text="selectedRow?.vendor"></b></div>
+            <div>업로드: <span x-text="selectedRow?.uploaded_at"></span></div>
+          </div>
+          <div style="display:flex; gap:5px;">
+            <button class="st-btn st-btn-ghost st-btn-sm" style="flex:1;" @click="prevRow()">← 이전</button>
+            <button class="st-btn st-btn-ghost st-btn-sm" style="flex:1;" @click="nextRow()">다음 →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- ═════ 시안 오타 확인 모드 ═════ -->
+  <template x-if="currentView==='spell-check'">
     <div>
       <div class="mode-bar">
         <button class="back" @click="exitMode()">← 돌아가기</button>
-        <span class="mode-badge-sm">에스엠 (이카운트)</span>
-        <span :class="currentView==='sm-buy'?'mode-badge-buy':'mode-badge-sell'" x-text="currentView==='sm-buy'?'매입':'매출'"></span>
-        <span class="mode-title">이카운트 모드</span>
+        <span style="background:#fef3c7; color:#92400e; font-size:11px; font-weight:600; padding:3px 8px; border-radius:4px;">시안 오타 확인</span>
+        <span class="mode-title">디자인 검수 보조</span>
+        <span style="color:#6b7280; font-size:12px;">PPTX 시안의 텍스트를 AI가 검사 (맞춤법/오타/사이즈 일관성/숫자 검증)</span>
+        <div style="flex:1;"></div>
       </div>
-      <div class="mode-body" style="grid-template-columns:1fr; align-items:center; justify-content:center;">
-        <div style="padding:60px; text-align:center; color:#6b7280;">
-          <div style="font-size:48px; margin-bottom:14px;">⚡</div>
-          <div style="font-size:14px; font-weight:600;">이카운트 모드 준비 중 (STEP C)</div>
-          <div style="font-size:12px; margin-top:6px;">사장님이 보내준 이카운트 화면 그대로 모사 + API 자동등록</div>
+      <div class="mode-body" style="grid-template-columns:1fr; padding:0;">
+        <div style="padding:20px;">
+          <div class="drop-zone" @click="$refs.spellFile.click()" @dragover.prevent="dragOver=true" @dragleave="dragOver=false"
+            @drop.prevent="dragOver=false; spellCheck($event.dataTransfer.files)" :class="dragOver?'dragover':''">
+            <div class="icon">✏️📄</div>
+            <div style="font-size:14px; font-weight:600; margin-bottom:4px;">시안 PPTX 던지면 AI 가 오타·이상한 표기 자동 검사</div>
+            <div style="font-size:12px;">슬라이드별 텍스트 추출 → 한글 맞춤법 / 사이즈 표기 / 숫자 일관성 / 거래처명 검증</div>
+          </div>
+          <input type="file" multiple accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            x-ref="spellFile" style="display:none;" @change="spellCheck($event.target.files)">
+
+          <div x-show="spellResults.length > 0" x-cloak style="margin-top:20px;">
+            <div style="font-weight:600; margin-bottom:10px;">검사 결과 (<span x-text="spellResults.length"></span>장)</div>
+            <template x-for="(s, i) in spellResults" :key="i">
+              <div style="background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:14px; margin-bottom:10px;">
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                  <span style="font-weight:600; font-size:13px;" x-text="`📄 ${s.file} - 슬라이드 ${s.slide}`"></span>
+                  <span x-show="s.issues && s.issues.length > 0" style="background:#fee2e2; color:#991b1b; font-size:10px; padding:2px 6px; border-radius:4px; font-weight:600;" x-text="`${s.issues.length}건 의심`"></span>
+                  <span x-show="!s.issues || s.issues.length === 0" style="background:#d1fae5; color:#065f46; font-size:10px; padding:2px 6px; border-radius:4px; font-weight:600;">정상</span>
+                </div>
+                <div style="font-size:11px; color:#6b7280; margin-bottom:6px;">원본 텍스트:</div>
+                <div style="background:#f3f4f6; padding:8px; border-radius:4px; font-size:11px; margin-bottom:8px;" x-text="s.text || '(텍스트 없음)'"></div>
+                <template x-if="s.issues && s.issues.length > 0">
+                  <div>
+                    <div style="font-size:11px; color:#6b7280; margin-bottom:6px;">⚠️ 의심 항목:</div>
+                    <template x-for="(iss, j) in s.issues" :key="j">
+                      <div style="background:#fef3c7; padding:6px 10px; border-radius:4px; font-size:11px; margin-bottom:3px;">
+                        <span style="font-weight:600; color:#92400e;" x-text="iss.type"></span> · <span x-text="iss.message"></span>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+
+          <div x-show="spellChecking" x-cloak style="margin-top:20px; padding:20px; text-align:center; color:#6b7280;">
+            <div style="font-size:18px; margin-bottom:6px;">⏳</div>
+            <div>AI 가 검사 중... (<span x-text="spellChecked"></span>/<span x-text="spellTotal"></span>)</div>
+          </div>
         </div>
       </div>
     </div>
@@ -187,6 +369,10 @@
     .ce-preview-img { background:#fff; border:1px solid #c7c9d1; border-radius:3px; flex:1; min-height:300px; overflow:auto; display:flex; align-items:center; justify-content:center; padding:8px; }
     .ce-preview-img img { max-width:100%; max-height:100%; }
     .ce-preview-img iframe { width:100%; height:100%; border:0; min-height:300px; }
+
+    /* 이카운트 모드 추가 스타일 */
+    tr.selected-ec td { background:#DEEBFF !important; }
+    tr.selected-ec td:nth-child(3) { box-shadow: inset 0 0 0 2px #1E40FA; }
   </style>
 
   <!-- 헤더 -->
@@ -241,6 +427,19 @@
     </template>
   </div>
 
+  <!-- 특수 모드 (시안 오타 확인 등) -->
+  <div class="st-card" style="display:flex; align-items:center; gap:10px;">
+    <div style="font-size:13px; font-weight:600; color:#374151;">🔍 특수 모드:</div>
+    <button @click="currentView='spell-check'" class="st-btn st-btn-ghost st-btn-sm" style="background:#fef3c7; color:#92400e; border-color:#fcd34d;">
+      ✏️ 시안 오타 확인
+    </button>
+    <button class="st-btn st-btn-ghost st-btn-sm" style="background:#dbeafe; color:#1e40af; border-color:#93c5fd;" @click="alert('단순 텍스트 추출 (옛 OCR 텍스트추출 메뉴 흡수) — 추후 구현')">
+      📄 단순 텍스트 추출
+    </button>
+    <div style="flex:1;"></div>
+    <span style="font-size:11px; color:#9ca3af;">위 4분할 카드 = 매입매출 자동등록 / 여기 = 보조 도구</span>
+  </div>
+
   <!-- 미분류 알림 -->
   <div x-show="quadCount(null,null) > 0 || (stats.byQuadrant||[]).some(q => q.company==='미분류' || q.class==='미분류')" x-cloak class="st-card"
     style="background:#fef3c7; border-color:#fcd34d; padding:10px 14px; display:flex; align-items:center; gap:10px;">
@@ -259,10 +458,12 @@
       @drop.prevent="dragOver=false; uploadFiles($event.dataTransfer.files)" :class="dragOver?'dragover':''">
       <div class="icon">📷📄🎨</div>
       <div style="font-size:14px; font-weight:600; margin-bottom:4px;">명세서 / 시안 / 영수증 어떤 거든 던지기</div>
-      <div style="font-size:12px;">JPG / PNG / PDF · 한 번에 여러 장 · AI가 회사·구분 자동분류</div>
-      <div style="font-size:11px; color:#9ca3af; margin-top:4px;">PPTX 시안은 추후 업데이트 예정 (현재는 슬라이드 이미지 추출 후 업로드)</div>
+      <div style="font-size:12px;">📷 JPG/PNG · 📄 PDF · 🎨 PPTX 시안 (자동 슬라이드 분리) · 한 번에 여러 장 · AI가 4분할 자동분류</div>
+      <div style="font-size:11px; color:#9ca3af; margin-top:4px;">PPTX = 컴퍼니 매출 자동 / 명세서 = 회사·구분 자동 판별</div>
     </div>
-    <input type="file" multiple accept="image/*,application/pdf" x-ref="fileInput" style="display:none;" @change="uploadFiles($event.target.files)">
+    <input type="file" multiple
+      accept="image/*,application/pdf,.pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      x-ref="fileInput" style="display:none;" @change="uploadFiles($event.target.files)">
 
     <!-- 큐 진행률 -->
     <div x-show="queue.total > 0" x-cloak style="margin-top:14px;">
@@ -564,6 +765,66 @@ function statementsApp() {
       }
       this.loadModeRows();
       this.loadStats();
+    },
+
+    // 시안 오타 확인
+    spellResults: [],
+    spellChecking: false,
+    spellChecked: 0,
+    spellTotal: 0,
+    async spellCheck(files) {
+      if (!files || files.length === 0) return;
+      this.spellChecking = true;
+      this.spellChecked = 0;
+      this.spellTotal = files.length;
+      this.spellResults = [];
+      const fd = new FormData();
+      for (const f of files) fd.append('files', f);
+      try {
+        const r = await fetch('/api/statements/spell-check', { method: 'POST', body: fd }).then(r => r.json());
+        if (r.ok) {
+          this.spellResults = r.results || [];
+        } else {
+          alert('실패: ' + r.error);
+        }
+      } catch (e) {
+        alert('에러: ' + e.message);
+      } finally {
+        this.spellChecking = false;
+      }
+    },
+
+    // 이카운트 등록 (dryRun OR 실제)
+    ecountMsg: '',
+    async ecountRegister(docClass, dryRun) {
+      this.ecountMsg = dryRun ? '⚙️ dry-run 검증 중...' : '🔴 이카운트 실제 등록 중... (취소 불가)';
+      if (!dryRun) {
+        if (!confirm(`이카운트에 ${docClass} ${(this.modeRows||[]).length}건 실제 등록합니다. 진행?`)) {
+          this.ecountMsg = '';
+          return;
+        }
+      }
+      try {
+        const r = await fetch('/api/statements/ecount/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            docClass,
+            month: this.filterMonth || null,
+            dryRun,
+          }),
+        }).then(r => r.json());
+        if (r.ok && r.dryRun) {
+          this.ecountMsg = `✅ dry-run 성공\n등록 대기: ${r.itemCount}건\n샘플:\n${JSON.stringify(r.sample, null, 2)}`;
+        } else if (r.ok) {
+          this.ecountMsg = `✅ 이카운트 등록 성공! ${r.itemCount}건\n응답: ${JSON.stringify(r.result?.raw || r.result, null, 2).slice(0, 500)}`;
+          this.loadModeRows();
+        } else {
+          this.ecountMsg = `❌ 실패: ${r.error || '알 수 없음'}\n${JSON.stringify(r, null, 2).slice(0, 500)}`;
+        }
+      } catch (e) {
+        this.ecountMsg = '❌ 호출 에러: ' + e.message;
+      }
     },
 
     // 4분할 카드 헬퍼
