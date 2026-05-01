@@ -126,9 +126,9 @@ function resetQueueStatsIfIdle() {
   }
 }
 
-// AI 추출 — Claude Vision API 사용
+// AI 추출 — Claude Code CLI 사용 (사용자 구독 안에서, 비용 0)
 async function extractStatement(filePath, mimeType, hint) {
-  const claudeClient = require('../lib/claude-client');
+  const cli = require('../lib/claude-cli');
   const hintText = hint ? `\n[힌트: ${hint}]\n` : '';
   const PROMPT = `이 이미지/PDF/시안은 대림에스엠(주) 또는 대림컴퍼니(주)의 거래 자료입니다.
 거래명세서, 세금계산서, 매입명세서, 영수증, 또는 디자인 시안(PPTX 슬라이드) 일 수 있습니다.${hintText}
@@ -186,39 +186,10 @@ vendor_name 은 항상 "상대방 회사명" (우리 회사 X)
 - items 배열이 비면 빈 배열 []
 - JSON 외 텍스트 절대 출력하지 마세요`;
 
-  const fileBuffer = fs.readFileSync(filePath);
-  const isPdf = (mimeType || '').includes('pdf');
-
-  const content = [];
-  if (isPdf) {
-    content.push({
-      type: 'document',
-      source: { type: 'base64', media_type: 'application/pdf', data: fileBuffer.toString('base64') },
-    });
-  } else {
-    let mime = mimeType || 'image/png';
-    if (!mime.startsWith('image/')) mime = 'image/png';
-    content.push({
-      type: 'image',
-      source: { type: 'base64', media_type: mime, data: fileBuffer.toString('base64') },
-    });
-  }
-  content.push({ type: 'text', text: PROMPT });
-
-  const result = await claudeClient.callClaudeApi(
-    [{ role: 'user', content }],
-    { maxTokens: 4096 }
-  );
-
-  const text = ((result && result.text) || '').trim();
-  // ```json ... ``` 래퍼 제거
-  let json = text;
-  if (json.startsWith('```')) {
-    json = json.split('\n').slice(1).join('\n');
-    json = json.split('```')[0].trim();
-    if (json.startsWith('json\n')) json = json.slice(5);
-  }
-  return { raw: text, parsed: JSON.parse(json) };
+  // CLI 로 호출 (파일 경로를 첨부) — 사용자 구독 안에서 무료
+  const result = await cli.callClaudeCli(PROMPT, [filePath]);
+  const text = (result && result.text) || '';
+  return { raw: text, parsed: cli.parseJsonFromResponse(text) };
 }
 
 async function processQueueItem() {
@@ -553,11 +524,12 @@ router.get('/export.xlsx', requireAuth, async (req, res) => {
 });
 
 // ── 시안 오타 확인 (이미지 JPG/PNG) ──
-// 카톡 시안 이미지 → Claude Vision 으로 텍스트 추출 + 맞춤법/오타/사이즈/숫자 검사
+// 카톡 시안 이미지 → Claude Code CLI 로 텍스트 추출 + 맞춤법/오타/사이즈/숫자 검사
+// (사용자 구독 안에서, 비용 0)
 router.post('/spell-check', requireAuth, upload.array('files', 50), async (req, res) => {
   const files = req.files || [];
   if (files.length === 0) return res.status(400).json({ ok: false, error: '파일 없음' });
-  const claudeClient = require('../lib/claude-client');
+  const cli = require('../lib/claude-cli');
   const results = [];
 
   const PROMPT = `이 이미지는 인쇄·사인물·간판·스티커 디자인 시안입니다.
@@ -578,24 +550,16 @@ JSON 만 출력 (다른 설명/마크다운 X):
 - 숫자 일관성 (예: 동일 항목에 다른 수량/금액)
 - 거래처명·현장명·연락처의 띄어쓰기/표기
 
-문제 없으면 issues=[]. text 는 시안 안 글자만 (로고/외부 회사명 제외해도 됨).`;
+문제 없으면 issues=[]. text 는 시안 안 글자만 (로고/외부 회사명 제외해도 됨).
+JSON 외 텍스트 절대 X.`;
 
-  for (const f of files) {
+  // 동시 호출 (CLI 가 격리된 cwd 로 spawn 되어 병렬 가능)
+  await Promise.all(files.map(async (f) => {
     try {
-      const buf = fs.readFileSync(f.path);
-      let mime = f.mimetype || 'image/png';
-      if (!mime.startsWith('image/')) mime = 'image/png';
-      const r = await claudeClient.callClaudeApi(
-        [{ role: 'user', content: [
-          { type: 'image', source: { type: 'base64', media_type: mime, data: buf.toString('base64') } },
-          { type: 'text', text: PROMPT },
-        ]}],
-        { maxTokens: 1500 }
-      );
-      const txt = ((r && r.text) || '').trim();
-      let json = txt.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/```\s*$/, '').trim();
+      const r = await cli.callClaudeCli(PROMPT, [f.path]);
+      const txt = (r && r.text) || '';
       try {
-        const parsed = JSON.parse(json);
+        const parsed = cli.parseJsonFromResponse(txt);
         results.push({
           file: f.originalname,
           text: parsed.text || '',
@@ -605,19 +569,24 @@ JSON 만 출력 (다른 설명/마크다운 X):
         results.push({
           file: f.originalname,
           text: '',
-          issues: [{ type: 'AI파싱오류', message: parseErr.message + ' / 응답: ' + txt.slice(0, 100) }],
+          issues: [{ type: 'AI파싱오류', message: parseErr.message + ' / 응답: ' + txt.slice(0, 200) }],
         });
       }
-      // 임시 파일 삭제
-      try { fs.unlinkSync(f.path); } catch(_){}
     } catch (e) {
       results.push({
         file: f.originalname,
         text: '',
         issues: [{ type: '처리오류', message: e.message }],
       });
+    } finally {
+      try { fs.unlinkSync(f.path); } catch(_){}
     }
-  }
+  }));
+
+  // 업로드 순서 유지
+  const order = new Map(files.map((f, i) => [f.originalname, i]));
+  results.sort((a, b) => (order.get(a.file) ?? 0) - (order.get(b.file) ?? 0));
+
   res.json({ ok: true, results });
 });
 
