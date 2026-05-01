@@ -134,16 +134,32 @@ function statementsApp() {
     spellTotal: 0,
     async spellCheck(files) {
       if (!files || files.length === 0) return;
+      // 이미지만 필터
+      const imgs = Array.from(files).filter(f => (f.type || '').startsWith('image/'));
+      if (imgs.length === 0) {
+        alert('이미지 파일(JPG/PNG)만 검사 가능 — 카톡 시안 사진 복사 후 Ctrl+V');
+        return;
+      }
       this.spellChecking = true;
       this.spellChecked = 0;
-      this.spellTotal = files.length;
-      this.spellResults = [];
+      this.spellTotal = imgs.length;
+      // 이미지 미리보기 dataURL 만들기
+      const previews = await Promise.all(imgs.map(f => new Promise(res => {
+        const fr = new FileReader();
+        fr.onload = () => res({ name: f.name || '붙여넣은 이미지', dataUrl: fr.result });
+        fr.readAsDataURL(f);
+      })));
       const fd = new FormData();
-      for (const f of files) fd.append('files', f);
+      imgs.forEach((f, i) => fd.append('files', f, previews[i].name));
       try {
         const r = await fetch('/api/statements/spell-check', { method: 'POST', body: fd }).then(r => r.json());
         if (r.ok) {
-          this.spellResults = r.results || [];
+          const results = (r.results || []).map((res, i) => ({
+            ...res,
+            imageDataUrl: previews[i] ? previews[i].dataUrl : null,
+          }));
+          // 누적 (Ctrl+V 여러번 가능)
+          this.spellResults = [...this.spellResults, ...results];
         } else {
           alert('실패: ' + r.error);
         }
@@ -151,6 +167,27 @@ function statementsApp() {
         alert('에러: ' + e.message);
       } finally {
         this.spellChecking = false;
+      }
+    },
+
+    // Ctrl+V 핸들러 — 클립보드에 이미지 있으면 검사
+    onSpellPaste(e) {
+      if (this.currentView !== 'spell-check') return;
+      const items = (e.clipboardData && e.clipboardData.items) || [];
+      const files = [];
+      for (const it of items) {
+        if ((it.type || '').startsWith('image/')) {
+          const f = it.getAsFile();
+          if (f) {
+            const ts = new Date().toISOString().slice(11, 19).replace(/:/g, '');
+            const ext = (f.type || 'image/png').split('/')[1] || 'png';
+            files.push(new File([f], `붙여넣기_${ts}.${ext}`, { type: f.type }));
+          }
+        }
+      }
+      if (files.length > 0) {
+        e.preventDefault();
+        this.spellCheck(files);
       }
     },
 

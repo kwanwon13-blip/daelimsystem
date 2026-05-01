@@ -552,53 +552,70 @@ router.get('/export.xlsx', requireAuth, async (req, res) => {
   res.end();
 });
 
-// ── 시안 오타 확인 ──
-// PPTX 슬라이드별 텍스트 추출 → AI 가 맞춤법/오타/이상 표기 검사
+// ── 시안 오타 확인 (이미지 JPG/PNG) ──
+// 카톡 시안 이미지 → Claude Vision 으로 텍스트 추출 + 맞춤법/오타/사이즈/숫자 검사
 router.post('/spell-check', requireAuth, upload.array('files', 50), async (req, res) => {
   const files = req.files || [];
   if (files.length === 0) return res.status(400).json({ ok: false, error: '파일 없음' });
   const claudeClient = require('../lib/claude-client');
   const results = [];
-  for (const f of files) {
-    try {
-      const slides = await splitPptxToSlides(f.path);
-      for (const sl of slides) {
-        const text = sl.slideText || '';
-        if (!text.trim()) {
-          results.push({ file: f.originalname, slide: sl.slideIndex, text: '', issues: [] });
-          continue;
-        }
-        const PROMPT = `아래는 인쇄/사인물 시안(PPTX 슬라이드)의 텍스트입니다.
-한글 맞춤법, 오타, 사이즈 표기 일관성 (예: "500*500" vs "500x500"), 숫자 오류, 이상 표기를 검사하세요.
 
-[시안 텍스트]
-${text}
+  const PROMPT = `이 이미지는 인쇄·사인물·간판·스티커 디자인 시안입니다.
+시안 안의 모든 텍스트를 정확히 추출하고, 한글 맞춤법/오타/사이즈 표기 일관성/숫자 오류/이상 표기를 검사하세요.
 
-JSON 만 출력:
+JSON 만 출력 (다른 설명/마크다운 X):
 {
+  "text": "시안에 보이는 모든 텍스트 (줄바꿈 포함, 그대로 추출)",
   "issues": [
-    { "type": "맞춤법|오타|사이즈|숫자|기타", "message": "문제 설명 (10-30자)" }
+    { "type": "맞춤법|오타|사이즈|숫자|기타", "message": "문제 설명 (10-40자, 어떤 부분이 의심스러운지 구체적으로)" }
   ]
 }
 
-문제 없으면 issues=[]. JSON 외 텍스트 절대 X.`;
-        try {
-          const r = await claudeClient.callClaudeApi(
-            [{ role: 'user', content: [{ type: 'text', text: PROMPT }] }],
-            { maxTokens: 1024 }
-          );
-          const t = ((r && r.text) || '').trim();
-          let json = t.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/```\s*$/, '').trim();
-          const parsed = JSON.parse(json);
-          results.push({ file: f.originalname, slide: sl.slideIndex, text, issues: parsed.issues || [] });
-        } catch (e) {
-          results.push({ file: f.originalname, slide: sl.slideIndex, text, issues: [{ type: 'AI오류', message: e.message }] });
-        }
+검사 포인트:
+- 한글 맞춤법 (예: "되요" → "돼요", "않 됩니다" → "안 됩니다")
+- 오타 (예: 받침 누락, 자모 오류)
+- 사이즈 표기 일관성 (예: 한 시안에 "500*500" 과 "500x500" 혼용)
+- 숫자 일관성 (예: 동일 항목에 다른 수량/금액)
+- 거래처명·현장명·연락처의 띄어쓰기/표기
+
+문제 없으면 issues=[]. text 는 시안 안 글자만 (로고/외부 회사명 제외해도 됨).`;
+
+  for (const f of files) {
+    try {
+      const buf = fs.readFileSync(f.path);
+      let mime = f.mimetype || 'image/png';
+      if (!mime.startsWith('image/')) mime = 'image/png';
+      const r = await claudeClient.callClaudeApi(
+        [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: mime, data: buf.toString('base64') } },
+          { type: 'text', text: PROMPT },
+        ]}],
+        { maxTokens: 1500 }
+      );
+      const txt = ((r && r.text) || '').trim();
+      let json = txt.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/```\s*$/, '').trim();
+      try {
+        const parsed = JSON.parse(json);
+        results.push({
+          file: f.originalname,
+          text: parsed.text || '',
+          issues: parsed.issues || [],
+        });
+      } catch (parseErr) {
+        results.push({
+          file: f.originalname,
+          text: '',
+          issues: [{ type: 'AI파싱오류', message: parseErr.message + ' / 응답: ' + txt.slice(0, 100) }],
+        });
       }
       // 임시 파일 삭제
       try { fs.unlinkSync(f.path); } catch(_){}
     } catch (e) {
-      results.push({ file: f.originalname, slide: 0, text: '', issues: [{ type: '파싱오류', message: e.message }] });
+      results.push({
+        file: f.originalname,
+        text: '',
+        issues: [{ type: '처리오류', message: e.message }],
+      });
     }
   }
   res.json({ ok: true, results });

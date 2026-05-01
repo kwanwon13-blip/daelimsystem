@@ -238,53 +238,67 @@
 
   <!-- ═════ 시안 오타 확인 모드 ═════ -->
   <template x-if="currentView==='spell-check'">
-    <div>
+    <div @paste.window="onSpellPaste($event)">
       <div class="mode-bar">
         <button class="back" @click="exitMode()">← 돌아가기</button>
         <span style="background:#fef3c7; color:#92400e; font-size:11px; font-weight:600; padding:3px 8px; border-radius:4px;">시안 오타 확인</span>
         <span class="mode-title">디자인 검수 보조</span>
-        <span style="color:#6b7280; font-size:12px;">PPTX 시안의 텍스트를 AI가 검사 (맞춤법/오타/사이즈 일관성/숫자 검증)</span>
+        <span style="color:#6b7280; font-size:12px;">시안 이미지(JPG/PNG)에서 AI 텍스트 추출 + 오타·맞춤법·숫자 검사</span>
         <div style="flex:1;"></div>
+        <button class="back" @click="spellResults=[]" x-show="spellResults.length > 0">결과 지우기</button>
       </div>
       <div class="mode-body" style="grid-template-columns:1fr; padding:0;">
         <div style="padding:20px;">
-          <div class="drop-zone" @click="$refs.spellFile.click()" @dragover.prevent="dragOver=true" @dragleave="dragOver=false"
+          <!-- Ctrl+V 영역 -->
+          <div class="drop-zone" tabindex="0" @click="$refs.spellFile.click()"
+            @dragover.prevent="dragOver=true" @dragleave="dragOver=false"
             @drop.prevent="dragOver=false; spellCheck($event.dataTransfer.files)" :class="dragOver?'dragover':''">
-            <div class="icon">✏️📄</div>
-            <div style="font-size:14px; font-weight:600; margin-bottom:4px;">시안 PPTX 던지면 AI 가 오타·이상한 표기 자동 검사</div>
-            <div style="font-size:12px;">슬라이드별 텍스트 추출 → 한글 맞춤법 / 사이즈 표기 / 숫자 일관성 / 거래처명 검증</div>
+            <div class="icon">✏️📷</div>
+            <div style="font-size:15px; font-weight:600; margin-bottom:4px;">📋 카톡 시안 이미지 붙여넣기 (Ctrl+V)</div>
+            <div style="font-size:12px; color:#6b7280;">또는 드래그·클릭 — JPG / PNG · AI가 텍스트 추출 + 오타·맞춤법·사이즈·숫자 자동 검사</div>
+            <div style="font-size:11px; color:#9ca3af; margin-top:6px;">💡 카톡 사진 우클릭 → 이미지 복사 → 여기서 Ctrl+V</div>
           </div>
-          <input type="file" multiple accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+          <input type="file" multiple accept="image/*"
             x-ref="spellFile" style="display:none;" @change="spellCheck($event.target.files)">
 
+          <!-- 검사 중 진행률 -->
+          <div x-show="spellChecking" x-cloak style="margin-top:20px; padding:20px; text-align:center; color:#6b7280; background:#f9fafb; border-radius:8px;">
+            <div style="font-size:18px; margin-bottom:6px;">⏳</div>
+            <div>AI 가 시안 이미지 분석 중... (<span x-text="spellChecked"></span>/<span x-text="spellTotal"></span>)</div>
+          </div>
+
+          <!-- 결과 -->
           <div x-show="spellResults.length > 0" x-cloak style="margin-top:20px;">
-            <div style="font-weight:600; margin-bottom:10px;">검사 결과 (<span x-text="spellResults.length"></span>장)</div>
-            <template x-for="(s, i) in spellResults" :key="i">
-              <div style="background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:14px; margin-bottom:10px;">
-                <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
-                  <span style="font-weight:600; font-size:13px;" x-text="`📄 ${s.file} - 슬라이드 ${s.slide}`"></span>
-                  <span x-show="s.issues && s.issues.length > 0" style="background:#fee2e2; color:#991b1b; font-size:10px; padding:2px 6px; border-radius:4px; font-weight:600;" x-text="`${s.issues.length}건 의심`"></span>
-                  <span x-show="!s.issues || s.issues.length === 0" style="background:#d1fae5; color:#065f46; font-size:10px; padding:2px 6px; border-radius:4px; font-weight:600;">정상</span>
-                </div>
-                <div style="font-size:11px; color:#6b7280; margin-bottom:6px;">원본 텍스트:</div>
-                <div style="background:#f3f4f6; padding:8px; border-radius:4px; font-size:11px; margin-bottom:8px;" x-text="s.text || '(텍스트 없음)'"></div>
-                <template x-if="s.issues && s.issues.length > 0">
-                  <div>
-                    <div style="font-size:11px; color:#6b7280; margin-bottom:6px;">⚠️ 의심 항목:</div>
-                    <template x-for="(iss, j) in s.issues" :key="j">
-                      <div style="background:#fef3c7; padding:6px 10px; border-radius:4px; font-size:11px; margin-bottom:3px;">
-                        <span style="font-weight:600; color:#92400e;" x-text="iss.type"></span> · <span x-text="iss.message"></span>
+            <div style="font-weight:600; margin-bottom:10px;">📋 검사 결과 (<span x-text="spellResults.length"></span>장)</div>
+            <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap:12px;">
+              <template x-for="(s, i) in spellResults" :key="i">
+                <div style="background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:0; overflow:hidden;">
+                  <!-- 이미지 미리보기 -->
+                  <div style="background:#f3f4f6; padding:8px; text-align:center;">
+                    <img :src="s.imageDataUrl" :alt="s.file" style="max-width:100%; max-height:200px; border-radius:4px;">
+                  </div>
+                  <div style="padding:12px;">
+                    <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
+                      <span style="font-weight:600; font-size:12px;" x-text="s.file"></span>
+                      <span x-show="s.issues && s.issues.length > 0" style="background:#fee2e2; color:#991b1b; font-size:10px; padding:2px 6px; border-radius:4px; font-weight:600;" x-text="`${s.issues.length}건 의심`"></span>
+                      <span x-show="(!s.issues || s.issues.length === 0) && s.text" style="background:#d1fae5; color:#065f46; font-size:10px; padding:2px 6px; border-radius:4px; font-weight:600;">정상</span>
+                    </div>
+                    <div style="font-size:10px; color:#6b7280; margin-bottom:4px;">추출 텍스트:</div>
+                    <div style="background:#f9fafb; padding:6px 8px; border-radius:4px; font-size:11px; margin-bottom:8px; max-height:80px; overflow-y:auto; white-space:pre-wrap;" x-text="s.text || '(텍스트 추출 안됨)'"></div>
+                    <template x-if="s.issues && s.issues.length > 0">
+                      <div>
+                        <div style="font-size:10px; color:#6b7280; margin-bottom:4px;">⚠️ 의심:</div>
+                        <template x-for="(iss, j) in s.issues" :key="j">
+                          <div style="background:#fef3c7; padding:5px 8px; border-radius:4px; font-size:11px; margin-bottom:3px; line-height:1.4;">
+                            <span style="font-weight:600; color:#92400e;" x-text="iss.type"></span> · <span x-text="iss.message"></span>
+                          </div>
+                        </template>
                       </div>
                     </template>
                   </div>
-                </template>
-              </div>
-            </template>
-          </div>
-
-          <div x-show="spellChecking" x-cloak style="margin-top:20px; padding:20px; text-align:center; color:#6b7280;">
-            <div style="font-size:18px; margin-bottom:6px;">⏳</div>
-            <div>AI 가 검사 중... (<span x-text="spellChecked"></span>/<span x-text="spellTotal"></span>)</div>
+                </div>
+              </template>
+            </div>
           </div>
         </div>
       </div>
