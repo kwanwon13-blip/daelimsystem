@@ -689,7 +689,10 @@
               <button class="st-btn st-btn-primary st-btn-sm" @click="enterMode('COMPANY', '매출')">
                 <span class="material-symbols-outlined">table_view</span> 컴퍼니 매출
               </button>
-              <span style="font-size:11px; color:#1e40af;">완료 항목 검토</span>
+              <button class="st-btn st-btn-ghost st-btn-sm" @click="mergeByVendorDate('COMPANY', '매출')">
+                🔗 같은 거래처+일자 다시 병합
+              </button>
+              <span style="font-size:11px; color:#1e40af;">완료 항목 검토 (자동 병합 됨)</span>
             </div>
           </div>
         </div>
@@ -803,131 +806,4 @@
             </td>
             <td x-text="s.doc_date || '-'"></td>
             <td x-text="s.norm_vendor || s.vendor_name || '-'"></td>
-            <td style="text-align:right; font-variant-numeric: tabular-nums;" x-text="s.supply_amount?.toLocaleString() || '-'"></td>
-            <td style="text-align:right; font-variant-numeric: tabular-nums;" x-text="s.vat_amount?.toLocaleString() || '-'"></td>
-            <td style="text-align:right; font-variant-numeric: tabular-nums; font-weight:600;" x-text="s.total_amount?.toLocaleString() || '-'"></td>
-            <td style="font-size:11px; color:#9ca3af;" x-text="s.source_file"></td>
-            <td @click.stop>
-              <button class="st-btn st-btn-success st-btn-sm" x-show="s.status==='pending'" @click="confirm(s.id)">확정</button>
-              <button class="st-btn st-btn-warn st-btn-sm" x-show="s.status==='pending'" @click="reject(s.id)">반려</button>
-              <button class="st-btn st-btn-ghost st-btn-sm" x-show="s.status!=='pending'" @click="reset(s.id)">되돌리기</button>
-            </td>
-          </tr>
-        </template>
-        <tr x-show="items.length===0"><td colspan="10" style="text-align:center; padding:40px; color:#9ca3af;">명세서 없음</td></tr>
-      </tbody>
-    </table>
-
-    <!-- 페이저 -->
-    <div x-show="total > limit" style="margin-top:14px; text-align:center;">
-      <button class="st-btn st-btn-ghost st-btn-sm" :disabled="offset===0" @click="offset=Math.max(0,offset-limit); load()">← 이전</button>
-      <span style="margin:0 14px; color:#6b7280; font-size:12px;" x-text="`${offset+1} – ${Math.min(offset+limit,total)} / ${total}`"></span>
-      <button class="st-btn st-btn-ghost st-btn-sm" :disabled="offset+limit>=total" @click="offset+=limit; load()">다음 →</button>
-    </div>
-  </div>
-  </div>
-  <!-- ═════ /Overview ═════ -->
-
-  <!-- 검토 모달 -->
-  <div class="st-modal-bg" :class="{show: !!selected}" @click.self="closeModal()">
-    <div class="st-modal" x-show="selected" x-cloak>
-      <div class="img-pane">
-        <template x-if="selected && (selected.source_file||'').toLowerCase().endsWith('.pdf')">
-          <iframe :src="`/api/statements/${selected.id}/file`" style="width:100%; height:90vh; border:0; background:#fff;"></iframe>
-        </template>
-        <template x-if="selected && !(selected.source_file||'').toLowerCase().endsWith('.pdf')">
-          <img :src="`/api/statements/${selected.id}/file`" alt="명세서">
-        </template>
-      </div>
-      <div class="info-pane" x-show="selected">
-        <h3 x-text="selected?.source_file || '#'+selected?.id"></h3>
-        <div style="display:flex; gap:6px; margin-bottom:6px;">
-          <span class="badge" :class="selected?.status" x-text="selected?.status"></span>
-          <span style="color:#9ca3af; font-size:11px;" x-text="selected?.uploaded_at"></span>
-        </div>
-
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-          <div>
-            <label>회사 (4분할 라우팅)</label>
-            <select x-model="edit.company_code" :style="edit.company_code==='SM'?'background:#dbeafe;':edit.company_code==='COMPANY'?'background:#fef3c7;':'background:#fee2e2;'">
-              <option value="">⚠ 미분류 (직접 선택 필요)</option>
-              <option value="SM">📘 대림에스엠 → 이카운트</option>
-              <option value="COMPANY">📙 대림컴퍼니 → E2E</option>
-            </select>
-          </div>
-          <div>
-            <label>매입/매출</label>
-            <select x-model="edit.doc_class" :style="edit.doc_class==='매입'?'background:#fee2e2;':edit.doc_class==='매출'?'background:#d1fae5;':'background:#fef3c7;'">
-              <option value="">⚠ 미분류</option>
-              <option value="매입">💰 매입 (받음)</option>
-              <option value="매출">📤 매출 (보냄)</option>
-            </select>
-          </div>
-        </div>
-
-        <label>서류 타입</label>
-        <select x-model="edit.doc_type">
-          <option value="">(자동)</option>
-          <option>세금계산서</option><option>거래명세서</option>
-          <option>영수증</option><option>매입명세서</option>
-          <option>PPTX시안</option><option>기타</option>
-        </select>
-
-        <label>일자</label>
-        <input type="date" x-model="edit.doc_date">
-
-        <label>거래처</label>
-        <input x-model="edit.norm_vendor" placeholder="공급자 상호">
-
-        <label>사업자번호</label>
-        <input x-model="edit.vendor_biz_no" placeholder="XXX-XX-XXXXX">
-
-        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;">
-          <div><label>공급가액</label><input type="number" x-model.number="edit.supply_amount"></div>
-          <div><label>부가세</label><input type="number" x-model.number="edit.vat_amount"></div>
-          <div><label>합계</label><input type="number" x-model.number="edit.total_amount"></div>
-        </div>
-
-        <label>품목 상세</label>
-        <div class="st-items" x-show="edit.items && edit.items.length">
-          <table>
-            <thead><tr><th>#</th><th>품목</th><th>규격</th><th>수량</th><th>단가</th><th>금액</th><th></th></tr></thead>
-            <tbody>
-              <template x-for="(it, i) in (edit.items||[])" :key="i">
-                <tr>
-                  <td x-text="i+1"></td>
-                  <td><input x-model="it.item_name"></td>
-                  <td><input x-model="it.spec"></td>
-                  <td><input type="number" x-model.number="it.quantity" style="text-align:right;"></td>
-                  <td><input type="number" x-model.number="it.unit_price" style="text-align:right;"></td>
-                  <td><input type="number" x-model.number="it.amount" style="text-align:right;"></td>
-                  <td><button @click="edit.items.splice(i,1)" class="st-btn st-btn-ghost st-btn-sm" style="padding:1px 6px;">✕</button></td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
-        </div>
-        <button class="st-btn st-btn-ghost st-btn-sm" @click="edit.items = edit.items || []; edit.items.push({item_name:'',spec:'',quantity:null,unit_price:null,amount:null})" style="margin-top:5px;">+ 품목 추가</button>
-
-        <label>비고</label>
-        <textarea x-model="edit.notes" rows="2"></textarea>
-
-        <details style="margin-top:14px;">
-          <summary style="cursor:pointer; font-size:11px; color:#6b7280;">AI 원본 추출</summary>
-          <pre x-text="selected?.raw_extract" style="font-size:10px; padding:8px; background:#f3f4f6; border-radius:6px; max-height:200px; overflow:auto; white-space:pre-wrap;"></pre>
-        </details>
-
-        <div style="display:flex; gap:6px; margin-top:14px;">
-          <button class="st-btn st-btn-primary" @click="save()">💾 저장</button>
-          <button class="st-btn st-btn-success" @click="save(); confirm(selected.id)" x-show="selected?.status==='pending'">✅ 저장 + 확정</button>
-          <button class="st-btn st-btn-danger" @click="del()">🗑 삭제</button>
-          <div style="flex:1;"></div>
-          <button class="st-btn st-btn-ghost" @click="closeModal()">닫기</button>
-        </div>
-        <div x-show="saveMsg" x-cloak style="margin-top:8px; font-size:12px; color:#16a34a;" x-text="saveMsg"></div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- statementsApp() 은 public/statements.js 에 정의 (template 안의 script 는 실행 안 됨) -->
+            <td style="text-align:right; font-variant-numeric: tab

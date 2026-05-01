@@ -334,6 +334,73 @@ function deleteStatement(id) {
   tx();
 }
 
+// 같은 거래처+일자+회사+구분 명세서 자동 병합
+// pending 상태 + PPTX 시안 케이스에서 주로 호출 (한 거래처 한 일자 = 1 명세서)
+function mergeByVendorDate({ companyCode = 'COMPANY', docClass = '매출', status = 'pending' } = {}) {
+  // 같은 (회사+구분+거래처+일자) 그룹 찾기
+  const groups = db.prepare(`
+    SELECT
+      company_code, doc_class, COALESCE(norm_vendor, vendor_name, '') as vendor_key,
+      doc_date, GROUP_CONCAT(id) as ids, COUNT(*) as cnt
+    FROM statements
+    WHERE company_code = @companyCode
+      AND doc_class = @docClass
+      AND status = @status
+      AND doc_date IS NOT NULL
+    GROUP BY company_code, doc_class, vendor_key, doc_date
+    HAVING cnt > 1
+  `).all({ companyCode, docClass, status });
+
+  let mergedGroups = 0;
+  let mergedStatements = 0;
+  let totalLines = 0;
+
+  const tx = db.transaction(() => {
+    for (const g of groups) {
+      const ids = g.ids.split(',').map(Number);
+      // 첫 번째 = 마스터, 나머지 = 합치기
+      const masterId = ids[0];
+      const others = ids.slice(1);
+      // 다른 명세서들의 라인 아이템을 마스터로 옮김 (line_no 재할당)
+      let curMaxLine = (db.prepare('SELECT MAX(line_no) as m FROM statement_items WHERE statement_id = ?').get(masterId)?.m) || 0;
+      for (const oid of others) {
+        const lines = db.prepare('SELECT * FROM statement_items WHERE statement_id = ? ORDER BY line_no').all(oid);
+        for (const ln of lines) {
+          curMaxLine++;
+          db.prepare(`UPDATE statement_items SET statement_id = ?, line_no = ? WHERE id = ?`).run(masterId, curMaxLine, ln.id);
+          totalLines++;
+        }
+        // 마스터 notes 에 합쳐진 원본 파일명 추가
+        const oldStmt = stmts.byId.get(oid);
+        if (oldStmt) {
+          const merged = stmts.byId.get(masterId);
+          const newNotes = (merged.notes || '') + ` [병합: ${oldStmt.source_file}]`;
+          db.prepare('UPDATE statements SET notes = ? WHERE id = ?').run(newNotes, masterId);
+        }
+        // 다른 명세서 삭제 (라인은 이미 옮겨졌으니 명세서만)
+        db.prepare('DELETE FROM statements WHERE id = ?').run(oid);
+        mergedStatements++;
+      }
+      // 마스터의 합계 재계산 (라인 합)
+      const sums = db.prepare(`
+        SELECT SUM(amount) as supply, SUM(vat) as vat
+        FROM statement_items WHERE statement_id = ?
+      `).get(masterId);
+      if (sums) {
+        const supply = sums.supply || 0;
+        const vat = sums.vat || Math.round(supply * 0.1);
+        db.prepare(`
+          UPDATE statements SET supply_amount = ?, vat_amount = ?, total_amount = ?
+          WHERE id = ?
+        `).run(supply, vat, supply + vat, masterId);
+      }
+      mergedGroups++;
+    }
+  });
+  tx();
+  return { mergedGroups, mergedStatements, totalLines };
+}
+
 module.exports = {
   db,
   createStatement,
@@ -344,4 +411,5 @@ module.exports = {
   updateStatement,
   setStatus,
   deleteStatement,
+  mergeByVendorDate,
 };

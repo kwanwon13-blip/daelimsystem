@@ -129,29 +129,46 @@ function resetQueueStatsIfIdle() {
 }
 
 // AI 추출 — Claude Code CLI 사용 (사용자 구독 안에서, 비용 0)
-async function extractStatement(filePath, mimeType, hint) {
+// extra: { isPptxSlide, inferredDate, parentPptx } — PPTX 시안일 때 일자별 정답 컨텍스트 주입용
+async function extractStatement(filePath, mimeType, hint, extra = {}) {
   const cli = require('../lib/claude-cli');
   const learningPool = require('../lib/learning-pool');
   const hintText = hint ? `\n[힌트: ${hint}]\n` : '';
 
-  // 4분할 학습 풀 컨텍스트 추가 (TOP 거래처/품목/현장)
+  // 4분할 학습 풀 컨텍스트 추가
   let poolCtx = '';
   if (learningPool.pool.loaded) {
-    poolCtx = `
+    // PPTX 시안인 경우 = 컴퍼니 매출 → 같은 일자 실제 등록행 정답으로 직접 보여줌
+    if (extra.isPptxSlide && extra.inferredDate) {
+      const slideCtx = learningPool.getSlideContext(extra.inferredDate);
+      poolCtx = `
+
+==== ⚡ 핵심 학습 정답 — 같은 시기 실제 등록된 매출 행 ====
+파일명: ${extra.parentPptx || ''}  /  추정 일자: ${extra.inferredDate}
+${slideCtx}
+
+**중요: 위 정답 패턴을 참조해서 시안에서 똑같은 표현을 추출하세요.**
+- 같은 규격(예: 2000*1200)이 있으면 그 거래처/품명 표현을 그대로 사용
+- "포맥스 게시판" 같은 새 표현 만들지 말 것 — 정답에 "3t포맥스+집게14개" 같이 있으면 그거 사용
+- 결합 품명 (X+Y+Z)는 정답 패턴 그대로
+==== /학습 정답 ====
+`;
+    } else {
+      // 일반 명세서 — TOP 거래처/품목 컨텍스트
+      poolCtx = `
 
 ==== 학습 풀 컨텍스트 (실제 등록된 거래처/품목 — 매칭 시 정식명 사용) ====
 ${learningPool.getContext('SM', '매입', { topVendors: 25, topItems: 30 })}
---- 위는 SM 매입 ---
+--- SM 매입 ---
 ${learningPool.getContext('SM', '매출', { topVendors: 25, topItems: 30 })}
---- 위는 SM 매출 ---
+--- SM 매출 ---
 ${learningPool.getContext('COMPANY', '매입', { topVendors: 15, topItems: 20 })}
---- 위는 COMPANY 매입 ---
-${learningPool.getContext('COMPANY', '매출', { topVendors: 15, topItems: 20 })}
---- 위는 COMPANY 매출 ---
+--- COMPANY 매입 ---
 
 위 목록에서 매칭되면 그 정식 표기 사용. 매칭 안 되면 명세서에 적힌 그대로.
 ==== /학습 풀 ====
 `;
+    }
   }
   const PROMPT = `이 이미지/PDF/시안은 대림에스엠(주) 또는 대림컴퍼니(주)의 거래 자료입니다.
 거래명세서, 세금계산서, 매입명세서, 영수증, 또는 디자인 시안(PPTX 슬라이드) 일 수 있습니다.${hintText}
@@ -193,13 +210,39 @@ ${learningPool.getContext('COMPANY', '매출', { topVendors: 15, topItems: 20 })
 - 우리 회사가 보내는 사람(공급자)이면 → "매출" (=우리가 거래처에 매출)
 - PPTX 시안 / 디자인 발주서 → "매출" (시안 = 우리가 매출 작업하는 발주서)
 
-PPTX 시안 케이스 추출 가이드:
+PPTX 시안 케이스 추출 가이드 (⚠️ 거래처 룰 매우 중요):
 - doc_type = "PPTX시안", doc_class = "매출", company_code = "COMPANY"
-- vendor_name = 시안 좌상단 거래처/시공사명 (예: "현대산업개발", "DL E&C", "라코스" 등)
-- norm_vendor = 시안 우상단 현장명 (예: "서울원 IPARK", "GTX-B3-1공구")
 - doc_date = 시안 안의 "납품 X/X" 또는 "설치 X/X" 날짜 (없으면 null)
 - items[0] = { item_name: 시안 가운데 표제 품명 (예: "AL 바닥 논슬립 스티커"), spec: 표제 안 규격 (예: "500*500"), quantity: 시안 옆 수량 합계 }
-- supply_amount, vat_amount, total_amount = null (시안에는 단가 정보 없음, 나중에 단가표에서 매칭)
+
+**🚨 vendor_name 룰 (절대 룰):**
+시안의 좌상단 로고/회사명은 영업회사 표시일 뿐 — 그대로 vendor_name 에 적지 말 것!
+컴퍼니 매출 거래처는 정해져 있음 (15곳뿐):
+  1. 대림에스엠(주) ← 대부분 시안 (자매법인 내부거래, 약 80%)
+  2. 주식회사 동명이엔지
+  3. 디자인포트
+  4. 이상테크윈(주)
+  5. (주)보성세이프
+  6. 주)삼성라코스산업안전 (시안 표기: "라코스")
+  7. 금강컴퍼니 *주식회사 지케이금강으로 변경 (시안 표기: "금강" 또는 "지케이금강")
+  8. 경안상사
+  9. (주)정수이엔지
+  10. 녹색안전산업, 주식회사 지케이금강, 주식회사 아신렌탈 등
+
+vendor_name 결정 룰:
+- 시안 우상단/표제에 "라코스" 표기 → "주)삼성라코스산업안전"
+- 시안에 "이상테크" → "이상테크윈(주)"
+- 시안에 "동명" → "주식회사 동명이엔지"
+- 시안에 "보성" → "(주)보성세이프"
+- 시안에 "디자인포트" → "디자인포트"
+- 시안에 "경안" → "경안상사"
+- 시안에 "정수" → "(주)정수이엔지"
+- 시안에 "지케이" / "금강" → "금강컴퍼니 *주식회사 지케이금강으로 변경"
+- **위 8곳 외 모든 케이스 (DL E&C, 현대산업개발, 요진, 한신공영, 두산, 퍼시스 등) → "대림에스엠(주)"**
+  (이건 대림에스엠이 영업해서 받은 발주를 컴퍼니가 인쇄하고 → 대림에스엠으로 자매법인 매출하는 구조. 시안의 거래처 로고는 발주 출처 표시일 뿐.)
+
+norm_vendor = 시안 우상단 현장명 또는 프로젝트명 (예: "서울원 IPARK", "GTX-B3-1공구", "느티마을3단지")
+supply_amount, vat_amount, total_amount = null (시안엔 단가 없음, 단가표 매칭으로 채움)
 
 vendor_name 은 항상 "상대방 회사명" (우리 회사 X)
 
@@ -221,7 +264,11 @@ async function processQueueItem() {
   const item = queue.shift();
   processing++;
   try {
-    const ext = await extractStatement(item.filePath, item.mimeType, item.hint);
+    const ext = await extractStatement(item.filePath, item.mimeType, item.hint, {
+      isPptxSlide: item.isPptxSlide,
+      inferredDate: item.inferredDate,
+      parentPptx: item.parentPptx,
+    });
     const p = ext.parsed || {};
     // 회사 코드 정규화 ("SM" / "COMPANY" / null 만 허용)
     let companyCode = (p.company_code === 'SM' || p.company_code === 'COMPANY') ? p.company_code : null;
@@ -287,6 +334,15 @@ async function processQueueItem() {
   } finally {
     processing--;
     setImmediate(processQueueItem); // 다음 항목
+    // 큐 다 끝나면 같은 거래처+일자 자동 병합 (컴퍼니 매출 — PPTX 시안 후처리)
+    if (queue.length === 0 && processing === 0 && queueStats.total > 0) {
+      try {
+        const r = dbSt.mergeByVendorDate({ companyCode: 'COMPANY', docClass: '매출', status: 'pending' });
+        if (r.mergedGroups > 0) {
+          console.log(`[statements] 자동 병합: ${r.mergedGroups}개 그룹 → ${r.mergedStatements}건 통합 (라인 ${r.totalLines}개 이동)`);
+        }
+      } catch (e) { console.error('[statements] 자동 병합 실패:', e.message); }
+    }
   }
 }
 
@@ -640,6 +696,17 @@ router.get('/data-sources', requireAuth, (req, res) => {
   res.json({ ok: true, sources, learningDir: LEARNING_DIR });
 });
 
+// 같은 거래처+일자 자동 병합 (PPTX 처리 후 호출)
+router.post('/merge-by-vendor-date', requireAuth, (req, res) => {
+  const { companyCode = 'COMPANY', docClass = '매출', status = 'pending' } = req.body || {};
+  try {
+    const result = dbSt.mergeByVendorDate({ companyCode, docClass, status });
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 // 학습 풀 상태/통계
 router.get('/learning-pool/stats', requireAuth, (req, res) => {
   const learningPool = require('../lib/learning-pool');
@@ -866,8 +933,5 @@ router.get('/ecount/products', requireAuth, async (req, res) => {
   try { res.json(await ecount.listProducts({ dryRun: req.query.dryRun==='1' })); }
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
-
-// 서버 시작 시 — pending 항목 다시 큐에 넣지 않음 (이미 DB 저장됐고 raw_extract 있을 수도)
-// 새로 업로드하는 것만 큐 처리.
 
 module.exports = router;

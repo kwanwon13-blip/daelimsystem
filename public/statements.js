@@ -135,6 +135,21 @@ function statementsApp() {
         if (r.ok) this.poolStats = r;
       } catch(e) {}
     },
+    async mergeByVendorDate(companyCode, docClass) {
+      try {
+        const r = await fetch('/api/statements/merge-by-vendor-date', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ companyCode, docClass }),
+        }).then(r => r.json());
+        if (r.ok) {
+          alert(`병합 완료\n그룹 ${r.mergedGroups}개 → 통합된 명세서 ${r.mergedStatements}건\n라인 아이템 ${r.totalLines}개 이동`);
+          this.load();
+          this.loadStats();
+        } else { alert('실패: ' + r.error); }
+      } catch(e) { alert('에러: ' + e.message); }
+    },
+
     async reloadPool() {
       try {
         const r = await fetch('/api/statements/learning-pool/reload', { method: 'POST' }).then(r => r.json());
