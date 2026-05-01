@@ -151,6 +151,10 @@
       <span class="lb-ico">📝</span>
       <span class="lb-lbl">OCR</span>
     </div>
+    <div class="lb" data-action="statements">
+      <span class="lb-ico">📑</span>
+      <span class="lb-lbl">명세서</span>
+    </div>
   </div>
 
 <script>
@@ -164,6 +168,7 @@
       else if (action === 'contacts') api.launcherOpen('contacts-widget');
       else if (action === 'ai') api.launcherOpen('ai-widget');
       else if (action === 'ocr') api.launcherOpen('ocr-widget');
+      else if (action === 'statements') api.launcherOpen('statement-widget');
     });
   });
 

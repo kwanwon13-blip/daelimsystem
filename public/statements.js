@@ -196,7 +196,7 @@ function statementsApp() {
       }
     },
 
-    // 시안 오타 확인
+    // 시안 문구 확인
     spellResults: [],
     spellChecking: false,
     spellChecked: 0,
@@ -207,7 +207,7 @@ function statementsApp() {
       // 이미지만 필터
       const imgs = Array.from(files).filter(f => (f.type || '').startsWith('image/'));
       if (imgs.length === 0) {
-        alert('이미지 파일(JPG/PNG)만 검사 가능 — 카톡 시안 사진 복사 후 Ctrl+V');
+        alert('이미지 파일만 확인 가능 — 카톡 시안 사진 복사 후 Ctrl+V');
         return;
       }
       this.spellChecking = true;
@@ -255,6 +255,8 @@ function statementsApp() {
       // 각 issue 의 found 단어를 형광펜으로
       const colors = {
         '오타':       'background:#fee2e2; color:#991b1b;',
+        '철자':       'background:#fee2e2; color:#991b1b;',
+        '문자깨짐':   'background:#fee2e2; color:#991b1b;',
         '맞춤법':     'background:#fef3c7; color:#92400e;',
         '사이즈':     'background:#dbeafe; color:#1e40af;',
         '숫자':       'background:#e0e7ff; color:#3730a3;',

@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>업무 OCR 빠른 도구</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    font-family: 'Noto Sans KR', 'Segoe UI', sans-serif;
+    font-size: 12px;
+    color: #172033;
+    background: #f7f9fb;
+    overflow: hidden;
+  }
+
+  .hdr {
+    -webkit-app-region: drag;
+    min-height: 30px;
+    padding: 4px 6px 4px 10px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: linear-gradient(135deg, #d7f5ea, #b9e4ff);
+    border-bottom: 1px solid #94c6d8;
+  }
+  .hdr-title {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    font-weight: 800;
+    color: #0f3e46;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hdr-btn {
+    -webkit-app-region: no-drag;
+    width: 22px;
+    height: 22px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: #0f3e46;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+  }
+  .hdr-btn:hover { background: rgba(255,255,255,.5); }
+  .hdr-btn.close:hover { background: #ef4444; color: #fff; }
+
+  body[data-mini="1"] { display: flex; flex-direction: column; }
+  body[data-mini="1"] .body { display: none !important; }
+  body[data-mini="1"] .hdr { flex: 1; border-bottom: 0; min-height: auto; }
+
+  body.snap-flash::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    border: 3px solid #38bdf8;
+    border-radius: 7px;
+    pointer-events: none;
+    animation: snapBorder .5s ease-out forwards;
+    z-index: 999;
+  }
+  @keyframes snapBorder {
+    0% { opacity: 0; transform: scale(1.04); }
+    25% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1); }
+  }
+
+  .body {
+    height: calc(100% - 30px);
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow: hidden;
+  }
+
+  .mode-tabs {
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+  }
+  .mode-tab {
+    height: 48px;
+    border: 1px solid #d8e3e8;
+    border-radius: 8px;
+    background: #fff;
+    color: #3b4b5f;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+  }
+  .mode-tab span { font-size: 10px; color: #64748b; font-weight: 700; }
+  .mode-tab b { font-size: 11.5px; font-weight: 850; white-space: nowrap; }
+  .mode-tab:hover { background: #f1f9fb; }
+  .mode-tab.on {
+    border-color: #0f766e;
+    background: #eafff8;
+    color: #0f3e46;
+    box-shadow: inset 0 0 0 1px rgba(15,118,110,.18);
+  }
+  .mode-tab.on span { color: #0f766e; }
+
+  .drop {
+    flex: 0 0 auto;
+    height: 100px;
+    border: 2px dashed #96c8d4;
+    border-radius: 8px;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s, transform .15s;
+    text-align: center;
+    padding: 12px;
+  }
+  .drop:hover, .drop.dragover {
+    border-color: #0ea5a5;
+    background: #effcf8;
+    transform: translateY(-1px);
+  }
+  .drop-main { display: flex; flex-direction: column; gap: 5px; align-items: center; }
+  .drop-icon { font-size: 25px; line-height: 1; }
+  .drop-title { font-size: 13px; font-weight: 850; color: #0f3e46; }
+  .drop-meta { font-size: 10.5px; color: #64748b; }
+  .drop-meta kbd {
+    font-family: Consolas, monospace;
+    font-size: 9.5px;
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    border-radius: 3px;
+    padding: 1px 4px;
+  }
+
+  .status {
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+  }
+  .metric {
+    min-height: 50px;
+    padding: 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 7px;
+    background: #fff;
+  }
+  .metric-label {
+    font-size: 10px;
+    color: #64748b;
+    font-weight: 750;
+    white-space: nowrap;
+  }
+  .metric-val {
+    margin-top: 4px;
+    font-size: 18px;
+    font-weight: 850;
+    color: #172033;
+    line-height: 1;
+  }
+  .metric-val.good { color: #047857; }
+  .metric-val.warn { color: #b45309; }
+  .metric-val.blue { color: #0369a1; }
+
+  .progress {
+    flex: 0 0 auto;
+    height: 8px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    overflow: hidden;
+  }
+  .progress > div {
+    height: 100%;
+    width: 0;
+    background: linear-gradient(90deg, #0ea5a5, #38bdf8);
+    transition: width .2s;
+  }
+
+  .files, .results {
+    min-height: 0;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .files { flex: 1; }
+  .results {
+    flex: 1.15;
+    display: none;
+  }
+  .results.show { display: flex; }
+  .panel-head {
+    flex: 0 0 auto;
+    height: 31px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 0 9px;
+    border-bottom: 1px solid #edf2f7;
+    color: #334155;
+    font-weight: 850;
+  }
+  .panel-count { color: #0f766e; font-weight: 850; white-space: nowrap; }
+  .mini-btn {
+    height: 22px;
+    padding: 0 8px;
+    border: 1px solid #dbe4ea;
+    border-radius: 5px;
+    background: #fff;
+    color: #42546b;
+    font-size: 10px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+  .mini-btn:hover { background: #f1f9fb; }
+  .file-list, .result-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .empty {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: #94a3b8;
+    padding: 16px;
+    line-height: 1.45;
+  }
+  .file {
+    display: grid;
+    grid-template-columns: 22px 1fr auto 22px;
+    align-items: center;
+    gap: 7px;
+    min-height: 34px;
+    padding: 6px 8px;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .file:last-child { border-bottom: 0; }
+  .file-ico { font-size: 15px; text-align: center; }
+  .file-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11.5px;
+    font-weight: 750;
+    color: #172033;
+  }
+  .file-size {
+    color: #64748b;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+  .file-remove {
+    width: 22px;
+    height: 22px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: #64748b;
+    cursor: pointer;
+  }
+  .file-remove:hover { background: #fee2e2; color: #b91c1c; }
+
+  .result-item {
+    padding: 9px;
+    border-bottom: 1px solid #eef2f6;
+  }
+  .result-item:last-child { border-bottom: 0; }
+  .result-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .result-name {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-weight: 850;
+    color: #172033;
+  }
+  .badge {
+    flex: 0 0 auto;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 850;
+    white-space: nowrap;
+  }
+  .badge.ok { background: #dcfce7; color: #166534; }
+  .badge.warn { background: #fef3c7; color: #92400e; }
+  .badge.err { background: #fee2e2; color: #991b1b; }
+  .issue {
+    padding: 7px;
+    margin-top: 5px;
+    border-radius: 6px;
+    background: #fffbeb;
+    border: 1px solid #fcd34d;
+    color: #78350f;
+    line-height: 1.35;
+  }
+  .issue strong { color: #92400e; }
+  .text-block {
+    max-height: 130px;
+    overflow-y: auto;
+    padding: 8px;
+    border-radius: 6px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.55;
+    font-family: 'Malgun Gothic', 'Noto Sans KR', sans-serif;
+    color: #172033;
+  }
+
+  .actions {
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 7px;
+  }
+  .btn {
+    height: 33px;
+    border: 1px solid #d7e3ea;
+    border-radius: 7px;
+    background: #fff;
+    color: #263548;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 850;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+  }
+  .btn:hover { background: #f1f9fb; }
+  .btn.primary {
+    color: #fff;
+    border-color: #0f766e;
+    background: linear-gradient(135deg, #0f766e, #0284c7);
+  }
+  .btn.primary:hover { filter: brightness(1.05); }
+  .btn:disabled {
+    opacity: .48;
+    cursor: not-allowed;
+    filter: grayscale(.2);
+  }
+
+  .message {
+    flex: 0 0 auto;
+    min-height: 30px;
+    border: 1px solid #e2e8f0;
+    border-radius: 7px;
+    background: #fff;
+    color: #475569;
+    padding: 7px 9px;
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .message.ok { border-color: #bbf7d0; color: #047857; background: #f0fdf4; }
+  .message.err { border-color: #fecaca; color: #b91c1c; background: #fff5f5; }
+  .message.busy { border-color: #bae6fd; color: #0369a1; background: #f0f9ff; }
+
+  .toast {
+    position: fixed;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: 90%;
+    padding: 7px 12px;
+    border-radius: 999px;
+    background: #172033;
+    color: #fff;
+    font-size: 11px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s;
+    z-index: 1000;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+  <div class="hdr">
+    <span class="hdr-title" id="hdrTitle">📑 업무 OCR</span>
+    <button class="hdr-btn" id="btnErp" title="ERP 검수 화면">↗</button>
+    <button class="hdr-btn" id="btnPin" title="항상 위">📌</button>
+    <button class="hdr-btn" id="btnMini" title="미니 / 원래 크기">▭</button>
+    <button class="hdr-btn close" id="btnClose" title="닫기">✕</button>
+  </div>
+
+  <div class="body">
+    <div class="mode-tabs">
+      <button class="mode-tab on" data-mode="statement" type="button"><span>관리팀</span><b>명세서 등록</b></button>
+      <button class="mode-tab" data-mode="spell" type="button"><span>디자인팀</span><b>문구 확인</b></button>
+      <button class="mode-tab" data-mode="multilingual" type="button"><span>사진업무</span><b>다국어 OCR</b></button>
+    </div>
+
+    <div class="drop" id="drop">
+      <div class="drop-main">
+        <div class="drop-icon" id="dropIcon">📷</div>
+        <div class="drop-title" id="dropTitle">명세서 파일</div>
+        <div class="drop-meta" id="dropMeta">이미지 · PDF · PPTX · <kbd>Ctrl+V</kbd></div>
+      </div>
+    </div>
+    <input id="fileInput" type="file" multiple accept="image/*,application/pdf,.pdf,.pptx" style="display:none">
+
+    <div class="status">
+      <div class="metric">
+        <div class="metric-label" id="metricOneLabel">선택</div>
+        <div class="metric-val blue" id="selectedCount">0</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label" id="metricTwoLabel">처리</div>
+        <div class="metric-val good" id="doneCount">0</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label" id="metricThreeLabel">대기</div>
+        <div class="metric-val warn" id="waitingCount">0</div>
+      </div>
+    </div>
+
+    <div class="progress" title="진행률"><div id="progressBar"></div></div>
+
+    <div class="files">
+      <div class="panel-head">
+        <span id="filePanelTitle">업로드 목록</span>
+        <span class="panel-count" id="filesCount">0건</span>
+      </div>
+      <div class="file-list" id="fileList">
+        <div class="empty">등록할 파일이 없습니다.</div>
+      </div>
+    </div>
+
+    <div class="results" id="resultPanel">
+      <div class="panel-head">
+        <span id="resultTitle">결과</span>
+        <button class="mini-btn" id="btnCopyAll" type="button" disabled>복사</button>
+      </div>
+      <div class="result-list" id="resultList">
+        <div class="empty">결과가 없습니다.</div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn primary" id="btnRun" disabled>⚡ AI 큐 등록</button>
+      <button class="btn" id="btnClear" disabled>✕ 비우기</button>
+    </div>
+
+    <div class="message" id="message">대기 중</div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+  const api = window.electronAPI;
+  const MODE_CONFIG = {
+    statement: {
+      title: '📑 관리팀 명세서 등록',
+      icon: '📷',
+      dropTitle: '명세서 파일',
+      dropMeta: '이미지 · PDF · PPTX · <kbd>Ctrl+V</kbd>',
+      accept: 'image/*,application/pdf,.pdf,.pptx',
+      maxSize: 50 * 1024 * 1024,
+      empty: '등록할 명세서가 없습니다.',
+      action: '⚡ AI 큐 등록',
+      labels: ['선택', '처리', '대기'],
+      resultTitle: '처리 결과',
+    },
+    spell: {
+      title: '✏️ 시안 문구 확인',
+      icon: '✏️',
+      dropTitle: '시안 이미지',
+      dropMeta: '다국어 문구 · 카톡 사진 · <kbd>Ctrl+V</kbd>',
+      accept: 'image/*',
+      maxSize: 50 * 1024 * 1024,
+      empty: '확인할 시안 이미지가 없습니다.',
+      action: '🔎 문구 확인',
+      labels: ['선택', '의심', '정상'],
+      resultTitle: '시안 문구 확인 결과',
+    },
+    multilingual: {
+      title: '🌐 다국어 OCR',
+      icon: '🌐',
+      dropTitle: '문자 사진',
+      dropMeta: '한국어 · 중국어 · 태국어 · 미얀마어 · <kbd>Ctrl+V</kbd>',
+      accept: 'image/*',
+      maxSize: 20 * 1024 * 1024,
+      empty: '텍스트를 뽑을 사진이 없습니다.',
+      action: '🌐 문자 추출',
+      labels: ['선택', '완료', '글자수'],
+      resultTitle: '다국어 OCR 결과',
+    },
+  };
+
+  let mode = localStorage.getItem('statementWidget:mode') || 'statement';
+  if (mode === 'korean') mode = 'multilingual';
+  if (!MODE_CONFIG[mode]) mode = 'statement';
+  let files = [];
+  let busy = false;
+  let isMini = false;
+  let savedSize = null;
+  let queueTimer = null;
+  let lastQueue = { total: 0, processed: 0, failed: 0, queueLen: 0, processing: 0 };
+  let spellResults = [];
+  let ocrResults = [];
+
+  const $hdrTitle = document.getElementById('hdrTitle');
+  const $drop = document.getElementById('drop');
+  const $dropIcon = document.getElementById('dropIcon');
+  const $dropTitle = document.getElementById('dropTitle');
+  const $dropMeta = document.getElementById('dropMeta');
+  const $fileInput = document.getElementById('fileInput');
+  const $filePanelTitle = document.getElementById('filePanelTitle');
+  const $fileList = document.getElementById('fileList');
+  const $filesCount = document.getElementById('filesCount');
+  const $selectedCount = document.getElementById('selectedCount');
+  const $doneCount = document.getElementById('doneCount');
+  const $waitingCount = document.getElementById('waitingCount');
+  const $metricOneLabel = document.getElementById('metricOneLabel');
+  const $metricTwoLabel = document.getElementById('metricTwoLabel');
+  const $metricThreeLabel = document.getElementById('metricThreeLabel');
+  const $progressBar = document.getElementById('progressBar');
+  const $resultPanel = document.getElementById('resultPanel');
+  const $resultTitle = document.getElementById('resultTitle');
+  const $resultList = document.getElementById('resultList');
+  const $copyAll = document.getElementById('btnCopyAll');
+  const $run = document.getElementById('btnRun');
+  const $clear = document.getElementById('btnClear');
+  const $message = document.getElementById('message');
+  const $toast = document.getElementById('toast');
+
+  try { savedSize = JSON.parse(localStorage.getItem('statementWidget:savedSize') || 'null'); } catch(_) {}
+
+  function extOf(name) {
+    const m = String(name || '').toLowerCase().match(/\.([^.]+)$/);
+    return m ? m[1] : '';
+  }
+
+  function escapeHtml(text) {
+    return String(text || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function isImageFile(file) {
+    const ext = extOf(file.name);
+    return String(file.type || '').startsWith('image/') ||
+      ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'tif', 'tiff'].includes(ext);
+  }
+
+  function guessMime(file) {
+    if (file.type) return file.type;
+    const ext = extOf(file.name);
+    if (ext === 'pdf') return 'application/pdf';
+    if (ext === 'pptx') return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+    if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+    if (ext === 'png') return 'image/png';
+    if (ext === 'webp') return 'image/webp';
+    if (ext === 'gif') return 'image/gif';
+    if (ext === 'bmp') return 'image/bmp';
+    if (ext === 'tif' || ext === 'tiff') return 'image/tiff';
+    return 'application/octet-stream';
+  }
+
+  function fileIcon(file) {
+    const ext = extOf(file.name);
+    if (ext === 'pdf') return '📕';
+    if (ext === 'pptx') return '📊';
+    if (mode === 'multilingual') return '🌐';
+    if (mode === 'spell') return '✏️';
+    return '🖼';
+  }
+
+  function formatSize(bytes) {
+    if (!Number.isFinite(bytes)) return '';
+    if (bytes < 1024) return bytes + 'B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + 'KB';
+    return (bytes / 1024 / 1024).toFixed(1) + 'MB';
+  }
+
+  function isAllowed(file) {
+    const ext = extOf(file.name);
+    if (mode === 'statement') {
+      return isImageFile(file) || ext === 'pdf' || ext === 'pptx';
+    }
+    return isImageFile(file);
+  }
+
+  function setMessage(text, type) {
+    $message.textContent = text;
+    $message.className = 'message' + (type ? ' ' + type : '');
+  }
+
+  function showToast(text) {
+    $toast.textContent = text;
+    $toast.classList.add('show');
+    setTimeout(() => $toast.classList.remove('show'), 1500);
+  }
+
+  function resetProgress() {
+    $progressBar.style.width = '0%';
+  }
+
+  function setProgress(done, total) {
+    const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+    $progressBar.style.width = pct + '%';
+  }
+
+  function addFiles(list) {
+    const incoming = Array.from(list || []);
+    if (incoming.length === 0) return;
+    const existing = new Set(files.map(f => `${f.name}:${f.size}:${f.lastModified}`));
+    let added = 0;
+    let skipped = 0;
+    const maxSize = MODE_CONFIG[mode].maxSize;
+
+    for (const file of incoming) {
+      const key = `${file.name}:${file.size}:${file.lastModified}`;
+      if (existing.has(key)) { skipped++; continue; }
+      if (!isAllowed(file)) { skipped++; continue; }
+      if (file.size > maxSize) { skipped++; continue; }
+      files.push(file);
+      existing.add(key);
+      added++;
+    }
+
+    render();
+    if (added > 0) setMessage(`${added}건 선택됨`, 'ok');
+    if (added === 0 && skipped > 0) {
+      const mb = Math.round(maxSize / 1024 / 1024);
+      showToast(`지원하지 않는 파일 또는 ${mb}MB 초과`);
+    }
+  }
+
+  function removeFile(index) {
+    files.splice(index, 1);
+    render();
+  }
+
+  function clearFiles(keepMessage) {
+    files = [];
+    if (mode === 'spell') spellResults = [];
+    if (mode === 'multilingual') ocrResults = [];
+    resetProgress();
+    render();
+    if (!keepMessage) setMessage('대기 중');
+  }
+
+  function renderFiles() {
+    $fileList.innerHTML = '';
+    if (files.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = MODE_CONFIG[mode].empty;
+      $fileList.appendChild(empty);
+      return;
+    }
+
+    files.forEach((file, index) => {
+      const row = document.createElement('div');
+      row.className = 'file';
+
+      const icon = document.createElement('div');
+      icon.className = 'file-ico';
+      icon.textContent = fileIcon(file);
+
+      const name = document.createElement('div');
+      name.className = 'file-name';
+      name.title = file.name;
+      name.textContent = file.name || 'file';
+
+      const size = document.createElement('div');
+      size.className = 'file-size';
+      size.textContent = formatSize(file.size);
+
+      const del = document.createElement('button');
+      del.className = 'file-remove';
+      del.type = 'button';
+      del.title = '제거';
+      del.textContent = '✕';
+      del.addEventListener('click', () => removeFile(index));
+
+      row.append(icon, name, size, del);
+      $fileList.appendChild(row);
+    });
+  }
+
+  function renderSpellResults() {
+    $resultList.innerHTML = '';
+    if (spellResults.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = '시안 문구 확인 결과가 없습니다.';
+      $resultList.appendChild(empty);
+      return;
+    }
+
+    spellResults.forEach((res) => {
+      const issues = Array.isArray(res.issues) ? res.issues : [];
+      const item = document.createElement('div');
+      item.className = 'result-item';
+      item.innerHTML = `
+        <div class="result-top">
+          <div class="result-name" title="${escapeHtml(res.file)}">${escapeHtml(res.file || '시안')}</div>
+          <span class="badge ${issues.length ? 'warn' : 'ok'}">${issues.length ? `의심 ${issues.length}건` : '정상'}</span>
+        </div>
+        ${issues.map(iss => `
+          <div class="issue">
+            <strong>${escapeHtml(iss.type || '의심')}</strong>
+            ${escapeHtml(iss.message || '')}
+            ${iss.found || iss.suggest ? `<div>원본: ${escapeHtml(iss.found || '-')} → 제안: ${escapeHtml(iss.suggest || '-')}</div>` : ''}
+          </div>
+        `).join('')}
+        <div class="text-block" style="margin-top:${issues.length ? '7px' : '0'}">${escapeHtml(res.text || '(추출 텍스트 없음)')}</div>
+      `;
+      $resultList.appendChild(item);
+    });
+  }
+
+  function renderOcrResults() {
+    $resultList.innerHTML = '';
+    if (ocrResults.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = '다국어 OCR 결과가 없습니다.';
+      $resultList.appendChild(empty);
+      return;
+    }
+
+    ocrResults.forEach((res) => {
+      const item = document.createElement('div');
+      item.className = 'result-item';
+      item.innerHTML = `
+        <div class="result-top">
+          <div class="result-name" title="${escapeHtml(res.file)}">${escapeHtml(res.file || '사진')}</div>
+          <span class="badge ${res.error ? 'err' : 'ok'}">${res.error ? '실패' : `${String(res.text || '').length}자`}</span>
+        </div>
+        <div class="text-block">${escapeHtml(res.error ? res.error : (res.text || '(추출 텍스트 없음)'))}</div>
+      `;
+      $resultList.appendChild(item);
+    });
+  }
+
+  function renderResults() {
+    const show = mode === 'spell' || mode === 'multilingual';
+    $resultPanel.classList.toggle('show', show);
+    $copyAll.disabled = mode === 'spell' ? spellResults.length === 0 : mode === 'multilingual' ? ocrResults.length === 0 : true;
+    if (mode === 'spell') renderSpellResults();
+    else if (mode === 'multilingual') renderOcrResults();
+    else {
+      $resultList.innerHTML = '<div class="empty">결과가 없습니다.</div>';
+    }
+  }
+
+  function updateMetrics() {
+    const cfg = MODE_CONFIG[mode];
+    $metricOneLabel.textContent = cfg.labels[0];
+    $metricTwoLabel.textContent = cfg.labels[1];
+    $metricThreeLabel.textContent = cfg.labels[2];
+    $selectedCount.textContent = String(files.length);
+
+    if (mode === 'statement') {
+      const total = Number(lastQueue.total || 0);
+      const processed = Number(lastQueue.processed || 0);
+      const failed = Number(lastQueue.failed || 0);
+      const waiting = Number(lastQueue.queueLen || 0) + Number(lastQueue.processing || 0);
+      $doneCount.textContent = String(processed + failed);
+      $waitingCount.textContent = String(waiting);
+      if (total > 0) setProgress(processed + failed, total);
+    } else if (mode === 'spell') {
+      const issueCount = spellResults.reduce((sum, r) => sum + ((r.issues || []).length), 0);
+      const okCount = spellResults.filter(r => !(r.issues || []).length && r.text).length;
+      $doneCount.textContent = String(issueCount);
+      $waitingCount.textContent = String(okCount);
+    } else {
+      const done = ocrResults.filter(r => !r.error).length;
+      const chars = ocrResults.reduce((sum, r) => sum + String(r.text || '').length, 0);
+      $doneCount.textContent = String(done);
+      $waitingCount.textContent = String(chars);
+    }
+  }
+
+  function render() {
+    const cfg = MODE_CONFIG[mode];
+    $hdrTitle.textContent = cfg.title;
+    $dropIcon.textContent = cfg.icon;
+    $dropTitle.textContent = cfg.dropTitle;
+    $dropMeta.innerHTML = cfg.dropMeta;
+    $fileInput.accept = cfg.accept;
+    $filePanelTitle.textContent = mode === 'statement' ? '업로드 목록' : '작업 목록';
+    $filesCount.textContent = `${files.length}건`;
+    $resultTitle.textContent = cfg.resultTitle;
+    $run.textContent = cfg.action;
+    $run.disabled = busy || files.length === 0;
+    $clear.disabled = busy || (files.length === 0 && spellResults.length === 0 && ocrResults.length === 0);
+    document.querySelectorAll('.mode-tab').forEach(btn => btn.classList.toggle('on', btn.dataset.mode === mode));
+    renderFiles();
+    renderResults();
+    updateMetrics();
+  }
+
+  function fileToPayload(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = String(reader.result || '');
+        const comma = dataUrl.indexOf(',');
+        resolve({
+          name: file.name || 'file.bin',
+          mime: guessMime(file),
+          base64: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl,
+        });
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function runStatementUpload() {
+    const payload = [];
+    for (let i = 0; i < files.length; i++) {
+      setMessage(`파일 변환 중 ${i + 1}/${files.length}`, 'busy');
+      payload.push(await fileToPayload(files[i]));
+    }
+
+    setMessage('AI 큐 등록 중', 'busy');
+    const res = await api.statementsUpload(payload);
+    if (!res || !res.ok) {
+      if (res && res.error === 'not_logged_in') {
+        setMessage('ERP 로그인 필요', 'err');
+        showToast('ERP 로그인 후 다시 등록');
+      } else {
+        setMessage((res && res.error) || '등록 실패', 'err');
+      }
+      return;
+    }
+
+    const added = Number(res.added || 0);
+    const errCount = Array.isArray(res.errors) ? res.errors.length : 0;
+    files = [];
+    renderQueue(res.queue || {});
+    render();
+    setMessage(`큐 등록 ${added}건${errCount ? ` · 오류 ${errCount}건` : ''}`, errCount ? 'err' : 'ok');
+    startQueuePolling();
+  }
+
+  async function runSpellCheck() {
+    const previews = [];
+    const payload = [];
+    for (let i = 0; i < files.length; i++) {
+      setMessage(`시안 준비 중 ${i + 1}/${files.length}`, 'busy');
+      payload.push(await fileToPayload(files[i]));
+      previews.push(files[i].name || `시안 ${i + 1}`);
+    }
+    setProgress(1, 3);
+
+    setMessage('다국어 문구 확인 중', 'busy');
+    const res = await api.statementsSpellCheck(payload);
+    if (!res || !res.ok) {
+      if (res && res.error === 'not_logged_in') setMessage('ERP 로그인 필요', 'err');
+      else setMessage((res && res.error) || '검사 실패', 'err');
+      return;
+    }
+
+    spellResults = (res.results || []).map((r, i) => ({
+      file: r.file || previews[i] || `시안 ${i + 1}`,
+      text: r.text || '',
+      issues: Array.isArray(r.issues) ? r.issues : [],
+    }));
+    files = [];
+    setProgress(1, 1);
+    render();
+    const issueCount = spellResults.reduce((sum, r) => sum + ((r.issues || []).length), 0);
+    setMessage(`검사 완료 · 의심 ${issueCount}건`, issueCount ? 'err' : 'ok');
+  }
+
+  async function runMultilingualOcr() {
+    ocrResults = [];
+    render();
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setMessage(`다국어 OCR 중 ${i + 1}/${files.length}`, 'busy');
+      setProgress(i, files.length);
+      const payload = await fileToPayload(file);
+      const res = await api.ocrRun({
+        imageBase64: payload.base64,
+        mime: payload.mime,
+        filename: payload.name,
+        mode: 'multilingual',
+      });
+      if (res && res.ok) {
+        ocrResults.push({ file: file.name || `사진 ${i + 1}`, text: res.text || '', durationMs: res.durationMs || 0 });
+      } else if (res && res.error === 'not_logged_in') {
+        ocrResults.push({ file: file.name || `사진 ${i + 1}`, error: 'ERP 로그인 필요' });
+      } else {
+        ocrResults.push({ file: file.name || `사진 ${i + 1}`, error: (res && res.error) || 'OCR 실패' });
+      }
+      render();
+    }
+    files = [];
+    setProgress(1, 1);
+    render();
+    const failed = ocrResults.filter(r => r.error).length;
+    setMessage(`다국어 OCR 완료 · ${ocrResults.length - failed}건 성공${failed ? ` · 실패 ${failed}건` : ''}`, failed ? 'err' : 'ok');
+  }
+
+  async function runCurrentMode() {
+    if (busy || files.length === 0) return;
+    busy = true;
+    render();
+    try {
+      if (mode === 'statement') await runStatementUpload();
+      else if (mode === 'spell') await runSpellCheck();
+      else await runMultilingualOcr();
+    } catch (e) {
+      setMessage('오류: ' + e.message, 'err');
+    } finally {
+      busy = false;
+      render();
+    }
+  }
+
+  function renderQueue(q) {
+    lastQueue = Object.assign({}, lastQueue, q || {});
+    if (mode !== 'statement') return;
+    const total = Number(lastQueue.total || 0);
+    const processed = Number(lastQueue.processed || 0);
+    const failed = Number(lastQueue.failed || 0);
+    const queueLen = Number(lastQueue.queueLen || 0);
+    const processing = Number(lastQueue.processing || 0);
+    const done = processed + failed;
+    const waiting = queueLen + processing;
+
+    if (total > 0) {
+      setProgress(done, total);
+      if (waiting > 0) setMessage(`AI 처리 중 ${done}/${total}`, 'busy');
+      else if (failed > 0) setMessage(`완료 ${processed}건 · 실패 ${failed}건`, 'err');
+      else setMessage(`완료 ${processed}건`, 'ok');
+    }
+    updateMetrics();
+  }
+
+  async function fetchQueue(keepPolling) {
+    if (mode !== 'statement') return;
+    try {
+      const res = await api.statementsQueue();
+      if (res && res.ok) {
+        renderQueue(res);
+        const active = Number(res.queueLen || 0) + Number(res.processing || 0);
+        if (keepPolling && active > 0) startQueuePolling();
+      }
+    } catch (_) {}
+  }
+
+  function startQueuePolling() {
+    if (queueTimer) clearTimeout(queueTimer);
+    queueTimer = setTimeout(async () => {
+      queueTimer = null;
+      await fetchQueue(true);
+    }, 1500);
+  }
+
+  function formatAllResults() {
+    if (mode === 'spell') {
+      return spellResults.map((res) => {
+        const issues = res.issues || [];
+        const issueText = issues.length
+          ? issues.map((iss, i) => `${i + 1}. [${iss.type || '의심'}] ${iss.message || ''}\n   원본: ${iss.found || '-'}\n   제안: ${iss.suggest || '-'}`).join('\n')
+          : '의심 항목 없음';
+        return `[${res.file || '시안'}]\n${issueText}\n\n추출 텍스트:\n${res.text || ''}`;
+      }).join('\n\n---\n\n');
+    }
+    if (mode === 'multilingual') {
+      return ocrResults.map((res) => `[${res.file || '사진'}]\n${res.error ? '오류: ' + res.error : (res.text || '')}`).join('\n\n---\n\n');
+    }
+    return '';
+  }
+
+  async function copyAllResults() {
+    const text = formatAllResults();
+    if (!text) return;
+    await api.copyText(text);
+    showToast('결과 복사됨');
+  }
+
+  function switchMode(next) {
+    if (!MODE_CONFIG[next] || next === mode || busy) return;
+    mode = next;
+    localStorage.setItem('statementWidget:mode', mode);
+    files = [];
+    resetProgress();
+    setMessage('대기 중');
+    render();
+    if (mode === 'statement') fetchQueue(true);
+  }
+
+  $drop.addEventListener('click', () => $fileInput.click());
+  $drop.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    $drop.classList.add('dragover');
+  });
+  $drop.addEventListener('dragleave', () => $drop.classList.remove('dragover'));
+  $drop.addEventListener('drop', (e) => {
+    e.preventDefault();
+    $drop.classList.remove('dragover');
+    addFiles(e.dataTransfer && e.dataTransfer.files);
+  });
+  $fileInput.addEventListener('change', (e) => {
+    addFiles(e.target.files);
+    e.target.value = '';
+  });
+  window.addEventListener('paste', (e) => {
+    if (!e.clipboardData || !e.clipboardData.files || e.clipboardData.files.length === 0) return;
+    addFiles(e.clipboardData.files);
+    e.preventDefault();
+  });
+
+  document.querySelectorAll('.mode-tab').forEach(btn => {
+    btn.addEventListener('click', () => switchMode(btn.dataset.mode));
+  });
+  $run.addEventListener('click', runCurrentMode);
+  $clear.addEventListener('click', () => clearFiles(false));
+  $copyAll.addEventListener('click', copyAllResults);
+  document.getElementById('btnErp').addEventListener('click', () => api.statementsOpenErp && api.statementsOpenErp());
+  document.getElementById('btnPin').addEventListener('click', async () => {
+    if (api.toggleAlwaysOnTop) await api.toggleAlwaysOnTop();
+  });
+  document.getElementById('btnClose').addEventListener('click', () => window.close());
+
+  document.getElementById('btnMini').addEventListener('click', () => {
+    if (!isMini) {
+      try {
+        const cur = { w: window.outerWidth, h: window.outerHeight };
+        if (cur.h > 40) { localStorage.setItem('statementWidget:savedSize', JSON.stringify(cur)); savedSize = cur; }
+      } catch (_) {}
+      isMini = true;
+      document.body.setAttribute('data-mini', '1');
+      if (api.setMini) api.setMini(true, savedSize ? savedSize.w : 360, 30);
+    } else {
+      isMini = false;
+      document.body.setAttribute('data-mini', '0');
+      const restore = savedSize || { w: 420, h: 620 };
+      if (api.setMini) api.setMini(false, restore.w, restore.h);
+    }
+  });
+  document.querySelector('.hdr').addEventListener('dblclick', (e) => {
+    if (e.target.closest('button')) return;
+    document.getElementById('btnMini').click();
+  });
+
+  if (api.onSnapFlash) {
+    api.onSnapFlash(() => {
+      document.body.classList.remove('snap-flash');
+      void document.body.offsetWidth;
+      document.body.classList.add('snap-flash');
+      setTimeout(() => document.body.classList.remove('snap-flash'), 600);
+    });
+  }
+
+  render();
+  if (mode === 'statement') fetchQueue(true);
+</script>
+</body>
+</html>

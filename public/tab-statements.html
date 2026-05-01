@@ -13,37 +13,49 @@
         <input type="month" class="st-input" x-model="filterMonth" @change="loadModeRows()" style="height:30px; font-size:12px;">
         <a :href="exportUrl('COMPANY')" class="st-btn st-btn-primary st-btn-sm">📊 E2E 엑셀 다운로드</a>
       </div>
-      <div class="mode-body">
+      <div class="mode-body company-mode-body">
         <!-- 좌측 엑셀 표 -->
-        <div style="overflow:auto;">
+        <div class="ce-table-wrap">
           <table class="ce-grid">
+            <colgroup>
+              <col class="ce-col-rownum">
+              <col class="ce-col-date">
+              <col class="ce-col-name">
+              <col class="ce-col-spec">
+              <col class="ce-col-qty">
+              <col class="ce-col-price">
+              <col class="ce-col-amount">
+              <col class="ce-col-vat">
+              <col class="ce-col-total">
+              <col class="ce-col-notes">
+            </colgroup>
             <thead>
               <tr>
-                <th style="width:28px;"></th>
+                <th></th>
                 <th><span class="col-letter">A</span>일자</th>
                 <th><span class="col-letter">C</span>상품명</th>
                 <th><span class="col-letter">D</span>규격</th>
-                <th style="width:60px;"><span class="col-letter">E</span>수량</th>
-                <th style="width:90px;"><span class="col-letter">F</span>단가</th>
-                <th style="width:100px;"><span class="col-letter">G</span>금액</th>
-                <th style="width:80px;"><span class="col-letter">H</span>세액</th>
-                <th style="width:100px;"><span class="col-letter">I</span>합계</th>
-                <th style="width:100px;"><span class="col-letter">J</span>비고</th>
+                <th><span class="col-letter">E</span>수량</th>
+                <th><span class="col-letter">F</span>단가</th>
+                <th><span class="col-letter">G</span>금액</th>
+                <th><span class="col-letter">H</span>세액</th>
+                <th><span class="col-letter">I</span>합계</th>
+                <th><span class="col-letter">J</span>비고</th>
               </tr>
             </thead>
             <tbody>
               <template x-for="(r, idx) in (modeRows||[])" :key="r._key">
                 <tr :class="{selected: selectedRowIdx===idx}" @click="selectModeRow(idx)">
                   <td class="row-num" x-text="idx+1"></td>
-                  <td><input x-model="r.date"></td>
-                  <td><input x-model="r.name"></td>
-                  <td><input x-model="r.spec"></td>
+                  <td><input x-model="r.date" :title="r.date"></td>
+                  <td class="ce-text"><textarea rows="2" x-model="r.name" :title="r.name"></textarea></td>
+                  <td class="ce-text"><textarea rows="2" x-model="r.spec" :title="r.spec"></textarea></td>
                   <td class="num"><input type="number" x-model.number="r.qty" @input="recalc(r)"></td>
                   <td class="num"><input type="number" x-model.number="r.price" @input="recalc(r)"></td>
                   <td class="num"><input type="number" x-model.number="r.amount" @input="recalc(r, true)"></td>
                   <td class="num"><input type="number" x-model.number="r.vat"></td>
                   <td class="num"><input type="number" x-model.number="r.total"></td>
-                  <td><input x-model="r.notes"></td>
+                  <td class="ce-text"><textarea rows="2" x-model="r.notes" :title="r.notes"></textarea></td>
                 </tr>
               </template>
               <tr x-show="!modeRows || modeRows.length===0">
@@ -236,13 +248,13 @@
     </div>
   </template>
 
-  <!-- ═════ 시안 오타 확인 모드 (디자이너 검수 도구) ═════ -->
+  <!-- ═════ 시안 문구 확인 모드 ═════ -->
   <template x-if="currentView==='spell-check'">
     <div @paste.window="onSpellPaste($event)" @keydown.escape.window="exitMode()">
       <div class="mode-bar">
         <button class="back" @click="exitMode()">← 돌아가기</button>
-        <span style="background:#fef3c7; color:#92400e; font-size:12px; font-weight:600; padding:4px 10px; border-radius:4px;">✏️ 디자인 검수기</span>
-        <span style="color:#6b7280; font-size:13px;">시안 Ctrl+V 하면 AI가 즉시 오타 검사</span>
+        <span style="background:#fef3c7; color:#92400e; font-size:12px; font-weight:600; padding:4px 10px; border-radius:4px;">✏️ 시안 문구 확인</span>
+        <span style="color:#6b7280; font-size:13px;">시안 이미지를 붙이면 AI가 다국어 문구/오타 확인</span>
         <div style="flex:1;"></div>
         <span x-show="spellResults.length > 0" x-cloak style="font-size:12px; color:#6b7280;" x-text="`${spellResults.length}장 검사 · 의심 ${spellResults.reduce((s,r)=>s+(r.issues||[]).length,0)}건 · 정상 ${spellResults.filter(r=>(!r.issues||r.issues.length===0)&&r.text).length}장`"></span>
         <span x-show="spellChecking" x-cloak style="font-size:12px; color:#1e40af; font-weight:500;">⏳ AI 분석중 <span x-text="spellChecked"></span>/<span x-text="spellTotal"></span></span>
@@ -259,7 +271,7 @@
             style="margin:12px; padding:18px;">
             <div style="font-size:24px; margin-bottom:4px;">📋</div>
             <div style="font-size:13px; font-weight:600; margin-bottom:3px;">Ctrl+V 또는 드래그</div>
-            <div style="font-size:10px; color:#6b7280;">JPG / PNG · 카톡 사진 복사해서 붙여넣기</div>
+            <div style="font-size:10px; color:#6b7280;">이미지 · 다국어 문구 · 카톡 사진 복사해서 붙여넣기</div>
           </div>
           <input type="file" multiple accept="image/*" x-ref="spellFile" style="display:none;" @change="spellCheck($event.target.files); $event.target.value=''">
 
@@ -552,17 +564,36 @@
     .mode-badge-buy{ background:#fee2e2; color:#991b1b; font-size:11px; font-weight:600; padding:3px 8px; border-radius:4px; }
     .mode-badge-sell{ background:#d1fae5; color:#065f46; font-size:11px; font-weight:600; padding:3px 8px; border-radius:4px; }
     .mode-body { display:grid; grid-template-columns: 1.5fr 1fr; min-height: 480px; background:#fff; border:1px solid #c7c9d1; border-top:0; border-radius:0 0 6px 6px; overflow:hidden; }
+    .company-mode-body { grid-template-columns:minmax(0, 2.05fr) minmax(320px, .95fr); }
 
     /* 컴퍼니 엑셀 표 */
-    .ce-grid { width:100%; border-collapse:collapse; font-size:11px; font-family:'Malgun Gothic', sans-serif; }
-    .ce-grid th { background:#4472C4; color:#fff; border:1px solid #2c4d8a; padding:5px 6px; font-weight:600; text-align:center; font-size:11px; }
+    .ce-table-wrap { overflow:auto; min-width:0; background:#fff; }
+    .ce-grid { min-width:1380px; width:1380px; border-collapse:collapse; table-layout:fixed; font-size:12px; font-family:'Malgun Gothic', sans-serif; }
+    .ce-col-rownum { width:32px; }
+    .ce-col-date { width:96px; }
+    .ce-col-name { width:260px; }
+    .ce-col-spec { width:170px; }
+    .ce-col-qty { width:72px; }
+    .ce-col-price { width:104px; }
+    .ce-col-amount { width:112px; }
+    .ce-col-vat { width:96px; }
+    .ce-col-total { width:112px; }
+    .ce-col-notes { width:326px; }
+    .ce-grid th { position:sticky; top:0; z-index:2; background:#4472C4; color:#fff; border:1px solid #2c4d8a; padding:7px 6px; font-weight:600; text-align:center; font-size:12px; }
+    .ce-grid th:first-child { left:0; z-index:3; }
     .ce-grid th .col-letter { font-size:10px; opacity:0.85; display:block; font-weight:500; margin-bottom:2px; }
-    .ce-grid td { border:1px solid #c7c9d1; padding:0; vertical-align:middle; background:#fff; }
-    .ce-grid td.row-num { background:#f1f3f5; text-align:center; color:#6b7280; font-weight:500; padding:3px; font-size:11px; width:28px; }
-    .ce-grid td input { width:100%; padding:4px 6px; border:0; background:transparent; font-size:11px; font-family:inherit; outline:none; box-sizing:border-box; }
-    .ce-grid td input:focus { background:#DEEBFF; box-shadow: inset 0 0 0 2px #1E40FA; }
+    .ce-grid td { border:1px solid #c7c9d1; padding:0; vertical-align:top; background:#fff; }
+    .ce-grid td.row-num { position:sticky; left:0; z-index:1; background:#f1f3f5; text-align:center; color:#6b7280; font-weight:500; padding:7px 3px; font-size:11px; width:32px; vertical-align:middle; }
+    .ce-grid td input,
+    .ce-grid td textarea { width:100%; min-height:38px; padding:7px 8px; border:0; background:transparent; font-size:12px; line-height:1.35; font-family:inherit; outline:none; box-sizing:border-box; }
+    .ce-grid td textarea { display:block; resize:vertical; white-space:pre-wrap; word-break:break-word; overflow-wrap:anywhere; overflow:auto; }
+    .ce-grid td input:focus,
+    .ce-grid td textarea:focus { background:#DEEBFF; box-shadow: inset 0 0 0 2px #1E40FA; }
+    .ce-grid td.ce-text { background:#fff; }
     .ce-grid td.num input { text-align:right; font-variant-numeric: tabular-nums; }
     .ce-grid tr.selected td { background:#EEF2FF; }
+    .ce-grid tr.selected td textarea,
+    .ce-grid tr.selected td input { background:#EEF2FF; }
     .ce-grid tr.selected td.row-num { background:#1E40FA; color:#fff; }
     .ce-action { padding:8px 10px; background:#f9fafb; border-top:1px solid #c7c9d1; display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:11px; }
     .ce-pane { background:#f1f3f5; border-left:1px solid #c7c9d1; padding:12px; display:flex; flex-direction:column; gap:8px; min-height:480px; }
@@ -691,7 +722,7 @@
             <div class="st-tools">
               <button class="st-tool-btn" @click="currentView='spell-check'">
                 <span class="material-symbols-outlined">spellcheck</span>
-                <span>시안 검수</span>
+                <span>문구 확인</span>
               </button>
               <button class="st-tool-btn" @click="currentView='data-pool'; loadDataSources()">
                 <span class="material-symbols-outlined">dataset</span>

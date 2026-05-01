@@ -56,6 +56,7 @@ let workspaceSidebarWin = null;  // 워크스페이스 사이드바 패널
 let aiWidgetWin = null;          // AI 빠른 질문 위젯
 let aiFullWin = null;            // AI 전체 화면 (큰 창)
 let ocrWidgetWin = null;         // OCR 위젯
+let statementWidgetWin = null;   // 명세서 OCR 빠른 등록 위젯
 let captureOverlayWin = null;    // 캡쳐 영역 선택 오버레이
 let _lastCaptureImg = null;      // 마지막 전체 화면 캡쳐 (nativeImage) — crop 용
 let isQuitting = false;
@@ -328,6 +329,7 @@ function getAllSnapWindows() {
   if (contactsWidgetWin && !contactsWidgetWin.isDestroyed()) list.push(contactsWidgetWin);
   if (aiWidgetWin && !aiWidgetWin.isDestroyed()) list.push(aiWidgetWin);
   if (ocrWidgetWin && !ocrWidgetWin.isDestroyed()) list.push(ocrWidgetWin);
+  if (statementWidgetWin && !statementWidgetWin.isDestroyed()) list.push(statementWidgetWin);
   if (listWindow && !listWindow.isDestroyed()) list.push(listWindow);
   return list;
 }
@@ -735,7 +737,7 @@ function openLauncher() {
     launcherWin.focus();
     return;
   }
-  const s = getSavedState('__launcher', { width: 360, height: 80 });
+  const s = getSavedState('__launcher', { width: 430, height: 80 });
   launcherWin = new BrowserWindow({
     width: s.width, height: s.height, x: s.x, y: s.y,
     minWidth: 180, minHeight: 24,
@@ -864,6 +866,40 @@ function openOcrWidget() {
 }
 
 // ────────────────────────────────────────────────
+// 명세서 OCR 위젯 — ERP 화면 없이 사진/PDF/PPTX를 빠르게 등록
+// ────────────────────────────────────────────────
+function openStatementWidget() {
+  if (statementWidgetWin && !statementWidgetWin.isDestroyed()) {
+    statementWidgetWin.focus();
+    return;
+  }
+  const s = getSavedState('__statement_widget', { width: 420, height: 620 });
+  statementWidgetWin = new BrowserWindow({
+    width: s.width, height: s.height, x: s.x, y: s.y,
+    minWidth: 300, minHeight: 28,
+    title: '명세서 OCR 등록',
+    frame: false,
+    backgroundColor: '#f8fafc',
+    alwaysOnTop: s.alwaysOnTop,
+    skipTaskbar: false,
+    resizable: true,
+    minimizable: true,
+    maximizable: false,
+    icon: path.join(__dirname, 'build', 'icon.ico'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+    show: false,
+  });
+  statementWidgetWin.loadFile(path.join(__dirname, 'renderer', 'statement-widget.html'));
+  statementWidgetWin.once('ready-to-show', () => statementWidgetWin.show());
+  attachWidgetBehavior(statementWidgetWin, '__statement_widget');
+  statementWidgetWin.on('closed', () => { statementWidgetWin = null; });
+}
+
+// ────────────────────────────────────────────────
 // AI 전체 화면 (큰 창) — ERP 의 AI 탭만 띄움
 // ────────────────────────────────────────────────
 function openAIFull() {
@@ -937,6 +973,7 @@ function buildTrayMenu() {
       ],
     },
     { label: '📝 OCR (이미지 → 텍스트)', click: () => openOcrWidget() },
+    { label: '📑 명세서 OCR 빠른 등록', click: () => openStatementWidget() },
     { label: '🚀 런처', click: () => openLauncher() },
     { type: 'separator' },
     // ── 영역 캡쳐 (S메모 스타일) — 기본 OFF, 켜야 단축키 활성 ──
@@ -1350,6 +1387,7 @@ ipcMain.handle('launcher:open', (_e, kind) => {
   else if (kind === 'workspace-sidebar') openWorkspaceSidebar();
   else if (kind === 'ai-widget') openAIWidget();
   else if (kind === 'ocr-widget') openOcrWidget();
+  else if (kind === 'statement-widget') openStatementWidget();
 });
 
 // OCR 실행 — multipart upload 를 메인 프로세스가 cookie 와 함께 서버에 프록시
@@ -1385,6 +1423,86 @@ ipcMain.handle('ocr:run', async (_e, payload) => {
     return { ok: false, error: e.message };
   }
 });
+
+// 명세서 OCR 빠른 등록 — 여러 파일을 기존 /api/statements/upload-batch 큐로 전달
+ipcMain.handle('statements:upload', async (_e, payload) => {
+  try {
+    const status = await checkLoggedIn();
+    if (!status.loggedIn) return { ok: false, error: 'not_logged_in' };
+    const files = (payload && payload.files) || [];
+    if (!Array.isArray(files) || files.length === 0) return { ok: false, error: 'files required' };
+
+    const FormData = globalThis.FormData;
+    const Blob = globalThis.Blob;
+    const form = new FormData();
+    for (const f of files) {
+      if (!f || !f.base64) continue;
+      const bin = Buffer.from(f.base64, 'base64');
+      form.append('files', new Blob([bin], { type: f.mime || 'application/octet-stream' }), f.name || 'statement.bin');
+    }
+
+    const cookies = await session.defaultSession.cookies.get({ url: getServerUrl() });
+    const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+    const resp = await fetch(getServerUrl() + '/api/statements/upload-batch', {
+      method: 'POST',
+      headers: { Cookie: cookieHeader },
+      body: form,
+    });
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      return { ok: false, error: 'HTTP ' + resp.status + (errText ? ' — ' + errText.slice(0, 200) : '') };
+    }
+    return await resp.json();
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('statements:queue', async () => {
+  try {
+    const status = await checkLoggedIn();
+    if (!status.loggedIn) return { ok: false, error: 'not_logged_in' };
+    const resp = await fetchWithCookies('/api/statements/queue');
+    if (!resp.ok) return { ok: false, error: 'HTTP ' + resp.status };
+    return await resp.json();
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('statements:spell-check', async (_e, payload) => {
+  try {
+    const status = await checkLoggedIn();
+    if (!status.loggedIn) return { ok: false, error: 'not_logged_in' };
+    const files = (payload && payload.files) || [];
+    if (!Array.isArray(files) || files.length === 0) return { ok: false, error: 'files required' };
+
+    const FormData = globalThis.FormData;
+    const Blob = globalThis.Blob;
+    const form = new FormData();
+    for (const f of files) {
+      if (!f || !f.base64) continue;
+      const bin = Buffer.from(f.base64, 'base64');
+      form.append('files', new Blob([bin], { type: f.mime || 'application/octet-stream' }), f.name || 'design.png');
+    }
+
+    const cookies = await session.defaultSession.cookies.get({ url: getServerUrl() });
+    const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+    const resp = await fetch(getServerUrl() + '/api/statements/spell-check', {
+      method: 'POST',
+      headers: { Cookie: cookieHeader },
+      body: form,
+    });
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      return { ok: false, error: 'HTTP ' + resp.status + (errText ? ' — ' + errText.slice(0, 200) : '') };
+    }
+    return await resp.json();
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+ipcMain.handle('statements:open-erp', () => shell.openExternal(getServerUrl() + '/#statements'));
 ipcMain.handle('ai:open-full', () => openAIFull());
 
 // ── 영역 캡쳐 IPC ──

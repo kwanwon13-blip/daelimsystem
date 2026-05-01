@@ -3,7 +3,7 @@
  * Mounted at: app.use('/api/ai/ocr', require('./routes/ai-ocr'))
  *
  * POST /          — 이미지 업로드 → 추출 텍스트 반환
- *   body (multipart): image=<file>, mode=plain|table|numbers|translate
+ *   body (multipart): image=<file>, mode=plain|multilingual|table|numbers|translate
  *
  * Claude CLI 가 Read tool 로 이미지 파일을 읽음 (vision 자동).
  * API 모드 가능하면 직접 multimodal Messages API 호출.
@@ -37,6 +37,8 @@ const upload = multer({
 // 모드별 프롬프트
 const PROMPTS = {
   plain: '이 이미지의 모든 텍스트를 정확히 추출해줘. 줄바꿈도 그대로 유지. 다른 설명/번역/마크업 없이 추출된 텍스트만 출력.',
+  multilingual: '이 사진/이미지 안의 모든 문자를 원문 언어 그대로 정확히 OCR 해줘. 한국어, 영어, 중국어, 태국어, 미얀마어 등 여러 언어가 섞여 있으면 보이는 순서와 줄바꿈을 최대한 유지하고, 번역하지 마라. 숫자/영문/기호도 문맥에 붙어 있으면 함께 적어라. 흐리거나 안 보이는 글자는 추측하지 말고, 다른 설명/마크업 없이 추출된 텍스트만 출력.',
+  korean: '이 사진/이미지 안의 모든 문자를 원문 언어 그대로 정확히 OCR 해줘. 한국어, 영어, 중국어, 태국어, 미얀마어 등 여러 언어가 섞여 있으면 보이는 순서와 줄바꿈을 최대한 유지하고, 번역하지 마라. 숫자/영문/기호도 문맥에 붙어 있으면 함께 적어라. 흐리거나 안 보이는 글자는 추측하지 말고, 다른 설명/마크업 없이 추출된 텍스트만 출력.',
   table: '이 이미지의 표/양식 데이터를 마크다운 표 형식으로 추출해줘. 헤더/셀 구조 그대로. 다른 설명 없이 표만 출력.',
   numbers: '이 이미지에서 모든 숫자(금액/수량/날짜/전화번호 등)를 한 줄에 하나씩 추출해줘. 라벨이 있으면 "라벨: 숫자" 형식. 다른 설명 없이.',
   translate: '이 이미지의 텍스트를 추출하고, 한국어 ↔ 영어로 번역해줘. 형식:\n\n[원문]\n...\n\n[번역]\n...',
@@ -95,6 +97,8 @@ router.post('/', requireAuth, upload.single('image'), async (req, res) => {
       durationMs,
       mode_label: ({
         plain: '일반 텍스트',
+        multilingual: '다국어 OCR',
+        korean: '다국어 OCR',
         table: '표/양식',
         numbers: '숫자만',
         translate: '번역 포함',
