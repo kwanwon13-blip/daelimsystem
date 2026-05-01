@@ -40,6 +40,7 @@
   <script src="/approval.js"></script>
   <script src="/photos.js"></script>
   <script src="/ocr.js"></script>
+  <script src="/purchase-auto.js"></script>
   <script src="/orgchart.js"></script>
   <!-- Chart.js (홈 대시보드 그래프) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -1666,12 +1667,28 @@
             <span style="font-size:12px;">OCR 텍스트 추출</span>
           </button>
         </template>
+        <template x-if="tabs.find(t=>t.id==='purchaseAuto')">
+          <button @click="currentTab = 'purchaseAuto'"
+            :class="currentTab === 'purchaseAuto' ? 'active' : ''"
+            class="sidebar-nav-item w-full text-left">
+            <span class="material-symbols-outlined" style="font-size:17px">receipt_long</span>
+            <span style="font-size:12px;">매입 자동화</span>
+          </button>
+        </template>
         <template x-if="tabs.find(t=>t.id==='photos')">
           <button @click="currentTab = 'photos'"
             :class="currentTab === 'photos' ? 'active' : ''"
             class="sidebar-nav-item w-full text-left">
             <span class="material-symbols-outlined" style="font-size:17px">photo_library</span>
             <span style="font-size:12px;">사진 라이브러리</span>
+          </button>
+        </template>
+        <template x-if="tabs.find(t=>t.id==='statements')">
+          <button @click="currentTab = 'statements'"
+            :class="currentTab === 'statements' ? 'active' : ''"
+            class="sidebar-nav-item w-full text-left">
+            <span class="material-symbols-outlined" style="font-size:17px">receipt_long</span>
+            <span style="font-size:12px;">명세서 스캔</span>
           </button>
         </template>
         <template x-if="tabs.find(t=>t.id==='contacts')">
@@ -4594,9 +4611,19 @@
         <!--INCLUDE:tab-ocr.html-->
       </template>
 
+      <!-- 매입 자동화 탭 (매입명세서 OCR → 매칭 → 이카운트 자동등록) -->
+      <template x-if="currentTab === 'purchaseAuto'">
+        <!--INCLUDE:tab-purchase-auto.html-->
+      </template>
+
       <!-- 사진 라이브러리 탭 (47K 카톡 사진 검색·필터·편집·라벨링) -->
       <template x-if="currentTab === 'photos'">
         <!--INCLUDE:tab-photos.html-->
+      </template>
+
+      <!-- 명세서 스캔 탭 (매입/매출 명세서 다중 업로드 + AI 추출 + 검토 + 엑셀 추출) -->
+      <template x-if="currentTab === 'statements'">
+        <!--INCLUDE:tab-statements.html-->
       </template>
 
       <!-- CONTACTS TAB (연락처) - 업체 > 현장 > 사람 3단 구조 -->
@@ -6184,7 +6211,9 @@ function app() {
       { id: 'design', label: '시안 검색' },
       // { id: 'productDesign', label: '시안 자동분석' },  // 숨김 — 미완성 기능
       { id: 'ocr', label: 'OCR 텍스트 추출' },
+      { id: 'purchaseAuto', label: '매입 자동화' },
       { id: 'photos', label: '사진 라이브러리' },
+      { id: 'statements', label: '명세서 스캔' },
       { id: 'contacts', label: '연락처' },
       { id: 'calendar', label: '캘린더' },
       { id: 'approval', label: '결재' },
@@ -6299,7 +6328,9 @@ function app() {
           { id: 'stats', label: '통계' }, { id: 'design', label: '시안 검색' },
           // { id: 'productDesign', label: '시안 자동분석' },  // 숨김 — 미완성 기능
           { id: 'ocr', label: 'OCR 텍스트 추출' },
+          { id: 'purchaseAuto', label: '매입 자동화' },
           { id: 'photos', label: '사진 라이브러리' },
+          { id: 'statements', label: '명세서 스캔' },
           { id: 'contacts', label: '연락처' }, { id: 'calendar', label: '캘린더' }, { id: 'notices', label: '공지사항' }, { id: 'settings', label: '설정' },
           { id: 'workspace', label: '워크스페이스' },
           { id: 'ai', label: 'AI 챗' },

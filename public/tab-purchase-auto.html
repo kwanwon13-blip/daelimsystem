@@ -1,0 +1,284 @@
+<!-- tab-purchase-auto.html — 이카운트 매입 자동화 -->
+<div x-data="purchaseAutoApp()" x-init="init()" style="height:100%;display:flex;flex-direction:column;background:#f8f9fb;">
+  <style>
+    .pa-head { padding:12px 18px; background:#fff; border-bottom:1px solid #e5e7eb; display:flex; align-items:center; gap:14px; }
+    .pa-head h1 { font-size:14px; font-weight:700; color:#1f2937; display:flex; align-items:center; gap:8px; }
+    .pa-head .stat { display:inline-flex; gap:6px; align-items:center; padding:3px 9px; background:#f3f4f6; border-radius:99px; font-size:11px; color:#4b5563; font-weight:600; }
+    .pa-head .stat strong { color:#1f2937; }
+
+    .pa-body { flex:1; overflow:hidden; display:grid; grid-template-columns:340px 1fr; gap:0; min-height:0; }
+    .pa-left { background:#fff; border-right:1px solid #e5e7eb; padding:14px; overflow-y:auto; }
+    .pa-right { background:#fff; padding:14px; overflow-y:auto; min-height:0; }
+
+    /* ── 좌측: 파일 업로드 + 큐 ── */
+    .pa-drop { border:2px dashed #d1d5db; border-radius:10px; padding:24px; text-align:center; cursor:pointer; background:#fafafa; transition:all .15s; }
+    .pa-drop:hover, .pa-drop.dragover { border-color:#4f6ef7; background:#eef2ff; }
+    .pa-drop .icon { font-size:32px; margin-bottom:6px; opacity:.6; }
+    .pa-drop .hint { font-size:13px; color:#4b5563; font-weight:600; }
+    .pa-drop .sub { font-size:11px; color:#9ca3af; margin-top:4px; }
+
+    .pa-queue { margin-top:14px; }
+    .pa-queue-title { font-size:11px; font-weight:700; color:#9ca3af; text-transform:uppercase; letter-spacing:.5px; margin-bottom:8px; display:flex; justify-content:space-between; }
+    .pa-queue-item { display:flex; align-items:center; gap:8px; padding:7px 9px; border-radius:6px; font-size:12px; cursor:pointer; margin-bottom:3px; border:1px solid transparent; }
+    .pa-queue-item:hover { background:#f9fafb; }
+    .pa-queue-item.active { background:#eef2ff; border-color:#a5b4fc; }
+    .pa-queue-item .name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#1f2937; }
+    .pa-queue-item .status { font-size:10px; padding:2px 6px; border-radius:4px; font-weight:600; }
+    .pa-queue-item .status.pending { background:#f3f4f6; color:#6b7280; }
+    .pa-queue-item .status.processing { background:#fef3c7; color:#92400e; }
+    .pa-queue-item .status.ok { background:#d1fae5; color:#047857; }
+    .pa-queue-item .status.error { background:#fee2e2; color:#b91c1c; }
+
+    .pa-vendor-stats { margin-top:18px; padding-top:14px; border-top:1px dashed #e5e7eb; }
+    .pa-vendor-stats h3 { font-size:11px; font-weight:700; color:#9ca3af; text-transform:uppercase; letter-spacing:.5px; margin-bottom:6px; }
+    .pa-vendor-stats .row { display:flex; justify-content:space-between; font-size:11px; padding:3px 0; color:#4b5563; }
+    .pa-vendor-stats .row strong { color:#1f2937; font-weight:700; }
+
+    /* ── 우측: 결과 표 ── */
+    .pa-result-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+    .pa-result-head h2 { font-size:13px; font-weight:700; color:#1f2937; }
+    .pa-result-stats { display:flex; gap:8px; font-size:11px; }
+    .pa-result-stats .pill { padding:3px 10px; border-radius:99px; font-weight:600; }
+    .pa-result-stats .auto { background:#d1fae5; color:#047857; }
+    .pa-result-stats .candi { background:#fef3c7; color:#92400e; }
+    .pa-result-stats .manual { background:#fee2e2; color:#b91c1c; }
+
+    .pa-vendor-bar { display:flex; align-items:center; gap:10px; padding:10px 12px; background:#f0f9ff; border:1px solid #bae6fd; border-radius:8px; margin-bottom:12px; font-size:12px; }
+    .pa-vendor-bar strong { color:#0c4a6e; font-size:13px; }
+    .pa-vendor-bar .biz { color:#64748b; font-size:11px; font-family:Consolas,monospace; }
+    .pa-vendor-bar .date { margin-left:auto; color:#475569; font-size:11px; }
+
+    .pa-table { width:100%; border-collapse:collapse; background:#fff; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden; font-size:12px; }
+    .pa-table th { background:#f9fafb; padding:8px 10px; text-align:left; font-weight:700; color:#4b5563; font-size:11px; border-bottom:1px solid #e5e7eb; }
+    .pa-table td { padding:8px 10px; border-bottom:1px solid #f1f5f9; vertical-align:top; }
+    .pa-table tr:last-child td { border-bottom:none; }
+    .pa-table tr:hover { background:#fafafa; }
+    .pa-table .row-no { color:#9ca3af; font-weight:600; width:30px; }
+    .pa-table .ocr-text { font-size:11.5px; color:#1f2937; word-break:break-word; max-width:280px; }
+    .pa-table .qty { text-align:right; color:#6b7280; }
+    .pa-table .price { text-align:right; color:#1f2937; font-weight:600; }
+    .pa-table .match-cell { min-width:240px; }
+    .pa-table .match-cell .badge { display:inline-block; padding:2px 8px; border-radius:99px; font-size:10px; font-weight:700; margin-right:6px; }
+    .pa-table .match-cell .badge.auto { background:#10b981; color:#fff; }
+    .pa-table .match-cell .badge.candi { background:#f59e0b; color:#fff; }
+    .pa-table .match-cell .badge.manual { background:#ef4444; color:#fff; }
+    .pa-table .match-cell .badge.learned { background:#8b5cf6; color:#fff; }
+    .pa-table .match-cell .badge.shortcut { background:#3b82f6; color:#fff; }
+    .pa-table .match-cell .prod-name { color:#1f2937; font-weight:500; font-size:11.5px; }
+    .pa-table .match-cell .prod-cd { color:#9ca3af; font-size:10px; font-family:Consolas,monospace; }
+    .pa-table .match-cell .conf { font-size:10px; color:#6b7280; margin-left:4px; }
+    .pa-table .match-cell .candidates { margin-top:4px; }
+    .pa-table .match-cell .candidates a { display:block; padding:3px 6px; border-radius:4px; font-size:11px; color:#4b5563; cursor:pointer; }
+    .pa-table .match-cell .candidates a:hover { background:#f3f4f6; color:#1f2937; }
+    .pa-table .match-cell .candidates a.picked { background:#dbeafe; color:#1e40af; font-weight:600; }
+    .pa-table .actions { white-space:nowrap; text-align:center; width:60px; }
+    .pa-table .btn-pick { padding:3px 8px; background:#4f6ef7; color:#fff; border:none; border-radius:5px; font-size:11px; cursor:pointer; font-weight:600; }
+    .pa-table .btn-pick:hover { background:#3b5ce4; }
+
+    .pa-footer { margin-top:14px; padding:14px; background:#f9fafb; border-radius:8px; display:flex; align-items:center; justify-content:space-between; }
+    .pa-footer .totals { font-size:12px; color:#4b5563; }
+    .pa-footer .totals strong { color:#1f2937; font-size:14px; font-weight:700; }
+    .pa-footer .actions { display:flex; gap:8px; }
+    .pa-footer .btn { padding:9px 16px; border:none; border-radius:7px; font-size:13px; font-weight:700; cursor:pointer; }
+    .pa-footer .btn-confirm { background:#10b981; color:#fff; }
+    .pa-footer .btn-confirm:hover { background:#059669; }
+    .pa-footer .btn-submit { background:linear-gradient(135deg,#4f6ef7,#3b5ce4); color:#fff; }
+    .pa-footer .btn-submit:hover { filter:brightness(1.06); }
+    .pa-footer .btn:disabled { opacity:.5; cursor:not-allowed; }
+
+    .pa-empty { text-align:center; padding:60px 20px; color:#9ca3af; font-size:13px; }
+    .pa-empty .icon { font-size:48px; margin-bottom:12px; opacity:.4; }
+
+    .pa-loading { display:flex; align-items:center; gap:8px; color:#4f6ef7; font-size:13px; padding:14px; }
+    .pa-loading .dot { width:7px; height:7px; background:#4f6ef7; border-radius:50%; animation:paPulse 1s ease-in-out infinite; }
+    @keyframes paPulse { 0%,100% { opacity:.3; } 50% { opacity:1; } }
+
+    @media (max-width: 900px) {
+      .pa-body { grid-template-columns:1fr; grid-template-rows:auto 1fr; }
+      .pa-left { border-right:none; border-bottom:1px solid #e5e7eb; max-height:280px; }
+    }
+  </style>
+
+  <div class="pa-head">
+    <h1>🧾 매입 자동화</h1>
+    <span class="stat">📊 매입 이력 <strong x-text="stats.total_lines || '...'"></strong>건</span>
+    <span class="stat">🎯 학습 매핑 <strong x-text="stats.learned || 0"></strong>건</span>
+    <span class="stat">🚀 자동율 <strong x-text="(currentResult.stats?.auto_ratio*100 || 0).toFixed(0) + '%'"></strong></span>
+  </div>
+
+  <div class="pa-body">
+    <!-- 좌측: 업로드 + 큐 + 통계 -->
+    <div class="pa-left">
+      <div class="pa-drop"
+           :class="dragOver ? 'dragover' : ''"
+           @click="$refs.fileInput.click()"
+           @dragover.prevent="dragOver=true"
+           @dragleave.prevent="dragOver=false"
+           @drop.prevent="onDrop($event)">
+        <div class="icon">📥</div>
+        <div class="hint">매입명세서 업로드</div>
+        <div class="sub">PDF / JPG / PNG · 여러 장 OK · 최대 30MB/장</div>
+      </div>
+      <input type="file" x-ref="fileInput" multiple style="display:none"
+             accept=".pdf,image/*" @change="onFileSelect($event)">
+
+      <!-- 처리 큐 -->
+      <template x-if="queue.length > 0">
+        <div class="pa-queue">
+          <div class="pa-queue-title">
+            <span>처리 큐 (<span x-text="queue.length"></span>)</span>
+            <a x-show="!processing" @click="clearQueue()" style="color:#9ca3af;font-size:10px;cursor:pointer;font-weight:500;">전체삭제</a>
+          </div>
+          <template x-for="(item, idx) in queue" :key="idx">
+            <div class="pa-queue-item" :class="idx === activeIdx ? 'active' : ''" @click="selectQueueItem(idx)">
+              <span class="name" x-text="item.file.name"></span>
+              <span class="status" :class="item.status" x-text="statusLabel(item.status)"></span>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <!-- TOP 20 매입처 통계 -->
+      <div class="pa-vendor-stats" x-show="stats.top && stats.top.length">
+        <h3>매입 빈도 TOP 5</h3>
+        <template x-for="v in (stats.top || []).slice(0, 5)" :key="v.vendor_name">
+          <div class="row">
+            <span x-text="v.vendor_name.substring(0, 18)"></span>
+            <strong x-text="v.lines + '건'"></strong>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- 우측: 결과 표 -->
+    <div class="pa-right">
+      <template x-if="processing">
+        <div class="pa-loading">
+          <span class="dot"></span>
+          <span>OCR 분석 중... (보통 10~30초)</span>
+        </div>
+      </template>
+
+      <template x-if="!processing && !currentResult.lines">
+        <div class="pa-empty">
+          <div class="icon">🧾</div>
+          <div>왼쪽에 매입명세서를 업로드하면 자동 매칭 결과가 여기 표시됩니다.</div>
+          <div style="font-size:11px;margin-top:8px;color:#9ca3af;">
+            거래처 자동 식별 · 행별 품목 매칭 · 학습 누적 · 이카운트 자동 등록
+          </div>
+        </div>
+      </template>
+
+      <template x-if="!processing && currentResult.lines">
+        <div>
+          <!-- 거래처 헤더 -->
+          <div class="pa-vendor-bar" x-show="currentResult.vendor?.identified?.vendor_name">
+            <span>📌</span>
+            <strong x-text="currentResult.vendor.identified.vendor_name"></strong>
+            <span class="biz" x-show="currentResult.vendor.ocr_extracted?.biz_no" x-text="'(' + currentResult.vendor.ocr_extracted.biz_no + ')'"></span>
+            <span class="date" x-show="currentResult.trx_date" x-text="'📅 ' + currentResult.trx_date"></span>
+          </div>
+
+          <!-- 결과 표 헤더 -->
+          <div class="pa-result-head">
+            <h2>매칭 결과 (<span x-text="currentResult.lines.length"></span>행)</h2>
+            <div class="pa-result-stats">
+              <span class="pill auto">✅ 자동 <span x-text="currentResult.stats.auto"></span></span>
+              <span class="pill candi">🟡 후보 <span x-text="currentResult.stats.candidates"></span></span>
+              <span class="pill manual">❌ 수동 <span x-text="currentResult.stats.manual"></span></span>
+            </div>
+          </div>
+
+          <!-- 행별 매칭 -->
+          <table class="pa-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>매입명세서 표기</th>
+                <th>수량</th>
+                <th>단가</th>
+                <th>매칭 결과 → 우리 품목</th>
+                <th>액션</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(line, idx) in currentResult.lines" :key="idx">
+                <tr>
+                  <td class="row-no" x-text="line.row_no || idx+1"></td>
+                  <td class="ocr-text" x-text="line.ocr_text"></td>
+                  <td class="qty" x-text="line.qty?.toLocaleString() || ''"></td>
+                  <td class="price" x-text="line.unit_price?.toLocaleString() || ''"></td>
+                  <td class="match-cell">
+                    <template x-if="line.match.method === 'shipping_shortcut'">
+                      <div>
+                        <span class="badge shortcut">🚚 자동</span>
+                        <span class="prod-name" x-text="line.match.prod_name"></span>
+                        <span class="prod-cd" x-text="' ' + line.match.prod_cd"></span>
+                      </div>
+                    </template>
+                    <template x-if="line.match.method === 'learned'">
+                      <div>
+                        <span class="badge learned">🎓 학습</span>
+                        <span class="prod-name" x-text="line.match.prod_name"></span>
+                        <span class="prod-cd" x-text="' ' + line.match.prod_cd"></span>
+                      </div>
+                    </template>
+                    <template x-if="line.match.method === 'auto'">
+                      <div>
+                        <span class="badge auto">✅ 자동</span>
+                        <span class="prod-name" x-text="line.match.prod_name"></span>
+                        <span class="prod-cd" x-text="' ' + line.match.prod_cd"></span>
+                        <span class="conf" x-text="(line.match.confidence*100).toFixed(0) + '%'"></span>
+                      </div>
+                    </template>
+                    <template x-if="line.match.method === 'candidate'">
+                      <div>
+                        <span class="badge candi">🟡 후보</span>
+                        <div class="candidates">
+                          <template x-for="c in line.match.candidates" :key="c.prod_cd">
+                            <a @click="pickCandidate(idx, c)" :class="line.match.prod_cd === c.prod_cd ? 'picked' : ''">
+                              <span x-text="c.prod_name"></span>
+                              <span class="prod-cd" x-text="' ' + c.prod_cd + ' · ' + (c.score*100).toFixed(0) + '% · ' + c.times + '회'"></span>
+                            </a>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+                    <template x-if="['manual','no_history','no_vendor'].includes(line.match.method)">
+                      <div>
+                        <span class="badge manual">❌ 수동</span>
+                        <a @click="openManualPick(idx)" style="font-size:11px;color:#4f6ef7;cursor:pointer;">품목 직접 선택...</a>
+                      </div>
+                    </template>
+                  </td>
+                  <td class="actions">
+                    <button class="btn-pick" x-show="line.match.prod_cd && (line.match.method === 'candidate' || line.match.method === 'auto')"
+                            @click="confirmLine(idx)">
+                      ✓ 확정
+                    </button>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+
+          <!-- 푸터: 합계 + 등록 버튼 -->
+          <div class="pa-footer">
+            <div class="totals">
+              합계: <strong x-text="totalSum.toLocaleString()"></strong>원
+              <span style="color:#9ca3af;margin-left:8px;">(공급 <span x-text="totalSupply.toLocaleString()"></span> + 부가세 <span x-text="totalVat.toLocaleString()"></span>)</span>
+            </div>
+            <div class="actions">
+              <button class="btn btn-confirm" :disabled="confirmedCount === 0" @click="confirmAllPending()">
+                🎓 후보 일괄 학습 (<span x-text="confirmedCount"></span>)
+              </button>
+              <button class="btn btn-submit" :disabled="!canSubmit" @click="submitToEcount()">
+                🚀 이카운트 등록
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+</div>

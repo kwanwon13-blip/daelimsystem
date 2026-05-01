@@ -1,0 +1,698 @@
+<!-- tab-statements.html — 명세서 일괄 스캔 + AI 추출 + 검토 + 엑셀 export -->
+<div x-data="statementsApp()" x-init="init()" class="p-6">
+  <!-- ═════ 회사 모드 화면 (COMPANY 매입/매출 = 엑셀창) ═════ -->
+  <template x-if="currentView==='company-buy' || currentView==='company-sell'">
+    <div>
+      <div class="mode-bar">
+        <button class="back" @click="exitMode()">← 돌아가기</button>
+        <span class="mode-badge-co">컴퍼니 (E2E)</span>
+        <span :class="currentView==='company-buy'?'mode-badge-buy':'mode-badge-sell'" x-text="currentView==='company-buy'?'매입':'매출'"></span>
+        <span class="mode-title">엑셀창 모드</span>
+        <span style="color:#6b7280; font-size:12px;" x-text="`${(modeRows||[]).length}건 · ${filterMonth||'전체월'}`"></span>
+        <div style="flex:1;"></div>
+        <input type="month" class="st-input" x-model="filterMonth" @change="loadModeRows()" style="height:30px; font-size:12px;">
+        <a :href="exportUrl('COMPANY')" class="st-btn st-btn-primary st-btn-sm">📊 E2E 엑셀 다운로드</a>
+      </div>
+      <div class="mode-body">
+        <!-- 좌측 엑셀 표 -->
+        <div style="overflow:auto;">
+          <table class="ce-grid">
+            <thead>
+              <tr>
+                <th style="width:28px;"></th>
+                <th><span class="col-letter">A</span>일자</th>
+                <th><span class="col-letter">C</span>상품명</th>
+                <th><span class="col-letter">D</span>규격</th>
+                <th style="width:60px;"><span class="col-letter">E</span>수량</th>
+                <th style="width:90px;"><span class="col-letter">F</span>단가</th>
+                <th style="width:100px;"><span class="col-letter">G</span>금액</th>
+                <th style="width:80px;"><span class="col-letter">H</span>세액</th>
+                <th style="width:100px;"><span class="col-letter">I</span>합계</th>
+                <th style="width:100px;"><span class="col-letter">J</span>비고</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(r, idx) in (modeRows||[])" :key="r._key">
+                <tr :class="{selected: selectedRowIdx===idx}" @click="selectModeRow(idx)">
+                  <td class="row-num" x-text="idx+1"></td>
+                  <td><input x-model="r.date"></td>
+                  <td><input x-model="r.name"></td>
+                  <td><input x-model="r.spec"></td>
+                  <td class="num"><input type="number" x-model.number="r.qty" @input="recalc(r)"></td>
+                  <td class="num"><input type="number" x-model.number="r.price" @input="recalc(r)"></td>
+                  <td class="num"><input type="number" x-model.number="r.amount" @input="recalc(r, true)"></td>
+                  <td class="num"><input type="number" x-model.number="r.vat"></td>
+                  <td class="num"><input type="number" x-model.number="r.total"></td>
+                  <td><input x-model="r.notes"></td>
+                </tr>
+              </template>
+              <tr x-show="!modeRows || modeRows.length===0">
+                <td colspan="10" style="text-align:center; padding:40px; color:#9ca3af;">
+                  이 분할에 등록된 명세서 라인 아이템 없음
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="ce-action">
+            <button class="st-btn st-btn-ghost st-btn-sm" @click="addBlankRow()">+ 행 추가</button>
+            <span style="color:#6b7280;">선택 행 클릭 시 우측에 원본 미리보기</span>
+            <div style="flex:1;"></div>
+            <span style="font-size:12px; color:#6b7280;">합계:</span>
+            <span style="font-weight:600; color:#1f2937;" x-text="modeSum().toLocaleString() + '원'"></span>
+            <button class="st-btn st-btn-success st-btn-sm" @click="confirmAllInMode()">✓ 전체 확정</button>
+          </div>
+        </div>
+        <!-- 우측 미리보기 -->
+        <div class="ce-pane">
+          <h4>선택 행 원본 명세서</h4>
+          <div class="ce-preview-img" x-show="selectedRow">
+            <template x-if="selectedRow && (selectedRow.source_file||'').toLowerCase().endsWith('.pdf')">
+              <iframe :src="`/api/statements/${selectedRow.statement_id}/file`"></iframe>
+            </template>
+            <template x-if="selectedRow && !(selectedRow.source_file||'').toLowerCase().endsWith('.pdf')">
+              <img :src="`/api/statements/${selectedRow.statement_id}/file`" alt="원본">
+            </template>
+          </div>
+          <div class="ce-preview-img" x-show="!selectedRow" style="color:#9ca3af; font-size:12px;">
+            왼쪽 표에서 행을 클릭하면 원본 보임
+          </div>
+          <div x-show="selectedRow" style="font-size:11px; color:#6b7280;">
+            <div>거래처: <b x-text="selectedRow?.vendor"></b></div>
+            <div>업로드: <span x-text="selectedRow?.uploaded_at"></span></div>
+            <div>원본파일: <span x-text="selectedRow?.source_file"></span></div>
+          </div>
+          <div style="display:flex; gap:5px;">
+            <button class="st-btn st-btn-ghost st-btn-sm" style="flex:1;" @click="prevRow()">← 이전</button>
+            <button class="st-btn st-btn-ghost st-btn-sm" style="flex:1;" @click="nextRow()">다음 →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- ═════ 에스엠 이카운트 모드 (STEP C 에서 구현, 임시 안내) ═════ -->
+  <template x-if="currentView==='sm-buy' || currentView==='sm-sell'">
+    <div>
+      <div class="mode-bar">
+        <button class="back" @click="exitMode()">← 돌아가기</button>
+        <span class="mode-badge-sm">에스엠 (이카운트)</span>
+        <span :class="currentView==='sm-buy'?'mode-badge-buy':'mode-badge-sell'" x-text="currentView==='sm-buy'?'매입':'매출'"></span>
+        <span class="mode-title">이카운트 모드</span>
+      </div>
+      <div class="mode-body" style="grid-template-columns:1fr; align-items:center; justify-content:center;">
+        <div style="padding:60px; text-align:center; color:#6b7280;">
+          <div style="font-size:48px; margin-bottom:14px;">⚡</div>
+          <div style="font-size:14px; font-weight:600;">이카운트 모드 준비 중 (STEP C)</div>
+          <div style="font-size:12px; margin-top:6px;">사장님이 보내준 이카운트 화면 그대로 모사 + API 자동등록</div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- ═════ Overview (4분할 카드 + 그리드) — 기존 화면 ═════ -->
+  <div x-show="currentView==='overview'">
+  <style>
+    .st-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px; margin-bottom:14px; }
+    .st-h { font-size:14px; font-weight:700; color:#1a1d23; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+    .st-btn { padding:7px 14px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; border:none; transition: all .15s; }
+    .st-btn-primary { background:linear-gradient(135deg,#4f6ef7,#3b5ce4); color:#fff; }
+    .st-btn-primary:hover { filter:brightness(1.06); }
+    .st-btn-ghost { background:#fff; border:1px solid #d1d5db; color:#374151; }
+    .st-btn-ghost:hover { background:#f9fafb; }
+    .st-btn-sm { padding:4px 10px; font-size:12px; }
+    .st-btn-success { background:#22c55e; color:#fff; }
+    .st-btn-warn { background:#f59e0b; color:#fff; }
+    .st-btn-danger { background:#ef4444; color:#fff; }
+    .st-input { padding:7px 11px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; outline:none; }
+    .st-input:focus { border-color:#4f6ef7; }
+
+    .drop-zone { border:2px dashed #d1d5db; border-radius:14px; padding:32px; text-align:center; color:#6b7280; cursor:pointer; transition:all 0.15s; background:#fafbfc; }
+    .drop-zone:hover, .drop-zone.dragover { border-color:#4f6ef7; background:#eef2ff; color:#4338ca; }
+    .drop-zone .icon { font-size:32px; margin-bottom:8px; }
+
+    .progress-bar { width:100%; height:18px; background:#e5e7eb; border-radius:9px; overflow:hidden; }
+    .progress-bar .fill { height:100%; background:linear-gradient(90deg,#4f6ef7,#22c55e); transition:width 0.3s; display:flex; align-items:center; justify-content:center; color:#fff; font-size:11px; font-weight:600; }
+
+    .st-grid { width:100%; border-collapse:collapse; font-size:12.5px; }
+    .st-grid th { text-align:left; background:#f3f4f6; padding:8px 10px; font-weight:600; color:#374151; border-bottom:1px solid #e5e7eb; font-size:11px; text-transform:uppercase; letter-spacing:0.3px; }
+    .st-grid td { padding:8px 10px; border-bottom:1px solid #f3f4f6; color:#1f2937; vertical-align:middle; }
+    .st-grid tr:hover td { background:#fafbfc; cursor:pointer; }
+
+    .badge { display:inline-block; padding:2px 8px; border-radius:99px; font-size:10px; font-weight:600; }
+    .badge.pending { background:#fef3c7; color:#92400e; }
+    .badge.confirmed { background:#d1fae5; color:#065f46; }
+    .badge.rejected { background:#fee2e2; color:#991b1b; }
+    .badge.type { background:#eef2ff; color:#4338ca; }
+
+    /* 모달 (검토) */
+    .st-modal-bg { position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:1000; display:none; align-items:center; justify-content:center; padding:20px; }
+    .st-modal-bg.show { display:flex; }
+    .st-modal { background:#fff; border-radius:12px; max-width:1300px; width:100%; max-height:95vh; display:grid; grid-template-columns:1fr 480px; overflow:hidden; }
+    .st-modal .img-pane { background:#0e1116; display:flex; align-items:center; justify-content:center; overflow:auto; padding:14px; }
+    .st-modal .img-pane img, .st-modal .img-pane iframe { max-width:100%; max-height:90vh; }
+    .st-modal .info-pane { padding:18px 20px; overflow-y:auto; max-height:95vh; }
+    .st-modal .info-pane h3 { margin:0 0 10px; font-size:15px; word-break:break-all; }
+    .st-modal label { display:block; font-size:11px; color:#6b7280; text-transform:uppercase; margin-top:10px; font-weight:600; }
+    .st-modal input, .st-modal select, .st-modal textarea { width:100%; padding:6px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-top:3px; font-family:inherit; }
+    .st-items table { width:100%; border-collapse:collapse; font-size:11.5px; margin-top:8px; }
+    .st-items th, .st-items td { border:1px solid #e5e7eb; padding:3px 5px; }
+    .st-items input { width:100%; padding:2px 4px; font-size:11px; border:0; background:transparent; }
+    .st-items input:focus { background:#eef2ff; outline:none; }
+
+    /* 회사 모드 화면 (overview 외) */
+    .mode-bar { background:#fff; border:1px solid #c7c9d1; border-radius:6px 6px 0 0; padding:10px 14px; display:flex; align-items:center; gap:10px; }
+    .mode-bar .back { padding:5px 12px; background:#fff; border:1px solid #c7c9d1; border-radius:4px; font-size:12px; cursor:pointer; }
+    .mode-bar .back:hover { background:#f3f4f6; }
+    .mode-title { font-size:15px; font-weight:600; }
+    .mode-badge-sm { background:#dbeafe; color:#1e40af; font-size:11px; font-weight:600; padding:3px 8px; border-radius:4px; }
+    .mode-badge-co { background:#fef3c7; color:#92400e; font-size:11px; font-weight:600; padding:3px 8px; border-radius:4px; }
+    .mode-badge-buy{ background:#fee2e2; color:#991b1b; font-size:11px; font-weight:600; padding:3px 8px; border-radius:4px; }
+    .mode-badge-sell{ background:#d1fae5; color:#065f46; font-size:11px; font-weight:600; padding:3px 8px; border-radius:4px; }
+    .mode-body { display:grid; grid-template-columns: 1.5fr 1fr; min-height: 480px; background:#fff; border:1px solid #c7c9d1; border-top:0; border-radius:0 0 6px 6px; overflow:hidden; }
+
+    /* 컴퍼니 엑셀 표 */
+    .ce-grid { width:100%; border-collapse:collapse; font-size:11px; font-family:'Malgun Gothic', sans-serif; }
+    .ce-grid th { background:#4472C4; color:#fff; border:1px solid #2c4d8a; padding:5px 6px; font-weight:600; text-align:center; font-size:11px; }
+    .ce-grid th .col-letter { font-size:10px; opacity:0.85; display:block; font-weight:500; margin-bottom:2px; }
+    .ce-grid td { border:1px solid #c7c9d1; padding:0; vertical-align:middle; background:#fff; }
+    .ce-grid td.row-num { background:#f1f3f5; text-align:center; color:#6b7280; font-weight:500; padding:3px; font-size:11px; width:28px; }
+    .ce-grid td input { width:100%; padding:4px 6px; border:0; background:transparent; font-size:11px; font-family:inherit; outline:none; box-sizing:border-box; }
+    .ce-grid td input:focus { background:#DEEBFF; box-shadow: inset 0 0 0 2px #1E40FA; }
+    .ce-grid td.num input { text-align:right; font-variant-numeric: tabular-nums; }
+    .ce-grid tr.selected td { background:#EEF2FF; }
+    .ce-grid tr.selected td.row-num { background:#1E40FA; color:#fff; }
+    .ce-action { padding:8px 10px; background:#f9fafb; border-top:1px solid #c7c9d1; display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:11px; }
+    .ce-pane { background:#f1f3f5; border-left:1px solid #c7c9d1; padding:12px; display:flex; flex-direction:column; gap:8px; min-height:480px; }
+    .ce-pane h4 { margin:0; font-size:11px; color:#6b7280; font-weight:500; }
+    .ce-preview-img { background:#fff; border:1px solid #c7c9d1; border-radius:3px; flex:1; min-height:300px; overflow:auto; display:flex; align-items:center; justify-content:center; padding:8px; }
+    .ce-preview-img img { max-width:100%; max-height:100%; }
+    .ce-preview-img iframe { width:100%; height:100%; border:0; min-height:300px; }
+  </style>
+
+  <!-- 헤더 -->
+  <div class="st-card" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+    <div class="st-h" style="margin:0;">📑 명세서 OCR (4분할 자동분류)</div>
+    <span style="color:#6b7280; font-size:12.5px;" x-text="`전체 ${stats.total||0} / 검토전 ${stats.pending||0} / 확정 ${stats.confirmed||0}`"></span>
+    <div style="flex:1;"></div>
+    <input type="month" class="st-input" x-model="filterMonth" @change="load()" style="width:140px;">
+    <input class="st-input" placeholder="거래처 / 검색" x-model="searchQ" @input.debounce.300ms="load()" style="flex:1; min-width:180px;">
+    <select class="st-input" x-model="filterCompany" @change="load()" title="회사">
+      <option value="">전체 회사</option>
+      <option value="SM">에스엠 (이카운트)</option>
+      <option value="COMPANY">컴퍼니 (E2E)</option>
+    </select>
+    <select class="st-input" x-model="filterClass" @change="load()" title="구분">
+      <option value="">매입+매출</option>
+      <option value="매입">매입만</option>
+      <option value="매출">매출만</option>
+    </select>
+    <select class="st-input" x-model="filterStatus" @change="load()">
+      <option value="">전체</option>
+      <option value="pending">검토전</option>
+      <option value="confirmed">확정</option>
+      <option value="rejected">반려</option>
+    </select>
+    <a :href="`/api/statements/export.xlsx?status=confirmed${filterMonth?'&month='+filterMonth:''}${filterCompany?'&companyCode='+filterCompany:''}${filterClass?'&docClass='+filterClass:''}`"
+      class="st-btn st-btn-ghost st-btn-sm" title="현재 필터 조건으로 E2E 양식 엑셀 다운로드">📊 E2E 엑셀</a>
+  </div>
+
+  <!-- 4분할 자동분류 통계 카드 -->
+  <div class="st-card" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px;">
+    <template x-for="q in [
+      {key:'SM_매입',  company:'SM',     class:'매입', label:'에스엠 매입', erp:'이카운트', color:'#3b82f6'},
+      {key:'SM_매출',  company:'SM',     class:'매출', label:'에스엠 매출', erp:'이카운트', color:'#10b981'},
+      {key:'COMPANY_매입', company:'COMPANY', class:'매입', label:'컴퍼니 매입', erp:'E2E',   color:'#f59e0b'},
+      {key:'COMPANY_매출', company:'COMPANY', class:'매출', label:'컴퍼니 매출', erp:'E2E',   color:'#ef4444'},
+    ]" :key="q.key">
+      <div @click="enterMode(q.company, q.class)"
+        style="padding:14px; border-radius:10px; cursor:pointer; transition:all .15s; border:1px solid #e5e7eb; position:relative;"
+        :style="`background: linear-gradient(135deg, ${q.color}11, ${q.color}05); border-left: 4px solid ${q.color};`"
+        @mouseenter="$el.style.transform='translateY(-2px)'; $el.style.boxShadow='0 4px 12px rgba(0,0,0,0.08)'"
+        @mouseleave="$el.style.transform=''; $el.style.boxShadow=''">
+        <div>
+          <div style="font-size:12px; color:#6b7280; margin-bottom:3px;" x-text="q.label"></div>
+          <div style="font-size:24px; font-weight:700;" :style="`color:${q.color};`" x-text="quadCount(q.company, q.class) + '건'"></div>
+          <div style="font-size:11px; color:#9ca3af;" x-text="`→ ${q.erp} · 검토전 ${quadPending(q.company, q.class)}건`"></div>
+        </div>
+        <div style="margin-top:10px; padding:6px 10px; background:#fff; border-radius:5px; font-size:11px; text-align:center; color:#374151; border:1px solid #e5e7eb;">
+          <span x-text="q.company==='COMPANY' ? '📊 엑셀창 모드 열기 →' : '⚡ 이카운트 모드 열기 →'"></span>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <!-- 미분류 알림 -->
+  <div x-show="quadCount(null,null) > 0 || (stats.byQuadrant||[]).some(q => q.company==='미분류' || q.class==='미분류')" x-cloak class="st-card"
+    style="background:#fef3c7; border-color:#fcd34d; padding:10px 14px; display:flex; align-items:center; gap:10px;">
+    <span style="font-size:18px;">⚠️</span>
+    <span style="font-size:13px; color:#92400e;">
+      자동분류 안 된 명세서 있음 — 검토 모달에서 회사/구분 직접 지정 필요.
+    </span>
+    <div style="flex:1;"></div>
+    <button class="st-btn st-btn-warn st-btn-sm" @click="filterCompany=''; filterClass=''; filterStatus='pending'; load()">미분류 보기</button>
+  </div>
+
+  <!-- 업로드 영역 -->
+  <div class="st-card">
+    <div class="st-h">📤 다중 업로드 (드래그 / 클릭)</div>
+    <div class="drop-zone" @click="$refs.fileInput.click()" @dragover.prevent="dragOver=true" @dragleave="dragOver=false"
+      @drop.prevent="dragOver=false; uploadFiles($event.dataTransfer.files)" :class="dragOver?'dragover':''">
+      <div class="icon">📷📄🎨</div>
+      <div style="font-size:14px; font-weight:600; margin-bottom:4px;">명세서 / 시안 / 영수증 어떤 거든 던지기</div>
+      <div style="font-size:12px;">JPG / PNG / PDF · 한 번에 여러 장 · AI가 회사·구분 자동분류</div>
+      <div style="font-size:11px; color:#9ca3af; margin-top:4px;">PPTX 시안은 추후 업데이트 예정 (현재는 슬라이드 이미지 추출 후 업로드)</div>
+    </div>
+    <input type="file" multiple accept="image/*,application/pdf" x-ref="fileInput" style="display:none;" @change="uploadFiles($event.target.files)">
+
+    <!-- 큐 진행률 -->
+    <div x-show="queue.total > 0" x-cloak style="margin-top:14px;">
+      <div style="display:flex; justify-content:space-between; font-size:12px; color:#6b7280; margin-bottom:5px;">
+        <span x-text="`AI 처리 중: ${queue.processed + queue.failed}/${queue.total} 장`"></span>
+        <span x-text="`처리중 ${queue.processing} · 대기 ${queue.queueLen} · 실패 ${queue.failed}`"></span>
+      </div>
+      <div class="progress-bar">
+        <div class="fill" :style="`width:${queue.total ? Math.round((queue.processed + queue.failed) * 100 / queue.total) : 0}%;`"
+          x-text="`${queue.total ? Math.round((queue.processed + queue.failed) * 100 / queue.total) : 0}%`"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 그리드 -->
+  <div class="st-card">
+    <table class="st-grid">
+      <thead>
+        <tr>
+          <th style="width:34px;">상태</th>
+          <th style="width:80px;">회사</th>
+          <th style="width:60px;">구분</th>
+          <th style="width:90px;">일자</th>
+          <th>거래처</th>
+          <th style="width:120px; text-align:right;">공급가액</th>
+          <th style="width:100px; text-align:right;">부가세</th>
+          <th style="width:120px; text-align:right;">합계</th>
+          <th style="width:140px;">원본</th>
+          <th style="width:100px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="s in items" :key="s.id">
+          <tr @click="openModal(s.id)">
+            <td><span class="badge" :class="s.status" x-text="s.status==='pending'?'⏳':s.status==='confirmed'?'✅':'❌'"></span></td>
+            <td>
+              <span x-show="s.company_code==='SM'" style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">에스엠</span>
+              <span x-show="s.company_code==='COMPANY'" style="background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">컴퍼니</span>
+              <span x-show="!s.company_code" style="color:#9ca3af;font-size:10px;">미분류</span>
+            </td>
+            <td>
+              <span x-show="s.doc_class==='매입'" style="background:#fee2e2;color:#991b1b;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">매입</span>
+              <span x-show="s.doc_class==='매출'" style="background:#d1fae5;color:#065f46;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;">매출</span>
+              <span x-show="!s.doc_class" style="color:#9ca3af;font-size:10px;">?</span>
+            </td>
+            <td x-text="s.doc_date || '-'"></td>
+            <td x-text="s.norm_vendor || s.vendor_name || '-'"></td>
+            <td style="text-align:right; font-variant-numeric: tabular-nums;" x-text="s.supply_amount?.toLocaleString() || '-'"></td>
+            <td style="text-align:right; font-variant-numeric: tabular-nums;" x-text="s.vat_amount?.toLocaleString() || '-'"></td>
+            <td style="text-align:right; font-variant-numeric: tabular-nums; font-weight:600;" x-text="s.total_amount?.toLocaleString() || '-'"></td>
+            <td style="font-size:11px; color:#9ca3af;" x-text="s.source_file"></td>
+            <td @click.stop>
+              <button class="st-btn st-btn-success st-btn-sm" x-show="s.status==='pending'" @click="confirm(s.id)">확정</button>
+              <button class="st-btn st-btn-warn st-btn-sm" x-show="s.status==='pending'" @click="reject(s.id)">반려</button>
+              <button class="st-btn st-btn-ghost st-btn-sm" x-show="s.status!=='pending'" @click="reset(s.id)">되돌리기</button>
+            </td>
+          </tr>
+        </template>
+        <tr x-show="items.length===0"><td colspan="10" style="text-align:center; padding:40px; color:#9ca3af;">명세서 없음</td></tr>
+      </tbody>
+    </table>
+
+    <!-- 페이저 -->
+    <div x-show="total > limit" style="margin-top:14px; text-align:center;">
+      <button class="st-btn st-btn-ghost st-btn-sm" :disabled="offset===0" @click="offset=Math.max(0,offset-limit); load()">← 이전</button>
+      <span style="margin:0 14px; color:#6b7280; font-size:12px;" x-text="`${offset+1} – ${Math.min(offset+limit,total)} / ${total}`"></span>
+      <button class="st-btn st-btn-ghost st-btn-sm" :disabled="offset+limit>=total" @click="offset+=limit; load()">다음 →</button>
+    </div>
+  </div>
+  </div>
+  <!-- ═════ /Overview ═════ -->
+
+  <!-- 검토 모달 -->
+  <div class="st-modal-bg" :class="{show: !!selected}" @click.self="closeModal()">
+    <div class="st-modal" x-show="selected" x-cloak>
+      <div class="img-pane">
+        <template x-if="selected && (selected.source_file||'').toLowerCase().endsWith('.pdf')">
+          <iframe :src="`/api/statements/${selected.id}/file`" style="width:100%; height:90vh; border:0; background:#fff;"></iframe>
+        </template>
+        <template x-if="selected && !(selected.source_file||'').toLowerCase().endsWith('.pdf')">
+          <img :src="`/api/statements/${selected.id}/file`" alt="명세서">
+        </template>
+      </div>
+      <div class="info-pane" x-show="selected">
+        <h3 x-text="selected?.source_file || '#'+selected?.id"></h3>
+        <div style="display:flex; gap:6px; margin-bottom:6px;">
+          <span class="badge" :class="selected?.status" x-text="selected?.status"></span>
+          <span style="color:#9ca3af; font-size:11px;" x-text="selected?.uploaded_at"></span>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+          <div>
+            <label>회사 (4분할 라우팅)</label>
+            <select x-model="edit.company_code" :style="edit.company_code==='SM'?'background:#dbeafe;':edit.company_code==='COMPANY'?'background:#fef3c7;':'background:#fee2e2;'">
+              <option value="">⚠ 미분류 (직접 선택 필요)</option>
+              <option value="SM">📘 대림에스엠 → 이카운트</option>
+              <option value="COMPANY">📙 대림컴퍼니 → E2E</option>
+            </select>
+          </div>
+          <div>
+            <label>매입/매출</label>
+            <select x-model="edit.doc_class" :style="edit.doc_class==='매입'?'background:#fee2e2;':edit.doc_class==='매출'?'background:#d1fae5;':'background:#fef3c7;'">
+              <option value="">⚠ 미분류</option>
+              <option value="매입">💰 매입 (받음)</option>
+              <option value="매출">📤 매출 (보냄)</option>
+            </select>
+          </div>
+        </div>
+
+        <label>서류 타입</label>
+        <select x-model="edit.doc_type">
+          <option value="">(자동)</option>
+          <option>세금계산서</option><option>거래명세서</option>
+          <option>영수증</option><option>매입명세서</option>
+          <option>PPTX시안</option><option>기타</option>
+        </select>
+
+        <label>일자</label>
+        <input type="date" x-model="edit.doc_date">
+
+        <label>거래처</label>
+        <input x-model="edit.norm_vendor" placeholder="공급자 상호">
+
+        <label>사업자번호</label>
+        <input x-model="edit.vendor_biz_no" placeholder="XXX-XX-XXXXX">
+
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;">
+          <div><label>공급가액</label><input type="number" x-model.number="edit.supply_amount"></div>
+          <div><label>부가세</label><input type="number" x-model.number="edit.vat_amount"></div>
+          <div><label>합계</label><input type="number" x-model.number="edit.total_amount"></div>
+        </div>
+
+        <label>품목 상세</label>
+        <div class="st-items" x-show="edit.items && edit.items.length">
+          <table>
+            <thead><tr><th>#</th><th>품목</th><th>규격</th><th>수량</th><th>단가</th><th>금액</th><th></th></tr></thead>
+            <tbody>
+              <template x-for="(it, i) in (edit.items||[])" :key="i">
+                <tr>
+                  <td x-text="i+1"></td>
+                  <td><input x-model="it.item_name"></td>
+                  <td><input x-model="it.spec"></td>
+                  <td><input type="number" x-model.number="it.quantity" style="text-align:right;"></td>
+                  <td><input type="number" x-model.number="it.unit_price" style="text-align:right;"></td>
+                  <td><input type="number" x-model.number="it.amount" style="text-align:right;"></td>
+                  <td><button @click="edit.items.splice(i,1)" class="st-btn st-btn-ghost st-btn-sm" style="padding:1px 6px;">✕</button></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+        <button class="st-btn st-btn-ghost st-btn-sm" @click="edit.items = edit.items || []; edit.items.push({item_name:'',spec:'',quantity:null,unit_price:null,amount:null})" style="margin-top:5px;">+ 품목 추가</button>
+
+        <label>비고</label>
+        <textarea x-model="edit.notes" rows="2"></textarea>
+
+        <details style="margin-top:14px;">
+          <summary style="cursor:pointer; font-size:11px; color:#6b7280;">AI 원본 추출</summary>
+          <pre x-text="selected?.raw_extract" style="font-size:10px; padding:8px; background:#f3f4f6; border-radius:6px; max-height:200px; overflow:auto; white-space:pre-wrap;"></pre>
+        </details>
+
+        <div style="display:flex; gap:6px; margin-top:14px;">
+          <button class="st-btn st-btn-primary" @click="save()">💾 저장</button>
+          <button class="st-btn st-btn-success" @click="save(); confirm(selected.id)" x-show="selected?.status==='pending'">✅ 저장 + 확정</button>
+          <button class="st-btn st-btn-danger" @click="del()">🗑 삭제</button>
+          <div style="flex:1;"></div>
+          <button class="st-btn st-btn-ghost" @click="closeModal()">닫기</button>
+        </div>
+        <div x-show="saveMsg" x-cloak style="margin-top:8px; font-size:12px; color:#16a34a;" x-text="saveMsg"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function statementsApp() {
+  return {
+    items: [], total: 0, limit: 100, offset: 0,
+    stats: { total: 0, pending: 0, confirmed: 0, byQuadrant: [], pendingByQuadrant: [] },
+    filterStatus: '', filterMonth: '', filterCompany: '', filterClass: '', searchQ: '',
+    queue: { total: 0, processed: 0, failed: 0, queueLen: 0, processing: 0 },
+    queueTimer: null,
+    dragOver: false,
+    selected: null, edit: {}, saveMsg: '',
+
+    // 모드 라우팅
+    currentView: 'overview',  // overview / company-buy / company-sell / sm-buy / sm-sell
+    modeRows: [], selectedRowIdx: -1,
+
+    enterMode(company, cls) {
+      const map = {
+        'COMPANY_매입': 'company-buy', 'COMPANY_매출': 'company-sell',
+        'SM_매입': 'sm-buy', 'SM_매출': 'sm-sell',
+      };
+      this.currentView = map[`${company}_${cls}`] || 'overview';
+      this.filterCompany = company;
+      this.filterClass = cls;
+      this.selectedRowIdx = -1;
+      this.loadModeRows();
+    },
+    exitMode() {
+      this.currentView = 'overview';
+      this.modeRows = [];
+      this.selectedRowIdx = -1;
+    },
+
+    async loadModeRows() {
+      // 분할 조건에 맞는 명세서 + 라인아이템 펼쳐서 불러오기
+      const params = new URLSearchParams();
+      params.set('companyCode', this.filterCompany);
+      params.set('docClass', this.filterClass);
+      if (this.filterMonth) params.set('month', this.filterMonth);
+      params.set('limit', 1000);
+      try {
+        const r = await fetch('/api/statements/list?' + params).then(r => r.json());
+        if (!r.ok) { this.modeRows = []; return; }
+        // 명세서별로 라인아이템 가져와서 펼치기 (각 명세서 GET)
+        const rows = [];
+        for (const st of r.items) {
+          const dt = await fetch('/api/statements/' + st.id).then(r => r.json());
+          if (!dt.ok) continue;
+          const items = (dt.statement.items || []);
+          if (items.length === 0) {
+            rows.push({
+              _key: 'st_' + st.id,
+              statement_id: st.id,
+              source_file: st.source_file,
+              vendor: st.norm_vendor || st.vendor_name || '',
+              uploaded_at: st.uploaded_at,
+              date: st.doc_date || '', name: st.norm_vendor || '', spec: '',
+              qty: 1, price: st.supply_amount || 0, amount: st.supply_amount || 0,
+              vat: st.vat_amount || 0, total: st.total_amount || 0,
+              notes: st.notes || '',
+            });
+          } else {
+            for (const it of items) {
+              const amt = Number(it.amount) || 0;
+              rows.push({
+                _key: 'st_' + st.id + '_' + it.id,
+                statement_id: st.id,
+                source_file: st.source_file,
+                vendor: st.norm_vendor || st.vendor_name || '',
+                uploaded_at: st.uploaded_at,
+                date: st.doc_date || '',
+                name: it.item_name || '', spec: it.spec || '',
+                qty: it.quantity, price: it.unit_price,
+                amount: amt, vat: it.vat || Math.round(amt * 0.1),
+                total: amt + (it.vat || Math.round(amt * 0.1)),
+                notes: it.notes || st.notes || '',
+              });
+            }
+          }
+        }
+        this.modeRows = rows;
+        if (rows.length > 0 && this.selectedRowIdx === -1) this.selectedRowIdx = 0;
+      } catch(e) { console.error(e); this.modeRows = []; }
+    },
+
+    get selectedRow() {
+      return (this.modeRows && this.selectedRowIdx >= 0) ? this.modeRows[this.selectedRowIdx] : null;
+    },
+    selectModeRow(idx) { this.selectedRowIdx = idx; },
+    prevRow() { if (this.selectedRowIdx > 0) this.selectedRowIdx--; },
+    nextRow() { if (this.selectedRowIdx < (this.modeRows||[]).length - 1) this.selectedRowIdx++; },
+
+    recalc(r, fromAmount) {
+      // 수량×단가=금액 자동 계산
+      if (!fromAmount && r.qty && r.price) {
+        r.amount = Math.round(r.qty * r.price);
+      }
+      r.vat = Math.round(r.amount * 0.1);
+      r.total = r.amount + r.vat;
+    },
+    addBlankRow() {
+      this.modeRows = this.modeRows || [];
+      this.modeRows.push({
+        _key: 'new_' + Date.now(),
+        statement_id: null, source_file: '', vendor: '',
+        date: '', name: '', spec: '', qty: 0, price: 0, amount: 0, vat: 0, total: 0, notes: '',
+      });
+    },
+    modeSum() {
+      return (this.modeRows || []).reduce((s, r) => s + (Number(r.total) || 0), 0);
+    },
+    exportUrl(company) {
+      const p = new URLSearchParams();
+      p.set('status', 'confirmed');
+      if (company) p.set('companyCode', company);
+      if (this.filterClass) p.set('docClass', this.filterClass);
+      if (this.filterMonth) p.set('month', this.filterMonth);
+      return '/api/statements/export.xlsx?' + p;
+    },
+    async confirmAllInMode() {
+      if (!confirm(`현재 분할의 검토전 명세서 모두 확정?\n(이미 확정된 건 변경 없음)`)) return;
+      for (const r of (this.modeRows || [])) {
+        if (r.statement_id) {
+          try { await fetch(`/api/statements/${r.statement_id}/confirm`, {method:'POST'}); } catch(e){}
+        }
+      }
+      this.loadModeRows();
+      this.loadStats();
+    },
+
+    // 4분할 카드 헬퍼
+    quadCount(company, cls) {
+      const arr = this.stats.byQuadrant || [];
+      if (company === null && cls === null) {
+        return arr.filter(q => q.company === '미분류' || q.class === '미분류').reduce((a,b) => a + (b.n||0), 0);
+      }
+      const f = arr.find(q => q.company === company && q.class === cls);
+      return f ? (f.n || 0) : 0;
+    },
+    quadPending(company, cls) {
+      const arr = this.stats.pendingByQuadrant || [];
+      const f = arr.find(q => q.company === company && q.class === cls);
+      return f ? (f.n || 0) : 0;
+    },
+
+    async init() {
+      await this.loadStats();
+      await this.load();
+    },
+    async loadStats() {
+      try { const r = await fetch('/api/statements/stats').then(r=>r.json()); if (r.ok) this.stats = r; } catch(e) {}
+    },
+    async load() {
+      const params = new URLSearchParams();
+      if (this.filterStatus) params.set('status', this.filterStatus);
+      if (this.filterMonth) params.set('month', this.filterMonth);
+      if (this.filterCompany) params.set('companyCode', this.filterCompany);
+      if (this.filterClass) params.set('docClass', this.filterClass);
+      if (this.searchQ.trim()) params.set('q', this.searchQ.trim());
+      params.set('limit', this.limit);
+      params.set('offset', this.offset);
+      try {
+        const r = await fetch('/api/statements/list?' + params).then(r=>r.json());
+        if (r.ok) { this.items = r.items; this.total = r.total; }
+      } catch(e) { console.error(e); }
+    },
+
+    async uploadFiles(fileList) {
+      const files = Array.from(fileList);
+      if (files.length === 0) return;
+      const fd = new FormData();
+      for (const f of files) fd.append('files', f);
+      try {
+        const r = await fetch('/api/statements/upload-batch', { method: 'POST', body: fd }).then(r=>r.json());
+        if (r.ok) {
+          this.queue = { ...this.queue, ...r.queue };
+          this.startQueuePoll();
+        }
+      } catch(e) { alert('업로드 실패: '+e.message); }
+    },
+
+    startQueuePoll() {
+      if (this.queueTimer) return;
+      this.queueTimer = setInterval(async () => {
+        try {
+          const r = await fetch('/api/statements/queue').then(r=>r.json());
+          if (r.ok) {
+            this.queue = r;
+            // 끝나면 폴링 멈추고 목록 갱신
+            if (r.processing === 0 && r.queueLen === 0 && r.total > 0) {
+              clearInterval(this.queueTimer); this.queueTimer = null;
+              await this.loadStats();
+              await this.load();
+            }
+          }
+        } catch(e) {}
+      }, 1500);
+    },
+
+    async openModal(id) {
+      try {
+        const r = await fetch('/api/statements/'+id).then(r=>r.json());
+        if (r.ok) {
+          this.selected = r.statement;
+          this.edit = {
+            doc_type: r.statement.doc_type || '',
+            doc_class: r.statement.doc_class || '',
+            company_code: r.statement.company_code || '',
+            doc_date: r.statement.doc_date || '',
+            norm_vendor: r.statement.norm_vendor || r.statement.vendor_name || '',
+            vendor_biz_no: r.statement.vendor_biz_no || '',
+            supply_amount: r.statement.supply_amount,
+            vat_amount: r.statement.vat_amount,
+            total_amount: r.statement.total_amount,
+            notes: r.statement.notes || '',
+            items: (r.statement.items || []).map(it => ({...it})),
+          };
+          this.saveMsg = '';
+        }
+      } catch(e) { alert(e.message); }
+    },
+    closeModal() { this.selected = null; this.saveMsg = ''; },
+
+    async save() {
+      if (!this.selected) return;
+      try {
+        const r = await fetch('/api/statements/'+this.selected.id, {
+          method: 'PATCH', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(this.edit),
+        }).then(r=>r.json());
+        if (r.ok) {
+          this.selected = r.statement;
+          this.saveMsg = '저장됨';
+          this.load();
+        } else { this.saveMsg = '실패: '+r.error; }
+      } catch(e) { this.saveMsg = '에러: '+e.message; }
+    },
+    async confirm(id) {
+      await fetch(`/api/statements/${id}/confirm`, {method:'POST'});
+      await this.load(); await this.loadStats();
+      if (this.selected?.id === id) this.closeModal();
+    },
+    async reject(id) {
+      await fetch(`/api/statements/${id}/reject`, {method:'POST'});
+      await this.load(); await this.loadStats();
+    },
+    async reset(id) {
+      // 다시 pending 으로 돌리기
+      await fetch('/api/statements/'+id, { method: 'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({}) });
+      await fetch(`/api/statements/${id}/confirm`, { method:'POST' }).catch(()=>{});  // 임시 — 별도 endpoint 가 좋음
+      await this.load();
+    },
+    async del() {
+      if (!confirm('정말 삭제할까요?')) return;
+      await fetch('/api/statements/'+this.selected.id, { method: 'DELETE' });
+      this.closeModal(); this.load(); this.loadStats();
+    },
+  };
+}
+</script>

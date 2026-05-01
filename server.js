@@ -382,11 +382,16 @@ app.use('/api/ai/agent', require('./routes/ai-agent'));
 // ── AI OCR — Claude Vision 이미지 텍스트 추출 (routes/ai-ocr.js) ──
 app.use('/api/ai/ocr', require('./routes/ai-ocr'));
 
+// ── 이카운트 매입 자동화 (routes/ecount-purchase.js) ──
+// 매입명세서 PDF/이미지 → OCR → 매칭 → 학습 → 이카운트 자동등록
+app.use('/api/ecount-purchase', require('./routes/ecount-purchase'));
+
 // ── 사진 라이브러리 (routes/photos.js) ──
 // /api/photos        검색/통계/편집/라벨링
 // /photos/thumb/...  썸네일 (sharp 로 리사이즈 + 디스크 캐시)
 // /photos/file/...   사진 원본 (큰 이미지 모달용)
 app.use('/api/photos', require('./routes/photos'));
+app.use('/api/statements', require('./routes/statements'));
 {
   const PHOTOS_DIR = path.join(__dirname, 'data', 'photos');
   const THUMB_DIR = path.join(__dirname, 'data', 'photos-thumbs');
