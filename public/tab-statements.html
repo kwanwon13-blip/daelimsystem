@@ -236,75 +236,193 @@
     </div>
   </template>
 
-  <!-- ═════ 시안 오타 확인 모드 ═════ -->
+  <!-- ═════ 시안 오타 확인 모드 (디자이너 검수 도구) ═════ -->
   <template x-if="currentView==='spell-check'">
-    <div @paste.window="onSpellPaste($event)">
+    <div @paste.window="onSpellPaste($event)" @keydown.escape.window="exitMode()">
       <div class="mode-bar">
         <button class="back" @click="exitMode()">← 돌아가기</button>
-        <span style="background:#fef3c7; color:#92400e; font-size:11px; font-weight:600; padding:3px 8px; border-radius:4px;">시안 오타 확인</span>
-        <span class="mode-title">디자인 검수 보조</span>
-        <span style="color:#6b7280; font-size:12px;">시안 이미지(JPG/PNG)에서 AI 텍스트 추출 + 오타·맞춤법·숫자 검사</span>
+        <span style="background:#fef3c7; color:#92400e; font-size:12px; font-weight:600; padding:4px 10px; border-radius:4px;">✏️ 디자인 검수기</span>
+        <span style="color:#6b7280; font-size:13px;">시안 Ctrl+V 하면 AI가 즉시 오타 검사</span>
         <div style="flex:1;"></div>
-        <button class="back" @click="spellResults=[]" x-show="spellResults.length > 0">결과 지우기</button>
+        <span x-show="spellResults.length > 0" x-cloak style="font-size:12px; color:#6b7280;" x-text="`${spellResults.length}장 검사 · 의심 ${spellResults.reduce((s,r)=>s+(r.issues||[]).length,0)}건 · 정상 ${spellResults.filter(r=>(!r.issues||r.issues.length===0)&&r.text).length}장`"></span>
+        <span x-show="spellChecking" x-cloak style="font-size:12px; color:#1e40af; font-weight:500;">⏳ AI 분석중 <span x-text="spellChecked"></span>/<span x-text="spellTotal"></span></span>
+        <button class="back" @click="spellResults=[]; spellSelectedIdx=-1" x-show="spellResults.length > 0">초기화</button>
       </div>
-      <div class="mode-body" style="grid-template-columns:1fr; padding:0;">
-        <div style="padding:20px;">
-          <!-- Ctrl+V 영역 -->
+
+      <!-- 항상 보이는 Ctrl+V 작은 영역 + 좌우 분할 -->
+      <div class="mode-body" style="grid-template-columns: 320px 1fr; min-height:600px;">
+        <!-- 좌측: Ctrl+V 영역 + 검사 결과 리스트 -->
+        <div style="background:#f9fafb; border-right:1px solid #c7c9d1; display:flex; flex-direction:column;">
           <div class="drop-zone" tabindex="0" @click="$refs.spellFile.click()"
             @dragover.prevent="dragOver=true" @dragleave="dragOver=false"
-            @drop.prevent="dragOver=false; spellCheck($event.dataTransfer.files)" :class="dragOver?'dragover':''">
-            <div class="icon">✏️📷</div>
-            <div style="font-size:15px; font-weight:600; margin-bottom:4px;">📋 카톡 시안 이미지 붙여넣기 (Ctrl+V)</div>
-            <div style="font-size:12px; color:#6b7280;">또는 드래그·클릭 — JPG / PNG · AI가 텍스트 추출 + 오타·맞춤법·사이즈·숫자 자동 검사</div>
-            <div style="font-size:11px; color:#9ca3af; margin-top:6px;">💡 카톡 사진 우클릭 → 이미지 복사 → 여기서 Ctrl+V</div>
+            @drop.prevent="dragOver=false; spellCheck($event.dataTransfer.files)" :class="dragOver?'dragover':''"
+            style="margin:12px; padding:18px;">
+            <div style="font-size:24px; margin-bottom:4px;">📋</div>
+            <div style="font-size:13px; font-weight:600; margin-bottom:3px;">Ctrl+V 또는 드래그</div>
+            <div style="font-size:10px; color:#6b7280;">JPG / PNG · 카톡 사진 복사해서 붙여넣기</div>
           </div>
-          <input type="file" multiple accept="image/*"
-            x-ref="spellFile" style="display:none;" @change="spellCheck($event.target.files)">
+          <input type="file" multiple accept="image/*" x-ref="spellFile" style="display:none;" @change="spellCheck($event.target.files); $event.target.value=''">
 
-          <!-- 검사 중 진행률 -->
-          <div x-show="spellChecking" x-cloak style="margin-top:20px; padding:20px; text-align:center; color:#6b7280; background:#f9fafb; border-radius:8px;">
-            <div style="font-size:18px; margin-bottom:6px;">⏳</div>
-            <div>AI 가 시안 이미지 분석 중... (<span x-text="spellChecked"></span>/<span x-text="spellTotal"></span>)</div>
-          </div>
-
-          <!-- 결과 -->
-          <div x-show="spellResults.length > 0" x-cloak style="margin-top:20px;">
-            <div style="font-weight:600; margin-bottom:10px;">📋 검사 결과 (<span x-text="spellResults.length"></span>장)</div>
-            <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap:12px;">
-              <template x-for="(s, i) in spellResults" :key="i">
-                <div style="background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:0; overflow:hidden;">
-                  <!-- 이미지 미리보기 -->
-                  <div style="background:#f3f4f6; padding:8px; text-align:center;">
-                    <img :src="s.imageDataUrl" :alt="s.file" style="max-width:100%; max-height:200px; border-radius:4px;">
-                  </div>
-                  <div style="padding:12px;">
-                    <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
-                      <span style="font-weight:600; font-size:12px;" x-text="s.file"></span>
-                      <span x-show="s.issues && s.issues.length > 0" style="background:#fee2e2; color:#991b1b; font-size:10px; padding:2px 6px; border-radius:4px; font-weight:600;" x-text="`${s.issues.length}건 의심`"></span>
-                      <span x-show="(!s.issues || s.issues.length === 0) && s.text" style="background:#d1fae5; color:#065f46; font-size:10px; padding:2px 6px; border-radius:4px; font-weight:600;">정상</span>
+          <!-- 결과 리스트 (간단한 행 형식) -->
+          <div style="flex:1; overflow-y:auto; padding:0 4px 12px;">
+            <template x-for="(s, i) in spellResults" :key="i">
+              <div @click="spellSelectedIdx=i"
+                :style="`margin: 2px 8px; padding:8px 10px; border-radius:6px; cursor:pointer; background:${spellSelectedIdx===i?'#dbeafe':'#fff'}; border:1px solid ${spellSelectedIdx===i?'#1E40FA':'#e5e7eb'}; transition: all 0.15s;`">
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <img :src="s.imageDataUrl" style="width:38px; height:38px; object-fit:cover; border-radius:4px; border:1px solid #e5e7eb;">
+                  <div style="flex:1; min-width:0;">
+                    <div style="font-size:11px; font-weight:600; color:#1f2937; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" x-text="s.file"></div>
+                    <div style="font-size:10px; margin-top:2px;">
+                      <span x-show="s.issues && s.issues.length > 0" style="background:#fee2e2; color:#991b1b; padding:1px 6px; border-radius:3px; font-weight:600;" x-text="`⚠️ ${s.issues.length}건`"></span>
+                      <span x-show="(!s.issues || s.issues.length === 0) && s.text" style="background:#d1fae5; color:#065f46; padding:1px 6px; border-radius:3px; font-weight:600;">✓ 정상</span>
                     </div>
-                    <div style="font-size:10px; color:#6b7280; margin-bottom:4px;">추출 텍스트:</div>
-                    <div style="background:#f9fafb; padding:6px 8px; border-radius:4px; font-size:11px; margin-bottom:8px; max-height:80px; overflow-y:auto; white-space:pre-wrap;" x-text="s.text || '(텍스트 추출 안됨)'"></div>
-                    <template x-if="s.issues && s.issues.length > 0">
-                      <div>
-                        <div style="font-size:10px; color:#6b7280; margin-bottom:4px;">⚠️ 의심:</div>
-                        <template x-for="(iss, j) in s.issues" :key="j">
-                          <div style="background:#fef3c7; padding:6px 9px; border-radius:4px; font-size:11px; margin-bottom:3px; line-height:1.5;">
-                            <div><span style="font-weight:600; color:#92400e;" x-text="iss.type"></span> · <span x-text="iss.message"></span></div>
-                            <template x-if="iss.found || iss.suggest">
-                              <div style="margin-top:3px; font-size:10px; color:#78350f;">
-                                <template x-if="iss.found"><span>📍 <code style="background:#fff; padding:1px 4px; border-radius:2px;" x-text="iss.found"></code></span></template>
-                                <template x-if="iss.suggest"><span> → <code style="background:#d1fae5; color:#065f46; padding:1px 4px; border-radius:2px;" x-text="iss.suggest"></code></span></template>
-                              </div>
-                            </template>
+                  </div>
+                </div>
+              </div>
+            </template>
+            <div x-show="spellResults.length === 0 && !spellChecking" x-cloak style="text-align:center; color:#9ca3af; font-size:11px; padding:30px 14px;">
+              ↑ 위에 시안 이미지<br>붙여넣으면 AI 분석
+            </div>
+          </div>
+        </div>
+
+        <!-- 우측: 선택된 시안 상세 (큰 미리보기 + 추출 텍스트 + 의심) -->
+        <div style="background:#fff; padding:0; overflow:auto;">
+          <template x-if="spellSelectedIdx >= 0 && spellResults[spellSelectedIdx]">
+            <div style="display:grid; grid-template-columns: 1.3fr 1fr; min-height:600px;">
+              <!-- 좌: 시안 큰 미리보기 -->
+              <div style="background:#1a1d23; padding:20px; display:flex; align-items:center; justify-content:center; overflow:auto; position:relative;">
+                <img :src="spellResults[spellSelectedIdx].imageDataUrl" style="max-width:100%; max-height:90vh; border-radius:4px; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+                <!-- 큰 상태 배지 (한 눈에) -->
+                <div x-show="(spellResults[spellSelectedIdx].issues||[]).length === 0 && spellResults[spellSelectedIdx].text"
+                  style="position:absolute; top:14px; right:14px; background:#10b981; color:#fff; padding:8px 16px; border-radius:6px; font-size:14px; font-weight:700; box-shadow:0 2px 8px rgba(16,185,129,0.4);">
+                  ✓ 정상
+                </div>
+                <div x-show="(spellResults[spellSelectedIdx].issues||[]).length > 0"
+                  style="position:absolute; top:14px; right:14px; background:#ef4444; color:#fff; padding:8px 16px; border-radius:6px; font-size:14px; font-weight:700; box-shadow:0 2px 8px rgba(239,68,68,0.4);"
+                  x-text="`⚠️ ${(spellResults[spellSelectedIdx].issues||[]).length}건 의심`">
+                </div>
+              </div>
+              <!-- 우: 분석 결과 -->
+              <div style="padding:18px; overflow:auto; max-height:90vh;">
+                <h3 style="margin:0 0 12px; font-size:13px; word-break:break-all; color:#6b7280; font-weight:500;" x-text="spellResults[spellSelectedIdx].file"></h3>
+
+                <!-- 의심 항목 (있을 때만) -->
+                <template x-if="spellResults[spellSelectedIdx].issues && spellResults[spellSelectedIdx].issues.length > 0">
+                  <div style="margin-bottom:18px;">
+                    <div style="font-size:12px; font-weight:600; color:#92400e; margin-bottom:8px;">⚠️ 의심 항목</div>
+                    <template x-for="(iss, j) in spellResults[spellSelectedIdx].issues" :key="j">
+                      <div style="background:#fffbeb; border:1px solid #fcd34d; padding:10px 12px; border-radius:6px; margin-bottom:6px;">
+                        <div style="display:flex; align-items:center; gap:6px; margin-bottom:5px;">
+                          <span style="background:#fbbf24; color:#78350f; font-size:10px; font-weight:700; padding:2px 8px; border-radius:3px;" x-text="iss.type"></span>
+                          <span style="font-size:12px; color:#92400e; font-weight:500;" x-text="iss.message"></span>
+                        </div>
+                        <template x-if="iss.found || iss.suggest">
+                          <div style="font-size:11px; color:#78350f; padding-top:5px; border-top:1px dashed #fcd34d;">
+                            <template x-if="iss.found"><span>📍 시안: <code style="background:#fef3c7; padding:2px 6px; border-radius:3px; font-size:11px;" x-text="iss.found"></code></span></template>
+                            <template x-if="iss.suggest"><span style="margin-left:6px;">→ <code style="background:#d1fae5; color:#065f46; padding:2px 6px; border-radius:3px; font-size:11px;" x-text="iss.suggest"></code></span></template>
                           </div>
                         </template>
                       </div>
                     </template>
                   </div>
+                </template>
+
+                <!-- 추출 텍스트 (의심 단어 형광펜) -->
+                <div>
+                  <div style="font-size:12px; font-weight:600; color:#374151; margin-bottom:8px;">📝 추출 텍스트 <span style="font-weight:400; color:#9ca3af; font-size:11px;">(의심 단어 형광펜 표시)</span></div>
+                  <pre style="background:#f3f4f6; padding:12px; border-radius:6px; font-size:13px; line-height:1.7; white-space:pre-wrap; font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; margin:0;"
+                    x-html="highlightText(spellResults[spellSelectedIdx].text, spellResults[spellSelectedIdx].issues)"></pre>
+                </div>
+              </div>
+            </div>
+          </template>
+          <div x-show="spellSelectedIdx < 0 || !spellResults[spellSelectedIdx]" style="display:flex; align-items:center; justify-content:center; min-height:600px; color:#9ca3af; font-size:13px; padding:40px;">
+            <div style="text-align:center;">
+              <div style="font-size:36px; margin-bottom:10px;">←</div>
+              <div>좌측 리스트에서 시안 클릭<br>또는 위에 Ctrl+V 로 새 시안 붙여넣기</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- ═════ 참조 데이터 풀 (4분할 학습 자료 미리보기) ═════ -->
+  <template x-if="currentView==='data-pool'">
+    <div>
+      <div class="mode-bar">
+        <button class="back" @click="exitMode()">← 돌아가기</button>
+        <span style="background:#e0e7ff; color:#3730a3; font-size:11px; font-weight:600; padding:3px 8px; border-radius:4px;">📊 참조 데이터 풀</span>
+        <span class="mode-title">4분할 학습 자료</span>
+        <span style="color:#6b7280; font-size:12px;">분할별로 어떤 엑셀이 학습에 사용되는지 / 클릭하면 미리보기</span>
+        <div style="flex:1;"></div>
+      </div>
+      <div class="mode-body" style="grid-template-columns: 360px 1fr; min-height:600px;">
+        <!-- 좌측: 분할별 파일 목록 -->
+        <div style="background:#f9fafb; border-right:1px solid #c7c9d1; overflow-y:auto;">
+          <template x-for="(files, group) in dataSources" :key="group">
+            <div style="border-bottom: 1px solid #e5e7eb;">
+              <div style="padding:10px 14px; background:#fff; font-weight:600; font-size:12px; color:#374151; position:sticky; top:0; border-bottom:1px solid #e5e7eb;" x-text="`${group} (${files.length})`"></div>
+              <template x-for="f in files" :key="f.path">
+                <div @click="loadDataPreview(f)"
+                  :style="`padding:10px 14px; cursor:pointer; border-bottom:1px solid #f3f4f6; background:${selectedDataFile===f.path?'#dbeafe':'#fff'}; transition: all 0.15s;`">
+                  <div style="font-size:11px; font-weight:500; color:#1f2937; word-break:break-all;" x-text="f.file"></div>
+                  <div style="font-size:10px; color:#6b7280; margin-top:2px;" x-text="`${f.sizeKb} KB`"></div>
                 </div>
               </template>
+              <div x-show="files.length === 0" style="padding:14px; font-size:11px; color:#9ca3af; text-align:center;">파일 없음</div>
             </div>
+          </template>
+        </div>
+
+        <!-- 우측: 선택 파일 미리보기 -->
+        <div style="background:#fff; padding:14px; overflow:auto; max-height: 90vh;">
+          <div x-show="!selectedDataFile" style="display:flex; align-items:center; justify-content:center; min-height:540px; color:#9ca3af;">
+            <div style="text-align:center;">
+              <div style="font-size:40px; margin-bottom:10px;">📊</div>
+              <div>좌측 파일 클릭 → 미리보기</div>
+            </div>
+          </div>
+          <div x-show="selectedDataFile && dataLoading" style="text-align:center; padding:40px; color:#6b7280;">
+            ⏳ 파일 로딩 중...
+          </div>
+          <div x-show="selectedDataFile && !dataLoading" x-cloak>
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
+              <h3 style="margin:0; font-size:14px; color:#1f2937; word-break:break-all;" x-text="selectedDataFile"></h3>
+              <div style="flex:1;"></div>
+              <a :href="`/api/statements/data-source-file?path=${encodeURIComponent(selectedDataFile)}`" download class="st-btn st-btn-ghost st-btn-sm">⬇ 다운로드</a>
+            </div>
+            <!-- 시트 탭 -->
+            <div style="display:flex; gap:4px; margin-bottom:8px; flex-wrap:wrap;">
+              <template x-for="(sheet, i) in dataSheets" :key="i">
+                <button @click="selectedSheetIdx=i"
+                  :style="`padding:4px 10px; font-size:11px; border-radius:4px; cursor:pointer; ${selectedSheetIdx===i?'background:#3730a3;color:#fff;':'background:#f3f4f6;color:#374151;'} border:0;`"
+                  x-text="`${sheet.name} (${sheet.rows}행)`"></button>
+              </template>
+            </div>
+            <!-- 표 -->
+            <div style="overflow:auto; max-height:75vh; border:1px solid #e5e7eb; border-radius:4px;">
+              <table style="width:100%; border-collapse:collapse; font-size:11px;">
+                <thead style="position:sticky; top:0; background:#f3f4f6; z-index:1;">
+                  <tr>
+                    <template x-for="(h, hi) in (dataSheets[selectedSheetIdx]?.headers || [])" :key="hi">
+                      <th style="border:1px solid #e5e7eb; padding:6px 8px; text-align:left; font-weight:600; color:#374151; white-space:nowrap;" x-text="h"></th>
+                    </template>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="(row, ri) in (dataSheets[selectedSheetIdx]?.preview || [])" :key="ri">
+                    <tr>
+                      <template x-for="(cell, ci) in row" :key="ci">
+                        <td style="border:1px solid #e5e7eb; padding:4px 8px; color:#1f2937; white-space:nowrap; max-width:280px; overflow:hidden; text-overflow:ellipsis;" x-text="cell"></td>
+                      </template>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+            <div style="margin-top:8px; font-size:11px; color:#6b7280;" x-text="`처음 100행 미리보기 / 전체 ${dataSheets[selectedSheetIdx]?.rows || 0}행`"></div>
           </div>
         </div>
       </div>
@@ -314,21 +432,22 @@
   <!-- ═════ Overview (4분할 카드 + 그리드) — 기존 화면 ═════ -->
   <div x-show="currentView==='overview'">
   <style>
-    .st-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px; margin-bottom:14px; }
+    .st-card { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:18px; margin-bottom:14px; }
     .st-h { font-size:14px; font-weight:700; color:#1a1d23; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
-    .st-btn { padding:7px 14px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; border:none; transition: all .15s; }
-    .st-btn-primary { background:linear-gradient(135deg,#4f6ef7,#3b5ce4); color:#fff; }
-    .st-btn-primary:hover { filter:brightness(1.06); }
+    .st-btn { padding:7px 14px; border-radius:7px; font-size:13px; font-weight:600; cursor:pointer; border:none; transition: all .15s; display:inline-flex; align-items:center; justify-content:center; gap:5px; white-space:nowrap; text-decoration:none; }
+    .st-btn .material-symbols-outlined { font-size:15px; line-height:1; }
+    .st-btn-primary { background:#2563eb; color:#fff; }
+    .st-btn-primary:hover { background:#1d4ed8; }
     .st-btn-ghost { background:#fff; border:1px solid #d1d5db; color:#374151; }
     .st-btn-ghost:hover { background:#f9fafb; }
     .st-btn-sm { padding:4px 10px; font-size:12px; }
     .st-btn-success { background:#22c55e; color:#fff; }
     .st-btn-warn { background:#f59e0b; color:#fff; }
     .st-btn-danger { background:#ef4444; color:#fff; }
-    .st-input { padding:7px 11px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; outline:none; }
+    .st-input { padding:7px 11px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; outline:none; background:#fff; }
     .st-input:focus { border-color:#4f6ef7; }
 
-    .drop-zone { border:2px dashed #d1d5db; border-radius:14px; padding:32px; text-align:center; color:#6b7280; cursor:pointer; transition:all 0.15s; background:#fafbfc; }
+    .drop-zone { border:2px dashed #d1d5db; border-radius:8px; padding:32px; text-align:center; color:#6b7280; cursor:pointer; transition:all 0.15s; background:#fafbfc; }
     .drop-zone:hover, .drop-zone.dragover { border-color:#4f6ef7; background:#eef2ff; color:#4338ca; }
     .drop-zone .icon { font-size:32px; margin-bottom:8px; }
 
@@ -345,6 +464,68 @@
     .badge.confirmed { background:#d1fae5; color:#065f46; }
     .badge.rejected { background:#fee2e2; color:#991b1b; }
     .badge.type { background:#eef2ff; color:#4338ca; }
+
+    .st-shell { display:flex; flex-direction:column; gap:14px; }
+    .st-topbar { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:14px; display:grid; grid-template-columns:minmax(260px,1fr) auto; gap:12px; align-items:center; }
+    .st-title-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .st-title-icon { width:32px; height:32px; border-radius:8px; background:#eff6ff; color:#2563eb; display:flex; align-items:center; justify-content:center; }
+    .st-title-icon .material-symbols-outlined { font-size:19px; }
+    .st-title-main { font-size:16px; font-weight:800; color:#111827; line-height:1.2; }
+    .st-title-meta { display:flex; flex-wrap:wrap; gap:6px; margin-top:7px; }
+    .st-chip { display:inline-flex; align-items:center; gap:4px; padding:3px 8px; border:1px solid #e5e7eb; border-radius:999px; background:#f9fafb; color:#4b5563; font-size:11px; font-weight:600; }
+    .st-chip.warn { background:#fffbeb; color:#92400e; border-color:#fde68a; }
+    .st-chip.ok { background:#ecfdf5; color:#047857; border-color:#a7f3d0; }
+    .st-filters { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
+    .st-filters .st-input { height:34px; }
+
+    .st-workbench { display:grid; grid-template-columns:minmax(360px,1.25fr) minmax(320px,.75fr); gap:14px; align-items:stretch; }
+    .st-panel { background:#fff; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden; }
+    .st-panel-head { padding:12px 14px; border-bottom:1px solid #f1f5f9; display:flex; align-items:center; gap:8px; }
+    .st-panel-head .material-symbols-outlined { font-size:18px; color:#2563eb; }
+    .st-panel-title { font-size:13px; font-weight:800; color:#1f2937; }
+    .st-panel-body { padding:14px; }
+    .st-upload-zone { min-height:170px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; border-color:#bfdbfe; background:#f8fbff; }
+    .st-upload-zone .material-symbols-outlined { font-size:34px; color:#2563eb; }
+    .st-upload-title { font-size:15px; font-weight:800; color:#111827; }
+    .st-upload-types { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; }
+    .st-file-pill { border:1px solid #e5e7eb; background:#fff; color:#4b5563; border-radius:999px; padding:3px 9px; font-size:11px; font-weight:700; }
+    .st-queue-card { margin-top:12px; padding:12px; border:1px solid #dbeafe; background:#eff6ff; border-radius:8px; }
+    .st-queue-row { display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:12px; color:#1e3a8a; margin-bottom:7px; }
+
+    .st-side-stack { display:flex; flex-direction:column; gap:12px; height:100%; }
+    .st-pool-box { padding:12px; border:1px solid #bbf7d0; background:#f0fdf4; border-radius:8px; }
+    .st-pool-top { display:flex; align-items:center; gap:8px; margin-bottom:9px; }
+    .st-pool-top .material-symbols-outlined { color:#047857; font-size:17px; }
+    .st-pool-title { font-size:12px; color:#065f46; font-weight:800; }
+    .st-pool-stats { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+    .st-pool-stat { background:rgba(255,255,255,.72); border:1px solid #d1fae5; border-radius:6px; padding:7px 8px; min-width:0; }
+    .st-pool-stat b { display:block; color:#064e3b; font-size:12px; line-height:1.2; }
+    .st-pool-stat span { display:block; color:#047857; font-size:10px; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .st-tools { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+    .st-tool-btn { border:1px solid #e5e7eb; background:#fff; border-radius:8px; padding:10px 8px; min-height:76px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; cursor:pointer; color:#374151; font-size:11px; font-weight:800; text-align:center; }
+    .st-tool-btn:hover { border-color:#bfdbfe; background:#f8fbff; color:#1d4ed8; }
+    .st-tool-btn .material-symbols-outlined { font-size:22px; }
+
+    .st-bucket-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+    .st-bucket { background:#fff; border:1px solid #e5e7eb; border-left:4px solid var(--bucket-color); border-radius:8px; padding:13px; cursor:pointer; transition:box-shadow .15s, transform .15s, border-color .15s; min-height:118px; display:flex; flex-direction:column; gap:9px; }
+    .st-bucket:hover { transform:translateY(-1px); box-shadow:0 6px 18px rgba(15,23,42,.08); border-color:#cbd5e1; }
+    .st-bucket-top { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .st-bucket-label { color:#374151; font-size:12px; font-weight:800; }
+    .st-bucket-erp { color:#6b7280; font-size:10px; font-weight:800; border:1px solid #e5e7eb; background:#f9fafb; border-radius:999px; padding:2px 7px; }
+    .st-bucket-count { font-size:28px; font-weight:850; color:var(--bucket-color); line-height:1; }
+    .st-bucket-sub { color:#6b7280; font-size:11px; }
+    .st-bucket-action { margin-top:auto; display:flex; align-items:center; justify-content:space-between; gap:8px; color:#1f2937; font-size:11px; font-weight:800; padding-top:7px; border-top:1px solid #f1f5f9; }
+    .st-bucket-action .material-symbols-outlined { color:var(--bucket-color); font-size:16px; }
+    .st-alert { border-radius:8px; padding:12px 14px; display:flex; align-items:center; gap:10px; border:1px solid #fde68a; background:#fffbeb; color:#92400e; }
+
+    @media (max-width: 1180px) {
+      .st-topbar, .st-workbench { grid-template-columns:1fr; }
+      .st-filters { justify-content:flex-start; }
+      .st-bucket-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    }
+    @media (max-width: 720px) {
+      .st-bucket-grid, .st-tools, .st-pool-stats { grid-template-columns:1fr; }
+    }
 
     /* 모달 (검토) */
     .st-modal-bg { position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:1000; display:none; align-items:center; justify-content:center; padding:20px; }
@@ -395,106 +576,166 @@
     tr.selected-ec td:nth-child(3) { box-shadow: inset 0 0 0 2px #1E40FA; }
   </style>
 
-  <!-- 헤더 -->
-  <div class="st-card" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-    <div class="st-h" style="margin:0;">📑 명세서 OCR (4분할 자동분류)</div>
-    <span style="color:#6b7280; font-size:12.5px;" x-text="`전체 ${stats.total||0} / 검토전 ${stats.pending||0} / 확정 ${stats.confirmed||0}`"></span>
-    <div style="flex:1;"></div>
-    <input type="month" class="st-input" x-model="filterMonth" @change="load()" style="width:140px;">
-    <input class="st-input" placeholder="거래처 / 검색" x-model="searchQ" @input.debounce.300ms="load()" style="flex:1; min-width:180px;">
-    <select class="st-input" x-model="filterCompany" @change="load()" title="회사">
-      <option value="">전체 회사</option>
-      <option value="SM">에스엠 (이카운트)</option>
-      <option value="COMPANY">컴퍼니 (E2E)</option>
-    </select>
-    <select class="st-input" x-model="filterClass" @change="load()" title="구분">
-      <option value="">매입+매출</option>
-      <option value="매입">매입만</option>
-      <option value="매출">매출만</option>
-    </select>
-    <select class="st-input" x-model="filterStatus" @change="load()">
-      <option value="">전체</option>
-      <option value="pending">검토전</option>
-      <option value="confirmed">확정</option>
-      <option value="rejected">반려</option>
-    </select>
-    <a :href="`/api/statements/export.xlsx?status=confirmed${filterMonth?'&month='+filterMonth:''}${filterCompany?'&companyCode='+filterCompany:''}${filterClass?'&docClass='+filterClass:''}`"
-      class="st-btn st-btn-ghost st-btn-sm" title="현재 필터 조건으로 E2E 양식 엑셀 다운로드">📊 E2E 엑셀</a>
-  </div>
-
-  <!-- 4분할 자동분류 통계 카드 -->
-  <div class="st-card" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px;">
-    <template x-for="q in [
-      {key:'SM_매입',  company:'SM',     class:'매입', label:'에스엠 매입', erp:'이카운트', color:'#3b82f6'},
-      {key:'SM_매출',  company:'SM',     class:'매출', label:'에스엠 매출', erp:'이카운트', color:'#10b981'},
-      {key:'COMPANY_매입', company:'COMPANY', class:'매입', label:'컴퍼니 매입', erp:'E2E',   color:'#f59e0b'},
-      {key:'COMPANY_매출', company:'COMPANY', class:'매출', label:'컴퍼니 매출', erp:'E2E',   color:'#ef4444'},
-    ]" :key="q.key">
-      <div @click="enterMode(q.company, q.class)"
-        style="padding:14px; border-radius:10px; cursor:pointer; transition:all .15s; border:1px solid #e5e7eb; position:relative;"
-        :style="`background: linear-gradient(135deg, ${q.color}11, ${q.color}05); border-left: 4px solid ${q.color};`"
-        @mouseenter="$el.style.transform='translateY(-2px)'; $el.style.boxShadow='0 4px 12px rgba(0,0,0,0.08)'"
-        @mouseleave="$el.style.transform=''; $el.style.boxShadow=''">
-        <div>
-          <div style="font-size:12px; color:#6b7280; margin-bottom:3px;" x-text="q.label"></div>
-          <div style="font-size:24px; font-weight:700;" :style="`color:${q.color};`" x-text="quadCount(q.company, q.class) + '건'"></div>
-          <div style="font-size:11px; color:#9ca3af;" x-text="`→ ${q.erp} · 검토전 ${quadPending(q.company, q.class)}건`"></div>
-        </div>
-        <div style="margin-top:10px; padding:6px 10px; background:#fff; border-radius:5px; font-size:11px; text-align:center; color:#374151; border:1px solid #e5e7eb;">
-          <span x-text="q.company==='COMPANY' ? '📊 엑셀창 모드 열기 →' : '⚡ 이카운트 모드 열기 →'"></span>
+  <div class="st-shell">
+    <!-- 헤더 / 필터 -->
+    <div class="st-topbar">
+      <div>
+        <div class="st-title-row">
+          <div class="st-title-icon"><span class="material-symbols-outlined">document_scanner</span></div>
+          <div>
+            <div class="st-title-main">명세서 OCR</div>
+            <div class="st-title-meta">
+              <span class="st-chip" x-text="`전체 ${stats.total||0}`"></span>
+              <span class="st-chip warn" x-text="`검토전 ${stats.pending||0}`"></span>
+              <span class="st-chip ok" x-text="`확정 ${stats.confirmed||0}`"></span>
+            </div>
+          </div>
         </div>
       </div>
-    </template>
-  </div>
-
-  <!-- 특수 모드 (시안 오타 확인 등) -->
-  <div class="st-card" style="display:flex; align-items:center; gap:10px;">
-    <div style="font-size:13px; font-weight:600; color:#374151;">🔍 특수 모드:</div>
-    <button @click="currentView='spell-check'" class="st-btn st-btn-ghost st-btn-sm" style="background:#fef3c7; color:#92400e; border-color:#fcd34d;">
-      ✏️ 시안 오타 확인
-    </button>
-    <button class="st-btn st-btn-ghost st-btn-sm" style="background:#dbeafe; color:#1e40af; border-color:#93c5fd;" @click="alert('단순 텍스트 추출 (옛 OCR 텍스트추출 메뉴 흡수) — 추후 구현')">
-      📄 단순 텍스트 추출
-    </button>
-    <div style="flex:1;"></div>
-    <span style="font-size:11px; color:#9ca3af;">위 4분할 카드 = 매입매출 자동등록 / 여기 = 보조 도구</span>
-  </div>
-
-  <!-- 미분류 알림 -->
-  <div x-show="quadCount(null,null) > 0 || (stats.byQuadrant||[]).some(q => q.company==='미분류' || q.class==='미분류')" x-cloak class="st-card"
-    style="background:#fef3c7; border-color:#fcd34d; padding:10px 14px; display:flex; align-items:center; gap:10px;">
-    <span style="font-size:18px;">⚠️</span>
-    <span style="font-size:13px; color:#92400e;">
-      자동분류 안 된 명세서 있음 — 검토 모달에서 회사/구분 직접 지정 필요.
-    </span>
-    <div style="flex:1;"></div>
-    <button class="st-btn st-btn-warn st-btn-sm" @click="filterCompany=''; filterClass=''; filterStatus='pending'; load()">미분류 보기</button>
-  </div>
-
-  <!-- 업로드 영역 -->
-  <div class="st-card">
-    <div class="st-h">📤 다중 업로드 (드래그 / 클릭)</div>
-    <div class="drop-zone" @click="$refs.fileInput.click()" @dragover.prevent="dragOver=true" @dragleave="dragOver=false"
-      @drop.prevent="dragOver=false; uploadFiles($event.dataTransfer.files)" :class="dragOver?'dragover':''">
-      <div class="icon">📷📄🎨</div>
-      <div style="font-size:14px; font-weight:600; margin-bottom:4px;">명세서 / 시안 / 영수증 어떤 거든 던지기</div>
-      <div style="font-size:12px;">📷 JPG/PNG · 📄 PDF · 🎨 PPTX 시안 (자동 슬라이드 분리) · 한 번에 여러 장 · AI가 4분할 자동분류</div>
-      <div style="font-size:11px; color:#9ca3af; margin-top:4px;">PPTX = 컴퍼니 매출 자동 / 명세서 = 회사·구분 자동 판별</div>
+      <div class="st-filters">
+        <input type="month" class="st-input" x-model="filterMonth" @change="load()" style="width:136px;">
+        <input class="st-input" placeholder="거래처 / 원본 / 메모" x-model="searchQ" @input.debounce.300ms="load()" style="width:210px;">
+        <select class="st-input" x-model="filterCompany" @change="load()" title="회사">
+          <option value="">전체 회사</option>
+          <option value="SM">에스엠</option>
+          <option value="COMPANY">컴퍼니</option>
+        </select>
+        <select class="st-input" x-model="filterClass" @change="load()" title="구분">
+          <option value="">매입+매출</option>
+          <option value="매입">매입</option>
+          <option value="매출">매출</option>
+        </select>
+        <select class="st-input" x-model="filterStatus" @change="load()" title="상태">
+          <option value="">전체</option>
+          <option value="pending">검토전</option>
+          <option value="confirmed">확정</option>
+          <option value="rejected">반려</option>
+        </select>
+        <a :href="`/api/statements/export.xlsx?status=confirmed${filterMonth?'&month='+filterMonth:''}${filterCompany?'&companyCode='+filterCompany:''}${filterClass?'&docClass='+filterClass:''}`"
+          class="st-btn st-btn-ghost st-btn-sm" title="E2E 엑셀">
+          <span class="material-symbols-outlined">download</span> E2E
+        </a>
+      </div>
     </div>
-    <input type="file" multiple
-      accept="image/*,application/pdf,.pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-      x-ref="fileInput" style="display:none;" @change="uploadFiles($event.target.files)">
 
-    <!-- 큐 진행률 -->
-    <div x-show="queue.total > 0" x-cloak style="margin-top:14px;">
-      <div style="display:flex; justify-content:space-between; font-size:12px; color:#6b7280; margin-bottom:5px;">
-        <span x-text="`AI 처리 중: ${queue.processed + queue.failed}/${queue.total} 장`"></span>
-        <span x-text="`처리중 ${queue.processing} · 대기 ${queue.queueLen} · 실패 ${queue.failed}`"></span>
+    <!-- 작업 패널 -->
+    <div class="st-workbench">
+      <div class="st-panel">
+        <div class="st-panel-head">
+          <span class="material-symbols-outlined">upload_file</span>
+          <div class="st-panel-title">파일 등록</div>
+          <div style="flex:1;"></div>
+          <span class="st-chip">JPG</span>
+          <span class="st-chip">PDF</span>
+          <span class="st-chip">PPTX</span>
+        </div>
+        <div class="st-panel-body">
+          <div class="drop-zone st-upload-zone" @click="$refs.fileInput.click()" @dragover.prevent="dragOver=true" @dragleave="dragOver=false"
+            @drop.prevent="dragOver=false; uploadFiles($event.dataTransfer.files)" :class="dragOver?'dragover':''">
+            <span class="material-symbols-outlined">cloud_upload</span>
+            <div class="st-upload-title">이미지, PDF, PPTX 등록</div>
+            <div class="st-upload-types">
+              <span class="st-file-pill">명세서</span>
+              <span class="st-file-pill">세금계산서</span>
+              <span class="st-file-pill">영수증</span>
+              <span class="st-file-pill">시안</span>
+            </div>
+          </div>
+          <input type="file" multiple
+            accept="image/*,application/pdf,.pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            x-ref="fileInput" style="display:none;" @change="uploadFiles($event.target.files); $event.target.value=''">
+
+          <div x-show="queue.total > 0" x-cloak class="st-queue-card">
+            <div class="st-queue-row">
+              <b x-text="queue.processed + queue.failed === queue.total ? '처리 완료' : 'AI 처리 중'"></b>
+              <span x-text="`${queue.processed + queue.failed}/${queue.total} · 처리 ${queue.processing} · 대기 ${queue.queueLen} · 실패 ${queue.failed}`"></span>
+            </div>
+            <div class="progress-bar">
+              <div class="fill" :style="`width:${queue.total ? Math.round((queue.processed + queue.failed) * 100 / queue.total) : 0}%;`"
+                x-text="`${queue.total ? Math.round((queue.processed + queue.failed) * 100 / queue.total) : 0}%`"></div>
+            </div>
+            <div x-show="queue.processed + queue.failed === queue.total && queue.total > 0" x-cloak style="display:flex; align-items:center; gap:8px; margin-top:10px;">
+              <button class="st-btn st-btn-primary st-btn-sm" @click="enterMode('COMPANY', '매출')">
+                <span class="material-symbols-outlined">table_view</span> 컴퍼니 매출
+              </button>
+              <span style="font-size:11px; color:#1e40af;">완료 항목 검토</span>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="progress-bar">
-        <div class="fill" :style="`width:${queue.total ? Math.round((queue.processed + queue.failed) * 100 / queue.total) : 0}%;`"
-          x-text="`${queue.total ? Math.round((queue.processed + queue.failed) * 100 / queue.total) : 0}%`"></div>
+
+      <div class="st-side-stack">
+        <div class="st-pool-box" x-show="poolStats.loaded" x-cloak>
+          <div class="st-pool-top">
+            <span class="material-symbols-outlined">memory</span>
+            <div class="st-pool-title">학습 풀 활성</div>
+            <div style="flex:1;"></div>
+            <button class="st-btn st-btn-ghost st-btn-sm" @click="reloadPool()" title="다시 로드">
+              <span class="material-symbols-outlined">refresh</span>
+            </button>
+          </div>
+          <div class="st-pool-stats">
+            <div class="st-pool-stat"><b>SM 매입</b><span x-text="`${poolStats.SM_매입?.rows||0}행 · ${poolStats.SM_매입?.vendors||0}처`"></span></div>
+            <div class="st-pool-stat"><b>SM 매출</b><span x-text="`${poolStats.SM_매출?.rows||0}행 · ${poolStats.SM_매출?.projects||0}현장`"></span></div>
+            <div class="st-pool-stat"><b>컴퍼니 매입</b><span x-text="`${poolStats.COMPANY_매입?.rows||0}행 · ${poolStats.COMPANY_매입?.vendors||0}처`"></span></div>
+            <div class="st-pool-stat"><b>컴퍼니 매출</b><span x-text="`${poolStats.COMPANY_매출?.rows||0}행 · ${poolStats.COMPANY_매출?.combos||0}패턴`"></span></div>
+          </div>
+        </div>
+
+        <div class="st-panel" style="flex:1;">
+          <div class="st-panel-head">
+            <span class="material-symbols-outlined">apps</span>
+            <div class="st-panel-title">보조 도구</div>
+          </div>
+          <div class="st-panel-body">
+            <div class="st-tools">
+              <button class="st-tool-btn" @click="currentView='spell-check'">
+                <span class="material-symbols-outlined">spellcheck</span>
+                <span>시안 검수</span>
+              </button>
+              <button class="st-tool-btn" @click="currentView='data-pool'; loadDataSources()">
+                <span class="material-symbols-outlined">dataset</span>
+                <span>학습 자료</span>
+              </button>
+              <button class="st-tool-btn" @click="alert('단순 텍스트 추출 — 추후 구현')">
+                <span class="material-symbols-outlined">text_snippet</span>
+                <span>텍스트 추출</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
+    </div>
+
+    <!-- 4분할 자동분류 통계 카드 -->
+    <div class="st-bucket-grid">
+      <template x-for="q in [
+        {key:'SM_매입', company:'SM', class:'매입', label:'에스엠 매입', erp:'이카운트', color:'#2563eb', action:'등록 화면'},
+        {key:'SM_매출', company:'SM', class:'매출', label:'에스엠 매출', erp:'이카운트', color:'#059669', action:'등록 화면'},
+        {key:'COMPANY_매입', company:'COMPANY', class:'매입', label:'컴퍼니 매입', erp:'E2E', color:'#d97706', action:'엑셀 화면'},
+        {key:'COMPANY_매출', company:'COMPANY', class:'매출', label:'컴퍼니 매출', erp:'E2E', color:'#dc2626', action:'엑셀 화면'},
+      ]" :key="q.key">
+        <button class="st-bucket" @click="enterMode(q.company, q.class)" :style="`--bucket-color:${q.color};`">
+          <div class="st-bucket-top">
+            <span class="st-bucket-label" x-text="q.label"></span>
+            <span class="st-bucket-erp" x-text="q.erp"></span>
+          </div>
+          <div class="st-bucket-count" x-text="quadCount(q.company, q.class)"></div>
+          <div class="st-bucket-sub" x-text="`검토전 ${quadPending(q.company, q.class)}건`"></div>
+          <div class="st-bucket-action">
+            <span x-text="q.action"></span>
+            <span class="material-symbols-outlined">arrow_forward</span>
+          </div>
+        </button>
+      </template>
+    </div>
+
+    <!-- 미분류 알림 -->
+    <div x-show="quadCount(null,null) > 0 || (stats.byQuadrant||[]).some(q => q.company==='미분류' || q.class==='미분류')" x-cloak class="st-alert">
+      <span class="material-symbols-outlined">warning</span>
+      <span style="font-size:13px; font-weight:700;">미분류 항목이 있습니다.</span>
+      <div style="flex:1;"></div>
+      <button class="st-btn st-btn-warn st-btn-sm" @click="filterCompany=''; filterClass=''; filterStatus='pending'; load()">미분류 보기</button>
     </div>
   </div>
 
@@ -659,4 +900,3 @@
 </div>
 
 <!-- statementsApp() 은 public/statements.js 에 정의 (template 안의 script 는 실행 안 됨) -->
-

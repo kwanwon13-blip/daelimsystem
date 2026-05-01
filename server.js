@@ -392,6 +392,18 @@ app.use('/api/ecount-purchase', require('./routes/ecount-purchase'));
 // /photos/file/...   사진 원본 (큰 이미지 모달용)
 app.use('/api/photos', require('./routes/photos'));
 app.use('/api/statements', require('./routes/statements'));
+
+// 4분할 학습 풀 — 서버 시작 시 자동 로드 (백그라운드)
+const learningPool = require('./lib/learning-pool');
+learningPool.load().then((stats) => {
+  console.log('[server] 학습 풀 로딩 완료:', JSON.stringify({
+    'SM매입': stats.SM_매입, 'SM매출': stats.SM_매출,
+    'COMPANY매입': stats.COMPANY_매입, 'COMPANY매출': stats.COMPANY_매출,
+  }, null, 2));
+}).catch((e) => {
+  console.error('[server] 학습 풀 로딩 실패:', e.message);
+});
+
 {
   const PHOTOS_DIR = path.join(__dirname, 'data', 'photos');
   const THUMB_DIR = path.join(__dirname, 'data', 'photos-thumbs');

@@ -138,7 +138,10 @@ const stmts = {
     WHERE id = @id
   `),
   setStatus: db.prepare(`
-    UPDATE statements SET status = @status, confirmed_by = @confirmed_by, confirmed_at = datetime('now', 'localtime')
+    UPDATE statements SET
+      status = @status,
+      confirmed_by = CASE WHEN @status = 'confirmed' THEN @confirmed_by ELSE NULL END,
+      confirmed_at = CASE WHEN @status = 'confirmed' THEN datetime('now', 'localtime') ELSE NULL END
     WHERE id = @id
   `),
 };

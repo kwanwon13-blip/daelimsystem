@@ -6346,8 +6346,12 @@ function app() {
         return adminTabs;
       }
       const perms = this.auth.permissions || [];
-      const defaultMenus = ['home', 'quote', 'history', 'salesLookup', 'workspace', 'ai', 'gpsAttendance'];
-      const allowed = perms.length > 0 ? ['home', ...perms] : defaultMenus;
+      // 권한 무관 — 아이디만 있으면 누구든 쓸 수 있는 공용 메뉴
+      const universalMenus = ['design', 'statements', 'photos', 'contacts'];
+      const defaultMenus = ['home', 'quote', 'history', 'salesLookup', 'workspace', 'ai', 'gpsAttendance', ...universalMenus];
+      const allowed = perms.length > 0
+        ? ['home', ...perms, ...universalMenus]   // 권한 있어도 공용 메뉴는 강제 추가
+        : defaultMenus;
       const t = [];
       const hasPricing = allowed.includes('pricing_view') || allowed.includes('pricing_edit');
       for (const menu of this.allMenus) {

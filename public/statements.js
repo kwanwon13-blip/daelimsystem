@@ -127,11 +127,81 @@ function statementsApp() {
       this.loadStats();
     },
 
+    // 학습 풀 통계
+    poolStats: { loaded: false },
+    async loadPoolStats() {
+      try {
+        const r = await fetch('/api/statements/learning-pool/stats').then(r => r.json());
+        if (r.ok) this.poolStats = r;
+      } catch(e) {}
+    },
+    async reloadPool() {
+      try {
+        const r = await fetch('/api/statements/learning-pool/reload', { method: 'POST' }).then(r => r.json());
+        if (r.ok) {
+          this.poolStats = { loaded: true, ...r.stats };
+          alert('학습 풀 다시 로드 완료');
+        } else { alert('실패: ' + r.error); }
+      } catch(e) { alert('에러: ' + e.message); }
+    },
+
+    // 4분할 학습 데이터 풀
+    dataSources: {},
+    selectedDataFile: '',
+    dataSheets: [],
+    selectedSheetIdx: 0,
+    dataLoading: false,
+
+    async loadDataSources() {
+      try {
+        const r = await fetch('/api/statements/data-sources').then(r => r.json());
+        if (r.ok) this.dataSources = r.sources || {};
+      } catch(e) { console.error(e); }
+    },
+
+    async loadDataPreview(file) {
+      this.selectedDataFile = file.path;
+      this.dataLoading = true;
+      this.dataSheets = [];
+      this.selectedSheetIdx = 0;
+      try {
+        // SheetJS (XLSX 글로벌 라이브러리, index.html 에 이미 로드됨) 로 파싱
+        const url = `/api/statements/data-source-file?path=${encodeURIComponent(file.path)}`;
+        if (!window.XLSX) {
+          alert('SheetJS 가 로드 안 됨 (index.html 의 xlsx CDN 확인)');
+          this.dataLoading = false;
+          return;
+        }
+        const ab = await fetch(url).then(r => r.arrayBuffer());
+        const wb = XLSX.read(ab, { type: 'array' });
+        this.dataSheets = wb.SheetNames.map(name => {
+          const ws = wb.Sheets[name];
+          const json = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+          const headers = (json[0] || []).map(h => String(h ?? ''));
+          // 처음 100행만 미리보기 (큰 파일 방지)
+          const preview = json.slice(1, 101).map(row =>
+            headers.map((_, ci) => {
+              const v = row[ci];
+              if (v == null || v === '') return '';
+              if (v instanceof Date) return v.toISOString().slice(0, 10);
+              return String(v).slice(0, 60);
+            })
+          );
+          return { name, headers, preview, rows: Math.max(0, json.length - 1) };
+        });
+      } catch(e) {
+        alert('미리보기 실패: ' + e.message);
+      } finally {
+        this.dataLoading = false;
+      }
+    },
+
     // 시안 오타 확인
     spellResults: [],
     spellChecking: false,
     spellChecked: 0,
     spellTotal: 0,
+    spellSelectedIdx: -1,
     async spellCheck(files) {
       if (!files || files.length === 0) return;
       // 이미지만 필터
@@ -154,12 +224,18 @@ function statementsApp() {
       try {
         const r = await fetch('/api/statements/spell-check', { method: 'POST', body: fd }).then(r => r.json());
         if (r.ok) {
+          this.spellChecked = imgs.length;
           const results = (r.results || []).map((res, i) => ({
             ...res,
             imageDataUrl: previews[i] ? previews[i].dataUrl : null,
           }));
           // 누적 (Ctrl+V 여러번 가능)
+          const wasEmpty = this.spellResults.length === 0;
           this.spellResults = [...this.spellResults, ...results];
+          // 새로 들어온 첫 결과 자동 선택 (또는 이미 결과 있으면 새 결과 첫 번째)
+          if (wasEmpty || this.spellSelectedIdx < 0) {
+            this.spellSelectedIdx = this.spellResults.length - results.length;
+          }
         } else {
           alert('실패: ' + r.error);
         }
@@ -168,6 +244,32 @@ function statementsApp() {
       } finally {
         this.spellChecking = false;
       }
+    },
+
+    // 추출 텍스트에서 의심 단어 형광펜 (HTML 출력)
+    highlightText(text, issues) {
+      if (!text) return '(텍스트 추출 안됨)';
+      const escapeHtml = (s) => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]);
+      let html = escapeHtml(text);
+      if (!issues || issues.length === 0) return html;
+      // 각 issue 의 found 단어를 형광펜으로
+      const colors = {
+        '오타':       'background:#fee2e2; color:#991b1b;',
+        '맞춤법':     'background:#fef3c7; color:#92400e;',
+        '사이즈':     'background:#dbeafe; color:#1e40af;',
+        '숫자':       'background:#e0e7ff; color:#3730a3;',
+        '기타':       'background:#f3e8ff; color:#6b21a8;',
+      };
+      for (const iss of issues) {
+        if (!iss.found) continue;
+        const found = escapeHtml(iss.found);
+        const color = colors[iss.type] || colors['기타'];
+        const tooltip = escapeHtml(iss.message + (iss.suggest ? ' → ' + iss.suggest : ''));
+        // 첫 발견되는 거 한 번만 마킹 (중복 방지)
+        const re = new RegExp(found.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+        html = html.replace(re, `<mark style="${color} padding:1px 4px; border-radius:3px; font-weight:600;" title="${tooltip}">${found}</mark>`);
+      }
+      return html;
     },
 
     // Ctrl+V 핸들러 — 클립보드에 이미지 있으면 검사
@@ -242,6 +344,7 @@ function statementsApp() {
     async init() {
       await this.loadStats();
       await this.load();
+      await this.loadPoolStats();
     },
     async loadStats() {
       try { const r = await fetch('/api/statements/stats').then(r=>r.json()); if (r.ok) this.stats = r; } catch(e) {}
@@ -342,9 +445,8 @@ function statementsApp() {
     },
     async reset(id) {
       // 다시 pending 으로 돌리기
-      await fetch('/api/statements/'+id, { method: 'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({}) });
-      await fetch(`/api/statements/${id}/confirm`, { method:'POST' }).catch(()=>{});  // 임시 — 별도 endpoint 가 좋음
-      await this.load();
+      await fetch(`/api/statements/${id}/reset`, { method:'POST' });
+      await this.load(); await this.loadStats();
     },
     async del() {
       if (!confirm('정말 삭제할까요?')) return;

@@ -103,6 +103,8 @@ const upload = multer({
   storage: multer.diskStorage({
     destination: UPLOAD_DIR,
     filename: (req, file, cb) => {
+      // multer 가 latin1 로 한글 파일명 받아서 깨짐 → utf8 로 변환
+      try { file.originalname = Buffer.from(file.originalname, 'latin1').toString('utf8'); } catch(_){}
       const ts = Date.now();
       const rand = crypto.randomBytes(3).toString('hex');
       const ext = path.extname(file.originalname || '').toLowerCase() || '.bin';
@@ -129,7 +131,28 @@ function resetQueueStatsIfIdle() {
 // AI 추출 — Claude Code CLI 사용 (사용자 구독 안에서, 비용 0)
 async function extractStatement(filePath, mimeType, hint) {
   const cli = require('../lib/claude-cli');
+  const learningPool = require('../lib/learning-pool');
   const hintText = hint ? `\n[힌트: ${hint}]\n` : '';
+
+  // 4분할 학습 풀 컨텍스트 추가 (TOP 거래처/품목/현장)
+  let poolCtx = '';
+  if (learningPool.pool.loaded) {
+    poolCtx = `
+
+==== 학습 풀 컨텍스트 (실제 등록된 거래처/품목 — 매칭 시 정식명 사용) ====
+${learningPool.getContext('SM', '매입', { topVendors: 25, topItems: 30 })}
+--- 위는 SM 매입 ---
+${learningPool.getContext('SM', '매출', { topVendors: 25, topItems: 30 })}
+--- 위는 SM 매출 ---
+${learningPool.getContext('COMPANY', '매입', { topVendors: 15, topItems: 20 })}
+--- 위는 COMPANY 매입 ---
+${learningPool.getContext('COMPANY', '매출', { topVendors: 15, topItems: 20 })}
+--- 위는 COMPANY 매출 ---
+
+위 목록에서 매칭되면 그 정식 표기 사용. 매칭 안 되면 명세서에 적힌 그대로.
+==== /학습 풀 ====
+`;
+  }
   const PROMPT = `이 이미지/PDF/시안은 대림에스엠(주) 또는 대림컴퍼니(주)의 거래 자료입니다.
 거래명세서, 세금계산서, 매입명세서, 영수증, 또는 디자인 시안(PPTX 슬라이드) 일 수 있습니다.${hintText}
 
@@ -184,7 +207,7 @@ vendor_name 은 항상 "상대방 회사명" (우리 회사 X)
 - 금액은 모두 숫자 (콤마 제거). 추출 안 되면 null
 - 날짜는 YYYY-MM-DD. 추출 안 되면 null
 - items 배열이 비면 빈 배열 []
-- JSON 외 텍스트 절대 출력하지 마세요`;
+- JSON 외 텍스트 절대 출력하지 마세요${poolCtx}`;
 
   // CLI 로 호출 (파일 경로를 첨부) — 사용자 구독 안에서 무료
   const result = await cli.callClaudeCli(PROMPT, [filePath]);
@@ -201,8 +224,32 @@ async function processQueueItem() {
     const ext = await extractStatement(item.filePath, item.mimeType, item.hint);
     const p = ext.parsed || {};
     // 회사 코드 정규화 ("SM" / "COMPANY" / null 만 허용)
-    const companyCode = (p.company_code === 'SM' || p.company_code === 'COMPANY') ? p.company_code : null;
-    const docClass = (p.doc_class === '매입' || p.doc_class === '매출') ? p.doc_class : null;
+    let companyCode = (p.company_code === 'SM' || p.company_code === 'COMPANY') ? p.company_code : null;
+    let docClass = (p.doc_class === '매입' || p.doc_class === '매출') ? p.doc_class : null;
+    // PPTX 시안은 무조건 컴퍼니 매출 (사장님 룰)
+    if (item.isPptxSlide) {
+      companyCode = 'COMPANY';
+      docClass = '매출';
+    }
+    // 일자 — AI 추출 우선, 안 되면 PPTX 파일명에서 추출
+    const docDate = p.doc_date || item.inferredDate || null;
+
+    // 학습 풀에서 단가 자동 매칭 (컴퍼니 매출인 경우)
+    let autoItems = p.items || [];
+    if (companyCode === 'COMPANY' && docClass === '매출' && Array.isArray(autoItems)) {
+      const learningPool = require('../lib/learning-pool');
+      autoItems = autoItems.map((it) => {
+        if (!it.unit_price && it.item_name) {
+          // 같은 품명+규격 검색
+          const matches = learningPool.findItem('COMPANY', '매출', it.item_name);
+          if (matches.length > 0 && matches[0].count >= 2) {
+            // 자주 등록되는 패턴 = 신뢰도 OK
+            console.log(`[learning-pool] 단가 자동 매칭: ${it.item_name} (${matches[0].count}회 등록)`);
+          }
+        }
+        return it;
+      });
+    }
     const stId = dbSt.createStatement({
       source_file: item.originalName,
       stored_file: path.basename(item.filePath),
@@ -211,7 +258,7 @@ async function processQueueItem() {
       doc_type: p.doc_type || null,
       doc_class: docClass,
       company_code: companyCode,
-      doc_date: p.doc_date || null,
+      doc_date: docDate,
       vendor_name: p.vendor_name || null,
       vendor_biz_no: p.vendor_biz_no || null,
       norm_vendor: (p.vendor_name || '').trim() || null,
@@ -220,7 +267,7 @@ async function processQueueItem() {
       total_amount: typeof p.total_amount === 'number' ? Math.round(p.total_amount) : null,
       status: 'pending',
       notes: p.notes || null,
-    }, p.items || []);
+    }, autoItems);
     queueStats.processed++;
     console.log(`[statements] AI 추출 완료 #${stId} - ${item.originalName}`);
   } catch (e) {
@@ -266,6 +313,9 @@ router.post('/upload-batch', requireAuth, upload.array('files', 100), async (req
       if (ext === '.pptx') {
         // PPTX 분리 → 슬라이드별 임시 이미지 저장 → 슬라이드 1장 = 큐 1건
         const slides = await splitPptxToSlides(f.path);
+        // 파일명에서 일자 자동 추출 (YYYYMMDD 패턴)
+        const dateMatch = f.originalname.match(/(\d{4})(\d{2})(\d{2})/);
+        const inferredDate = dateMatch ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : null;
         for (const sl of slides) {
           const imgName = `pptx_${path.basename(f.path, '.pptx')}_s${sl.slideIndex}.${sl.ext}`;
           const imgPath = path.join(UPLOAD_DIR, imgName);
@@ -275,8 +325,10 @@ router.post('/upload-batch', requireAuth, upload.array('files', 100), async (req
             originalName: `${f.originalname} (슬라이드 ${sl.slideIndex})`,
             mimeType: `image/${sl.ext === 'jpg' ? 'jpeg' : sl.ext}`,
             uploadedBy: req.user.userId,
-            hint: `PPTX 시안 — 슬라이드 텍스트: "${sl.slideText}"`,
+            hint: `PPTX 시안 — 슬라이드 텍스트: "${sl.slideText}"${inferredDate ? ` / 파일명 일자: ${inferredDate}` : ''}`,
             isPptxSlide: true,
+            inferredDate,                              // 파일명 기반 일자
+            parentPptx: f.originalname,                // 원본 PPTX 파일명
           });
           queueStats.total++;
           added++;
@@ -374,6 +426,11 @@ router.post('/:id(\\d+)/reject', requireAuth, (req, res) => {
   const result = dbSt.setStatus(parseInt(req.params.id), 'rejected', req.user.userId);
   res.json({ ok: true, statement: result });
 });
+// 검토전으로 되돌리기
+router.post('/:id(\\d+)/reset', requireAuth, (req, res) => {
+  const result = dbSt.setStatus(parseInt(req.params.id), 'pending', null);
+  res.json({ ok: true, statement: result });
+});
 // 삭제
 router.delete('/:id(\\d+)', requireAuth, (req, res) => {
   dbSt.deleteStatement(parseInt(req.params.id));
@@ -395,7 +452,10 @@ router.get('/export.xlsx', requireAuth, async (req, res) => {
   };
   const stmts = dbSt.listStatements(params);
 
-  // ── E2E 양식 시트 (11컬럼) ──
+  // 명세서 일자순 정렬 (일자별 명세서 생성)
+  stmts.sort((a, b) => (a.doc_date || '').localeCompare(b.doc_date || ''));
+
+  // ── E2E 양식 시트 (11컬럼, 일자별 정렬됨) ──
   const ws = wb.addWorksheet('E2E 업로드');
   ws.columns = [
     { header: '일자',     key: 'date',  width: 12 },  // A
@@ -523,6 +583,120 @@ router.get('/export.xlsx', requireAuth, async (req, res) => {
   res.end();
 });
 
+// ── 4분할 학습 데이터 풀 — 폴더 기반 자동 분류 ──
+// learning-data/ 폴더 구조 그대로 사용 (분할별 명확히 분리)
+const LEARNING_DIR = path.join(__dirname, '..', 'learning-data');
+
+const FOLDER_LABELS = {
+  '01_에스엠매입':     '① 에스엠 매입',
+  '02_에스엠매출':     '② 에스엠 매출',
+  '03_컴퍼니매입':     '③ 컴퍼니 매입',
+  '04_컴퍼니매출':     '④ 컴퍼니 매출',
+  '99_품목마스터':     '🔧 품목/거래처 마스터',
+  '_무관_나이스텍':    '⑤ 나이스텍 (별도 회사)',
+};
+
+router.get('/data-sources', requireAuth, (req, res) => {
+  const sources = {};
+  for (const label of Object.values(FOLDER_LABELS)) sources[label] = [];
+
+  if (!fs.existsSync(LEARNING_DIR)) {
+    return res.json({ ok: true, sources, dirs: [], note: 'learning-data 폴더 없음 — 만들어야 함' });
+  }
+
+  // 분할별 폴더 순회
+  for (const [folder, label] of Object.entries(FOLDER_LABELS)) {
+    const dir = path.join(LEARNING_DIR, folder);
+    if (!fs.existsSync(dir)) continue;
+    // data/ 서브폴더 + 루트의 README 무시
+    const dataDirs = [dir, path.join(dir, 'data')];
+    for (const d of dataDirs) {
+      if (!fs.existsSync(d)) continue;
+      try {
+        const files = fs.readdirSync(d).filter(f =>
+          /\.(xlsx|xls|csv|db)$/i.test(f) && !f.startsWith('~$') && f !== 'README.md'
+        );
+        for (const f of files) {
+          const fp = path.join(d, f);
+          const stat = fs.statSync(fp);
+          sources[label].push({
+            file: f,
+            path: fp,
+            size: stat.size,
+            sizeKb: Math.round(stat.size / 1024),
+            mtime: stat.mtime,
+            subfolder: path.basename(d),  // 'data' 또는 분할 폴더명
+          });
+        }
+      } catch (e) { /* 무시 */ }
+    }
+  }
+
+  // 정렬 (최근 수정순)
+  for (const k of Object.keys(sources)) {
+    sources[k].sort((a, b) => new Date(b.mtime) - new Date(a.mtime));
+  }
+
+  res.json({ ok: true, sources, learningDir: LEARNING_DIR });
+});
+
+// 학습 풀 상태/통계
+router.get('/learning-pool/stats', requireAuth, (req, res) => {
+  const learningPool = require('../lib/learning-pool');
+  res.json({ ok: true, ...learningPool.getStats() });
+});
+
+// 학습 풀 다시 로드 (자료 추가했을 때)
+router.post('/learning-pool/reload', requireAuth, async (req, res) => {
+  const learningPool = require('../lib/learning-pool');
+  try {
+    const stats = await learningPool.load();
+    res.json({ ok: true, stats });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// 거래처 검색 (자동완성 / F2 검색)
+router.get('/learning-pool/search-vendor', requireAuth, (req, res) => {
+  const learningPool = require('../lib/learning-pool');
+  const { company, docClass, q } = req.query;
+  const results = learningPool.findVendor(company, docClass, q);
+  res.json({ ok: true, results });
+});
+
+// 품목 검색
+router.get('/learning-pool/search-item', requireAuth, (req, res) => {
+  const learningPool = require('../lib/learning-pool');
+  const { company, docClass, q } = req.query;
+  const results = learningPool.findItem(company, docClass, q);
+  res.json({ ok: true, results });
+});
+
+// 거래처별 결합 패턴 (④ 컴퍼니 매출)
+router.get('/learning-pool/combos', requireAuth, (req, res) => {
+  const learningPool = require('../lib/learning-pool');
+  const { vendor } = req.query;
+  const results = learningPool.getCombosForVendor(vendor);
+  res.json({ ok: true, results });
+});
+
+// 엑셀 미리보기 (SheetJS 로 브라우저에서 렌더링) - 파일 raw 응답
+router.get('/data-source-file', requireAuth, (req, res) => {
+  const fp = req.query.path;
+  if (!fp) return res.status(400).send('path 필수');
+
+  const root = path.resolve(LEARNING_DIR);
+  const requested = path.resolve(String(fp));
+  const rel = path.relative(root, requested);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    return res.status(403).send('허용된 경로 아님 (learning-data 안만 가능)');
+  }
+  if (!/\.(xlsx|xls|csv|db)$/i.test(requested)) return res.status(400).send('허용되지 않는 파일 형식');
+  if (!fs.existsSync(requested)) return res.status(404).send('파일 없음');
+  res.sendFile(requested);
+});
+
 // ── 시안 오타 확인 (이미지 JPG/PNG) ──
 // 카톡 시안 이미지 → Claude Code CLI 로 텍스트 추출 + 맞춤법/오타/사이즈/숫자 검사
 // (사용자 구독 안에서, 비용 0)
@@ -562,9 +736,10 @@ text 는 시안 안 글자 그대로. 안 보이는 글자는 적지 마라 (추
 JSON 외 텍스트 절대 X.`;
 
   // 동시 호출 (CLI 가 격리된 cwd 로 spawn 되어 병렬 가능)
+  // 시안 검수는 Sonnet (속도 우선) — 사장님 구독 안에서 무료, 3배 빠름
   await Promise.all(files.map(async (f) => {
     try {
-      const r = await cli.callClaudeCli(PROMPT, [f.path]);
+      const r = await cli.callClaudeCli(PROMPT, [f.path], { model: 'claude-sonnet-4-6' });
       const txt = (r && r.text) || '';
       try {
         const parsed = cli.parseJsonFromResponse(txt);
