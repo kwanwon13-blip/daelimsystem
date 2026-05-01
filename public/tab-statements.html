@@ -289,8 +289,14 @@
                       <div>
                         <div style="font-size:10px; color:#6b7280; margin-bottom:4px;">⚠️ 의심:</div>
                         <template x-for="(iss, j) in s.issues" :key="j">
-                          <div style="background:#fef3c7; padding:5px 8px; border-radius:4px; font-size:11px; margin-bottom:3px; line-height:1.4;">
-                            <span style="font-weight:600; color:#92400e;" x-text="iss.type"></span> · <span x-text="iss.message"></span>
+                          <div style="background:#fef3c7; padding:6px 9px; border-radius:4px; font-size:11px; margin-bottom:3px; line-height:1.5;">
+                            <div><span style="font-weight:600; color:#92400e;" x-text="iss.type"></span> · <span x-text="iss.message"></span></div>
+                            <template x-if="iss.found || iss.suggest">
+                              <div style="margin-top:3px; font-size:10px; color:#78350f;">
+                                <template x-if="iss.found"><span>📍 <code style="background:#fff; padding:1px 4px; border-radius:2px;" x-text="iss.found"></code></span></template>
+                                <template x-if="iss.suggest"><span> → <code style="background:#d1fae5; color:#065f46; padding:1px 4px; border-radius:2px;" x-text="iss.suggest"></code></span></template>
+                              </div>
+                            </template>
                           </div>
                         </template>
                       </div>
