@@ -806,4 +806,31 @@
             </td>
             <td x-text="s.doc_date || '-'"></td>
             <td x-text="s.norm_vendor || s.vendor_name || '-'"></td>
-            <td style="text-align:right; font-variant-numeric: tab
+            <td style="text-align:right; font-variant-numeric: tabular-nums;" x-text="s.supply_amount?.toLocaleString() || '-'"></td>
+            <td style="text-align:right; font-variant-numeric: tabular-nums;" x-text="s.vat_amount?.toLocaleString() || '-'"></td>
+            <td style="text-align:right; font-variant-numeric: tabular-nums; font-weight:600;" x-text="s.total_amount?.toLocaleString() || '-'"></td>
+            <td style="font-size:11px; color:#9ca3af;" x-text="s.source_file"></td>
+            <td @click.stop>
+              <button class="st-btn st-btn-success st-btn-sm" x-show="s.status==='pending'" @click="confirm(s.id)">확정</button>
+              <button class="st-btn st-btn-warn st-btn-sm" x-show="s.status==='pending'" @click="reject(s.id)">반려</button>
+              <button class="st-btn st-btn-ghost st-btn-sm" x-show="s.status!=='pending'" @click="reset(s.id)">되돌리기</button>
+            </td>
+          </tr>
+        </template>
+        <tr x-show="items.length===0"><td colspan="10" style="text-align:center; padding:40px; color:#9ca3af;">명세서 없음</td></tr>
+      </tbody>
+    </table>
+
+    <!-- 페이저 -->
+    <div x-show="total > limit" style="margin-top:14px; text-align:center;">
+      <button class="st-btn st-btn-ghost st-btn-sm" :disabled="offset===0" @click="offset=Math.max(0,offset-limit); load()">← 이전</button>
+      <span style="margin:0 14px; color:#6b7280; font-size:12px;" x-text="`${offset+1} – ${Math.min(offset+limit,total)} / ${total}`"></span>
+      <button class="st-btn st-btn-ghost st-btn-sm" :disabled="offset+limit>=total" @click="offset+=limit; load()">다음 →</button>
+    </div>
+  </div>
+  </div>
+  <!-- ═════ /Overview ═════ -->
+
+</div>
+
+<!-- statementsApp() 은 public/statements.js 에 정의 (template 안의 script 는 실행 안 됨) -->
