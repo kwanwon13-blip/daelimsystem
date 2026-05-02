@@ -29,9 +29,16 @@ router.get('/stats', (req, res) => {
 });
 
 // ── Agent 실행 (SSE) ──
-// body: { task, attachmentIds?, threadId?, projectId? }
+// body: { task, attachmentIds?, threadId?, projectId?, sessionConsent: true }
 router.post('/run', async (req, res) => {
-  const { task, attachmentIds, threadId, projectId } = req.body || {};
+  const { task, attachmentIds, threadId, projectId, sessionConsent } = req.body || {};
+  if (sessionConsent !== true) {
+    return res.status(428).json({
+      ok: false,
+      code: 'SESSION_CONSENT_REQUIRED',
+      error: 'Agent session consent is required before starting this job.',
+    });
+  }
   if (!task || !String(task).trim()) {
     return res.status(400).json({ error: 'task 필수' });
   }

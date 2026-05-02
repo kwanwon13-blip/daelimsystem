@@ -429,7 +429,8 @@ const createFile = {
     const crypto = require('crypto');
     const ai = require('../db-ai');
 
-    const ext = (input.filename.match(/\.([^./\\]+)$/) || [, ''])[1].toLowerCase();
+    const rawFilename = String(input.filename || 'artifact').trim();
+    let ext = (rawFilename.match(/\.([^./\\]+)$/) || [, ''])[1].toLowerCase();
     const MIME_BY_EXT = {
       svg: 'image/svg+xml', html: 'text/html', htm: 'text/html',
       txt: 'text/plain', md: 'text/markdown', markdown: 'text/markdown',
@@ -438,30 +439,45 @@ const createFile = {
       js: 'text/javascript', css: 'text/css', yml: 'text/yaml', yaml: 'text/yaml',
       py: 'text/x-python', sql: 'application/sql',
     };
+    const EXT_BY_MIME = {
+      'image/svg+xml': 'svg',
+      'text/html': 'html',
+      'text/markdown': 'md',
+      'text/csv': 'csv',
+      'application/json': 'json',
+      'application/xml': 'xml',
+      'text/plain': 'txt',
+    };
     const KIND_BY_EXT = {
       svg: 'svg', html: 'html', htm: 'html',
       md: 'markdown', markdown: 'markdown',
       json: 'json', csv: 'csv', txt: 'text',
     };
-    const mime = input.mime || MIME_BY_EXT[ext] || 'text/plain';
+    let mime = input.mime || MIME_BY_EXT[ext] || '';
+    let content = normalizeTextArtifactContent(input.content || '');
+    if (!ext && mime && EXT_BY_MIME[mime]) ext = EXT_BY_MIME[mime];
+    if (!ext && /^\s*(?:<\?xml[^>]*>\s*)?<svg[\s>]/i.test(content)) ext = 'svg';
+    if (!ext && /^\s*<!doctype\s+html|^\s*<html[\s>]/i.test(content)) ext = 'html';
+    if (!mime) mime = MIME_BY_EXT[ext] || 'text/plain';
     const kind = KIND_BY_EXT[ext] || 'text';
 
-    const safeName = sanitizeFilename(input.filename.replace(/\.[^./\\]+$/, '')) + (ext ? '.' + ext : '');
+    const baseName = rawFilename.replace(/\.[^./\\]+$/, '') || 'artifact';
+    const safeName = sanitizeFilename(baseName) + (ext ? '.' + ext : '.txt');
     const stored = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext || 'txt'}`;
     const outDir = path.join(__dirname, '..', 'data', 'ai_outputs');
     if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
     const outPath = path.join(outDir, stored);
-    fs.writeFileSync(outPath, input.content, 'utf8');
-    const size = Buffer.byteLength(input.content, 'utf8');
+    fs.writeFileSync(outPath, content, 'utf8');
+    const size = Buffer.byteLength(content, 'utf8');
 
     const art = ai.artifacts.create({
-      thread_id: ctx.threadId,
-      message_id: null,
-      created_by: ctx.userId,
-      filename: safeName,
-      stored,
-      size,
+      ownerId: ctx.userId,
+      threadId: ctx.threadId,
+      messageId: null,
+      originalName: safeName,
+      storedName: stored,
       mime,
+      size,
       kind,
     });
 
@@ -516,6 +532,13 @@ function sanitizeFilename(name) {
     .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')  // Windows 금지 문자
     .replace(/\s+/g, '_')
     .slice(0, 100);
+}
+
+function normalizeTextArtifactContent(content) {
+  let text = String(content == null ? '' : content).replace(/^\uFEFF/, '');
+  const fence = text.match(/^\s*```(?:[a-z0-9_-]+)?\s*\r?\n([\s\S]*?)\r?\n```\s*$/i);
+  if (fence) text = fence[1];
+  return text;
 }
 
 function escapeHtml(s) {

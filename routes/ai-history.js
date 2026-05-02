@@ -88,6 +88,21 @@ router.use((req, res, next) => {
 
 function isAdmin(req) { return req.user && req.user.role === 'admin'; }
 
+function mimeFromName(name) {
+  const ext = path.extname(String(name || '')).toLowerCase();
+  return {
+    '.svg': 'image/svg+xml; charset=utf-8',
+    '.html': 'text/html; charset=utf-8',
+    '.htm': 'text/html; charset=utf-8',
+    '.txt': 'text/plain; charset=utf-8',
+    '.md': 'text/markdown; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.csv': 'text/csv; charset=utf-8',
+    '.pdf': 'application/pdf',
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  }[ext] || '';
+}
+
 // ──────────────────────────────────────────────────────────
 // 직원 목록 (공유 대상용)
 // ──────────────────────────────────────────────────────────
@@ -838,6 +853,7 @@ router.post('/chat', async (req, res) => {
                   size: a.size,
                   kind: a.kind,
                   url: `/api/ai/artifacts/${a.id}/download`,
+                  previewUrl: `/api/ai/artifacts/${a.id}/download?inline=1`,
                 });
               }
               // __artifact 는 Claude 에게 노출할 필요 없음 (요약만 반환)
@@ -1140,7 +1156,58 @@ router.get('/artifacts/:id/download', (req, res) => {
     }
     const filePath = path.join(ai.OUTPUT_DIR, a.stored_name);
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: '파일 삭제됨' });
+    if (req.query.inline === '1') {
+      const mime = a.mime || mimeFromName(a.original_name) || 'application/octet-stream';
+      res.setHeader('Content-Type', mime);
+      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(a.original_name)}"`);
+      return res.sendFile(filePath);
+    }
     res.download(filePath, a.original_name);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.get('/artifacts/:id/preview', async (req, res) => {
+  try {
+    const a = ai.artifacts.get(parseInt(req.params.id, 10));
+    if (!a) return res.status(404).json({ error: 'file not found' });
+    if (String(a.owner_id) !== String(req.user.userId) && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+    const filePath = path.join(ai.OUTPUT_DIR, a.stored_name);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'file missing' });
+
+    if (a.kind === 'excel') {
+      const ExcelJS = require('exceljs');
+      const wb = new ExcelJS.Workbook();
+      const ext = path.extname(a.original_name || a.stored_name).toLowerCase();
+      if (ext === '.csv') {
+        const ws = await wb.csv.readFile(filePath);
+        ws.name = 'CSV';
+      } else {
+        await wb.xlsx.readFile(filePath);
+      }
+      const sheets = [];
+      wb.eachSheet((sheet) => {
+        sheets.push({ name: sheet.name, rows: sheetToRows(sheet, 200, 60) });
+      });
+      return res.json({ ok: true, kind: a.kind, sheets });
+    }
+
+    if (['markdown', 'text', 'json', 'csv'].includes(a.kind)) {
+      return res.json({
+        ok: true,
+        kind: a.kind,
+        content: fs.readFileSync(filePath, 'utf8').slice(0, 1000000),
+      });
+    }
+
+    return res.json({
+      ok: true,
+      kind: a.kind,
+      previewUrl: `/api/ai/artifacts/${a.id}/download?inline=1`,
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1163,6 +1230,7 @@ router.get('/artifacts/thread/:threadId', (req, res) => {
       mime: a.mime,
       createdAt: a.created_at,
       url: `/api/ai/artifacts/${a.id}/download`,
+      previewUrl: `/api/ai/artifacts/${a.id}/download?inline=1`,
     })) });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -1474,31 +1542,58 @@ function detectKind(mime, ext) {
 }
 
 // 엑셀 텍스트 추출 (exceljs 사용)
-async function extractExcel(filePath) {
+function excelCellToText(cellOrValue) {
+  const value = cellOrValue && typeof cellOrValue === 'object' && 'value' in cellOrValue
+    ? cellOrValue.value
+    : cellOrValue;
+  if (value == null) return '';
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (typeof value !== 'object') return String(value);
+  if (Object.prototype.hasOwnProperty.call(value, 'result')) return excelCellToText(value.result);
+  if (Object.prototype.hasOwnProperty.call(value, 'text')) return String(value.text || '');
+  if (Array.isArray(value.richText)) return value.richText.map(r => r.text || '').join('');
+  if (value.hyperlink && value.text) return String(value.text);
+  if (value.formula) return value.result == null ? '' : excelCellToText(value.result);
+  try { return JSON.stringify(value); } catch (_) { return String(value); }
+}
+
+function sheetToRows(sheet, limitRows = 300, limitCols = 60) {
+  const rows = [];
+  sheet.eachRow({ includeEmpty: false }, (row) => {
+    if (rows.length >= limitRows) return;
+    const maxCol = Math.min(limitCols, row.cellCount || row.actualCellCount || 0);
+    const vals = [];
+    for (let c = 1; c <= maxCol; c++) vals.push(excelCellToText(row.getCell(c)));
+    while (vals.length && vals[vals.length - 1] === '') vals.pop();
+    if (vals.some(v => v !== '')) rows.push(vals);
+  });
+  return rows;
+}
+
+function workbookToText(wb) {
+  const parts = [];
+  wb.eachSheet((sheet) => {
+    const rows = sheetToRows(sheet, 1000, 80).map(vals => vals.join('\t'));
+    if (rows.length > 0) parts.push(`# ${sheet.name}\n${rows.join('\n')}`);
+  });
+  return parts.join('\n\n').slice(0, 1000000);
+}
+
+async function extractExcel(filePath, originalName = '') {
+  const ext = path.extname(originalName || filePath).toLowerCase();
   try {
     const ExcelJS = require('exceljs');
     const wb = new ExcelJS.Workbook();
+    if (ext === '.csv') {
+      const ws = await wb.csv.readFile(filePath);
+      ws.name = 'CSV';
+      return workbookToText(wb);
+    }
+    if (ext === '.xls' || ext === '.xlsb') {
+      return '[Excel read failed: .xls/.xlsb format is not supported on this server. Please save the file as .xlsx or .csv and upload again.]';
+    }
     await wb.xlsx.readFile(filePath);
-    const parts = [];
-    wb.eachSheet((sheet) => {
-      const rows = [];
-      sheet.eachRow({ includeEmpty: false }, (row) => {
-        const vals = [];
-        row.eachCell({ includeEmpty: true }, (cell) => {
-          let v = cell.value;
-          if (v && typeof v === 'object') {
-            if ('result' in v) v = v.result;
-            else if ('text' in v) v = v.text;
-            else if ('richText' in v) v = v.richText.map(r => r.text).join('');
-            else v = JSON.stringify(v);
-          }
-          vals.push(v == null ? '' : String(v));
-        });
-        rows.push(vals.join('\t'));
-      });
-      if (rows.length > 0) parts.push(`# ${sheet.name}\n${rows.join('\n')}`);
-    });
-    return parts.join('\n\n').slice(0, 1000000);
+    return workbookToText(wb);
   } catch (e) {
     return '[엑셀 읽기 실패: ' + e.message + ']';
   }
@@ -1548,7 +1643,7 @@ router.post('/attachments', (req, res, next) => {
       const kind = detectKind(req.file.mimetype, ext);
       let excerpt = '';
       const storedPath = req.file.path;
-      if (kind === 'excel') excerpt = await extractExcel(storedPath);
+      if (kind === 'excel') excerpt = await extractExcel(storedPath, originalName);
       else if (kind === 'pdf') excerpt = await extractPdf(storedPath);
       else if (kind === 'text') excerpt = extractText(storedPath);
       // image/word 는 excerpt 없음 (word 는 mammoth 등 필요하면 추가)

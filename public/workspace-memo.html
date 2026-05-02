@@ -591,6 +591,7 @@
     if (aiBusy) return;
     const task = aiInput.value.trim();
     if (!task) return;
+    if (!confirm('AI Agent 작업 세션을 시작할까요?\n\n격리된 작업공간에서 파일을 만들거나 수정할 수 있습니다.')) return;
     if (!editor) {
       aiStatusEl.style.display = '';
       aiStatusEl.textContent = '⏳ 에디터 로딩 중 — 잠시 후 다시 시도하세요';
@@ -607,7 +608,7 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ task, threadId: aiThreadId }),
+        body: JSON.stringify({ task, threadId: aiThreadId, sessionConsent: true }),
       });
       if (!resp.ok) {
         const err = await resp.text().catch(() => 'HTTP ' + resp.status);

@@ -271,6 +271,11 @@
 
     try {
       const result = await api.aiRun(task, threadId);
+      if (result && result.cancelled) {
+        aiDiv.innerHTML = '<span style="opacity:.5;">취소됨</span>';
+        finish();
+        return;
+      }
       if (!result || !result.ok) {
         aiDiv.innerHTML = '<span style="color:#dc2626;">오류: ' + escapeHtml(result?.error || '알 수 없음') + '</span>';
         finish();

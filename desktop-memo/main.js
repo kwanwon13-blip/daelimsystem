@@ -79,6 +79,19 @@ function getServerUrl() {
   return cfg.get('serverUrl', 'http://192.168.0.133:3000').replace(/\/+$/, '');
 }
 
+async function confirmAgentSession(win) {
+  const consent = await dialog.showMessageBox(win, {
+    type: 'question',
+    buttons: ['시작', '취소'],
+    defaultId: 0,
+    cancelId: 1,
+    title: 'AI Agent 세션 동의',
+    message: 'AI Agent 작업 세션을 시작할까요?',
+    detail: '격리된 작업공간에서 파일을 읽고 결과 파일을 만들 수 있습니다.',
+  });
+  return consent.response === 0;
+}
+
 async function checkLoggedIn() {
   // /api/auth/me 호출해서 로그인 상태 확인
   try {
@@ -1601,10 +1614,11 @@ ipcMain.handle('ai:run', async (e, payload) => {
 
     const cookies = await session.defaultSession.cookies.get({ url: getServerUrl() });
     const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+    if (!(await confirmAgentSession(win))) return { ok: false, cancelled: true };
     const resp = await fetch(getServerUrl() + '/api/ai/agent/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Cookie: cookieHeader },
-      body: JSON.stringify({ task, threadId }),
+      body: JSON.stringify({ task, threadId, sessionConsent: true }),
     });
     if (!resp.ok) {
       const txt = await resp.text().catch(() => '');
