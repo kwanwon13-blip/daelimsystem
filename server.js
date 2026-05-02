@@ -281,6 +281,11 @@ app.use('/api/options', require('./routes/options'));
 // ── 업체 (routes/vendors.js) ──
 app.use('/api/vendors', require('./routes/vendors'));
 
+// ── 감사로그/알림/공지/대시보드/배포/GitHub (routes/misc.js) ──
+// vendorPrices/quotes 보다 앞에 마운트해야 /api/git-pull 의 control-secret 인증이 도달함
+// (vendorPrices/quotes 는 router.use(requireAuth) 라 쿠키 없는 요청은 401 으로 차단)
+app.use('/api', require('./routes/misc'));
+
 // ── 시안 검색 (routes/design.js) ──
 // vendorPrices/quotes 가 router.use(requireAuth) 쓰는데 /api prefix 로 마운트라서
 // VBS(쿠키없음) 요청이 design.js 에 도달하기 전 401 로 차단됨. 그래서 앞으로 이동.
@@ -363,8 +368,7 @@ app.get('/api/salary-availability', (req, res) => {
 // ══════════════════════════════════════════════════════
 // 감사 로그 API
 // ══════════════════════════════════════════════════════
-// ── 감사로그/알림/공지/대시보드/배포/GitHub (routes/misc.js) ──
-app.use('/api', require('./routes/misc'));
+// (routes/misc.js 는 위쪽 vendorPrices 앞 라인으로 이동됨 — git-pull control-secret 인증을 위해)
 
 // ── 과거 매출 검색 (routes/salesHistory.js) ──
 app.use('/api/sales-history', require('./routes/salesHistory'));
