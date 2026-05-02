@@ -281,21 +281,47 @@ async function processQueueItem() {
     // 일자 — AI 추출 우선, 안 되면 PPTX 파일명에서 추출
     const docDate = p.doc_date || item.inferredDate || null;
 
-    // 학습 풀에서 단가 자동 매칭 (컴퍼니 매출인 경우)
+    // 학습 풀 후처리 매칭 (컴퍼니 매출 PPTX 시안용)
+    // AI 가 추출한 거 무시하고, 같은 일자의 진짜 등록 데이터로 덮어쓰기
     let autoItems = p.items || [];
-    if (companyCode === 'COMPANY' && docClass === '매출' && Array.isArray(autoItems)) {
+    if (companyCode === 'COMPANY' && docClass === '매출' && item.isPptxSlide && item.inferredDate) {
       const learningPool = require('../lib/learning-pool');
-      autoItems = autoItems.map((it) => {
-        if (!it.unit_price && it.item_name) {
-          // 같은 품명+규격 검색
-          const matches = learningPool.findItem('COMPANY', '매출', it.item_name);
-          if (matches.length > 0 && matches[0].count >= 2) {
-            // 자주 등록되는 패턴 = 신뢰도 OK
-            console.log(`[learning-pool] 단가 자동 매칭: ${it.item_name} (${matches[0].count}회 등록)`);
+      const norm = (s) => String(s || '').replace(/\s+/g, '').toLowerCase().replace(/[xX]/g, '*');
+      // 같은 일자 (정확히) 등록된 행 다 가져옴
+      const sameDayRows = learningPool.getRegisteredByDate(item.inferredDate, { dayRange: 0 });
+      console.log(`[learning-pool] PPTX ${item.originalName} 일자 ${item.inferredDate}: 같은 날 등록행 ${sameDayRows.length}개`);
+
+      if (sameDayRows.length > 0) {
+        // AI 가 추출한 items 무시하고 — 같은 일자 등록행을 그대로 라인 아이템으로 사용
+        // (한 PPTX = 한 일자 = 거기에 등록된 모든 라인)
+        // 단, 슬라이드 1장 = 1 라인이라 어떤 라인이 이 슬라이드인지 매칭 시도
+        const aiSpec = norm(autoItems[0]?.spec);
+        const aiName = norm(autoItems[0]?.item_name);
+
+        // 1) 규격 매칭
+        let matched = sameDayRows.find(r => norm(r.spec) === aiSpec && aiSpec);
+        // 2) 품명 부분 매칭
+        if (!matched) matched = sameDayRows.find(r => aiName && (norm(r.item).includes(aiName) || aiName.includes(norm(r.item))));
+
+        if (matched) {
+          console.log(`[learning-pool] ✓ 매칭: AI"${autoItems[0]?.item_name}/${autoItems[0]?.spec}" → DB"${matched.item}/${matched.spec}"`);
+          // 학습 풀 정답으로 덮어쓰기
+          autoItems = [{
+            item_name: matched.item,
+            spec: matched.spec,
+            quantity: matched.qty,
+            unit_price: matched.price || 0,
+            amount: matched.amount || (matched.qty * matched.price) || 0,
+            vat: Math.round((matched.amount || 0) * 0.1),
+          }];
+          // 거래처도 학습 풀 정답으로
+          if (matched.vendor) {
+            p.vendor_name = matched.vendor;
           }
+        } else {
+          console.log(`[learning-pool] ✗ 매칭 실패: AI 결과 그대로 사용 (사장님 검토 필요)`);
         }
-        return it;
-      });
+      }
     }
     const stId = dbSt.createStatement({
       source_file: item.originalName,
