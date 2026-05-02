@@ -103,6 +103,135 @@ function mimeFromName(name) {
   }[ext] || '';
 }
 
+const ARTIFACT_EXTS = [
+  '.xlsx', '.xlsm', '.csv', '.pdf', '.svg', '.html', '.htm',
+  '.md', '.txt', '.json', '.png', '.jpg', '.jpeg', '.webp',
+  '.docx', '.pptx', '.zip',
+];
+
+function artifactKindFromName(name) {
+  const ext = path.extname(String(name || '')).toLowerCase();
+  if (['.xlsx', '.xlsm', '.csv'].includes(ext)) return 'excel';
+  if (ext === '.pdf') return 'pdf';
+  if (ext === '.svg') return 'svg';
+  if (['.html', '.htm'].includes(ext)) return 'html';
+  if (ext === '.md') return 'markdown';
+  if (['.txt', '.json'].includes(ext)) return ext.slice(1);
+  if (['.png', '.jpg', '.jpeg', '.webp'].includes(ext)) return 'image';
+  return 'file';
+}
+
+function artifactMimeFromName(name) {
+  const ext = path.extname(String(name || '')).toLowerCase();
+  return mimeFromName(name) || {
+    '.xlsm': 'application/vnd.ms-excel.sheet.macroEnabled.12',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.webp': 'image/webp',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    '.zip': 'application/zip',
+  }[ext] || 'application/octet-stream';
+}
+
+function artifactPayload(a) {
+  return {
+    id: a.id,
+    name: a.original_name,
+    size: a.size,
+    kind: a.kind,
+    url: `/api/ai/artifacts/${a.id}/download`,
+    previewUrl: `/api/ai/artifacts/${a.id}/download?inline=1`,
+  };
+}
+
+function isInside(parent, target) {
+  const rel = path.relative(path.resolve(parent), path.resolve(target));
+  return rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
+function extractArtifactPaths(text) {
+  const out = new Set();
+  const raw = String(text || '');
+  const extGroup = ARTIFACT_EXTS.map(e => e.slice(1).replace('.', '\\.')).join('|');
+  const winPathRe = new RegExp(`[A-Za-z]:\\\\[^\\r\\n<>"|?*\\\`]+?\\\\?[^\\r\\n<>"|?*\\\`]*?\\.(${extGroup})\\b`, 'gi');
+  for (const m of raw.matchAll(winPathRe)) out.add(m[0].trim().replace(/[),.]+$/g, ''));
+
+  const nameRe = new RegExp(`(?:파일명|file name|filename)\\s*[:：]\\s*[\\\`"']?([^\\\`"'\\r\\n]+?\\.(${extGroup}))\\b`, 'gi');
+  for (const m of raw.matchAll(nameRe)) {
+    const candidate = String(m[1] || '').trim().replace(/[),.]+$/g, '');
+    if (candidate) out.add(path.join(__dirname, '..', candidate));
+  }
+  return [...out];
+}
+
+function findRecentRootArtifacts(sinceMs) {
+  const appRoot = path.join(__dirname, '..');
+  const threshold = Number(sinceMs || 0) - 1500;
+  try {
+    return fs.readdirSync(appRoot)
+      .map(name => path.join(appRoot, name))
+      .filter(fp => {
+        const ext = path.extname(fp).toLowerCase();
+        if (!ARTIFACT_EXTS.includes(ext)) return false;
+        const st = fs.statSync(fp);
+        return st.isFile() && st.mtimeMs >= threshold;
+      })
+      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)
+      .slice(0, 8);
+  } catch (_) {
+    return [];
+  }
+}
+
+function registerExistingArtifact(filePath, { ownerId, threadId, messageId = null }) {
+  if (!filePath || !ai.ready) return null;
+  const appRoot = path.join(__dirname, '..');
+  const resolved = path.resolve(filePath);
+  if (!fs.existsSync(resolved)) return null;
+  if (!isInside(appRoot, resolved) && !isInside(ai.OUTPUT_DIR, resolved)) return null;
+  const stat = fs.statSync(resolved);
+  if (!stat.isFile()) return null;
+  if (!ARTIFACT_EXTS.includes(path.extname(resolved).toLowerCase())) return null;
+
+  const originalName = path.basename(resolved);
+  const storedName = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}${path.extname(originalName) || '.bin'}`;
+  const storedPath = path.join(ai.OUTPUT_DIR, storedName);
+  fs.copyFileSync(resolved, storedPath);
+  return ai.artifacts.create({
+    ownerId,
+    threadId,
+    messageId,
+    originalName,
+    storedName,
+    mime: artifactMimeFromName(originalName),
+    size: stat.size,
+    kind: artifactKindFromName(originalName),
+  });
+}
+
+function recoverArtifactsFromText(text, { ownerId, threadId, messageId = null, sinceMs = null }) {
+  const existing = messageId ? ai.artifacts.listByMessage(messageId).map(artifactPayload) : [];
+  if (existing.length) return existing;
+
+  const paths = new Set(extractArtifactPaths(text));
+  if (sinceMs) {
+    for (const fp of findRecentRootArtifacts(sinceMs)) paths.add(fp);
+  }
+
+  const created = [];
+  for (const fp of paths) {
+    try {
+      const art = registerExistingArtifact(fp, { ownerId, threadId, messageId });
+      if (art) created.push(artifactPayload(art));
+    } catch (e) {
+      console.warn('[ai/artifact-recover] failed:', fp, e.message);
+    }
+  }
+  return created;
+}
+
 // ──────────────────────────────────────────────────────────
 // 직원 목록 (공유 대상용)
 // ──────────────────────────────────────────────────────────
@@ -356,6 +485,20 @@ router.get('/threads/:id', (req, res) => {
         const attIds = JSON.parse(m.attachments || '[]');
         m.attachments_parsed = ai.attachments.hydrate(attIds);
       } catch(e) { m.attachments_parsed = []; }
+      try {
+        const meta = typeof m.metadata === 'string' ? JSON.parse(m.metadata || '{}') : (m.metadata || {});
+        if (meta && Array.isArray(meta.artifacts) && meta.artifacts.length) {
+          m.artifacts_parsed = meta.artifacts;
+        } else if (m.role === 'ai') {
+          m.artifacts_parsed = recoverArtifactsFromText(m.content, {
+            ownerId: t.owner_id,
+            threadId: t.id,
+            messageId: m.id,
+          });
+        }
+      } catch(e) {
+        m.artifacts_parsed = [];
+      }
     }
     // 스레드에 프로젝트 이모지 붙이기
     if (t.project_id) {
@@ -791,6 +934,7 @@ router.post('/chat', async (req, res) => {
     const usedToolNames = [];
     const createdArtifacts = [];  // { id, name, url, size, kind }
     const modelToUse = req.body.model || DEFAULT_MODEL;
+    let cliArtifactScanSince = null;
 
     try {
       if (apiModeAvailable()) {
@@ -885,6 +1029,7 @@ router.post('/chat', async (req, res) => {
         }
       } else {
         backend = 'cli';
+        cliArtifactScanSince = Date.now();
         const r = await runClaudeCli(fullPrompt);
         aiText = r.text;
         durationMs = r.durationMs;
@@ -897,6 +1042,17 @@ router.post('/chat', async (req, res) => {
     }
 
     // 7. AI 메시지 저장 (usage/backend/artifacts 메타 포함)
+    if (status === 'ok' && (backend === 'cli' || createdArtifacts.length === 0)) {
+      const recovered = recoverArtifactsFromText(aiText, {
+        ownerId: req.user.userId,
+        threadId: thread.id,
+        sinceMs: cliArtifactScanSince,
+      });
+      for (const a of recovered) {
+        if (!createdArtifacts.some(x => String(x.id) === String(a.id))) createdArtifacts.push(a);
+      }
+    }
+
     const aiMsg = ai.threads.addMessage(thread.id, {
       role: 'ai',
       kind: mode || 'chat',
