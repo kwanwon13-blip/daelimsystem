@@ -2,7 +2,7 @@
 function statementsApp() {
   return {
     items: [], total: 0, limit: 100, offset: 0,
-    stats: { total: 0, pending: 0, confirmed: 0, byQuadrant: [], pendingByQuadrant: [] },
+    stats: { total: 0, pending: 0, confirmed: 0, rejected: 0, byQuadrant: [], pendingByQuadrant: [] },
     filterStatus: '', filterMonth: '', filterCompany: '', filterClass: '', searchQ: '',
     queue: { total: 0, processed: 0, failed: 0, queueLen: 0, processing: 0 },
     queueTimer: null,
@@ -125,6 +125,30 @@ function statementsApp() {
       }
       this.loadModeRows();
       this.loadStats();
+    },
+    async rematchCompanySales() {
+      if (this.currentView !== 'company-sell') {
+        alert('컴퍼니 매출 화면에서만 재매칭할 수 있습니다.');
+        return;
+      }
+      if (!confirm('현재 조건의 검토전 컴퍼니 매출 행을 학습 엑셀 기준으로 다시 매칭할까요?\n확정된 행은 건드리지 않습니다.')) return;
+      try {
+        const r = await fetch('/api/statements/rematch-company-sales', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ month: this.filterMonth || null, status: 'pending' }),
+        }).then(r => r.json());
+        if (!r.ok) {
+          alert('재매칭 실패: ' + (r.error || '알 수 없는 오류'));
+          return;
+        }
+        await this.loadModeRows();
+        await this.loadStats();
+        const msg = `스캔 ${r.scanned}행 / 매칭 ${r.matched}행 / 애매함 ${r.ambiguous}행 / 실패 ${r.failed}행`;
+        alert('학습 재매칭 완료\n' + msg);
+      } catch (e) {
+        alert('재매칭 오류: ' + e.message);
+      }
     },
 
     // 학습 풀 통계
@@ -465,10 +489,75 @@ function statementsApp() {
       await fetch(`/api/statements/${id}/reset`, { method:'POST' });
       await this.load(); await this.loadStats();
     },
+    async deleteStatement(id, status) {
+      if (!id) return;
+      const msg = status === 'rejected'
+        ? '반려된 자료를 삭제할까요?\n삭제하면 목록과 원본 미리보기 파일도 함께 정리됩니다.'
+        : '이 자료를 삭제할까요?\n확정 자료는 삭제되지 않습니다.';
+      if (!confirm(msg)) return;
+      try {
+        const r = await fetch('/api/statements/' + id, { method: 'DELETE' }).then(r => r.json());
+        if (!r.ok) {
+          alert('삭제 실패: ' + (r.error || '알 수 없는 오류'));
+          return;
+        }
+        if (this.selected?.id === id) this.closeModal();
+        await this.load();
+        await this.loadStats();
+        if (this.currentView !== 'overview') await this.loadModeRows();
+      } catch (e) {
+        alert('삭제 오류: ' + e.message);
+      }
+    },
+    async cleanupRejected() {
+      const payload = {
+        status: 'rejected',
+        month: this.filterMonth || null,
+        companyCode: this.filterCompany || null,
+        docClass: this.filterClass || null,
+        q: this.searchQ.trim() || '',
+        dryRun: true,
+      };
+      try {
+        const preview = await fetch('/api/statements/cleanup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }).then(r => r.json());
+        if (!preview.ok) {
+          alert('정리 실패: ' + (preview.error || '알 수 없는 오류'));
+          return;
+        }
+        if (!preview.count) {
+          alert('현재 조건에 삭제할 반려 자료가 없습니다.');
+          return;
+        }
+        const scope = [
+          this.filterMonth ? `월 ${this.filterMonth}` : null,
+          this.filterCompany ? `회사 ${this.filterCompany}` : null,
+          this.filterClass ? `구분 ${this.filterClass}` : null,
+          this.searchQ.trim() ? `검색 "${this.searchQ.trim()}"` : null,
+        ].filter(Boolean).join(' / ') || '전체 조건';
+        if (!confirm(`${scope}\n반려 자료 ${preview.count}건을 삭제할까요?\n원본 파일 ${preview.fileCount || 0}개도 함께 정리됩니다.`)) return;
+        const result = await fetch('/api/statements/cleanup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...payload, dryRun: false }),
+        }).then(r => r.json());
+        if (!result.ok) {
+          alert('정리 실패: ' + (result.error || '알 수 없는 오류'));
+          return;
+        }
+        await this.load();
+        await this.loadStats();
+        if (this.currentView !== 'overview') await this.loadModeRows();
+        alert(`반려 자료 ${result.deleted || 0}건 삭제 완료\n원본 파일 ${result.filesDeleted || 0}개 정리`);
+      } catch (e) {
+        alert('정리 오류: ' + e.message);
+      }
+    },
     async del() {
-      if (!confirm('정말 삭제할까요?')) return;
-      await fetch('/api/statements/'+this.selected.id, { method: 'DELETE' });
-      this.closeModal(); this.load(); this.loadStats();
+      await this.deleteStatement(this.selected?.id, this.selected?.status);
     },
   };
 }

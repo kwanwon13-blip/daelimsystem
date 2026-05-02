@@ -11,6 +11,7 @@
         <span style="color:#6b7280; font-size:12px;" x-text="`${(modeRows||[]).length}건 · ${filterMonth||'전체월'}`"></span>
         <div style="flex:1;"></div>
         <input type="month" class="st-input" x-model="filterMonth" @change="loadModeRows()" style="height:30px; font-size:12px;">
+        <button class="st-btn st-btn-ghost st-btn-sm" @click="rematchCompanySales()">↻ 학습 재매칭</button>
         <a :href="exportUrl('COMPANY')" class="st-btn st-btn-primary st-btn-sm">📊 E2E 엑셀 다운로드</a>
       </div>
       <div class="mode-body company-mode-body">
@@ -456,6 +457,7 @@
     .st-btn-success { background:#22c55e; color:#fff; }
     .st-btn-warn { background:#f59e0b; color:#fff; }
     .st-btn-danger { background:#ef4444; color:#fff; }
+    .st-btn-danger:hover { background:#dc2626; }
     .st-input { padding:7px 11px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; outline:none; background:#fff; }
     .st-input:focus { border-color:#4f6ef7; }
 
@@ -487,6 +489,7 @@
     .st-chip { display:inline-flex; align-items:center; gap:4px; padding:3px 8px; border:1px solid #e5e7eb; border-radius:999px; background:#f9fafb; color:#4b5563; font-size:11px; font-weight:600; }
     .st-chip.warn { background:#fffbeb; color:#92400e; border-color:#fde68a; }
     .st-chip.ok { background:#ecfdf5; color:#047857; border-color:#a7f3d0; }
+    .st-chip.danger { background:#fef2f2; color:#991b1b; border-color:#fecaca; }
     .st-filters { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
     .st-filters .st-input { height:34px; }
 
@@ -619,6 +622,7 @@
               <span class="st-chip" x-text="`전체 ${stats.total||0}`"></span>
               <span class="st-chip warn" x-text="`검토전 ${stats.pending||0}`"></span>
               <span class="st-chip ok" x-text="`확정 ${stats.confirmed||0}`"></span>
+              <span class="st-chip danger" x-text="`반려 ${stats.rejected||0}`"></span>
             </div>
           </div>
         </div>
@@ -646,6 +650,9 @@
           class="st-btn st-btn-ghost st-btn-sm" title="E2E 엑셀">
           <span class="material-symbols-outlined">download</span> E2E
         </a>
+        <button class="st-btn st-btn-danger st-btn-sm" @click="cleanupRejected()" title="현재 월/회사/구분/검색 조건에 맞는 반려 자료만 삭제">
+          <span class="material-symbols-outlined">delete_sweep</span> 반려 정리
+        </button>
       </div>
     </div>
 
@@ -787,7 +794,7 @@
           <th style="width:100px; text-align:right;">부가세</th>
           <th style="width:120px; text-align:right;">합계</th>
           <th style="width:140px;">원본</th>
-          <th style="width:100px;"></th>
+          <th style="width:150px;"></th>
         </tr>
       </thead>
       <tbody>
@@ -814,6 +821,7 @@
               <button class="st-btn st-btn-success st-btn-sm" x-show="s.status==='pending'" @click="confirm(s.id)">확정</button>
               <button class="st-btn st-btn-warn st-btn-sm" x-show="s.status==='pending'" @click="reject(s.id)">반려</button>
               <button class="st-btn st-btn-ghost st-btn-sm" x-show="s.status!=='pending'" @click="reset(s.id)">되돌리기</button>
+              <button class="st-btn st-btn-danger st-btn-sm" x-show="s.status==='rejected'" @click="deleteStatement(s.id, s.status)">삭제</button>
             </td>
           </tr>
         </template>

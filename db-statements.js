@@ -251,6 +251,7 @@ function getStats() {
     total: db.prepare('SELECT COUNT(*) as n FROM statements').get().n,
     pending: db.prepare(`SELECT COUNT(*) as n FROM statements WHERE status = 'pending'`).get().n,
     confirmed: db.prepare(`SELECT COUNT(*) as n FROM statements WHERE status = 'confirmed'`).get().n,
+    rejected: db.prepare(`SELECT COUNT(*) as n FROM statements WHERE status = 'rejected'`).get().n,
     byMonth: db.prepare(
       `SELECT month_key as month, COUNT(*) as n, SUM(supply_amount) as supply, SUM(vat_amount) as vat, SUM(total_amount) as total
        FROM statements WHERE status = 'confirmed' AND month_key IS NOT NULL
@@ -327,11 +328,49 @@ function setStatus(id, status, confirmedBy) {
 }
 
 function deleteStatement(id) {
+  const cur = stmts.byId.get(id);
+  if (!cur) return null;
   const tx = db.transaction(() => {
     stmts.delItems.run(id);
     stmts.delStmt.run(id);
   });
   tx();
+  return cur;
+}
+
+function countByStoredFile(storedFile) {
+  if (!storedFile) return 0;
+  return db.prepare('SELECT COUNT(*) as n FROM statements WHERE stored_file = ?').get(storedFile).n;
+}
+
+function listCleanupCandidates({
+  status = 'rejected',
+  month = null,
+  docClass = null,
+  companyCode = null,
+  q = '',
+  limit = 10000,
+} = {}) {
+  const where = [];
+  const params = {};
+  if (status) { where.push('status = @status'); params.status = status; }
+  if (month) { where.push('month_key = @month'); params.month = month; }
+  if (docClass) { where.push('doc_class = @docClass'); params.docClass = docClass; }
+  if (companyCode) { where.push('company_code = @companyCode'); params.companyCode = companyCode; }
+  if (q) {
+    where.push(`(vendor_name LIKE @q OR norm_vendor LIKE @q OR source_file LIKE @q OR notes LIKE @q OR raw_extract LIKE @q)`);
+    params.q = `%${q}%`;
+  }
+  const lim = Math.max(1, Math.min(parseInt(limit, 10) || 10000, 50000));
+  const sql = `
+    SELECT id, status, stored_file, source_file
+    FROM statements
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+    ORDER BY id DESC
+    LIMIT ${lim}
+  `;
+  const stmt = db.prepare(sql);
+  return Object.keys(params).length ? stmt.all(params) : stmt.all();
 }
 
 // 같은 거래처+일자+회사+구분 명세서 자동 병합
@@ -411,5 +450,7 @@ module.exports = {
   updateStatement,
   setStatus,
   deleteStatement,
+  countByStoredFile,
+  listCleanupCandidates,
   mergeByVendorDate,
 };

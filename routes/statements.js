@@ -121,11 +121,86 @@ const queue = [];
 let processing = 0;
 const MAX_CONCURRENT = parseInt(process.env.STATEMENT_AI_CONCURRENT || '3', 10);
 let queueStats = { total: 0, processed: 0, failed: 0, startedAt: null };
+const pptMatchedRows = new Map(); // parentPptx -> Set(learning row key)
 
 function resetQueueStatsIfIdle() {
   if (queue.length === 0 && processing === 0) {
     queueStats = { total: 0, processed: 0, failed: 0, startedAt: null };
   }
+}
+
+function inferDateFromName(name) {
+  const m = String(name || '').match(/(\d{4})(\d{2})(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+}
+
+function getPptMatchDayRange(dateStr) {
+  const d = new Date(dateStr);
+  if (isNaN(d)) return 10;
+  const day = d.getDate();
+  if (day <= 3 || day >= 26) return 10;
+  return 7;
+}
+
+function parentPptxKey(name) {
+  return String(name || '').replace(/\s*\(슬라이드\s*\d+\)\s*$/i, '');
+}
+
+function getPptUsedSet(parentPptx) {
+  const key = parentPptxKey(parentPptx);
+  if (!key) return null;
+  if (!pptMatchedRows.has(key)) pptMatchedRows.set(key, new Set());
+  return pptMatchedRows.get(key);
+}
+
+function resolveUploadFile(storedFile) {
+  const base = path.basename(String(storedFile || ''));
+  if (!base) return null;
+  const resolved = path.resolve(UPLOAD_DIR, base);
+  const root = path.resolve(UPLOAD_DIR);
+  if (!resolved.startsWith(root + path.sep)) return null;
+  return resolved;
+}
+
+function deleteUploadFile(storedFile) {
+  const filePath = resolveUploadFile(storedFile);
+  if (!filePath || !fs.existsSync(filePath)) return false;
+  try {
+    fs.unlinkSync(filePath);
+    return true;
+  } catch (e) {
+    console.warn('[statements] upload file delete failed:', e.message);
+    return false;
+  }
+}
+
+function deleteStoredFileIfUnused(storedFile) {
+  if (!storedFile || dbSt.countByStoredFile(storedFile) > 0) return false;
+  return deleteUploadFile(storedFile);
+}
+
+function pptxSourceFromSlide(storedFile) {
+  const m = String(storedFile || '').match(/^pptx_(st_\d+_[a-f0-9]+)_s\d+\.[^.]+$/i);
+  return m ? `${m[1]}.pptx` : null;
+}
+
+function deletePptxSourceIfNoSlides(slideStoredFile) {
+  const sourceFile = pptxSourceFromSlide(slideStoredFile);
+  if (!sourceFile) return false;
+  const prefix = 'pptx_' + path.basename(sourceFile, '.pptx') + '_s';
+  const refs = dbSt.db.prepare('SELECT COUNT(*) as n FROM statements WHERE stored_file LIKE ?').get(prefix + '%').n;
+  if (refs > 0) return false;
+  return deleteUploadFile(sourceFile);
+}
+
+function deleteStatementWithFile(id) {
+  const st = dbSt.getById(id);
+  if (!st) return null;
+  const storedFile = st.stored_file;
+  const deleted = dbSt.deleteStatement(id);
+  const fileDeleted = deleteStoredFileIfUnused(storedFile);
+  const pptxDeleted = deletePptxSourceIfNoSlides(storedFile);
+  return { statement: deleted || st, fileDeleted, pptxDeleted };
 }
 
 // AI 추출 — Claude Code CLI 사용 (사용자 구독 안에서, 비용 0)
@@ -143,11 +218,12 @@ async function extractStatement(filePath, mimeType, hint, extra = {}) {
       const slideCtx = learningPool.getSlideContext(extra.inferredDate);
       poolCtx = `
 
-==== ⚡ 핵심 학습 정답 — 같은 시기 실제 등록된 매출 행 ====
+==== ⚡ 핵심 학습 정답 — PPT 날짜 주변 실제 등록된 매출 행 ====
 파일명: ${extra.parentPptx || ''}  /  추정 일자: ${extra.inferredDate}
 ${slideCtx}
 
-**중요: 위 정답 패턴을 참조해서 시안에서 똑같은 표현을 추출하세요.**
+**중요: PPT 전체/주변 날짜 정답 패턴을 참조해서 시안에서 똑같은 표현을 추출하세요.**
+- 월말 작업이 다음달 1일 매출로 이월될 수 있으므로 파일명 날짜와 시안 납품일이 달라도 주변 날짜 정답을 우선 확인
 - 같은 규격(예: 2000*1200)이 있으면 그 거래처/품명 표현을 그대로 사용
 - "포맥스 게시판" 같은 새 표현 만들지 말 것 — 정답에 "3t포맥스+집게14개" 같이 있으면 그거 사용
 - 결합 품명 (X+Y+Z)는 정답 패턴 그대로
@@ -286,40 +362,46 @@ async function processQueueItem() {
     let autoItems = p.items || [];
     if (companyCode === 'COMPANY' && docClass === '매출' && item.isPptxSlide && item.inferredDate) {
       const learningPool = require('../lib/learning-pool');
-      const norm = (s) => String(s || '').replace(/\s+/g, '').toLowerCase().replace(/[xX]/g, '*');
-      // 같은 일자 (정확히) 등록된 행 다 가져옴
-      const sameDayRows = learningPool.getRegisteredByDate(item.inferredDate, { dayRange: 0 });
-      console.log(`[learning-pool] PPTX ${item.originalName} 일자 ${item.inferredDate}: 같은 날 등록행 ${sameDayRows.length}개`);
+      const aiItem = autoItems[0] || {};
+      const matchText = [item.hint, ext.raw, p.notes].filter(Boolean).join('\n');
+      const usedRows = getPptUsedSet(item.parentPptx);
+      const dayRange = getPptMatchDayRange(item.inferredDate || docDate);
+      const match = learningPool.matchCompanySaleItem(aiItem, {
+        dateStr: item.inferredDate,
+        altDateStr: docDate,
+        vendorHint: p.vendor_name,
+        textHint: matchText,
+        dayRange,
+        excludeKeys: usedRows,
+      });
+      console.log(`[learning-pool] PPTX ${item.originalName} 일자 ${item.inferredDate}: ±${dayRange}일 후보 ${match.candidateCount}개 / 규격후보 ${match.exactSpecCount}개 / 점수 ${match.score} / ${match.reason}`);
 
-      if (sameDayRows.length > 0) {
-        // AI 가 추출한 items 무시하고 — 같은 일자 등록행을 그대로 라인 아이템으로 사용
-        // (한 PPTX = 한 일자 = 거기에 등록된 모든 라인)
-        // 단, 슬라이드 1장 = 1 라인이라 어떤 라인이 이 슬라이드인지 매칭 시도
-        const aiSpec = norm(autoItems[0]?.spec);
-        const aiName = norm(autoItems[0]?.item_name);
-
-        // 1) 규격 매칭
-        let matched = sameDayRows.find(r => norm(r.spec) === aiSpec && aiSpec);
-        // 2) 품명 부분 매칭
-        if (!matched) matched = sameDayRows.find(r => aiName && (norm(r.item).includes(aiName) || aiName.includes(norm(r.item))));
-
-        if (matched) {
-          console.log(`[learning-pool] ✓ 매칭: AI"${autoItems[0]?.item_name}/${autoItems[0]?.spec}" → DB"${matched.item}/${matched.spec}"`);
-          // 학습 풀 정답으로 덮어쓰기
-          autoItems = [{
-            item_name: matched.item,
-            spec: matched.spec,
-            quantity: matched.qty,
-            unit_price: matched.price || 0,
-            amount: matched.amount || (matched.qty * matched.price) || 0,
-            vat: Math.round((matched.amount || 0) * 0.1),
-          }];
-          // 거래처도 학습 풀 정답으로
-          if (matched.vendor) {
-            p.vendor_name = matched.vendor;
-          }
-        } else {
-          console.log(`[learning-pool] ✗ 매칭 실패: AI 결과 그대로 사용 (사장님 검토 필요)`);
+      if (match.matched) {
+        const matched = match.matched;
+        const amount = Number(matched.amount) || ((Number(matched.qty) || 0) * (Number(matched.price) || 0)) || 0;
+        const vat = Math.round(amount * 0.1);
+        console.log(`[learning-pool] ✓ 매칭: AI"${aiItem.item_name}/${aiItem.spec}" → DB"${matched.item}/${matched.spec}" (${match.reason})`);
+        autoItems = [{
+          item_name: matched.item,
+          spec: matched.spec,
+          quantity: matched.qty,
+          unit_price: matched.price || 0,
+          amount,
+          vat,
+          notes: `학습매칭: ${match.reason} / score ${match.score}`,
+        }];
+        if (matched.vendor) p.vendor_name = matched.vendor;
+        p.supply_amount = amount;
+        p.vat_amount = vat;
+        p.total_amount = amount + vat;
+        if (usedRows) usedRows.add(learningPool.companySaleRowKey(matched));
+      } else {
+        const top = (match.candidates || []).slice(0, 3)
+          .map(c => `${c.row.item}/${c.row.spec}/${c.row.qty}개/${c.row.price}원(${c.score})`)
+          .join(' | ');
+        console.log(`[learning-pool] ✗ 매칭 실패: ${match.reason} / 후보: ${top || '없음'}`);
+        if (autoItems[0]) {
+          autoItems[0].notes = `학습매칭실패: ${match.reason}${top ? ' / 후보 ' + top : ''}`;
         }
       }
     }
@@ -396,8 +478,11 @@ router.post('/upload-batch', requireAuth, upload.array('files', 100), async (req
         // PPTX 분리 → 슬라이드별 임시 이미지 저장 → 슬라이드 1장 = 큐 1건
         const slides = await splitPptxToSlides(f.path);
         // 파일명에서 일자 자동 추출 (YYYYMMDD 패턴)
-        const dateMatch = f.originalname.match(/(\d{4})(\d{2})(\d{2})/);
-        const inferredDate = dateMatch ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : null;
+        const inferredDate = inferDateFromName(f.originalname);
+        const pptText = slides
+          .map(sl => `슬라이드 ${sl.slideIndex}: ${sl.slideText || ''}`)
+          .join('\n')
+          .slice(0, 12000);
         for (const sl of slides) {
           const imgName = `pptx_${path.basename(f.path, '.pptx')}_s${sl.slideIndex}.${sl.ext}`;
           const imgPath = path.join(UPLOAD_DIR, imgName);
@@ -407,10 +492,13 @@ router.post('/upload-batch', requireAuth, upload.array('files', 100), async (req
             originalName: `${f.originalname} (슬라이드 ${sl.slideIndex})`,
             mimeType: `image/${sl.ext === 'jpg' ? 'jpeg' : sl.ext}`,
             uploadedBy: req.user.userId,
-            hint: `PPTX 시안 — 슬라이드 텍스트: "${sl.slideText}"${inferredDate ? ` / 파일명 일자: ${inferredDate}` : ''}`,
+            hint: `PPTX 시안 — 현재 슬라이드 ${sl.slideIndex}/${slides.length} 텍스트: "${sl.slideText}"${inferredDate ? ` / 파일명 일자: ${inferredDate}` : ''}\n\n[전체 PPT 텍스트]\n${pptText}`,
             isPptxSlide: true,
             inferredDate,                              // 파일명 기반 일자
             parentPptx: f.originalname,                // 원본 PPTX 파일명
+            slideIndex: sl.slideIndex,
+            slideCount: slides.length,
+            pptText,
           });
           queueStats.total++;
           added++;
@@ -515,8 +603,63 @@ router.post('/:id(\\d+)/reset', requireAuth, (req, res) => {
 });
 // 삭제
 router.delete('/:id(\\d+)', requireAuth, (req, res) => {
-  dbSt.deleteStatement(parseInt(req.params.id));
-  res.json({ ok: true });
+  const id = parseInt(req.params.id);
+  const st = dbSt.getById(id);
+  if (!st) return res.status(404).json({ ok: false, error: 'not found' });
+  if (st.status === 'confirmed') {
+    return res.status(400).json({ ok: false, error: '확정 자료는 바로 삭제할 수 없습니다. 반려 또는 검토전으로 되돌린 뒤 삭제해주세요.' });
+  }
+  const result = deleteStatementWithFile(id);
+  res.json({ ok: true, fileDeleted: !!(result?.fileDeleted || result?.pptxDeleted) });
+});
+
+router.post('/cleanup', requireAuth, (req, res) => {
+  const body = req.body || {};
+  const status = body.status || 'rejected';
+  if (status !== 'rejected') {
+    return res.status(400).json({ ok: false, error: '반려 자료만 일괄 삭제할 수 있습니다.' });
+  }
+  const rows = dbSt.listCleanupCandidates({
+    status,
+    month: body.month || null,
+    companyCode: body.companyCode || null,
+    docClass: body.docClass || null,
+    q: body.q || '',
+    limit: body.limit || 50000,
+  });
+  const fileRefs = new Map();
+  const pptxRefs = new Map();
+  for (const row of rows) {
+    if (!row.stored_file) continue;
+    fileRefs.set(row.stored_file, (fileRefs.get(row.stored_file) || 0) + 1);
+    const pptxSource = pptxSourceFromSlide(row.stored_file);
+    if (pptxSource) pptxRefs.set(pptxSource, (pptxRefs.get(pptxSource) || 0) + 1);
+  }
+  let removableFiles = 0;
+  for (const [storedFile, candidateRefs] of fileRefs.entries()) {
+    if (dbSt.countByStoredFile(storedFile) <= candidateRefs) removableFiles++;
+  }
+  for (const [sourceFile, candidateSlideRefs] of pptxRefs.entries()) {
+    const prefix = 'pptx_' + path.basename(sourceFile, '.pptx') + '_s';
+    const refs = dbSt.db.prepare('SELECT COUNT(*) as n FROM statements WHERE stored_file LIKE ?').get(prefix + '%').n;
+    if (refs <= candidateSlideRefs && resolveUploadFile(sourceFile) && fs.existsSync(resolveUploadFile(sourceFile))) removableFiles++;
+  }
+
+  if (body.dryRun !== false) {
+    return res.json({ ok: true, dryRun: true, count: rows.length, fileCount: removableFiles });
+  }
+
+  let deleted = 0;
+  let filesDeleted = 0;
+  for (const row of rows) {
+    const result = deleteStatementWithFile(row.id);
+    if (result) {
+      deleted++;
+      if (result.fileDeleted) filesDeleted++;
+      if (result.pptxDeleted) filesDeleted++;
+    }
+  }
+  res.json({ ok: true, dryRun: false, deleted, filesDeleted });
 });
 
 // E2E 업로드 양식 엑셀 export (컴퍼니 매입/매출용)
@@ -728,6 +871,137 @@ router.post('/merge-by-vendor-date', requireAuth, (req, res) => {
   try {
     const result = dbSt.mergeByVendorDate({ companyCode, docClass, status });
     res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// 컴퍼니 매출 PPTX/시안 행을 학습 엑셀 기준으로 다시 매칭
+router.post('/rematch-company-sales', requireAuth, (req, res) => {
+  const learningPool = require('../lib/learning-pool');
+  const { month = null, status = 'pending' } = req.body || {};
+
+  try {
+    const where = [`s.company_code = 'COMPANY'`, `s.doc_class = '매출'`];
+    const params = {};
+    if (status && status !== 'all') { where.push(`s.status = @status`); params.status = status; }
+    if (month) { where.push(`s.month_key = @month`); params.month = month; }
+
+    const rows = dbSt.db.prepare(`
+      SELECT
+        s.id AS statement_id, s.source_file, s.raw_extract, s.doc_date, s.vendor_name, s.norm_vendor, s.notes AS statement_notes,
+        i.id AS item_id, i.line_no, i.item_name, i.spec, i.quantity, i.unit, i.unit_price, i.amount, i.vat, i.notes AS item_notes
+      FROM statements s
+      JOIN statement_items i ON i.statement_id = s.id
+      WHERE ${where.join(' AND ')}
+      ORDER BY s.id, i.line_no
+    `).all(params);
+
+    const updateItem = dbSt.db.prepare(`
+      UPDATE statement_items
+      SET item_name = @item_name, spec = @spec, quantity = @quantity, unit_price = @unit_price,
+          amount = @amount, vat = @vat, notes = @notes
+      WHERE id = @id
+    `);
+    const updateVendor = dbSt.db.prepare(`
+      UPDATE statements SET vendor_name = @vendor, norm_vendor = @vendor WHERE id = @id
+    `);
+    const updateSums = dbSt.db.prepare(`
+      UPDATE statements
+      SET supply_amount = @supply, vat_amount = @vat, total_amount = @total
+      WHERE id = @id
+    `);
+    const sumItems = dbSt.db.prepare(`
+      SELECT SUM(amount) AS supply, SUM(vat) AS vat
+      FROM statement_items WHERE statement_id = ?
+    `);
+
+    let matched = 0;
+    let ambiguous = 0;
+    let failed = 0;
+    const touched = new Set();
+    const usedByPpt = new Map();
+    const textByPpt = new Map();
+    const samples = [];
+
+    for (const r of rows) {
+      const key = parentPptxKey(r.source_file);
+      if (!key) continue;
+      const cur = textByPpt.get(key) || '';
+      const add = [`원본:${r.source_file}`, r.raw_extract, r.statement_notes, r.item_notes, r.item_name, r.spec].filter(Boolean).join('\n');
+      textByPpt.set(key, (cur + '\n' + add).slice(0, 16000));
+    }
+
+    const tx = dbSt.db.transaction(() => {
+      for (const r of rows) {
+        const dateStr = inferDateFromName(r.source_file) || r.doc_date;
+        const pptKey = parentPptxKey(r.source_file);
+        const dayRange = getPptMatchDayRange(dateStr || r.doc_date);
+        if (pptKey && !usedByPpt.has(pptKey)) usedByPpt.set(pptKey, new Set());
+        const excludeKeys = pptKey ? usedByPpt.get(pptKey) : null;
+        const m = learningPool.matchCompanySaleItem({
+          item_name: r.item_name,
+          spec: r.spec,
+          quantity: r.quantity,
+        }, {
+          dateStr,
+          altDateStr: r.doc_date,
+          vendorHint: r.vendor_name || r.norm_vendor,
+          textHint: [textByPpt.get(pptKey), r.source_file, r.raw_extract, r.statement_notes, r.item_notes, r.item_name, r.spec].filter(Boolean).join('\n'),
+          dayRange,
+          excludeKeys,
+        });
+
+        if (!m.matched) {
+          if (m.reason === 'ambiguous') ambiguous++;
+          else failed++;
+          if (samples.length < 8) {
+            samples.push({
+              id: r.statement_id,
+              item: r.item_name,
+              spec: r.spec,
+              reason: m.reason,
+              candidates: (m.candidates || []).slice(0, 3).map(c => ({
+                item: c.row.item,
+                spec: c.row.spec,
+                qty: c.row.qty,
+                price: c.row.price,
+                score: c.score,
+              })),
+            });
+          }
+          continue;
+        }
+
+        const mr = m.matched;
+        const amount = Number(mr.amount) || ((Number(mr.qty) || 0) * (Number(mr.price) || 0)) || 0;
+        const vat = Math.round(amount * 0.1);
+        updateItem.run({
+          id: r.item_id,
+          item_name: mr.item,
+          spec: mr.spec,
+          quantity: mr.qty,
+          unit_price: mr.price || 0,
+          amount,
+          vat,
+          notes: `학습재매칭: ${m.reason} / score ${m.score}`,
+        });
+        if (mr.vendor) updateVendor.run({ id: r.statement_id, vendor: mr.vendor });
+        if (excludeKeys) excludeKeys.add(learningPool.companySaleRowKey(mr));
+        touched.add(r.statement_id);
+        matched++;
+      }
+
+      for (const id of touched) {
+        const sums = sumItems.get(id);
+        const supply = Math.round(Number(sums?.supply) || 0);
+        const vat = Math.round(Number(sums?.vat) || 0);
+        updateSums.run({ id, supply, vat, total: supply + vat });
+      }
+    });
+    tx();
+
+    res.json({ ok: true, scanned: rows.length, matched, ambiguous, failed, updatedStatements: touched.size, samples });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
