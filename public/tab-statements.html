@@ -509,9 +509,12 @@
 
     .st-side-stack { display:flex; flex-direction:column; gap:12px; height:100%; }
     .st-pool-box { padding:12px; border:1px solid #bbf7d0; background:#f0fdf4; border-radius:8px; }
+    .st-pool-box.not-ready { border-color:#fecaca; background:#fef2f2; }
     .st-pool-top { display:flex; align-items:center; gap:8px; margin-bottom:9px; }
     .st-pool-top .material-symbols-outlined { color:#047857; font-size:17px; }
     .st-pool-title { font-size:12px; color:#065f46; font-weight:800; }
+    .st-pool-box.not-ready .st-pool-top .material-symbols-outlined,
+    .st-pool-box.not-ready .st-pool-title { color:#991b1b; }
     .st-pool-stats { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
     .st-pool-stat { background:rgba(255,255,255,.72); border:1px solid #d1fae5; border-radius:6px; padding:7px 8px; min-width:0; }
     .st-pool-stat b { display:block; color:#064e3b; font-size:12px; line-height:1.2; }
@@ -706,10 +709,10 @@
       </div>
 
       <div class="st-side-stack">
-        <div class="st-pool-box" x-show="poolStats.loaded" x-cloak>
+        <div class="st-pool-box" :class="poolStats.ready===false ? 'not-ready' : ''" x-show="poolStats.loaded" x-cloak>
           <div class="st-pool-top">
             <span class="material-symbols-outlined">memory</span>
-            <div class="st-pool-title">학습 풀 활성</div>
+            <div class="st-pool-title" x-text="poolStats.ready===false ? '학습자료 없음' : '학습 풀 활성'"></div>
             <div style="flex:1;"></div>
             <button class="st-btn st-btn-ghost st-btn-sm" @click="reloadPool()" title="다시 로드">
               <span class="material-symbols-outlined">refresh</span>
@@ -720,6 +723,10 @@
             <div class="st-pool-stat"><b>SM 매출</b><span x-text="`${poolStats.SM_매출?.rows||0}행 · ${poolStats.SM_매출?.projects||0}현장`"></span></div>
             <div class="st-pool-stat"><b>컴퍼니 매입</b><span x-text="`${poolStats.COMPANY_매입?.rows||0}행 · ${poolStats.COMPANY_매입?.vendors||0}처`"></span></div>
             <div class="st-pool-stat"><b>컴퍼니 매출</b><span x-text="`${poolStats.COMPANY_매출?.rows||0}행 · ${poolStats.COMPANY_매출?.combos||0}패턴`"></span></div>
+          </div>
+          <div x-show="poolStats.ready===false" x-cloak style="margin-top:8px; padding:8px 9px; border:1px solid #fecaca; background:#fff; color:#991b1b; border-radius:6px; font-size:11px; line-height:1.45;">
+            서버에 정답 엑셀이 없거나 0행입니다. 이 상태에서는 PPTX 자동 매칭을 중단합니다.
+            <div x-show="poolStats.errors && poolStats.errors.length" style="margin-top:4px;" x-text="(poolStats.errors||[])[0]"></div>
           </div>
         </div>
 

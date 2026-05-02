@@ -24,3 +24,9 @@ package-lock.json
 .env
 .env.local
 .env.server
+
+# OCR learning reference files must be deployed with the app.
+!learning-data/
+!learning-data/**/
+!learning-data/**/*.xlsx
+learning-data/_무관_*/**/*.xlsx

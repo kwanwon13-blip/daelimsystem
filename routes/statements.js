@@ -340,6 +340,27 @@ async function processQueueItem() {
   const item = queue.shift();
   processing++;
   try {
+    if (item.isPptxSlide) {
+      const learningPool = require('../lib/learning-pool');
+      const companySalesRows = learningPool.pool.COMPANY_매출?.rows || 0;
+      if (companySalesRows <= 0) {
+        dbSt.createStatement({
+          source_file: item.originalName,
+          stored_file: path.basename(item.filePath),
+          uploaded_by: item.uploadedBy,
+          raw_extract: '[학습자료 없음: 컴퍼니 매출 정답 엑셀 0행]',
+          doc_type: 'PPTX시안',
+          doc_class: '매출',
+          company_code: 'COMPANY',
+          doc_date: item.inferredDate || null,
+          status: 'pending',
+          notes: '학습자료가 서버에 로드되지 않아 AI 임의 등록을 중단했습니다. learning-data 엑셀 배포 후 다시 업로드하세요.',
+        }, []);
+        queueStats.failed++;
+        console.warn(`[statements] 학습자료 없음 - PPTX 처리 중단: ${item.originalName}`);
+        return;
+      }
+    }
     const ext = await extractStatement(item.filePath, item.mimeType, item.hint, {
       isPptxSlide: item.isPptxSlide,
       inferredDate: item.inferredDate,
@@ -880,6 +901,13 @@ router.post('/merge-by-vendor-date', requireAuth, (req, res) => {
 router.post('/rematch-company-sales', requireAuth, (req, res) => {
   const learningPool = require('../lib/learning-pool');
   const { month = null, status = 'pending' } = req.body || {};
+  if ((learningPool.pool.COMPANY_매출?.rows || 0) <= 0) {
+    return res.status(409).json({
+      ok: false,
+      error: '컴퍼니 매출 학습자료가 0행입니다. learning-data 엑셀을 서버에 배포하고 학습 풀을 다시 로드하세요.',
+      stats: learningPool.getStats(),
+    });
+  }
 
   try {
     const where = [`s.company_code = 'COMPANY'`, `s.doc_class = '매출'`];

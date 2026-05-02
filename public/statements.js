@@ -179,7 +179,11 @@ function statementsApp() {
         const r = await fetch('/api/statements/learning-pool/reload', { method: 'POST' }).then(r => r.json());
         if (r.ok) {
           this.poolStats = { loaded: true, ...r.stats };
-          alert('학습 풀 다시 로드 완료');
+          if (this.poolStats.ready === false) {
+            alert('학습자료가 로드되지 않았습니다.\n' + ((this.poolStats.errors || [])[0] || '정답 엑셀을 확인해주세요.'));
+          } else {
+            alert('학습 풀 다시 로드 완료');
+          }
         } else { alert('실패: ' + r.error); }
       } catch(e) { alert('에러: ' + e.message); }
     },
