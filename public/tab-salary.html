@@ -324,8 +324,12 @@
           (초안 상태에서만 가능 · 자동계산 칸은 잠김)
         </div>
         <!-- 급여대장 테이블 -->
-        <div data-ledger-wrapper style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;overflow:auto;position:relative;">
-          <!-- ══ 엑셀 급여대장 47열 1:1 복제 (엑셀 B~AS) ══ -->
+        <div data-ledger-wrapper style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;overflow:hidden;position:relative;">
+          <!-- ══ Tabulator 엑셀급 그리드 (신규) ══ -->
+          <div id="ledger-grid" style="width:100%;min-height:520px;"></div>
+        </div>
+        <!-- ══ 기존 47열 HTML 테이블 (백업용 — 신규 그리드 검증 후 제거) ══ -->
+        <div x-show="false" data-ledger-wrapper-legacy style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;overflow:auto;position:relative;">
           <!-- 더블클릭 인라인 편집 오버레이 (엑셀처럼 셀 위에 입력창이 뜸) -->
           <input x-show="editing.id" x-ref="editInput" type="text"
             :value="editing.value"
@@ -2374,6 +2378,163 @@ function salaryApp() {
       }
     },
 
+    // ══════════════════════════════════════════════════════════════════
+    // Tabulator 엑셀급 그리드 (47열 급여대장)
+    // ══════════════════════════════════════════════════════════════════
+    _ledgerColumnDefs() {
+      const self = this;
+      const fmtNum = (cell) => {
+        const v = cell.getValue();
+        return (v && +v !== 0) ? Number(v).toLocaleString('ko-KR') : '';
+      };
+      const numEditable = ['baseSalary','overtimeHours','overtimePay','nightHours','nightPay',
+        'holidayHours','holidayPay','holidayOtHours','holidayOtPay',
+        'fixedOvertimePay','fixedHolidayPay','mealAllowance','transportAllowance','teamLeaderAllowance',
+        'bonusPay','retroPay','extraPay1','extraPay2','leavePay',
+        'incomeTaxAdj','localTaxAdj','miscDeduction1','miscDeduction2','ltcInstallment',
+        'healthAnnual','ltcAnnual','healthRefundInterest','ltcRefundInterest',
+        'workDays','workHours'];
+      const editorOpts = (k) => numEditable.includes(k) ? {
+        editor: 'number',
+        editorParams: { min: 0, step: 1, selectContents: true },
+        editable: (cell) => cell.getRow().getData().status === 'draft',
+      } : {};
+      const numCol = (title, field, width, opts={}) => Object.assign({
+        title, field, width, hozAlign:'right', formatter:(c)=>fmtNum(c), headerHozAlign:'center',
+      }, editorOpts(field), opts);
+      const txtCol = (title, field, width, opts={}) => Object.assign({
+        title, field, width, hozAlign:'left', headerHozAlign:'center',
+      }, opts);
+
+      return [
+        // ── 기본정보 (사원번호 + 성명 frozen 좌측 고정)
+        { title:'기본정보', columns: [
+          { title: '', formatter:'rowSelection', titleFormatter:'rowSelection', width:34, hozAlign:'center', headerSort:false, frozen:true },
+          { title:'사원번호', field:'userId', width:90, frozen:true, hozAlign:'left',
+            mutator:(v,d)=>d.userId },
+          { title:'부서', field:'_dept', width:90, hozAlign:'left',
+            mutator:(v,d)=>self.deptOf(d.userId) },
+          { title:'성명', field:'_name', width:80, frozen:true, hozAlign:'left',
+            mutator:(v,d)=>self.nameOf(d.userId) },
+          { title:'직위', field:'_position', width:70, hozAlign:'center',
+            mutator:(v,d)=>self.positionOf(d.userId) },
+          { title:'입사일', field:'_hireDate', width:90, hozAlign:'center',
+            mutator:(v,d)=>self.hireDateOf(d.userId) },
+          { title:'근무일수', field:'workDays', width:65, hozAlign:'right', formatter:(c)=>fmtNum(c), ...editorOpts('workDays') },
+          { title:'기본근무', field:'workHours', width:65, hozAlign:'right', formatter:(c)=>fmtNum(c), ...editorOpts('workHours') },
+        ]},
+        // ── 지급
+        { title:'지급 (I~AB)', columns: [
+          numCol('기본급','baseSalary',90),
+          numCol('연장(h)','overtimeHours',55),
+          numCol('연장수당','overtimePay',85),
+          numCol('야간(h)','nightHours',55),
+          numCol('야간수당','nightPay',75),
+          numCol('휴일(h)','holidayHours',55),
+          numCol('휴일수당','holidayPay',80),
+          numCol('휴연장(h)','holidayOtHours',60),
+          numCol('휴연장수당','holidayOtPay',85),
+          numCol('고정연장','fixedOvertimePay',80),
+          numCol('고정휴일','fixedHolidayPay',80),
+          numCol('식대','mealAllowance',70),
+          numCol('차량','transportAllowance',70),
+          numCol('팀장수당','teamLeaderAllowance',75),
+          numCol('상여','bonusPay',75),
+          numCol('소급','retroPay',70),
+          numCol('지급_13','extraPay1',75),
+          numCol('지급_14','extraPay2',75),
+          numCol('연차수당','leavePay',75),
+          numCol('지급합계','grossPay',95, { headerHozAlign:'center', cssClass:'tg-sum-pay', editable:false, formatter:(c)=>'<b>'+fmtNum(c)+'</b>' }),
+        ]},
+        // ── 공제
+        { title:'공제 (AC~AR)', columns: [
+          numCol('국민연금','nationalPension',75, { editable:false }),
+          numCol('건강보험','healthInsurance',75, { editable:false }),
+          numCol('장기요양','longTermCare',75, { editable:false }),
+          numCol('고용보험','employmentInsurance',75, { editable:false }),
+          numCol('소득세','incomeTax',75, { editable:false }),
+          numCol('지방세','localTax',70, { editable:false }),
+          numCol('정산소득세','incomeTaxAdj',80),
+          numCol('정산지방세','localTaxAdj',80),
+          numCol('과태료/주차','miscDeduction1',75),
+          numCol('장기10회','ltcInstallment',75),
+          numCol('과태료2','miscDeduction2',70),
+          numCol('건강연정','healthAnnual',70),
+          numCol('요양연정','ltcAnnual',70),
+          numCol('건강환급','healthRefundInterest',70),
+          numCol('요양환급','ltcRefundInterest',70),
+          numCol('공제합계','totalDeductions',95, { editable:false, formatter:(c)=>'<b>'+fmtNum(c)+'</b>', cssClass:'tg-sum-ded' }),
+        ]},
+        // ── 실지급
+        { title:'실지급', columns: [
+          numCol('실지급액','netPay',105, { editable:false, formatter:(c)=>'<b>'+fmtNum(c)+'</b>', cssClass:'tg-net' }),
+        ]},
+        // ── 상태/액션
+        { title:'상태', field:'status', width:60, hozAlign:'center', headerHozAlign:'center', editable:false,
+          formatter:(c)=>{ const s=c.getValue(); return s==='draft'?'임시':s==='confirmed'?'확정':s==='paid'?'지급완료':'—'; } },
+      ];
+    },
+    // 그리드 초기화 (init 시 1회 + ledger sub-tab 진입 시)
+    _initLedgerGrid() {
+      if (this._ledgerGrid) return; // 이미 만들어져 있으면 skip
+      const el = document.getElementById('ledger-grid');
+      if (!el || typeof Tabulator === 'undefined') {
+        // Tabulator 로드 안 됐거나 DOM 없음 — 다음 tick 에 재시도
+        setTimeout(() => this._initLedgerGrid(), 200);
+        return;
+      }
+      const self = this;
+      this._ledgerGrid = new Tabulator(el, {
+        data: this.records || [],
+        columns: this._ledgerColumnDefs(),
+        layout: 'fitData',
+        height: 'calc(100vh - 360px)',
+        reactiveData: false,            // Alpine 으로 데이터 관리
+        movableColumns: true,
+        resizableColumns: true,
+        resizableColumnFit: false,
+        rowHeight: 30,
+        index: 'id',
+        selectableRows: true,
+        // 셀 편집 commit 시 서버 저장
+        cellEdited: async (cell) => {
+          const r = cell.getRow().getData();
+          const key = cell.getField();
+          const newVal = +cell.getValue() || 0;
+          try {
+            const resp = await fetch(`/api/salary/records/${r.id}`, {
+              method:'PUT', credentials:'include',
+              headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({ [key]: newVal })
+            });
+            if (!resp.ok) {
+              cell.restoreOldValue();
+              alert('저장 실패');
+              return;
+            }
+            const d = await resp.json();
+            // 서버에서 갱신된 record 반영 (자동계산 결과 포함)
+            if (d && d.record) {
+              cell.getRow().update(d.record);
+              const idx = self.records.findIndex(x => x.id === d.record.id);
+              if (idx >= 0) self.records[idx] = d.record;
+            }
+          } catch(e) {
+            cell.restoreOldValue();
+            alert('저장 실패: ' + e.message);
+          }
+        },
+        rowSelectionChanged: (data) => {
+          self.selectedIds = new Set(data.map(r => r.userId));
+        },
+      });
+    },
+    // records 변경 시 grid 동기화
+    _syncLedgerGrid() {
+      if (!this._ledgerGrid) return;
+      try { this._ledgerGrid.replaceData(this.records || []); } catch(e) {}
+    },
+
     // ── 직원 기초 설정 엑셀식 인라인 편집 ───────────────────────
     // 한 번 클릭 → 셀 선택만 (파란 테두리). 타이핑/F2/더블클릭 → 편집 시작.
     _onConfigCellClick(ev) {
@@ -2853,6 +3014,8 @@ function salaryApp() {
     // 엑셀식 셀 선택 상태 (한 번 클릭 → 선택, 타이핑/F2 → 편집 시작)
     selectedConfigCell: { userId: null, key: null },
     selectedLedgerCell: { recId: null, key: null },
+    // Tabulator 엑셀급 그리드 (47열 급여대장)
+    _ledgerGrid: null,
     // 인라인 편집 가능한 config 컬럼 (DOM에 data-col 로 붙여둔 컬럼들, 렌더 순서)
     // ⚠ 엑셀 잠금 의도 + 4대보험 잠금 → 인라인 편집 차단:
     //   baseSalary, fixedOvertimePay, fixedHolidayPay, transportAllowance,
@@ -2989,6 +3152,10 @@ function salaryApp() {
       }
       this._ledgerKeydownHandler = (ev) => this._onLedgerKeydown(ev);
       document.addEventListener('keydown', this._ledgerKeydownHandler);
+      // Tabulator 그리드 초기화 (DOM 렌더 후)
+      this.$nextTick(() => this._initLedgerGrid());
+      // records 변경 시 grid 자동 동기화
+      this.$watch('records', () => this._syncLedgerGrid());
     },
 
     async loadUsers() {
