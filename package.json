@@ -5,7 +5,11 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "kakao:assets": "node scripts/kakao-asset-watcher.js --watch"
+    "kakao:assets": "node scripts/kakao-asset-watcher.js --watch",
+    "mail:dry-run": "node scripts/naver-mail-maintenance.js --dry-run",
+    "mail:sync": "node scripts/naver-mail-maintenance.js --sync",
+    "mail:watch": "node scripts/naver-mail-maintenance.js --watch --sync",
+    "mail:cleanup": "node scripts/naver-mail-maintenance.js --sync --delete"
   },
   "dependencies": {
     "better-sqlite3": "^12.8.0",

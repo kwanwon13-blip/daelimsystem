@@ -2326,4 +2326,15 @@ router.post('/overtime-apply', (req, res) => {
 
 // GET /api/salary/paystatus?company=&year=
 router.get('/paystatus', (req, res) => {
-  const { compan
+  const { company, year } = req.query;
+  if (!company || !year) return res.status(400).json({ error: '파라미터 누락' });
+  const data = salaryDb.getPayStatus(company, year);
+  // ERP / configs에서 이름 보완
+  const nameMap = getNameMap(company);
+  data.employees.forEach(e => { if (!e.name) e.name = nameMap[e.userId] || e.userId; });
+  data.employees.sort((a,b) => (a.name||'').localeCompare(b.name||'', 'ko'));
+  logSalaryAccess(req.user.userId, 'VIEW', `지급현황 조회 ${company} ${year}`);
+  res.json(data);
+});
+
+module.exports = router;

@@ -3755,4 +3755,182 @@ function salaryApp() {
       if (rows.length === 0) { alert('저장할 행이 없습니다'); return; }
       try {
         const r = await fetch('/api/salary/overtime/daily/bulk', {
-          method: 'POST', headers: {'Conten
+          method: 'POST', headers: {'Content-Type':'application/json'}, credentials: 'include',
+          body: JSON.stringify({ rows })
+        });
+        if (r.ok) {
+          alert(`${rows.length}건 저장되었습니다`);
+          this.dailyOtModal.open = false;
+          await this.loadOvertime();
+        } else {
+          const d = await r.json();
+          alert('저장 오류: ' + (d.error||''));
+        }
+      } catch(e) { alert('저장 오류: ' + e.message); }
+    },
+    async calcOvertimePay() {
+      // 연장근무 데이터를 급여 레코드에 반영 후 재계산
+      if (!confirm(`${this.yearMonth} 연장근무 시간을 급여 레코드에 반영 후 전체 자동계산할까요?`)) return;
+      try {
+        // 1. 각 직원 급여 레코드에 연장시간 반영
+        for (const row of this.overtimeRows) {
+          const rec = this.records.find(r => r.userId === row.userId);
+          if (rec && rec.id && rec.status === 'draft') {
+            await fetch(`/api/salary/records/${rec.id}`, {
+              method: 'PUT', headers: {'Content-Type':'application/json'}, credentials:'include',
+              body: JSON.stringify({ overtimeHours: +(row.overtimeH||0), nightHours: +(row.nightH||0),
+                holidayHours: +(row.holidayH||0), holidayOtHours: +(row.holidayOtH||0) })
+            });
+          }
+        }
+        // 2. 전체 재계산
+        const r = await fetch('/api/salary/calculate', {
+          method: 'POST', headers: {'Content-Type':'application/json'}, credentials:'include',
+          body: JSON.stringify({ companyId: this.company, yearMonth: this.yearMonth, overwrite: true })
+        });
+        if (r.ok) { alert('연장수당 반영 및 급여 재계산 완료'); await this.loadRecords(); }
+        else { const d = await r.json(); alert(d.error); }
+      } catch(e) { alert('오류: ' + e.message); }
+    },
+    fmtH(h) { return (+(h||0)).toFixed(1) + 'h'; },
+
+    // ── CSV 다운로드 ──────────────────────────────────────────
+    exportCsv() {
+      window.location.href = `/api/salary/export?company=${this.company}&month=${this.yearMonth}`;
+    },
+
+    // ── EDI ──────────────────────────────────────────────────
+    openEdiUpload() { this.ediUploadModal.yearMonth = this.yearMonth; this.ediUploadModal.open = true; },
+    openEdiManual() {
+      this.ediManualModal.form = { userId:'', companyId: this.company, yearMonth: this.yearMonth };
+      this.ediManualModal.open = true;
+    },
+    async uploadEdi() {
+      if (!this.ediUploadModal.file) { alert('파일을 선택하세요'); return; }
+      const fd = new FormData();
+      fd.append('file', this.ediUploadModal.file);
+      fd.append('companyId', this.company);
+      fd.append('yearMonth', this.ediUploadModal.yearMonth || this.yearMonth);
+      try {
+        const r = await fetch('/api/salary/edi/upload', { method:'POST', credentials:'include', body: fd });
+        const d = await r.json();
+        if (r.ok) { alert(`${d.count}명 업로드 완료`); this.ediUploadModal.open = false; await this.loadEdiCompare(); }
+        else alert(d.error);
+      } catch(e) { alert('업로드 오류: ' + e.message); }
+    },
+    async saveEdiManual() {
+      try {
+        const r = await fetch('/api/salary/edi', {
+          method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
+          body: JSON.stringify({ ...this.ediManualModal.form, companyId: this.company, yearMonth: this.yearMonth })
+        });
+        if (r.ok) { this.ediManualModal.open = false; await this.loadEdiCompare(); }
+        else { const d = await r.json(); alert(d.error); }
+      } catch(e) {}
+    },
+
+    // ── 간이세액표 업로드 ─────────────────────────────────────
+    taxFileSelected(e) { this.taxFile = e.target.files[0]; },
+    async uploadTaxTable() {
+      if (!this.taxFile || !this.taxUploadYear) { alert('연도와 파일을 선택하세요'); return; }
+      const fd = new FormData();
+      fd.append('file', this.taxFile);
+      fd.append('year', this.taxUploadYear);
+      try {
+        const r = await fetch('/api/salary/tax-table/upload', { method:'POST', credentials:'include', body: fd });
+        const d = await r.json();
+        if (r.ok) { alert(`${d.count}행 등록 완료`); await this.loadTaxYears(); }
+        else alert(d.error);
+      } catch(e) { alert('업로드 오류'); }
+    },
+
+    // ── 유틸 ─────────────────────────────────────────────────
+    _orgKey(id) {
+      // id 가 ws-xxx 형태이고 현재 회사 context 가 있으면 companyId:id 조합 우선
+      if (!id) return '';
+      const co = this.company || '';
+      const low = String(id).toLowerCase();
+      return `${co}:${low}`;
+    },
+    _lookupInfo(id) {
+      return this.userInfoMap[this._orgKey(id)] || this.userInfoMap[id] || this.userInfoMap[String(id).toLowerCase()] || null;
+    },
+    nameOf(id) {
+      if (!id) return '';
+      return this.userMap[this._orgKey(id)]
+          || this.userMap[id]
+          || this.userMap[String(id).toLowerCase()]
+          || this.configNameMap[id]
+          || id;
+    },
+    // 엑셀 급여대장 C열 부서 - userInfoMap의 department 는 ID, departmentMap 으로 이름 변환
+    // dalim-company 유저는 부서를 문자열 그대로 저장하므로 pass-through
+    deptOf(id) {
+      const info = this._lookupInfo(id);
+      if (!info) return '';
+      const deptId = info.department;
+      if (!deptId) return '';
+      return this.departmentMap[deptId] || deptId;
+    },
+    // 엑셀 급여대장 E열 직위
+    positionOf(id) {
+      const info = this._lookupInfo(id);
+      return info?.position || '';
+    },
+    // 엑셀 급여대장 F열 입사일
+    hireDateOf(id) {
+      const info = this._lookupInfo(id);
+      return info?.hireDate || '';
+    },
+    // 사원정보 탭에서 쓸 기타 필드 접근자
+    birthDateOf(id) { return this._lookupInfo(id)?.birthDate || ''; },
+    emailOf(id)     { return this._lookupInfo(id)?.email || ''; },
+    phoneOf(id)     { return this._lookupInfo(id)?.phone || ''; },
+    resignDateOf(id){ return this._lookupInfo(id)?.resignDate || ''; },
+    fmt(n) { return (n||0).toLocaleString('ko-KR'); },
+    // 엑셀처럼 "0 또는 빈값이면 셀을 빈칸으로" — 급여대장 47열 1:1 복제용
+    fmtZ(n) { return (n && Number(n) !== 0) ? Number(n).toLocaleString('ko-KR') : ''; },
+    fmtW(n) { return (n||0).toLocaleString('ko-KR') + '원'; },
+    // ⚡ 47회 호출되는 합계 함수 — visibleRecords reference 가 같은 동안 캐시 재사용
+    sumField(key) {
+      const recs = this.visibleRecords;
+      if (this._sumCache && this._sumCache.recs === recs) {
+        if (this._sumCache.sums[key] !== undefined) return this._sumCache.sums[key];
+      } else {
+        this._sumCache = { recs, sums: {} };
+      }
+      const v = recs.reduce((s,r) => s + (r[key]||0), 0);
+      this._sumCache.sums[key] = v;
+      return v;
+    },
+    extraPay(r) {
+      let sum = (r.retroPay||0)+(r.leavePay||0)+(r.teamLeaderAllowance||0);
+      for (let i = 1; i <= 8; i++) sum += (r['extraPay'+i]||0);
+      return sum;
+    },
+    // 퇴사 배지: 경과 개월수에 따라 색상 차별화
+    // 0 = 퇴사월(당월), 1 = 1개월차, 2 = 2개월차, 3+ = 3개월+
+    resignBadge(r) {
+      const m = r.monthsSinceResign;
+      const dateStr = r.resignDate ? ` (${r.resignDate} 퇴사)` : '';
+      if (m === null || m === undefined) {
+        // 재직자이지만 혹시 resigned true인 경우 — 일반 퇴사 배지
+        return { text: '퇴사', title: '퇴사자'+dateStr, bg: '#fee2e2', fg: '#b91c1c', border: '#fca5a5' };
+      }
+      if (m === 0) return { text: '퇴사 당월',  title: '이번 달에 퇴사'+dateStr,                           bg: '#fee2e2', fg: '#b91c1c', border: '#fca5a5' };
+      if (m === 1) return { text: '퇴사 1개월', title: '퇴사 후 1개월 경과 (정산 기간)'+dateStr,            bg: '#fef3c7', fg: '#92400e', border: '#fcd34d' };
+      if (m === 2) return { text: '퇴사 2개월', title: '퇴사 후 2개월 경과 (정산 마무리 고려)'+dateStr,     bg: '#ffedd5', fg: '#9a3412', border: '#fdba74' };
+      if (m >= 3)  return { text: '퇴사 '+m+'개월', title: '퇴사 후 '+m+'개월 경과 — 제거 검토 필요'+dateStr, bg: '#e5e7eb', fg: '#374151', border: '#9ca3af' };
+      // m < 0 (미래에 퇴사 예정된 월이 아직 안 옴)
+      return { text: '퇴사 예정', title: '이 달 기준 아직 재직 중'+dateStr, bg: '#e0f2fe', fg: '#075985', border: '#7dd3fc' };
+    },
+    statusLabel(s) { return s==='draft'?'임시':s==='confirmed'?'확정':s==='paid'?'지급완료':'—'; },
+    statusStyle(s) {
+      if (s==='draft') return 'background:#f3f4f6;color:#6b7280;';
+      if (s==='confirmed') return 'background:#fef3c7;color:#92400e;';
+      if (s==='paid') return 'background:#d1fae5;color:#065f46;';
+      return '';
+    },
+  };
+}
+</script>

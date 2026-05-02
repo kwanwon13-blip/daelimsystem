@@ -289,6 +289,12 @@ app.use('/api', require('./routes/design'));
 // ── 시안 자동분석 + 일러스트 자동저장 연동 (routes/product-design.js) ──
 app.use('/api/product-design', require('./routes/product-design'));
 
+// ── 디자이너 시안 작성기 — 표준 코드 CSV + 엑셀 출력 (routes/design-codes.js) ──
+app.use('/api/design-codes', require('./routes/design-codes'));
+
+// ── 홈 화면 매일 연동/검수 대기 위젯 (routes/sync-status.js) ──
+app.use('/api/sync-status', require('./routes/sync-status'));
+
 // ── 품목 마스터 엑셀 (routes/master.js) — v7 엑셀 watch + API ──
 app.use('/api/master', require('./routes/master'));
 

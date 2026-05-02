@@ -308,8 +308,14 @@ router.post('/git-pull', express.raw({ type: '*/*', limit: '1mb' }), (req, res) 
   const sess = sessToken ? sessions[sessToken] : null;
   const isAdminSession = sess && sess.role === 'admin';
 
-  // ──── 2) 관리자가 아니면 GitHub HMAC 서명 검증 ────
-  if (!isAdminSession) {
+  // ──── 1.5) control-daemon secret 헤더 일치 시 통과 (배포 .bat 등 자동화 용)
+  // x-control-secret 헤더에 .env CONTROL_DAEMON_SECRET 값과 일치하면 인증 통과
+  const ctrlSecret = req.headers['x-control-secret'];
+  const expectedCtrl = process.env.CONTROL_DAEMON_SECRET;
+  const isCtrlSecret = ctrlSecret && expectedCtrl && ctrlSecret === expectedCtrl;
+
+  // ──── 2) 관리자도 아니고 control-secret도 아니면 GitHub HMAC 서명 검증 ────
+  if (!isAdminSession && !isCtrlSecret) {
     const secret = process.env.GITHUB_WEBHOOK_SECRET;
     if (!secret) {
       console.warn('[GIT-PULL] 거부: 관리자 세션 없음 + GITHUB_WEBHOOK_SECRET 미설정');

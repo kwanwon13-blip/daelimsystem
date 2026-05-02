@@ -70,8 +70,14 @@ let OPTION_DICT = [
 ];
 
 // 서버 마스터 API 설정
-const MASTER_API_BASE = "http://192.168.0.133:3000/api/master";
+const SERVER_BASE = "http://192.168.0.133:3000";
+const MASTER_API_BASE = `${SERVER_BASE}/api/master`;
+const DESIGN_CODES_API_BASE = `${SERVER_BASE}/api/design-codes`;
 const DESIGNER_TOKEN = "designer-default-key-change-in-env";  // env 와 동일
+
+// 학습된 표준 코드 (서버에서 받음). 이게 있으면 상품명 선택 시 재질/두께/면/옵션/자주쓰는사이즈 자동완성
+let STANDARD_CODES = [];   // [{ 표준명, 재질, 두께, 면, 옵션, 자주쓰는사이즈, 사용빈도, 검수필요 }]
+let CODES_INDEX = new Map(); // 표준명 → record
 
 const DESIGN_ROOT = "D:\\";
 const YEAR = new Date().getFullYear() + "시안작업";
@@ -406,13 +412,14 @@ function clearAll() {
 async function loadServerMaster() {
   const headers = { "X-Designer-Token": DESIGNER_TOKEN };
   try {
-    // 옵션 + 종류 병렬 호출
-    const [optRes, kindRes, statusRes] = await Promise.all([
+    // 옵션 + 종류 + 표준 코드 병렬 호출
+    const [optRes, kindRes, statusRes, codesRes] = await Promise.all([
       fetch(`${MASTER_API_BASE}/options?limit=40&minCount=2`, { headers }),
       fetch(`${MASTER_API_BASE}/kinds`, { headers }),
-      fetch(`${MASTER_API_BASE}/status`, { headers })
+      fetch(`${MASTER_API_BASE}/status`, { headers }),
+      fetch(`${DESIGN_CODES_API_BASE}/list`, { headers })
     ]);
-    if (!optRes.ok || !kindRes.ok) throw new Error("API 응답 실패");
+    if (!optRes.ok || !kindRes.ok) throw new Error("master API 응답 실패");
 
     const optData = await optRes.json();
     const kindData = await kindRes.json();
@@ -425,15 +432,58 @@ async function loadServerMaster() {
       KIND_DICT = kindData.items;
     }
 
+    // 표준 코드 (시안 작성 자동완성용)
+    if (codesRes.ok) {
+      const codesData = await codesRes.json();
+      if (codesData.ok && Array.isArray(codesData.items)) {
+        STANDARD_CODES = codesData.items;
+        CODES_INDEX = new Map();
+        for (const c of STANDARD_CODES) CODES_INDEX.set(c.표준명, c);
+        // 표준 코드의 표준명을 KIND_DICT 에 병합 (빈도순 우선 노출)
+        const codeNames = STANDARD_CODES.slice(0, 200).map(c => c.표준명);
+        const merged = [...new Set([...codeNames, ...KIND_DICT])];
+        KIND_DICT = merged;
+      }
+    }
+
     const lastP = statusData.lastParsed
       ? new Date(statusData.lastParsed).toLocaleString("ko-KR")
       : "?";
-    showStatus(`✓ 서버 마스터 로드 (옵션 ${OPTION_DICT.length}, 종류 ${KIND_DICT.length}) — ${lastP}`);
+    showStatus(`✓ 서버 마스터 로드 (옵션 ${OPTION_DICT.length}, 종류 ${KIND_DICT.length}, 표준코드 ${STANDARD_CODES.length}) — ${lastP}`);
     return true;
   } catch (e) {
     showStatus(`⚠ 서버 연결 실패 (오프라인 모드): ${e.message || e}`, "warn");
     return false;
   }
+}
+
+// 상품명 입력 시 표준 코드 자동완성 — 일치하면 재질/두께/면/옵션/자주쓰는사이즈 자동기입
+function applyStandardCodeIfMatched() {
+  const kindInput = $("kind");
+  const v = (kindInput.value || "").trim();
+  if (!v) return;
+  const code = CODES_INDEX.get(v);
+  if (!code) {
+    // 매칭 안됨 — 검수 표시
+    kindInput.dataset.matched = "false";
+    kindInput.style.borderLeft = "3px solid #fbbf24";
+    kindInput.title = "표준 코드와 불일치 — 검수 필요";
+    return;
+  }
+  kindInput.dataset.matched = "true";
+  kindInput.style.borderLeft = "3px solid #16a34a";
+  kindInput.title = `사용 ${code.사용빈도}회 — ${code.재질}/${code.두께}/${code.면}`;
+
+  // 옵션이 비어있으면 표준 옵션 자동 채우기
+  if (!$("opt").value && code.옵션) {
+    $("opt").value = code.옵션;
+  }
+  // 규격 datalist 에 자주쓰는사이즈 표시 (참고용)
+  if (code.자주쓰는사이즈) {
+    const sizes = code.자주쓰는사이즈.split("|").filter(Boolean);
+    populateDatalist("spec-list", sizes);
+  }
+  updatePreview();
 }
 
 async function init() {
@@ -450,6 +500,9 @@ async function init() {
   ["spec","kind","opt","qty-single","qty-each","qty-total","date-month","date-day"].forEach(id => {
     $(id).addEventListener("input", updatePreview);
   });
+  // 상품명 입력 시 표준 코드 자동매칭 (재질/두께/면/옵션 + 자주쓰는사이즈 추천)
+  $("kind").addEventListener("input", applyStandardCodeIfMatched);
+  $("kind").addEventListener("change", applyStandardCodeIfMatched);
   document.querySelectorAll('input[name="qty-mode"]').forEach(rb => {
     rb.addEventListener("change", () => {
       const mode = document.querySelector('input[name="qty-mode"]:checked').value;

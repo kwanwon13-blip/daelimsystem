@@ -387,9 +387,13 @@ async function processQueueItem() {
       const matchText = [item.hint, ext.raw, p.notes].filter(Boolean).join('\n');
       const usedRows = getPptUsedSet(item.parentPptx);
       const dayRange = getPptMatchDayRange(item.inferredDate || docDate);
+      // PPTX 파일명 → 카테고리 (출력물 / 용접물)
+      const pptxCategory = learningPool.categorizePptx(item.parentPptx);
+      console.log(`[learning-pool] PPTX ${item.parentPptx} 카테고리: ${pptxCategory || '?'}`);
       const match = learningPool.matchCompanySaleItem(aiItem, {
         dateStr: item.inferredDate,
         altDateStr: docDate,
+        pptxCategory,         // ← 카테고리 필터 (matchCompanySaleItem 에서 사용)
         vendorHint: p.vendor_name,
         textHint: matchText,
         dayRange,
@@ -960,306 +964,33 @@ router.post('/rematch-company-sales', requireAuth, (req, res) => {
       textByPpt.set(key, (cur + '\n' + add).slice(0, 16000));
     }
 
-    const tx = dbSt.db.transaction(() => {
-      for (const r of rows) {
-        const dateStr = inferDateFromName(r.source_file) || r.doc_date;
-        const pptKey = parentPptxKey(r.source_file);
-        const dayRange = getPptMatchDayRange(dateStr || r.doc_date);
-        if (pptKey && !usedByPpt.has(pptKey)) usedByPpt.set(pptKey, new Set());
-        const excludeKeys = pptKey ? usedByPpt.get(pptKey) : null;
-        const m = learningPool.matchCompanySaleItem({
-          item_name: r.item_name,
-          spec: r.spec,
-          quantity: r.quantity,
-        }, {
-          dateStr,
-          altDateStr: r.doc_date,
-          vendorHint: r.vendor_name || r.norm_vendor,
-          textHint: [textByPpt.get(pptKey), r.source_file, r.raw_extract, r.statement_notes, r.item_notes, r.item_name, r.spec].filter(Boolean).join('\n'),
-          dayRange,
-          excludeKeys,
-        });
-
-        if (!m.matched) {
-          if (m.reason === 'ambiguous') ambiguous++;
-          else failed++;
-          if (samples.length < 8) {
-            samples.push({
-              id: r.statement_id,
-              item: r.item_name,
-              spec: r.spec,
-              reason: m.reason,
-              candidates: (m.candidates || []).slice(0, 3).map(c => ({
-                item: c.row.item,
-                spec: c.row.spec,
-                qty: c.row.qty,
-                price: c.row.price,
-                score: c.score,
-              })),
-            });
-          }
-          continue;
-        }
-
-        const mr = m.matched;
-        const amount = Number(mr.amount) || ((Number(mr.qty) || 0) * (Number(mr.price) || 0)) || 0;
-        const vat = Math.round(amount * 0.1);
-        updateItem.run({
-          id: r.item_id,
-          item_name: mr.item,
-          spec: mr.spec,
-          quantity: mr.qty,
-          unit_price: mr.price || 0,
-          amount,
-          vat,
-          notes: `학습재매칭: ${m.reason} / score ${m.score}`,
-        });
-        if (mr.vendor) updateVendor.run({ id: r.statement_id, vendor: mr.vendor });
-        if (excludeKeys) excludeKeys.add(learningPool.companySaleRowKey(mr));
-        touched.add(r.statement_id);
-        matched++;
-      }
-
-      for (const id of touched) {
-        const sums = sumItems.get(id);
-        const supply = Math.round(Number(sums?.supply) || 0);
-        const vat = Math.round(Number(sums?.vat) || 0);
-        updateSums.run({ id, supply, vat, total: supply + vat });
-      }
-    });
-    tx();
-
-    res.json({ ok: true, scanned: rows.length, matched, ambiguous, failed, updatedStatements: touched.size, samples });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
-  }
-});
-
-// 학습 풀 상태/통계
-router.get('/learning-pool/stats', requireAuth, (req, res) => {
-  const learningPool = require('../lib/learning-pool');
-  res.json({ ok: true, ...learningPool.getStats() });
-});
-
-// 학습 풀 다시 로드 (자료 추가했을 때)
-router.post('/learning-pool/reload', requireAuth, async (req, res) => {
-  const learningPool = require('../lib/learning-pool');
-  try {
-    const stats = await learningPool.load();
-    res.json({ ok: true, stats });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
-  }
-});
-
-// 거래처 검색 (자동완성 / F2 검색)
-router.get('/learning-pool/search-vendor', requireAuth, (req, res) => {
-  const learningPool = require('../lib/learning-pool');
-  const { company, docClass, q } = req.query;
-  const results = learningPool.findVendor(company, docClass, q);
-  res.json({ ok: true, results });
-});
-
-// 품목 검색
-router.get('/learning-pool/search-item', requireAuth, (req, res) => {
-  const learningPool = require('../lib/learning-pool');
-  const { company, docClass, q } = req.query;
-  const results = learningPool.findItem(company, docClass, q);
-  res.json({ ok: true, results });
-});
-
-// 거래처별 결합 패턴 (④ 컴퍼니 매출)
-router.get('/learning-pool/combos', requireAuth, (req, res) => {
-  const learningPool = require('../lib/learning-pool');
-  const { vendor } = req.query;
-  const results = learningPool.getCombosForVendor(vendor);
-  res.json({ ok: true, results });
-});
-
-// 엑셀 미리보기 (SheetJS 로 브라우저에서 렌더링) - 파일 raw 응답
-router.get('/data-source-file', requireAuth, (req, res) => {
-  const fp = req.query.path;
-  if (!fp) return res.status(400).send('path 필수');
-
-  const root = path.resolve(LEARNING_DIR);
-  const requested = path.resolve(String(fp));
-  const rel = path.relative(root, requested);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) {
-    return res.status(403).send('허용된 경로 아님 (learning-data 안만 가능)');
-  }
-  if (!/\.(xlsx|xls|csv|db)$/i.test(requested)) return res.status(400).send('허용되지 않는 파일 형식');
-  if (!fs.existsSync(requested)) return res.status(404).send('파일 없음');
-  res.sendFile(requested);
-});
-
-// ── 시안 문구 확인 (이미지 JPG/PNG) ──
-// 카톡 시안 이미지 → Claude Code CLI 로 다국어 텍스트 추출 + 명백한 오타/문자 오류 확인
-// (사용자 구독 안에서, 비용 0)
-router.post('/spell-check', requireAuth, upload.array('files', 50), async (req, res) => {
-  const files = req.files || [];
-  if (files.length === 0) return res.status(400).json({ ok: false, error: '파일 없음' });
-  const cli = require('../lib/claude-cli');
-  const results = [];
-
-  const PROMPT = `이 이미지는 인쇄·사인물·간판·스티커 등에 들어갈 시안 이미지입니다.
-시각 디자인/레이아웃/색상/폰트 품질은 평가하지 말고, **이미지 안의 문구와 문자만** 확인하세요.
-한국어, 영어, 중국어, 태국어, 미얀마어 등 여러 언어가 섞여 있을 수 있습니다.
-보이는 텍스트는 원문 언어 그대로 추출하고, **명백한** 오타/철자 오류/문자 깨짐만 보고하세요.
-
-JSON 만 출력:
-{
-  "text": "시안 텍스트 (원문 언어 그대로, 줄바꿈 포함, 보이는 그대로 정확히)",
-  "issues": [
-    { "type": "오타|철자|문자깨짐|사이즈|숫자|기타", "message": "문제 설명", "found": "시안에 적힌 정확한 표현", "suggest": "수정 제안" }
-  ]
-}
-
-**엄격 규칙 (반드시 준수):**
-
-1. **글자가 완벽히 안 보이거나 흐리면 issues 추가 금지.** 추측 X. 확신 없으면 정상으로 간주.
-2. 다음 케이스는 **절대 issues 에 넣지 마라**:
-   - 다른 언어라는 이유 자체 (태국어/미얀마어/중국어/영어가 보이는 것은 정상)
-   - 원문 언어를 한국어로 번역하거나 의역한 제안
-   - 중국어 간체/번체 차이, 태국어/미얀마어의 띄어쓰기 없음, 로마자 표기 차이처럼 현지 표기 관습일 수 있는 것
-   - 한국어 정상 표현 (예: "안전복착용", "안전모착용", "보안경착용", "안전장갑착용", "안전화착용", "방독마스크착용", "방진마스크착용", "귀마개착용" 모두 정상)
-   - 디자인 의도된 띄어쓰기 (예: "화 상 주 의", "고 온 경 고" 처럼 글자 사이 공백은 디자인 — 오타 아님)
-   - 단위가 다른 표기 (예: "300*400" 가로세로 mm 와 "3T" 두께는 다른 단위 — 통일 불필요)
-   - 한국 사인물 표준 표기 ("담당자", "주소", "현장" 등 그대로 OK)
-   - 산수 추론 ("X개씩 Y종 = Z개" 같은 수량 검증 절대 하지 마라)
-   - 글자가 명확히 안 보여서 추측한 의심
-3. **진짜 오타/철자 오류 = 해당 언어에서 명백히 잘못된 단어, 누락/중복 글자, 깨진 문자, 잘못 들어간 자모/문자**만.
-   예시: "되요"(O→돼요), "할 수 잇다"(O→있다), "환경" 인데 "환겅" 이라고 적힘
-4. 동일 시안 안에서 같은 단어/품명/규격인데 서로 다르게 쓴 경우만 불일치 issue 로 보고.
-5. **확신 없으면 issues=[].** false positive 가 false negative 보다 훨씬 안 좋음.
-
-text 는 시안 안 글자 그대로. 번역하지 마라. 안 보이는 글자는 적지 마라 (추측 X).
-JSON 외 텍스트 절대 X.`;
-
-  // 동시 호출 (CLI 가 격리된 cwd 로 spawn 되어 병렬 가능)
-  // 시안 문구 확인은 Sonnet (속도 우선) — 사장님 구독 안에서 무료, 3배 빠름
-  await Promise.all(files.map(async (f) => {
-    try {
-      const r = await cli.callClaudeCli(PROMPT, [f.path], { model: 'claude-sonnet-4-6' });
-      const txt = (r && r.text) || '';
-      try {
-        const parsed = cli.parseJsonFromResponse(txt);
-        results.push({
-          file: f.originalname,
-          text: parsed.text || '',
-          issues: parsed.issues || [],
-        });
-      } catch (parseErr) {
-        results.push({
-          file: f.originalname,
-          text: '',
-          issues: [{ type: 'AI파싱오류', message: parseErr.message + ' / 응답: ' + txt.slice(0, 200) }],
-        });
-      }
-    } catch (e) {
-      results.push({
-        file: f.originalname,
-        text: '',
-        issues: [{ type: '처리오류', message: e.message }],
+    const results = [];
+    for (const r of rows) {
+      const dateStr = inferDateFromName(r.source_file) || r.doc_date;
+      const pptKey = parentPptxKey(r.source_file);
+      const dayRange = getPptMatchDayRange(dateStr || r.doc_date);
+      if (pptKey && !usedByPpt.has(pptKey)) usedByPpt.set(pptKey, new Set());
+      const excludeKeys = pptKey ? usedByPpt.get(pptKey) : null;
+      const m = learningPool.matchCompanySaleItem({
+        item_name: r.item_name,
+        spec: r.spec,
+        quantity: r.quantity,
+      }, {
+        dateStr,
+        altDateStr: r.doc_date,
+        vendorHint: r.vendor_name || r.norm_vendor,
+        textHint: [textByPpt.get(pptKey), r.source_file, r.raw_extract, r.statement_notes, r.item_notes, r.item_name, r.spec].filter(Boolean).join('\n'),
+        dayRange,
+        pptxCategory: learningPool.categorizePptx(r.source_file || pptKey),
+        excludeKeys,
       });
-    } finally {
-      try { fs.unlinkSync(f.path); } catch(_){}
+      results.push({ id: r.id, match: m });
+      if (m.matched && excludeKeys) excludeKeys.add(learningPool.companySaleRowKey(m.matched));
     }
-  }));
-
-  // 업로드 순서 유지
-  const order = new Map(files.map((f, i) => [f.originalname, i]));
-  results.sort((a, b) => (order.get(a.file) ?? 0) - (order.get(b.file) ?? 0));
-
-  res.json({ ok: true, results });
-});
-
-// ── 이카운트 일괄 등록 (에스엠 매입/매출) ──
-const ecount = require('../lib/ecount-client');
-
-// 이카운트 키 설정 여부
-router.get('/ecount/status', requireAuth, (req, res) => {
-  res.json({ ok: true, configured: ecount.isConfigured() });
-});
-
-// dry-run / 실제 등록 (분할 단위)
-router.post('/ecount/register', requireAuth, async (req, res) => {
-  const { docClass, month, dryRun = true } = req.body || {};
-  if (!ecount.isConfigured()) return res.status(400).json({ ok: false, error: '이카운트 키 미설정' });
-
-  // 에스엠 + 해당 분할의 확정된 명세서만
-  const stmts = dbSt.listStatements({
-    status: 'confirmed',
-    companyCode: 'SM',
-    docClass,
-    month: month || null,
-    limit: 1000,
-  });
-
-  // 명세서 → 라인아이템 펼치기 → 이카운트 BulkDatas 형식으로
-  const items = [];
-  for (const st of stmts) {
-    const full = dbSt.getById(st.id);
-    const lines = (full && full.items) || [];
-    if (lines.length === 0) {
-      items.push({
-        statement_id: st.id,
-        date: st.doc_date,
-        vendor_name: st.norm_vendor || st.vendor_name,
-        vendor_biz_no: st.vendor_biz_no,
-        item_name: st.norm_vendor || '',
-        spec: '',
-        qty: 1,
-        price: st.supply_amount || 0,
-        supply: st.supply_amount || 0,
-        vat: st.vat_amount || 0,
-        note: st.notes || '',
-      });
-    } else {
-      for (const ln of lines) {
-        items.push({
-          statement_id: st.id,
-          date: st.doc_date,
-          vendor_name: st.norm_vendor || st.vendor_name,
-          vendor_biz_no: st.vendor_biz_no,
-          item_name: ln.item_name || '',
-          spec: ln.spec || '',
-          qty: Number(ln.quantity) || 0,
-          price: Number(ln.unit_price) || 0,
-          supply: Number(ln.amount) || 0,
-          vat: Number(ln.vat) || Math.round((Number(ln.amount) || 0) * 0.1),
-          note: ln.notes || st.notes || '',
-        });
-      }
-    }
-  }
-
-  if (items.length === 0) return res.json({ ok: false, error: '등록할 항목 없음', items: 0 });
-
-  try {
-    const result = (docClass === '매입')
-      ? await ecount.savePurchase(items, { dryRun })
-      : await ecount.saveSale(items, { dryRun });
-    res.json({
-      ok: result.ok,
-      dryRun: !!dryRun,
-      docClass,
-      itemCount: items.length,
-      sample: items.slice(0, 3),
-      result,
-    });
+    res.json({ ok: true, results, matched, ambiguous, failed });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
-});
-
-// 거래처 / 품목 마스터 조회 (디버그용)
-router.get('/ecount/customers', requireAuth, async (req, res) => {
-  try { res.json(await ecount.listCustomers({ dryRun: req.query.dryRun==='1' })); }
-  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
-});
-router.get('/ecount/products', requireAuth, async (req, res) => {
-  try { res.json(await ecount.listProducts({ dryRun: req.query.dryRun==='1' })); }
-  catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
 module.exports = router;

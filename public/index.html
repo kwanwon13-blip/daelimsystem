@@ -1660,6 +1660,14 @@
             <span style="font-size:12px;">시안 자동분석</span>
           </button>
         </template>
+        <template x-if="tabs.find(t=>t.id==='designInput')">
+          <button @click="currentTab = 'designInput'"
+            :class="currentTab === 'designInput' ? 'active' : ''"
+            class="sidebar-nav-item w-full text-left">
+            <span class="material-symbols-outlined" style="font-size:17px">edit_square</span>
+            <span style="font-size:12px;">시안 작성기</span>
+          </button>
+        </template>
         <template x-if="tabs.find(t=>t.id==='ocr')">
           <button @click="currentTab = 'ocr'"
             :class="currentTab === 'ocr' ? 'active' : ''"
@@ -2156,6 +2164,52 @@
               </div>
             </div>
           </div>
+
+          <!-- 매일 연동/검수 대기 위젯 (관리자 전용) -->
+          <template x-if="auth.role === 'admin'">
+            <div class="card" style="padding:16px 20px;border:1px solid #e5eaf4;">
+              <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                  <span class="material-symbols-outlined" style="font-size:18px;color:#4f6ef7;">sync</span>
+                  <span class="text-sm font-semibold" style="color:#1e293b;">📊 오늘 연동·검수해야 할 데이터</span>
+                </div>
+                <div class="text-xs" style="color:#64748b;" x-show="syncStatus.summary">
+                  <span x-show="(syncStatus.summary?.todo||0) > 0" style="color:#b45309;font-weight:600;">
+                    🔧 처리 대기 <span x-text="syncStatus.summary?.todo||0"></span>건
+                  </span>
+                  <span x-show="(syncStatus.summary?.warn||0) > 0" style="color:#dc2626;font-weight:600;margin-left:8px;">
+                    ⚠ 경고 <span x-text="syncStatus.summary?.warn||0"></span>건
+                  </span>
+                  <span x-show="(syncStatus.summary?.todo||0)===0 && (syncStatus.summary?.warn||0)===0" style="color:#16a34a;font-weight:600;">
+                    ✓ 모두 정상
+                  </span>
+                </div>
+              </div>
+              <div class="grid gap-2" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));">
+                <template x-for="it in (syncStatus.items||[])" :key="it.key">
+                  <div class="flex items-center justify-between"
+                       :style="(it.status==='todo' ? 'background:#fff7ed;border:1px solid #fed7aa;' : it.status==='warn' ? 'background:#fef2f2;border:1px solid #fecaca;' : 'background:#f0fdf4;border:1px solid #bbf7d0;') + 'padding:8px 12px;border-radius:7px;'">
+                    <div style="flex:1;min-width:0;">
+                      <div class="text-xs font-semibold" style="color:#1e293b;" x-text="it.label"></div>
+                      <div class="text-[11px] mt-0.5" :style="it.status==='todo'?'color:#b45309':it.status==='warn'?'color:#dc2626':'color:#16a34a'" x-text="it.detail"></div>
+                    </div>
+                    <div class="flex items-center gap-2 ml-2">
+                      <span class="text-sm font-bold" :style="it.status==='todo'?'color:#b45309':it.status==='warn'?'color:#dc2626':'color:#16a34a'"
+                            x-text="it.count !== null && it.count !== undefined ? it.count : '-'"></span>
+                      <button x-show="it.action && it.action.type==='tab'"
+                              @click="if(it.action?.tab) currentTab=it.action.tab"
+                              class="text-[10px] underline" style="color:#4f6ef7;cursor:pointer;background:none;border:none;">
+                        이동
+                      </button>
+                    </div>
+                  </div>
+                </template>
+                <div x-show="!syncStatus.items || syncStatus.items.length === 0" style="grid-column:1/-1;text-align:center;color:#9ca3af;font-size:11.5px;padding:14px;">
+                  로딩 중...
+                </div>
+              </div>
+            </div>
+          </template>
 
           <!-- 주요 숫자 카드 4종: 관리자용 -->
           <template x-if="auth.role === 'admin'">
@@ -4607,6 +4661,11 @@
         <!--INCLUDE:tab-product-design.html-->
       </template>
 
+      <!-- 시안 작성기 탭 (디자이너 — 표준 코드 선택 + 엑셀 출력) -->
+      <template x-if="currentTab === 'designInput'">
+        <!--INCLUDE:tab-design-input.html-->
+      </template>
+
       <!-- OCR 탭 (이미지 → 텍스트 추출, Claude Vision) -->
       <template x-if="currentTab === 'ocr'">
         <!--INCLUDE:tab-ocr.html-->
@@ -6210,6 +6269,7 @@ function app() {
       { id: 'options', label: '옵션 관리' },
       { id: 'vendors', label: '업체 관리' },
       { id: 'design', label: '시안 검색' },
+      // { id: 'designInput', label: '시안 작성기' },  // 숨김 — UXP 패널로 통합 예정 (디자이너 CC 안에서 사용)
       // { id: 'productDesign', label: '시안 자동분석' },  // 숨김 — 미완성 기능
       // { id: 'ocr', label: 'OCR 텍스트 추출' },          // 숨김 — OCR 자동입력으로 흡수
       // { id: 'purchaseAuto', label: '매입 자동화' },     // 숨김 — OCR 자동입력으로 흡수
@@ -6420,6 +6480,8 @@ function app() {
       myLeave: { totalLeave: 0, usedDays: 0, remainingDays: 0 },
       myApprovals: { pending: 0, approved: 0, rejected: 0 },
     },
+    // 매일 연동/검수 대기 위젯
+    syncStatus: { items: [], summary: null },
     // 인건비 추이 그래프 상태 (관리자용)
     costTrend: {
       loading: false,
@@ -7267,9 +7329,13 @@ function app() {
         ];
 
         if (isAdmin) {
-          // ── 관리자: 전사 KPI + 오늘 출근자 수 ──
+          // ── 관리자: 전사 KPI + 오늘 출근자 수 + 연동/검수 위젯 ──
           commonTasks.push(fetch(`/api/attendance/records?from=${todayStr}&to=${todayStr}`).then(r => r.ok ? r.json() : null));
-          const [dashR, pendR, attR] = await Promise.allSettled(commonTasks);
+          commonTasks.push(fetch('/api/sync-status').then(r => r.ok ? r.json() : null));
+          const [dashR, pendR, attR, syncR] = await Promise.allSettled(commonTasks);
+          if (syncR && syncR.status === 'fulfilled' && syncR.value && syncR.value.ok) {
+            this.syncStatus = { items: syncR.value.items || [], summary: syncR.value.summary || null };
+          }
 
           if (dashR.status === 'fulfilled' && dashR.value) {
             this.homeDashboard.stats = dashR.value.stats || {};

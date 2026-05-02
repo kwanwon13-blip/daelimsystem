@@ -1,0 +1,334 @@
+<!-- tab-design-input.html — 디자이너 시안 작성기 (표준 코드 선택 + 엑셀 출력) -->
+<div x-data="designInputApp()" x-init="init()" class="p-6">
+  <style>
+    .di-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:20px; margin-bottom:16px; }
+    .di-h { font-size:14px; font-weight:700; color:#1a1d23; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+    .di-meta-grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; }
+    .di-field { display:flex; flex-direction:column; gap:4px; font-size:12.5px; }
+    .di-field label { color:#6b7280; font-weight:500; font-size:11.5px; }
+    .di-field input, .di-field select {
+      padding:7px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; outline:none;
+    }
+    .di-field input:focus, .di-field select:focus { border-color:#4f6ef7; box-shadow:0 0 0 3px rgba(79,110,247,0.1); }
+    .di-btn { padding:7px 14px; border-radius:7px; font-size:12.5px; font-weight:600; cursor:pointer; border:none; }
+    .di-btn-primary { background:linear-gradient(135deg,#4f6ef7,#3b5ce4); color:#fff; }
+    .di-btn-primary:hover { filter:brightness(1.08); }
+    .di-btn-ghost { background:#fff; border:1px solid #d1d5db; color:#374151; }
+    .di-btn-ghost:hover { background:#f9fafb; }
+    .di-btn-danger { background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; }
+    .di-product { background:#f8f9fb; border:1px solid #e5e7eb; border-radius:10px; padding:14px; margin-bottom:10px; }
+    .di-product.review { background:#fffbeb; border-color:#fde68a; }
+    .di-product-grid { display:grid; grid-template-columns:1fr 110px 70px 70px 1fr 110px 70px 36px; gap:8px; align-items:end; }
+    .di-search-wrap { position:relative; }
+    .di-search-result {
+      position:absolute; top:100%; left:0; right:0; max-height:280px; overflow-y:auto;
+      background:#fff; border:1px solid #d1d5db; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.08);
+      margin-top:2px; z-index:50;
+    }
+    .di-search-item { padding:8px 12px; cursor:pointer; border-bottom:1px solid #f3f4f6; font-size:12px; }
+    .di-search-item:hover { background:#eef2ff; }
+    .di-tag { display:inline-block; padding:2px 7px; border-radius:99px; font-size:10.5px; font-weight:600; margin-right:3px; }
+    .di-tag-mat { background:#e0f2fe; color:#075985; }
+    .di-tag-cnt { background:#f0fdf4; color:#166534; }
+    .di-tag-warn { background:#fef3c7; color:#92400e; }
+    .di-size-suggest { display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; }
+    .di-size-chip {
+      background:#fff; border:1px solid #cbd5e1; border-radius:99px;
+      padding:1px 8px; font-size:11px; color:#475569; cursor:pointer;
+    }
+    .di-size-chip:hover { background:#dbeafe; border-color:#4f6ef7; color:#1e40af; }
+    .di-review-flag { color:#b45309; font-size:11px; font-weight:600; margin-top:6px; }
+  </style>
+
+  <!-- 메타 정보 -->
+  <div class="di-card">
+    <div class="di-h">📐 시안 작성기 — 표준 코드 선택 + 엑셀 출력</div>
+    <p style="color:#6b7280; font-size:12.5px; margin-bottom:14px;">
+      각 제품을 학습된 표준 코드에서 검색해서 선택하세요. CSV에 없는 새 품목은 자유 입력 가능 (검수 표시됨).
+    </p>
+
+    <div class="di-meta-grid">
+      <div class="di-field">
+        <label>일자 *</label>
+        <input type="date" x-model="meta.일자">
+      </div>
+      <div class="di-field">
+        <label>거래처</label>
+        <input type="text" x-model="meta.거래처" placeholder="대림에스엠(주)" list="vendorList">
+        <datalist id="vendorList">
+          <template x-for="v in commonVendors" :key="v">
+            <option :value="v"></option>
+          </template>
+        </datalist>
+      </div>
+      <div class="di-field">
+        <label>현장</label>
+        <input type="text" x-model="meta.현장" placeholder="부평데이터센터">
+      </div>
+      <div class="di-field">
+        <label>카테고리</label>
+        <select x-model="meta.카테고리">
+          <option value="출력물">출력물</option>
+          <option value="용접물">용접물</option>
+          <option value="혼합">혼합 (출력+용접)</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- 제품 목록 -->
+  <div class="di-card">
+    <div class="di-h" style="justify-content:space-between;">
+      <span>📦 제품 추가 (<span x-text="products.length"></span>개)</span>
+      <div>
+        <span x-show="reviewCount > 0" class="di-tag di-tag-warn">
+          ⚠ 검수 필요 <span x-text="reviewCount"></span>개
+        </span>
+        <button @click="addProduct()" class="di-btn di-btn-primary" style="margin-left:8px;">+ 제품 추가</button>
+      </div>
+    </div>
+
+    <template x-for="(p, idx) in products" :key="p._id">
+      <div class="di-product" :class="{ review: !p._matched && p.품명 }">
+        <div class="di-product-grid">
+          <!-- 품명 검색 -->
+          <div class="di-field di-search-wrap">
+            <label>품명 *</label>
+            <input type="text" x-model="p.품명"
+                   @input.debounce.200ms="searchCodes(idx)"
+                   @focus="searchCodes(idx)"
+                   @blur="setTimeout(()=>{ p._showResults = false }, 200)"
+                   placeholder="검색: 포맥스 / 후렉스 / pe간판 ..." autocomplete="off">
+            <template x-if="p._showResults && p._results && p._results.length > 0">
+              <div class="di-search-result">
+                <template x-for="r in p._results" :key="r.표준명">
+                  <div class="di-search-item" @click="selectCode(idx, r)">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                      <strong x-text="r.표준명" style="color:#1a1d23;"></strong>
+                      <span class="di-tag di-tag-cnt">사용 <span x-text="r.사용빈도"></span>회</span>
+                    </div>
+                    <div style="margin-top:3px; color:#6b7280;">
+                      <span class="di-tag di-tag-mat" x-text="r.재질"></span>
+                      <template x-if="r.두께"><span class="di-tag di-tag-mat" x-text="r.두께"></span></template>
+                      <template x-if="r.면"><span class="di-tag di-tag-mat" x-text="r.면"></span></template>
+                      <template x-if="r.옵션"><span style="color:#6b7280; font-size:11px;" x-text="r.옵션"></span></template>
+                    </div>
+                    <div x-show="r.자주쓰는사이즈" style="margin-top:2px; color:#9ca3af; font-size:11px;">
+                      자주: <span x-text="r.자주쓰는사이즈.replace(/\|/g,', ')"></span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+          <!-- 재질 -->
+          <div class="di-field">
+            <label>재질</label>
+            <input type="text" x-model="p.재질" :readonly="p._matched" style="background:#f3f4f6;">
+          </div>
+          <!-- 두께 -->
+          <div class="di-field">
+            <label>두께</label>
+            <input type="text" x-model="p.두께" placeholder="3T">
+          </div>
+          <!-- 면 -->
+          <div class="di-field">
+            <label>면</label>
+            <select x-model="p.면">
+              <option value=""></option>
+              <option value="단면">단면</option>
+              <option value="양면">양면</option>
+            </select>
+          </div>
+          <!-- 옵션 -->
+          <div class="di-field">
+            <label>옵션 (콤마 구분)</label>
+            <input type="text" x-model="p.옵션" placeholder="사방타공,축광시트">
+          </div>
+          <!-- 사이즈 -->
+          <div class="di-field">
+            <label>사이즈 *</label>
+            <input type="text" x-model="p.사이즈" placeholder="600*900">
+          </div>
+          <!-- 수량 -->
+          <div class="di-field">
+            <label>수량 *</label>
+            <input type="number" x-model.number="p.수량" min="1">
+          </div>
+          <!-- 삭제 -->
+          <div class="di-field" style="align-self:end;">
+            <button @click="removeProduct(idx)" class="di-btn di-btn-danger" title="삭제">×</button>
+          </div>
+        </div>
+
+        <!-- 추천 사이즈 chips -->
+        <template x-if="p._suggestedSizes && p._suggestedSizes.length > 0 && !p.사이즈">
+          <div class="di-size-suggest">
+            <span style="font-size:11px; color:#6b7280; margin-right:4px;">자주 쓰는 사이즈:</span>
+            <template x-for="s in p._suggestedSizes" :key="s">
+              <span class="di-size-chip" @click="p.사이즈 = s" x-text="s"></span>
+            </template>
+          </div>
+        </template>
+
+        <!-- 검수 표시 -->
+        <template x-if="!p._matched && p.품명">
+          <div class="di-review-flag">
+            ⚠ CSV 표준 코드와 일치하지 않음 — 등록 전 사장님이 검수 필요
+          </div>
+        </template>
+      </div>
+    </template>
+
+    <div x-show="products.length === 0" style="text-align:center; padding:30px; color:#9ca3af; font-size:13px;">
+      "+ 제품 추가" 버튼을 눌러 시작하세요
+    </div>
+  </div>
+
+  <!-- 액션 버튼 -->
+  <div class="di-card" x-show="products.length > 0">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+      <div style="font-size:12.5px; color:#6b7280;">
+        총 <strong x-text="products.length"></strong>개 제품
+        <span x-show="reviewCount > 0" style="color:#b45309;">
+          (그 중 <strong x-text="reviewCount"></strong>개 검수 필요 ⚠)
+        </span>
+      </div>
+      <div>
+        <button @click="exportExcel()" class="di-btn di-btn-primary" :disabled="exporting">
+          📥 엑셀 다운로드
+        </button>
+        <button @click="reset()" class="di-btn di-btn-ghost">🔄 초기화</button>
+      </div>
+    </div>
+    <div x-show="msg" x-cloak style="margin-top:10px; font-size:12px;" :style="{ color: msgColor }" x-text="msg"></div>
+  </div>
+</div>
+
+<script>
+function designInputApp() {
+  return {
+    meta: {
+      일자: new Date().toISOString().slice(0, 10),
+      거래처: '대림에스엠(주)',
+      현장: '',
+      카테고리: '출력물',
+    },
+    products: [],
+    commonVendors: ['대림에스엠(주)', 'IDL E&C', '포스코이엔씨', 'DL이앤씨', '현대산업개발', '한신공영', '요진건설'],
+    nextId: 1,
+    msg: '',
+    msgColor: '#16a34a',
+    exporting: false,
+
+    get reviewCount() {
+      return this.products.filter(p => !p._matched && p.품명).length;
+    },
+
+    init() {
+      this.addProduct();
+    },
+
+    addProduct() {
+      this.products.push({
+        _id: this.nextId++,
+        품명: '', 재질: '', 두께: '', 면: '', 옵션: '',
+        사이즈: '', 수량: 1,
+        _matched: false,
+        _showResults: false,
+        _results: [],
+        _suggestedSizes: [],
+      });
+    },
+
+    removeProduct(idx) {
+      this.products.splice(idx, 1);
+    },
+
+    async searchCodes(idx) {
+      const p = this.products[idx];
+      const q = (p.품명 || '').trim();
+      if (!q || q.length < 1) {
+        p._results = [];
+        p._showResults = false;
+        return;
+      }
+      try {
+        const r = await fetch('/api/design-codes/search?q=' + encodeURIComponent(q), { credentials: 'include' });
+        const j = await r.json();
+        p._results = j.items || [];
+        p._showResults = true;
+      } catch (e) {
+        console.error(e);
+      }
+    },
+
+    selectCode(idx, code) {
+      const p = this.products[idx];
+      p.품명 = code.표준명;
+      p.재질 = code.재질;
+      p.두께 = code.두께 || '';
+      p.면 = code.면 || '';
+      p.옵션 = code.옵션 || '';
+      p._matched = true;
+      p._showResults = false;
+      p._suggestedSizes = (code.자주쓰는사이즈 || '').split('|').filter(Boolean).slice(0, 5);
+    },
+
+    async exportExcel() {
+      const valid = this.products.filter(p => p.품명 && p.사이즈 && p.수량);
+      if (valid.length === 0) {
+        this.msg = '⚠ 품명/사이즈/수량 모두 입력된 제품이 없습니다.';
+        this.msgColor = '#b91c1c';
+        return;
+      }
+      this.exporting = true;
+      this.msg = '엑셀 생성 중...';
+      this.msgColor = '#6b7280';
+      try {
+        const r = await fetch('/api/design-codes/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            meta: this.meta,
+            products: valid.map(p => ({
+              품명: p.품명, 재질: p.재질, 두께: p.두께, 면: p.면,
+              옵션: p.옵션, 사이즈: p.사이즈, 수량: p.수량,
+              _matched: p._matched,
+            })),
+          }),
+        });
+        if (!r.ok) {
+          const j = await r.json();
+          throw new Error(j.error || '서버 오류');
+        }
+        const blob = await r.blob();
+        const cd = r.headers.get('Content-Disposition') || '';
+        let fname = '시안.xlsx';
+        const m = cd.match(/filename\*?=(?:UTF-8'')?([^;]+)/);
+        if (m) fname = decodeURIComponent(m[1].replace(/^"|"$/g, ''));
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = fname;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        this.msg = `✓ 다운로드 완료: ${fname}`;
+        this.msgColor = '#16a34a';
+      } catch (e) {
+        this.msg = '실패: ' + e.message;
+        this.msgColor = '#b91c1c';
+      } finally {
+        this.exporting = false;
+      }
+    },
+
+    reset() {
+      this.products = [];
+      this.meta.현장 = '';
+      this.addProduct();
+      this.msg = '';
+    },
+  };
+}
+</script>
