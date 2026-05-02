@@ -50,6 +50,31 @@
   @media (max-width: 640px) {
     #salary-scope .summary-card-value { font-size:15px !important; }
   }
+
+  /* ── 엑셀식 셀 선택 + 한번클릭+타이핑 편집 ────────────────────
+   * 직원 항목설정 그리드 + 급여대장 그리드 공통 적용
+   * 클릭 = 셀 선택 (파란 테두리), 타이핑/F2/더블클릭 = 편집 시작
+   */
+  #salary-scope td.cfg-selected,
+  #salary-scope td.ledger-selected {
+    outline: 2px solid #2563eb !important;
+    outline-offset: -2px;
+    position: relative;
+    z-index: 2;
+    background: #dbeafe !important;
+  }
+  /* 편집가능 셀임을 시각적 힌트 (살짝 진한 cursor + 파란 톤) */
+  #salary-scope td[data-col] { cursor: cell; }
+
+  /* ── 셀 크기 변경/스크롤 시 layout reflow 비용 줄이기 ────────
+   * table-layout:fixed → 컬럼 너비를 미리 확정해서 reflow 거의 무료
+   * 실제 컬럼 width 는 colgroup 또는 첫 행 셀 width 로 결정
+   */
+  #salary-scope table.cfg-grid,
+  #salary-scope table.ledger-grid {
+    table-layout: fixed;
+    contain: layout style;
+  }
 </style>
 
 <!-- ── PIN 재인증 화면 ──────────────────────────────────────── -->
@@ -427,7 +452,7 @@
                 <th data-col="netPay" style="padding:8px 4px;text-align:right;white-space:nowrap;background:#dbeafe;font-weight:700;overflow:hidden;text-overflow:ellipsis;" title="AS 실지급액">실지급액</th>
               </tr>
             </thead>
-            <tbody @dblclick="_onCellDblClick($event)">
+            <tbody @click="_onLedgerCellClick($event)" @dblclick="_onCellDblClick($event)">
               <template x-for="r in visibleRecords" :key="r.id||r.userId">
                 <tr :data-recid="r.id" style="border-bottom:1px solid #e5e7eb;cursor:pointer;" @click="_onRowClick($event, r)" :style="selectedIds.has(r.userId)?'background:#eff6ff;':''">
                   <td style="padding:6px 4px;text-align:center;position:sticky;left:0;z-index:1;" :style="selectedIds.has(r.userId)?'background:#eff6ff;':'background:#fff;'" @click.stop>
@@ -596,7 +621,7 @@
           @blur="commitConfigEdit('stay')"
           @click.stop
           :style="'position:absolute;z-index:50;top:'+configEdit.top+'px;left:'+configEdit.left+'px;width:'+configEdit.width+'px;height:'+configEdit.height+'px;padding:2px 4px;border:2px solid #2563eb;background:#fff;font-size:12px;font-family:inherit;outline:none;box-shadow:0 0 0 3px rgba(37,99,235,.2);'">
-        <table style="border-collapse:collapse;font-size:11.5px;min-width:2400px;width:100%;">
+        <table class="cfg-grid" style="border-collapse:collapse;font-size:11.5px;min-width:2400px;width:100%;">
           <thead>
             <!-- 2단 헤더 -->
             <tr style="background:#e5e7eb;border-bottom:1px solid #cbd5e1;">
@@ -642,7 +667,7 @@
               <th style="padding:8px 6px;text-align:left;background:#fce7f3;">이메일</th>
             </tr>
           </thead>
-          <tbody @dblclick="_onConfigCellDblClick($event)">
+          <tbody @click="_onConfigCellClick($event)" @dblclick="_onConfigCellDblClick($event)">
             <template x-for="c in configs" :key="c.userId">
               <tr :data-cfgid="c.userId" style="border-bottom:1px solid #f3f4f6;"
                   :style="resignDateOf(c.userId)?'color:#9ca3af;background:#fafafa;':''">
@@ -2023,7 +2048,9 @@ function salaryApp() {
       return this._colDefaults[key] || 80;
     },
     // thead 위에서 마우스 이동 시 오른쪽 경계 근처에서 col-resize 커서 표시
+    // ⚡ 드래그 중엔 비활성화 (불필요한 boundingClientRect 호출 방지)
     _hdrMouseMove(ev) {
+      if (this._colDragging) return; // 드래그 중엔 cursor 갱신 불필요
       const th = ev.target.closest('th[data-col]');
       if (!th) return;
       const rect = th.getBoundingClientRect();
@@ -2048,26 +2075,34 @@ function salaryApp() {
       const startX = ev.clientX;
       const startW = this._colW(colKey);
       const self = this;
-      // rAF 스로틀링: 매 mousemove마다 Alpine reactive 업데이트하면 전체 테이블 재렌더 → 버벅임
-      // DOM에는 즉시 반영(고스트 col 스타일 직접 쓰기), Alpine 상태는 rAF로 묶어서 60fps 제한
+      // ⚡ 드래그 중엔 DOM에만 반영 (Alpine state 안 건드림) → 1,400+셀 재렌더 방지
+      // 떼는 순간(mouseup) 한 번만 colWidths 업데이트 + localStorage 저장
       let latestW = startW;
-      let pendingFrame = null;
       const colEls = document.querySelectorAll('col[data-col="' + colKey + '"]');
+      // 드래그 중 mousemove 가드용
+      this._colDragging = true;
+      // body cursor 강제 col-resize (드래그 중 cursor 안 깜빡)
+      const prevCursor = document.body.style.cursor;
+      document.body.style.cursor = 'col-resize';
+      // rAF 스로틀: 매 mousemove 가 아니라 다음 frame 에 한 번만 width 적용 → 60fps 상한
+      let pendingFrame = null;
+      const apply = () => {
+        pendingFrame = null;
+        for (let i = 0; i < colEls.length; i++) colEls[i].style.width = latestW + 'px';
+      };
       const onMove = (e) => {
         latestW = Math.max(40, Math.min(500, startW + (e.clientX - startX)));
-        // 즉시 DOM 반영 (시각적 피드백) — Alpine 건드리지 않음
-        colEls.forEach(el => { el.style.width = latestW + 'px'; });
-        if (pendingFrame) return;
-        pendingFrame = requestAnimationFrame(() => {
-          pendingFrame = null;
-          self.colWidths = Object.assign({}, self.colWidths, { [colKey]: latestW });
-        });
+        if (pendingFrame == null) pendingFrame = requestAnimationFrame(apply);
       };
       const onUp = () => {
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
-        if (pendingFrame) { cancelAnimationFrame(pendingFrame); pendingFrame = null; }
-        // 마지막 값을 확실히 반영
+        if (pendingFrame != null) { cancelAnimationFrame(pendingFrame); pendingFrame = null; }
+        // 마지막 width 보장
+        for (let i = 0; i < colEls.length; i++) colEls[i].style.width = latestW + 'px';
+        document.body.style.cursor = prevCursor;
+        self._colDragging = false;
+        // mouseup 시점 한 번만 Alpine state 업데이트 (전체 재렌더 1회)
         self.colWidths = Object.assign({}, self.colWidths, { [colKey]: latestW });
         try {
           localStorage.setItem('ledgerCW:' + self.company, JSON.stringify(self.colWidths));
@@ -2098,6 +2133,68 @@ function salaryApp() {
       if (ev.target.closest('td[data-col]')) return; // 편집 가능 칸은 싱글 클릭으로 모달 안 띄움
       if (ev.target.closest('button,input,a')) return;
       this.openDetail(r);
+    },
+    // 셀 한 번 클릭: 셀 선택만 (편집은 안 들어감) — 엑셀 동작
+    _onLedgerCellClick(ev) {
+      const td = ev.target.closest('td[data-col]');
+      if (!td) return;
+      const tr = td.closest('tr[data-recid]');
+      if (!tr) return;
+      const colKey = td.dataset.col;
+      if (!this._editableCols.includes(colKey)) return;
+      const recId = tr.dataset.recid;
+      const r = this.records.find(x => String(x.id) === String(recId));
+      if (!r || r.status !== 'draft') return; // 확정/지급완료는 잠금
+      // 이전 선택 해제 + 현재 셀 선택 표시
+      document.querySelectorAll('#salary-scope td.ledger-selected').forEach(el => el.classList.remove('ledger-selected'));
+      td.classList.add('ledger-selected');
+      this.selectedLedgerCell = { recId, key: colKey };
+    },
+    // 선택된 셀에서 키 입력 시 편집 시작 — 엑셀 동작
+    _onLedgerKeydown(ev) {
+      if (this.editing?.id) return; // 이미 편집 중
+      if (!this.selectedLedgerCell?.recId) return;
+      const tag = (document.activeElement?.tagName || '').toLowerCase();
+      if (['input','textarea','select'].includes(tag)) return;
+      if (this.detailModal?.open || this.configModal?.open || this.labelModal?.open) return;
+
+      const recId = this.selectedLedgerCell.recId;
+      const key = this.selectedLedgerCell.key;
+      const r = this.records.find(x => String(x.id) === String(recId));
+      if (!r || r.status !== 'draft') return;
+      const td = document.querySelector(`#salary-scope tr[data-recid="${CSS.escape(String(recId))}"] td[data-col="${key}"]`);
+      if (!td) return;
+
+      // 인쇄 가능 단일 키 → 편집 시작 + 첫 글자 덮어쓰기
+      if (ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+        ev.preventDefault();
+        this._startCellEdit(r, key, td);
+        this.$nextTick(() => {
+          const el = this.$refs.editInput;
+          if (el) {
+            el.value = ev.key;
+            this.editing.value = ev.key;
+            el.setSelectionRange(el.value.length, el.value.length);
+          }
+        });
+        return;
+      }
+      // F2 → 기존값 유지 편집
+      if (ev.key === 'F2') {
+        ev.preventDefault();
+        this._startCellEdit(r, key, td);
+        return;
+      }
+      // Backspace/Delete → 빈 값 편집
+      if (ev.key === 'Backspace' || ev.key === 'Delete') {
+        ev.preventDefault();
+        this._startCellEdit(r, key, td);
+        this.$nextTick(() => {
+          const el = this.$refs.editInput;
+          if (el) { el.value = ''; this.editing.value = ''; }
+        });
+        return;
+      }
     },
     // 셀 더블클릭: 편집 시작
     _onCellDblClick(ev) {
@@ -2278,7 +2375,73 @@ function salaryApp() {
     },
 
     // ── 직원 기초 설정 엑셀식 인라인 편집 ───────────────────────
-    // 파란색 배경 셀(data-col)을 더블클릭 → 오버레이 입력창
+    // 한 번 클릭 → 셀 선택만 (파란 테두리). 타이핑/F2/더블클릭 → 편집 시작.
+    _onConfigCellClick(ev) {
+      const td = ev.target.closest('td[data-col]');
+      if (!td) return;
+      const tr = td.closest('tr[data-cfgid]');
+      if (!tr) return;
+      const colKey = td.dataset.col;
+      if (!this._configEditableCols.includes(colKey)) return;
+      const cfgId = tr.dataset.cfgid;
+      // 이전 선택 해제 + 현재 셀 선택 표시
+      document.querySelectorAll('#salary-scope td.cfg-selected').forEach(el => el.classList.remove('cfg-selected'));
+      td.classList.add('cfg-selected');
+      this.selectedConfigCell = { userId: cfgId, key: colKey };
+    },
+    // 선택된 셀에서 키 입력 시 편집 시작 (엑셀처럼)
+    _onConfigKeydown(ev) {
+      // 이미 편집 중이면 패스 (configEdit 가 알아서 처리)
+      if (this.configEdit?.userId) return;
+      // 선택된 셀 없으면 패스
+      if (!this.selectedConfigCell?.userId) return;
+      // 다른 input/textarea/select에 포커스가 있으면 패스
+      const tag = (document.activeElement?.tagName || '').toLowerCase();
+      if (['input','textarea','select'].includes(tag)) return;
+      // 모달 열려 있으면 패스
+      if (this.configModal?.open || this.labelModal?.open) return;
+
+      const cfgId = this.selectedConfigCell.userId;
+      const key = this.selectedConfigCell.key;
+      const c = this.configs.find(x => String(x.userId) === String(cfgId));
+      if (!c) return;
+      const td = document.querySelector(`#salary-scope tr[data-cfgid="${CSS.escape(String(cfgId))}"] td[data-col="${key}"]`);
+      if (!td) return;
+
+      // 인쇄 가능 단일 키 (영문/숫자/한글) → 편집 시작 + 첫 글자 덮어쓰기
+      if (ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+        ev.preventDefault();
+        this._startConfigCellEdit(c, key, td);
+        // 입력창에 첫 글자 박기
+        this.$nextTick(() => {
+          const el = this.$refs.configEditInput;
+          if (el) {
+            el.value = ev.key;
+            this.configEdit.value = ev.key;
+            // 커서를 끝으로
+            el.setSelectionRange(el.value.length, el.value.length);
+          }
+        });
+        return;
+      }
+      // F2 → 기존 값 유지하며 편집 시작
+      if (ev.key === 'F2') {
+        ev.preventDefault();
+        this._startConfigCellEdit(c, key, td);
+        return;
+      }
+      // Backspace/Delete → 빈 값으로 편집 시작
+      if (ev.key === 'Backspace' || ev.key === 'Delete') {
+        ev.preventDefault();
+        this._startConfigCellEdit(c, key, td);
+        this.$nextTick(() => {
+          const el = this.$refs.configEditInput;
+          if (el) { el.value = ''; this.configEdit.value = ''; }
+        });
+        return;
+      }
+    },
+    // 파란색 배경 셀(data-col)을 더블클릭 → 오버레이 입력창 (기존값 유지)
     _onConfigCellDblClick(ev) {
       const td = ev.target.closest('td[data-col]');
       if (!td) return;
@@ -2432,10 +2595,17 @@ function salaryApp() {
 
     // 퇴사자 필터링: hideResigned=true 면 퇴사자 제외한 현직자만 반환
     // records 원본은 그대로 두고 화면/합계 전용으로만 필터
+    // ⚡ 캐시: records/hideResigned 변경 안 됐으면 같은 array reference 재사용
+    //   → sumField 47회 호출이 캐시 적중으로 가벼워짐
     get visibleRecords() {
       if (!Array.isArray(this.records)) return [];
       if (!this.hideResigned) return this.records;
-      return this.records.filter(r => !r?.resigned);
+      if (this._vrCache && this._vrCache.records === this.records && this._vrCache.hideResigned === this.hideResigned) {
+        return this._vrCache.result;
+      }
+      const result = this.records.filter(r => !r?.resigned);
+      this._vrCache = { records: this.records, hideResigned: this.hideResigned, result };
+      return result;
     },
     // 상단 "지급 (I~AB)" 헤더 colspan 동적 계산
     _payGroupColspan() {
@@ -2680,13 +2850,18 @@ function salaryApp() {
       userId: null, key: null, value: '', origValue: null,
       top: 0, left: 0, width: 0, height: 0,
     },
+    // 엑셀식 셀 선택 상태 (한 번 클릭 → 선택, 타이핑/F2 → 편집 시작)
+    selectedConfigCell: { userId: null, key: null },
+    selectedLedgerCell: { recId: null, key: null },
     // 인라인 편집 가능한 config 컬럼 (DOM에 data-col 로 붙여둔 컬럼들, 렌더 순서)
+    // ⚠ 엑셀 잠금 의도 + 4대보험 잠금 → 인라인 편집 차단:
+    //   baseSalary, fixedOvertimePay, fixedHolidayPay, transportAllowance,
+    //   pensionBasisManual, healthBasisManual, incomeReductionPct
+    //   (잠긴 항목은 [수정] 버튼 → 모달에서만 변경)
     _configEditableCols: [
       'hireDate', 'resignDate',
-      'baseSalary', 'fixedOvertimePay', 'fixedHolidayPay',
-      'mealAllowance', 'transportAllowance', 'teamLeaderAllowance',
-      'dependents', 'childrenCount', 'incomeReductionPct',
-      'pensionBasisManual', 'healthBasisManual',
+      'mealAllowance', 'teamLeaderAllowance',
+      'dependents', 'childrenCount',
       'bankName', 'email',
     ],
     // 입/퇴사일 (조직관리.json 쪽 저장 — 별도 endpoint)
@@ -2801,6 +2976,19 @@ function salaryApp() {
       await this.loadAll();
       await this.loadSettings();
       await this.loadTaxYears();
+      // 엑셀식 셀 선택 + 키입력 트리거 편집 — document 단에서 keydown 캐치
+      // (기존 핸들러 있으면 제거 후 재등록 — Alpine 재마운트 시 중복 방지)
+      if (this._configKeydownHandler) {
+        document.removeEventListener('keydown', this._configKeydownHandler);
+      }
+      this._configKeydownHandler = (ev) => this._onConfigKeydown(ev);
+      document.addEventListener('keydown', this._configKeydownHandler);
+      // 메인 급여대장 그리드 — 같은 패턴
+      if (this._ledgerKeydownHandler) {
+        document.removeEventListener('keydown', this._ledgerKeydownHandler);
+      }
+      this._ledgerKeydownHandler = (ev) => this._onLedgerKeydown(ev);
+      document.addEventListener('keydown', this._ledgerKeydownHandler);
     },
 
     async loadUsers() {
@@ -3567,171 +3755,4 @@ function salaryApp() {
       if (rows.length === 0) { alert('저장할 행이 없습니다'); return; }
       try {
         const r = await fetch('/api/salary/overtime/daily/bulk', {
-          method: 'POST', headers: {'Content-Type':'application/json'}, credentials: 'include',
-          body: JSON.stringify({ rows })
-        });
-        if (r.ok) {
-          alert(`${rows.length}건 저장되었습니다`);
-          this.dailyOtModal.open = false;
-          await this.loadOvertime();
-        } else {
-          const d = await r.json();
-          alert('저장 오류: ' + (d.error||''));
-        }
-      } catch(e) { alert('저장 오류: ' + e.message); }
-    },
-    async calcOvertimePay() {
-      // 연장근무 데이터를 급여 레코드에 반영 후 재계산
-      if (!confirm(`${this.yearMonth} 연장근무 시간을 급여 레코드에 반영 후 전체 자동계산할까요?`)) return;
-      try {
-        // 1. 각 직원 급여 레코드에 연장시간 반영
-        for (const row of this.overtimeRows) {
-          const rec = this.records.find(r => r.userId === row.userId);
-          if (rec && rec.id && rec.status === 'draft') {
-            await fetch(`/api/salary/records/${rec.id}`, {
-              method: 'PUT', headers: {'Content-Type':'application/json'}, credentials:'include',
-              body: JSON.stringify({ overtimeHours: +(row.overtimeH||0), nightHours: +(row.nightH||0),
-                holidayHours: +(row.holidayH||0), holidayOtHours: +(row.holidayOtH||0) })
-            });
-          }
-        }
-        // 2. 전체 재계산
-        const r = await fetch('/api/salary/calculate', {
-          method: 'POST', headers: {'Content-Type':'application/json'}, credentials:'include',
-          body: JSON.stringify({ companyId: this.company, yearMonth: this.yearMonth, overwrite: true })
-        });
-        if (r.ok) { alert('연장수당 반영 및 급여 재계산 완료'); await this.loadRecords(); }
-        else { const d = await r.json(); alert(d.error); }
-      } catch(e) { alert('오류: ' + e.message); }
-    },
-    fmtH(h) { return (+(h||0)).toFixed(1) + 'h'; },
-
-    // ── CSV 다운로드 ──────────────────────────────────────────
-    exportCsv() {
-      window.location.href = `/api/salary/export?company=${this.company}&month=${this.yearMonth}`;
-    },
-
-    // ── EDI ──────────────────────────────────────────────────
-    openEdiUpload() { this.ediUploadModal.yearMonth = this.yearMonth; this.ediUploadModal.open = true; },
-    openEdiManual() {
-      this.ediManualModal.form = { userId:'', companyId: this.company, yearMonth: this.yearMonth };
-      this.ediManualModal.open = true;
-    },
-    async uploadEdi() {
-      if (!this.ediUploadModal.file) { alert('파일을 선택하세요'); return; }
-      const fd = new FormData();
-      fd.append('file', this.ediUploadModal.file);
-      fd.append('companyId', this.company);
-      fd.append('yearMonth', this.ediUploadModal.yearMonth || this.yearMonth);
-      try {
-        const r = await fetch('/api/salary/edi/upload', { method:'POST', credentials:'include', body: fd });
-        const d = await r.json();
-        if (r.ok) { alert(`${d.count}명 업로드 완료`); this.ediUploadModal.open = false; await this.loadEdiCompare(); }
-        else alert(d.error);
-      } catch(e) { alert('업로드 오류: ' + e.message); }
-    },
-    async saveEdiManual() {
-      try {
-        const r = await fetch('/api/salary/edi', {
-          method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
-          body: JSON.stringify({ ...this.ediManualModal.form, companyId: this.company, yearMonth: this.yearMonth })
-        });
-        if (r.ok) { this.ediManualModal.open = false; await this.loadEdiCompare(); }
-        else { const d = await r.json(); alert(d.error); }
-      } catch(e) {}
-    },
-
-    // ── 간이세액표 업로드 ─────────────────────────────────────
-    taxFileSelected(e) { this.taxFile = e.target.files[0]; },
-    async uploadTaxTable() {
-      if (!this.taxFile || !this.taxUploadYear) { alert('연도와 파일을 선택하세요'); return; }
-      const fd = new FormData();
-      fd.append('file', this.taxFile);
-      fd.append('year', this.taxUploadYear);
-      try {
-        const r = await fetch('/api/salary/tax-table/upload', { method:'POST', credentials:'include', body: fd });
-        const d = await r.json();
-        if (r.ok) { alert(`${d.count}행 등록 완료`); await this.loadTaxYears(); }
-        else alert(d.error);
-      } catch(e) { alert('업로드 오류'); }
-    },
-
-    // ── 유틸 ─────────────────────────────────────────────────
-    _orgKey(id) {
-      // id 가 ws-xxx 형태이고 현재 회사 context 가 있으면 companyId:id 조합 우선
-      if (!id) return '';
-      const co = this.company || '';
-      const low = String(id).toLowerCase();
-      return `${co}:${low}`;
-    },
-    _lookupInfo(id) {
-      return this.userInfoMap[this._orgKey(id)] || this.userInfoMap[id] || this.userInfoMap[String(id).toLowerCase()] || null;
-    },
-    nameOf(id) {
-      if (!id) return '';
-      return this.userMap[this._orgKey(id)]
-          || this.userMap[id]
-          || this.userMap[String(id).toLowerCase()]
-          || this.configNameMap[id]
-          || id;
-    },
-    // 엑셀 급여대장 C열 부서 - userInfoMap의 department 는 ID, departmentMap 으로 이름 변환
-    // dalim-company 유저는 부서를 문자열 그대로 저장하므로 pass-through
-    deptOf(id) {
-      const info = this._lookupInfo(id);
-      if (!info) return '';
-      const deptId = info.department;
-      if (!deptId) return '';
-      return this.departmentMap[deptId] || deptId;
-    },
-    // 엑셀 급여대장 E열 직위
-    positionOf(id) {
-      const info = this._lookupInfo(id);
-      return info?.position || '';
-    },
-    // 엑셀 급여대장 F열 입사일
-    hireDateOf(id) {
-      const info = this._lookupInfo(id);
-      return info?.hireDate || '';
-    },
-    // 사원정보 탭에서 쓸 기타 필드 접근자
-    birthDateOf(id) { return this._lookupInfo(id)?.birthDate || ''; },
-    emailOf(id)     { return this._lookupInfo(id)?.email || ''; },
-    phoneOf(id)     { return this._lookupInfo(id)?.phone || ''; },
-    resignDateOf(id){ return this._lookupInfo(id)?.resignDate || ''; },
-    fmt(n) { return (n||0).toLocaleString('ko-KR'); },
-    // 엑셀처럼 "0 또는 빈값이면 셀을 빈칸으로" — 급여대장 47열 1:1 복제용
-    fmtZ(n) { return (n && Number(n) !== 0) ? Number(n).toLocaleString('ko-KR') : ''; },
-    fmtW(n) { return (n||0).toLocaleString('ko-KR') + '원'; },
-    sumField(key) { return this.visibleRecords.reduce((s,r) => s + (r[key]||0), 0); },
-    extraPay(r) {
-      let sum = (r.retroPay||0)+(r.leavePay||0)+(r.teamLeaderAllowance||0);
-      for (let i = 1; i <= 8; i++) sum += (r['extraPay'+i]||0);
-      return sum;
-    },
-    // 퇴사 배지: 경과 개월수에 따라 색상 차별화
-    // 0 = 퇴사월(당월), 1 = 1개월차, 2 = 2개월차, 3+ = 3개월+
-    resignBadge(r) {
-      const m = r.monthsSinceResign;
-      const dateStr = r.resignDate ? ` (${r.resignDate} 퇴사)` : '';
-      if (m === null || m === undefined) {
-        // 재직자이지만 혹시 resigned true인 경우 — 일반 퇴사 배지
-        return { text: '퇴사', title: '퇴사자'+dateStr, bg: '#fee2e2', fg: '#b91c1c', border: '#fca5a5' };
-      }
-      if (m === 0) return { text: '퇴사 당월',  title: '이번 달에 퇴사'+dateStr,                           bg: '#fee2e2', fg: '#b91c1c', border: '#fca5a5' };
-      if (m === 1) return { text: '퇴사 1개월', title: '퇴사 후 1개월 경과 (정산 기간)'+dateStr,            bg: '#fef3c7', fg: '#92400e', border: '#fcd34d' };
-      if (m === 2) return { text: '퇴사 2개월', title: '퇴사 후 2개월 경과 (정산 마무리 고려)'+dateStr,     bg: '#ffedd5', fg: '#9a3412', border: '#fdba74' };
-      if (m >= 3)  return { text: '퇴사 '+m+'개월', title: '퇴사 후 '+m+'개월 경과 — 제거 검토 필요'+dateStr, bg: '#e5e7eb', fg: '#374151', border: '#9ca3af' };
-      // m < 0 (미래에 퇴사 예정된 월이 아직 안 옴)
-      return { text: '퇴사 예정', title: '이 달 기준 아직 재직 중'+dateStr, bg: '#e0f2fe', fg: '#075985', border: '#7dd3fc' };
-    },
-    statusLabel(s) { return s==='draft'?'임시':s==='confirmed'?'확정':s==='paid'?'지급완료':'—'; },
-    statusStyle(s) {
-      if (s==='draft') return 'background:#f3f4f6;color:#6b7280;';
-      if (s==='confirmed') return 'background:#fef3c7;color:#92400e;';
-      if (s==='paid') return 'background:#d1fae5;color:#065f46;';
-      return '';
-    },
-  };
-}
-</script>
+          method: 'POST', headers: {'Conten

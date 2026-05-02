@@ -1835,6 +1835,10 @@ function generateSlipHtml({ rec, config, labels, settingsRow, companyName, empIn
   if (rec.bonusPay > 0)          basisRows.push(['상여',          '설·추석 명절 상여',                                   '']);
   if (rec.retroPay > 0)          basisRows.push(['소급',          '호봉·직급 인상분 소급 지급',                          '']);
   if (rec.leavePay > 0)          basisRows.push(['연차수당',      '미사용 연차일수 × 일급',                              '근로기준법 제60조']);
+  // ─ 추가 지급 (회사 내부 항목, 라벨 기반) — 라벨이 비었으면 항목명을 'extraPay1' 등 fallback
+  if (rec.extraPay1 > 0)         basisRows.push([l.extraPay1Name || '추가지급1', '회사 내부 규정에 따른 추가 지급', '']);
+  if (rec.extraPay2 > 0)         basisRows.push([l.extraPay2Name || '추가지급2', '회사 내부 규정에 따른 추가 지급', '']);
+  if (rec.extraPay3 > 0)         basisRows.push([l.extraPay3Name || '추가지급3', '회사 내부 규정에 따른 추가 지급', '']);
   // ─ 공제 정산 항목
   if (rec.incomeTaxAdj)          basisRows.push(['정산소득세',         '전년도 연말정산 결과 정산분 소득세',                    '']);
   if (rec.localTaxAdj)           basisRows.push(['정산지방소득세',     '전년도 연말정산 결과 정산분 지방소득세',                '']);
@@ -2322,15 +2326,4 @@ router.post('/overtime-apply', (req, res) => {
 
 // GET /api/salary/paystatus?company=&year=
 router.get('/paystatus', (req, res) => {
-  const { company, year } = req.query;
-  if (!company || !year) return res.status(400).json({ error: '파라미터 누락' });
-  const data = salaryDb.getPayStatus(company, year);
-  // ERP / configs에서 이름 보완
-  const nameMap = getNameMap(company);
-  data.employees.forEach(e => { if (!e.name) e.name = nameMap[e.userId] || e.userId; });
-  data.employees.sort((a,b) => (a.name||'').localeCompare(b.name||'', 'ko'));
-  logSalaryAccess(req.user.userId, 'VIEW', `지급현황 조회 ${company} ${year}`);
-  res.json(data);
-});
-
-module.exports = router;
+  const { compan
