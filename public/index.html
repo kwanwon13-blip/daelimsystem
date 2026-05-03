@@ -10890,4 +10890,19 @@ function gpsLocationAdmin() {
       this.form = {
         id: loc.id,
         name: loc.name || '',
-        companyId: loc.companyId || 'dali
+        companyId: loc.companyId || 'dalim-sm',
+        addressQuery: loc.address || '',
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        radius: loc.radius || 100,
+      };
+      this.searchResults = [];
+      this.searchError = '';
+      this.showAdd = true;
+    }
+  };
+}
+</script>
+
+</body>
+</html>
