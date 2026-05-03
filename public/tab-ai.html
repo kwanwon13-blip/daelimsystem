@@ -834,7 +834,7 @@
                 </template>
                 <!-- 일반 텍스트 / 이미지 생성 사용자 프롬프트 — cleanMsgText 가 빈 줄 정리 -->
                 <template x-if="m.kind !== 'agent' && (m.kind !== 'image' || !m.image_url)">
-                  <div x-text="cleanMsgText(m.content)"></div>
+                  <div x-text="messageDisplayText(m)"></div>
                 </template>
                 <!-- 🤖 Agent 모드 메시지 — 진행상황 + 출력 + 생성된 파일 -->
                 <template x-if="m.kind === 'agent'">
@@ -1336,6 +1336,24 @@ function aiApp() {
         if (trimmed.length > 0) cleaned.push(trimmed);
       }
       return cleaned.join('\n');
+    },
+
+    stripInlineSvgText(content) {
+      let s = String(content == null ? '' : content);
+      const marker = '\n[SVG 파일을 만들었습니다. 아래 미리보기에서 확인하세요.]\n';
+      s = s.replace(/```(?:svg|xml)?\s*\r?\n[\s\S]*?<svg[\s\S]*?<\/svg>\s*```/gi, marker);
+      s = s.replace(/<svg\b[\s\S]*?<\/svg>/gi, marker);
+      s = s.replace(/(?:\s*\[SVG 파일을 만들었습니다\. 아래 미리보기에서 확인하세요\.\]\s*){2,}/g, marker);
+      return s;
+    },
+
+    messageDisplayText(m) {
+      const hasSvgArtifact = !!(m && Array.isArray(m.artifacts_parsed) && m.artifacts_parsed.some(a => a && a.kind === 'svg'));
+      const raw = hasSvgArtifact ? this.stripInlineSvgText(m && m.content) : (m && m.content);
+      const cleaned = this.cleanMsgText(raw);
+      return hasSvgArtifact && !cleaned
+        ? 'SVG 파일을 만들었습니다. 아래 미리보기에서 확인하세요.'
+        : cleaned;
     },
 
 
