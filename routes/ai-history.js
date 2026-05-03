@@ -176,20 +176,37 @@ function extractArtifactPaths(text) {
 function findRecentRootArtifacts(sinceMs) {
   const appRoot = path.join(__dirname, '..');
   const threshold = Number(sinceMs || 0) - 1500;
+  const roots = [
+    appRoot,
+    path.join(appRoot, 'outputs'),
+    ai.OUTPUT_DIR,
+  ];
+  const found = [];
   try {
-    return fs.readdirSync(appRoot)
-      .map(name => path.join(appRoot, name))
-      .filter(fp => {
-        const ext = path.extname(fp).toLowerCase();
-        if (!ARTIFACT_EXTS.includes(ext)) return false;
-        const st = fs.statSync(fp);
-        return st.isFile() && st.mtimeMs >= threshold;
-      })
-      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)
-      .slice(0, 8);
+    for (const root of roots) {
+      if (!root || !fs.existsSync(root)) continue;
+      const stack = [root];
+      while (stack.length && found.length < 30) {
+        const dir = stack.pop();
+        for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+          const fp = path.join(dir, ent.name);
+          if (ent.isDirectory()) {
+            if (path.relative(root, fp).split(path.sep).length <= 2) stack.push(fp);
+            continue;
+          }
+          const ext = path.extname(fp).toLowerCase();
+          if (!ARTIFACT_EXTS.includes(ext)) continue;
+          const st = fs.statSync(fp);
+          if (st.isFile() && st.mtimeMs >= threshold) found.push(fp);
+        }
+      }
+    }
   } catch (_) {
     return [];
   }
+  return found
+    .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)
+    .slice(0, 12);
 }
 
 function registerExistingArtifact(filePath, { ownerId, threadId, messageId = null }) {
@@ -813,6 +830,22 @@ function shouldForceFileTool(prompt, attachments = []) {
   return FILE_REQUEST_KEYWORDS.test(String(prompt || '')) || isBusinessCleanupRequest(prompt, attachments);
 }
 
+function buildCliFileOutputHint(prompt, attachments = []) {
+  if (!shouldForceFileTool(prompt, attachments)) return '';
+  const appRoot = path.join(__dirname, '..');
+  return [
+    '',
+    '【CLI 파일 생성 지시】',
+    '현재 실행 환경은 Claude CLI fallback일 수 있습니다. 이 경우 create_excel 같은 API Tool Use 도구가 직접 보이지 않을 수 있습니다.',
+    `파일 생성 요청이면 반드시 실제 파일을 만들어 저장하세요. 권장 저장 위치: ${path.join(appRoot, 'outputs')} 또는 ${ai.OUTPUT_DIR}`,
+    '- 엑셀은 .xlsx 파일로 저장하세요. Node.js ExcelJS 또는 Python openpyxl/xlsxwriter를 사용할 수 있으면 사용하세요.',
+    '- SVG/HTML/CSV/JSON/MD/TXT도 실제 파일로 저장하세요.',
+    '- 최종 답변에는 생성한 파일의 절대경로 또는 파일명을 한 줄로 포함하세요. 서버가 그 경로를 감지해 다운로드/미리보기 카드로 등록합니다.',
+    '- 파일 내용 전체를 채팅 본문에 길게 붙이지 마세요.',
+    '',
+  ].join('\n');
+}
+
 /**
  * Claude API 호출 (텍스트 + Tool Use 지원)
  * @param {Array} messages - [{role: 'user'|'assistant', content: string | [{type, ...}]}]
@@ -1060,7 +1093,8 @@ router.post('/chat', async (req, res) => {
     }
     const systemPrefix = DEFAULT_SYSTEM + '\n\n';
     const history = contextLines.length > 0 ? `【이전 대화】\n${contextLines.join('\n')}\n\n` : '';
-    const fullPrompt = systemPrefix + templatePrefix + pageContext + attachmentBlock + autoWorkflowHint + history + cliImageBlock + `【질문】\n${prompt}`;
+    const cliFileOutputHint = buildCliFileOutputHint(prompt, attachments);
+    const fullPrompt = systemPrefix + templatePrefix + pageContext + attachmentBlock + autoWorkflowHint + cliFileOutputHint + history + cliImageBlock + `【질문】\n${prompt}`;
 
     // 4. 사용자 메시지 저장 (Claude 호출 실패해도 남아있게)
     ai.threads.addMessage(thread.id, {
