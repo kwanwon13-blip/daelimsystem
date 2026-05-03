@@ -60,6 +60,14 @@ function normalizeIp(raw) {
 
 // ── 5. 접근 제어 (서버 PC IP + 공유 비밀) ────────────────────
 app.use((req, res, next) => {
+  // control-daemon secret bypass — sandbox/자동화 호출 (admin-import 등)
+  // x-control-secret 헤더가 .env CONTROL_DAEMON_SECRET 와 일치하면 IP/secret 체크 skip
+  const ctrlSecret = req.headers['x-control-secret'];
+  const expectedCtrl = process.env.CONTROL_DAEMON_SECRET;
+  if (ctrlSecret && expectedCtrl && ctrlSecret === expectedCtrl) {
+    return next();
+  }
+
   const clientIp = normalizeIp(req.ip || req.socket?.remoteAddress || '');
   const allowedIps = new Set([SERVER_IP, '127.0.0.1', 'localhost']);
 
@@ -84,6 +92,25 @@ app.get('/_daemon/health', (req, res) => {
     time: new Date().toISOString(),
     node: process.version
   });
+});
+
+// ── 6-1. 자기 자신 git pull + 재시작 (sandbox/자동화 호출용) ──────────
+// 사장님 PC 의 working dir 에서 git pull 받고 process exit (watchdog 가 3초 후 재시작)
+app.post('/_daemon/pull-and-restart', (req, res) => {
+  const { execSync } = require('child_process');
+  try {
+    let pullResult = '';
+    try {
+      pullResult = execSync('git pull origin main', { cwd: __dirname, encoding: 'utf8', timeout: 30000 });
+    } catch (e) {
+      pullResult = '(git pull fail: ' + e.message + ')';
+    }
+    res.json({ ok: true, pull: pullResult.trim(), msg: 'process exit 후 watchdog 가 3초 후 재시작' });
+    // 응답 보낸 후 process 종료 → watchdog 자동 재시작
+    setTimeout(() => process.exit(0), 500);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ── 7. 급여 라우트 마운트 (기존 코드 그대로 재사용) ──────────
