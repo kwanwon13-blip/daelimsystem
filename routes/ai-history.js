@@ -774,11 +774,18 @@ function loadCompanyContext() {
         if (nameMatch && descMatch) {
           const body = content.replace(/^---\n[\s\S]*?\n---\s*/, '').trim();
           const rel = path.relative(skillsDir, skillDir).replace(/[\\/]+/g, '/');
+          const bundled = [];
+          const scriptsDir = path.join(skillDir, 'scripts');
+          if (fs.existsSync(scriptsDir)) {
+            for (const ent of fs.readdirSync(scriptsDir, { withFileTypes: true })) {
+              if (ent.isFile()) bundled.push(`scripts/${ent.name}`);
+            }
+          }
           skills.push({
             folder: rel,
             name: nameMatch[1].trim(),
             desc: descMatch[1].trim().replace(/\s+/g, ' ').slice(0, 400),
-            brief: body.replace(/\s+/g, ' ').slice(0, 1200),
+            brief: `${body.replace(/\s+/g, ' ').slice(0, 1200)}${bundled.length ? ` 번들 자원: ${bundled.join(', ')}` : ''}`,
           });
         }
       } catch (e) {}
@@ -916,16 +923,28 @@ function detectLedgerSkillSlug(prompt) {
 function loadSkillInstructionBlock(slug) {
   if (!slug) return '';
   try {
-    const skillPath = path.join(__dirname, '..', '.claude', 'skills', slug, 'SKILL.md');
+    const skillDir = path.join(__dirname, '..', '.claude', 'skills', slug);
+    const skillPath = path.join(skillDir, 'SKILL.md');
     if (!fs.existsSync(skillPath)) return '';
     const raw = fs.readFileSync(skillPath, 'utf8').replace(/^---\n[\s\S]*?\n---\s*/, '').trim();
     if (!raw) return '';
+    const resourceLines = [];
+    const scriptsDir = path.join(skillDir, 'scripts');
+    if (fs.existsSync(scriptsDir)) {
+      for (const ent of fs.readdirSync(scriptsDir, { withFileTypes: true })) {
+        if (!ent.isFile()) continue;
+        if (!/\.(py|js|mjs|ps1|bat)$/i.test(ent.name)) continue;
+        resourceLines.push(`- scripts/${ent.name}: ${path.join(scriptsDir, ent.name)}`);
+      }
+    }
     return [
       '',
       `【반드시 적용할 업무 스킬: ${slug}】`,
       '이번 요청에서는 아래 SKILL.md 절차를 우선 지침으로 적용하세요.',
       '현재 첨부 파일만 원본 데이터로 사용하고, 이전 대화/이전 생성 파일/샘플 데이터/캐시 데이터는 절대 사용하지 마세요.',
       '현재 첨부 파일을 읽지 못하면 결과 파일을 만들지 말고 읽기 실패를 보고하세요.',
+      resourceLines.length ? '이 스킬에 번들된 scripts/ 자원이 있으면 같은 로직을 새로 만들지 말고 해당 스크립트를 우선 실행하세요.' : '',
+      resourceLines.length ? resourceLines.join('\n') : '',
       raw.slice(0, 8000),
       '',
     ].join('\n');
