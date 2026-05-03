@@ -553,6 +553,10 @@
   .ai-attach-info { min-width:0; }
   .ai-attach-name { font-size:12px; font-weight:600; color:#1f2937; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:160px; }
   .ai-attach-size { font-size:10.5px; color:#9ca3af; }
+  .ai-attach-status { font-size:10.5px; margin-left:4px; font-weight:700; }
+  .ai-attach-status.ready { color:#059669; }
+  .ai-attach-status.failed { color:#dc2626; }
+  .ai-attach-status.stored { color:#6b7280; }
   .ai-attach-x { position:absolute; top:4px; right:4px; width:18px; height:18px; padding:0; background:rgba(17,24,39,.7); border:none; border-radius:50%; color:#fff; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center; line-height:1; }
   .ai-attach-x:hover { background:rgba(220,38,38,.9); }
   .ai-attach-loading { display:flex; align-items:center; gap:6px; padding:6px 10px; background:#eef2ff; border:1px solid #c7d2fe; border-radius:10px; font-size:11px; color:#4338ca; }
@@ -981,7 +985,10 @@
                 </template>
                 <div class="ai-attach-info">
                   <div class="ai-attach-name" x-text="a.original_name"></div>
-                  <div class="ai-attach-size" x-text="formatSize(a.size)"></div>
+                  <div class="ai-attach-size">
+                    <span x-text="formatSize(a.size)"></span>
+                    <span class="ai-attach-status" :class="a.parse_status || 'stored'" x-text="attachmentStatusLabel(a)"></span>
+                  </div>
                 </div>
                 <button class="ai-attach-x" @click="removeAttachment(a.id)" title="제거">×</button>
               </div>
@@ -1755,6 +1762,9 @@ function aiApp() {
         const d = await r.json();
         if (d.ok) {
           this.pendingAttachments.push(d.attachment);
+          if (d.attachment && d.attachment.parse_status === 'failed') {
+            this._toast(`"${d.attachment.original_name || file.name}" 원본은 올라갔지만 읽기 확인이 필요합니다.`);
+          }
         } else {
           this._toast(d.error || '첨부 업로드 실패');
         }
@@ -1812,6 +1822,13 @@ function aiApp() {
         case 'image': return '🖼️';
         default: return '📎';
       }
+    },
+    attachmentStatusLabel(a) {
+      const status = a && a.parse_status;
+      if (status === 'ready') return '· 읽기 완료';
+      if (status === 'failed') return '· 읽기 확인 필요';
+      if (status === 'stored') return '· 원본 보관';
+      return '';
     },
     formatSize(bytes) {
       const n = Number(bytes) || 0;

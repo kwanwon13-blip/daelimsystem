@@ -684,7 +684,7 @@ router.get('/threads/:id', (req, res) => {
     for (const m of messages) {
       try {
         const attIds = JSON.parse(m.attachments || '[]');
-        m.attachments_parsed = ai.attachments.hydrate(attIds);
+        m.attachments_parsed = ai.attachments.hydrate(attIds).map(attachmentForClient);
       } catch(e) { m.attachments_parsed = []; }
       try {
         const meta = typeof m.metadata === 'string' ? JSON.parse(m.metadata || '{}') : (m.metadata || {});
@@ -931,6 +931,21 @@ function isReadFailureExcerpt(text) {
     || /읽기 실패|read failed|Cannot read properties of undefined|reading ['"]anchors['"]|not supported on this server/i.test(s);
 }
 
+function attachmentForClient(a) {
+  if (!a) return a;
+  const text = String(a.text_excerpt || '');
+  const needsText = ['excel', 'pdf', 'word', 'text'].includes(String(a.kind || '').toLowerCase());
+  const failed = needsText && isReadFailureExcerpt(text);
+  const out = { ...a };
+  delete out.text_excerpt;
+  out.text_chars = failed ? 0 : text.length;
+  out.parse_status = !needsText ? 'stored' : (failed ? 'failed' : 'ready');
+  out.parse_note = failed
+    ? (text.replace(/^\[/, '').replace(/\]$/, '').slice(0, 180) || '텍스트 추출 실패')
+    : (needsText ? '읽기 완료' : '원본 보관');
+  return out;
+}
+
 function buildCliFileOutputHint(prompt, attachments = []) {
   if (!shouldForceFileTool(prompt, attachments)) return '';
   const appRoot = path.join(__dirname, '..');
@@ -1167,10 +1182,10 @@ router.post('/chat', async (req, res) => {
     let attachmentBlock = '';
     if (textAttachments.length > 0) {
       const parts = textAttachments.map(a => {
-        if (a.text_excerpt) {
+        if (a.text_excerpt && !isReadFailureExcerpt(a.text_excerpt)) {
           return `[첨부: ${a.original_name} (${a.kind})]\n${a.text_excerpt.slice(0, 1000000)}`;
         }
-        return `[첨부: ${a.original_name} (${a.kind}, 텍스트 미추출)]`;
+        return `[첨부: ${a.original_name} (${a.kind}, 서버 텍스트 추출 실패 — 현재 첨부 원본을 직접 확인해야 함)]`;
       });
       attachmentBlock = parts.join('\n\n') + '\n\n';
     }
@@ -2424,7 +2439,7 @@ router.post('/attachments', (req, res, next) => {
         kind,
         textExcerpt: excerpt
       });
-      res.json({ ok: true, attachment: att });
+      res.json({ ok: true, attachment: attachmentForClient(att) });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
@@ -2438,7 +2453,7 @@ router.get('/attachments/:id', (req, res) => {
     if (String(a.owner_id) !== String(req.user.userId) && !isAdmin(req)) {
       return res.status(403).json({ error: '권한 없음' });
     }
-    res.json({ ok: true, attachment: a });
+    res.json({ ok: true, attachment: attachmentForClient(a) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

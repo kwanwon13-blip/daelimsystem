@@ -595,7 +595,7 @@ const attachments = {
       INSERT INTO ai_attachments (owner_id, original_name, stored_name, mime, size, kind, text_excerpt, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(String(ownerId), originalName, storedName, mime || '', size || 0,
-           kind || 'file', (textExcerpt || '').slice(0, 50000), now);
+           kind || 'file', (textExcerpt || '').slice(0, 1000000), now);
     return this.get(r.lastInsertRowid);
   },
   delete(id) {
