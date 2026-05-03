@@ -121,6 +121,82 @@ function artifactKindFromName(name) {
   return 'file';
 }
 
+const SKILLS_DIR = path.join(__dirname, '..', '.claude', 'skills');
+
+function sanitizeSkillSlug(input) {
+  let s = String(input || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 60);
+  if (!s) s = `skill-${Date.now()}`;
+  return s;
+}
+
+function escapeSkillFrontMatter(value) {
+  return String(value || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+}
+
+function buildSkillMarkdown({ name, description, body }) {
+  const safeName = escapeSkillFrontMatter(name).replace(/\n+/g, ' ').slice(0, 80);
+  const safeDesc = escapeSkillFrontMatter(description).replace(/\n+/g, ' ').slice(0, 500);
+  const safeBody = escapeSkillFrontMatter(body).slice(0, 12000);
+  return `---\nname: ${safeName}\ndescription: ${safeDesc}\n---\n\n${safeBody}\n`;
+}
+
+function listInstalledSkills() {
+  const out = [];
+  if (!fs.existsSync(SKILLS_DIR)) return out;
+  const walk = (dir, depth = 0) => {
+    if (depth > 3) return;
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!ent.isDirectory()) continue;
+      const skillDir = path.join(dir, ent.name);
+      const mdPath = path.join(skillDir, 'SKILL.md');
+      if (fs.existsSync(mdPath)) {
+        const raw = fs.readFileSync(mdPath, 'utf8');
+        const fm = raw.match(/^---\n([\s\S]*?)\n---/);
+        const meta = fm ? fm[1] : '';
+        const nm = (meta.match(/^name:\s*(.+)$/m) || [null, ent.name])[1].trim();
+        const desc = (meta.match(/^description:\s*([\s\S]+?)(?=\n[a-zA-Z_-]+:|$)/m) || [null, ''])[1]
+          .trim().replace(/\s+/g, ' ').slice(0, 240);
+        out.push({
+          slug: path.relative(SKILLS_DIR, skillDir).replace(/[\\/]+/g, '/'),
+          name: nm,
+          description: desc,
+          updatedAt: fs.statSync(mdPath).mtime.toISOString(),
+        });
+      }
+      walk(skillDir, depth + 1);
+    }
+  };
+  walk(SKILLS_DIR);
+  return out.sort((a, b) => a.slug.localeCompare(b.slug));
+}
+
+function persistSkillToGit(skillMdPath, slug) {
+  try {
+    const { execFileSync } = require('child_process');
+    const appRoot = path.join(__dirname, '..');
+    const rel = path.relative(appRoot, skillMdPath);
+    execFileSync('git', ['add', '--', rel], { cwd: appRoot, windowsHide: true, stdio: 'pipe' });
+    try {
+      execFileSync('git', ['commit', '-m', `add AI skill: ${slug}`], { cwd: appRoot, windowsHide: true, stdio: 'pipe' });
+    } catch (e) {
+      const msg = Buffer.concat([e.stdout || Buffer.alloc(0), e.stderr || Buffer.alloc(0)]).toString('utf8');
+      if (!/nothing to commit|no changes added/i.test(msg)) throw e;
+      return { ok: true, committed: false, pushed: false, message: 'no changes' };
+    }
+    execFileSync('git', ['push', 'origin', 'main'], { cwd: appRoot, windowsHide: true, stdio: 'pipe' });
+    return { ok: true, committed: true, pushed: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
 function artifactMimeFromName(name) {
   const ext = path.extname(String(name || '')).toLowerCase();
   return mimeFromName(name) || {
@@ -735,9 +811,10 @@ function loadCompanyContext() {
   }
   return block;
 }
-const COMPANY_CONTEXT = loadCompanyContext();
 
-const DEFAULT_SYSTEM = `당신은 대림에스엠 ERP 시스템의 AI 도우미입니다. 한국어로 간결하고 실용적으로 답변해주세요. 직원들의 업무(견적·시안·출퇴근·결재·업체관리 등)를 도와주는 게 목적입니다.
+function buildDefaultSystem() {
+const COMPANY_CONTEXT = loadCompanyContext();
+return `당신은 대림에스엠 ERP 시스템의 AI 도우미입니다. 한국어로 간결하고 실용적으로 답변해주세요. 직원들의 업무(견적·시안·출퇴근·결재·업체관리 등)를 도와주는 게 목적입니다.
 
 ${COMPANY_CONTEXT}
 
@@ -795,6 +872,9 @@ ${COMPANY_CONTEXT}
 - 첫 인사 시 업무 목록을 나열하지 마세요. 짧게 인사만 하고 사용자의 실제 질문을 기다리세요.
 - 일반 업무 정보(견적·시안·출퇴근·결재·업체 관리 등)는 평소대로 도와주세요.
 - 한국어로 간결하게.`;
+}
+
+let DEFAULT_SYSTEM = buildDefaultSystem();
 
 // API 모드 활성화 여부
 function apiModeAvailable() {
@@ -1864,6 +1944,88 @@ router.delete('/templates/:id', (req, res) => {
     if (String(t.owner_id) !== String(req.user.userId)) return res.status(403).json({ error: '소유자만' });
     ai.templates.delete(t.id);
     res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ──────────────────────────────────────────────────────────
+// Claude Skills — 직원 요청 → 관리자 승인 → 서버 등록
+// ──────────────────────────────────────────────────────────
+router.get('/skills', (req, res) => {
+  try {
+    const status = req.query.status || '';
+    res.json({
+      ok: true,
+      installed: listInstalledSkills(),
+      requests: ai.skillRequests.list(req.user.userId, { isAdmin: isAdmin(req), status }),
+      isAdmin: isAdmin(req),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/skills/requests', (req, res) => {
+  try {
+    const { slug, name, description, body } = req.body || {};
+    if (!name || !description || !body) {
+      return res.status(400).json({ error: 'name, description, body 필수' });
+    }
+    const cleanSlug = sanitizeSkillSlug(slug || name);
+    if (/insta|instagram|reel|릴스|쇼츠|shorts/i.test(`${cleanSlug} ${name} ${description} ${body}`)) {
+      return res.status(400).json({ error: '인스타/릴스 관련 스킬은 이 ERP 서버에 등록하지 않습니다.' });
+    }
+    const reqRow = ai.skillRequests.create({
+      requesterId: req.user.userId,
+      requesterName: req.user.name,
+      slug: cleanSlug,
+      name: String(name).trim().slice(0, 80),
+      description: String(description).trim().slice(0, 500),
+      body: String(body).trim().slice(0, 12000),
+    });
+    res.json({ ok: true, request: reqRow });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/skills/requests/:id/review', (req, res) => {
+  try {
+    if (!isAdmin(req)) return res.status(403).json({ error: '관리자만 승인/반려할 수 있습니다.' });
+    const row = ai.skillRequests.get(req.params.id);
+    if (!row) return res.status(404).json({ error: '요청 없음' });
+    if (row.status !== 'pending') return res.status(400).json({ error: '이미 처리된 요청입니다.' });
+    const action = String(req.body?.action || '').toLowerCase();
+    const note = String(req.body?.note || '').slice(0, 1000);
+    if (action === 'reject') {
+      const updated = ai.skillRequests.review(row.id, {
+        status: 'rejected',
+        reviewerId: req.user.userId,
+        reviewerName: req.user.name,
+        note,
+      });
+      return res.json({ ok: true, request: updated });
+    }
+    if (action !== 'approve') return res.status(400).json({ error: 'action은 approve 또는 reject만 가능합니다.' });
+
+    const slug = sanitizeSkillSlug(row.slug || row.name);
+    if (/insta|instagram|reel|릴스|쇼츠|shorts/i.test(`${slug} ${row.name} ${row.description} ${row.body}`)) {
+      return res.status(400).json({ error: '인스타/릴스 관련 스킬은 승인할 수 없습니다.' });
+    }
+    const skillDir = path.join(SKILLS_DIR, slug);
+    const resolvedDir = path.resolve(skillDir);
+    const rel = path.relative(path.resolve(SKILLS_DIR), resolvedDir);
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+      return res.status(400).json({ error: '잘못된 스킬 경로입니다.' });
+    }
+    fs.mkdirSync(resolvedDir, { recursive: true });
+    const mdPath = path.join(resolvedDir, 'SKILL.md');
+    fs.writeFileSync(mdPath, buildSkillMarkdown(row), 'utf8');
+    DEFAULT_SYSTEM = buildDefaultSystem();
+
+    const git = persistSkillToGit(mdPath, slug);
+    const updated = ai.skillRequests.review(row.id, {
+      status: 'approved',
+      reviewerId: req.user.userId,
+      reviewerName: req.user.name,
+      note: note || (git.ok ? '승인 및 등록 완료' : `승인됨. Git 반영은 수동 확인 필요: ${git.error || ''}`),
+    });
+    res.json({ ok: true, request: updated, skill: { slug, path: `.claude/skills/${slug}/SKILL.md` }, git });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

@@ -12,6 +12,7 @@
  *   ai_messages          1 메시지(질문 or 답변)
  *   ai_templates         재사용 프롬프트 템플릿
  *   ai_attachments       AI 질문에 첨부한 파일 메타
+ *   ai_skill_requests    직원 스킬 등록 요청/승인
  */
 const path = require('path');
 const fs = require('fs');
@@ -166,6 +167,25 @@ if (ready) {
       created_at   TEXT    NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_ai_artifact_thread ON ai_artifacts(thread_id, created_at DESC);
+
+    -- 직원이 요청하고 관리자가 승인하는 Claude Skill 등록 대기열
+    CREATE TABLE IF NOT EXISTS ai_skill_requests (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      requester_id   TEXT    NOT NULL,
+      requester_name TEXT    NOT NULL DEFAULT '',
+      slug           TEXT    NOT NULL,
+      name           TEXT    NOT NULL,
+      description    TEXT    NOT NULL DEFAULT '',
+      body           TEXT    NOT NULL DEFAULT '',
+      status         TEXT    NOT NULL DEFAULT 'pending', -- pending | approved | rejected
+      reviewer_id    TEXT    DEFAULT '',
+      reviewer_name  TEXT    DEFAULT '',
+      review_note    TEXT    DEFAULT '',
+      created_at     TEXT    NOT NULL,
+      updated_at     TEXT    NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_skill_req_status ON ai_skill_requests(status, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_ai_skill_req_owner ON ai_skill_requests(requester_id, created_at DESC);
   `);
 
   // 기본 "(미분류)" 가상 프로젝트는 project_id=NULL 로 표현 → 레코드 불필요
@@ -721,6 +741,58 @@ const artifacts = {
   }
 };
 
+// ──────────────────────────────────────────────────────────
+// Claude Skill 등록 요청
+// ──────────────────────────────────────────────────────────
+const skillRequests = {
+  list(userId, { isAdmin = false, status = '' } = {}) {
+    if (!ready) return [];
+    const params = [];
+    const where = [];
+    if (!isAdmin) {
+      where.push('requester_id=?');
+      params.push(String(userId));
+    }
+    if (status) {
+      where.push('status=?');
+      params.push(String(status));
+    }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    return db.prepare(`
+      SELECT * FROM ai_skill_requests
+      ${whereSql}
+      ORDER BY
+        CASE status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END,
+        created_at DESC
+      LIMIT 200
+    `).all(...params);
+  },
+  get(id) {
+    if (!ready) return null;
+    return db.prepare('SELECT * FROM ai_skill_requests WHERE id=?').get(id);
+  },
+  create({ requesterId, requesterName, slug, name, description, body }) {
+    if (!ready) throw new Error('DB 미사용');
+    const now = nowIso();
+    const r = db.prepare(`
+      INSERT INTO ai_skill_requests
+        (requester_id, requester_name, slug, name, description, body, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+    `).run(String(requesterId), requesterName || '', slug, name, description || '', body || '', now, now);
+    return this.get(r.lastInsertRowid);
+  },
+  review(id, { status, reviewerId, reviewerName, note }) {
+    if (!ready) throw new Error('DB 미사용');
+    const now = nowIso();
+    db.prepare(`
+      UPDATE ai_skill_requests
+      SET status=?, reviewer_id=?, reviewer_name=?, review_note=?, updated_at=?
+      WHERE id=?
+    `).run(status, String(reviewerId || ''), reviewerName || '', note || '', now, id);
+    return this.get(id);
+  },
+};
+
 module.exports = {
   get ready() { return ready; },
   db,
@@ -732,6 +804,7 @@ module.exports = {
   attachments,
   apiUsage,
   artifacts,
+  skillRequests,
   MODEL_PRICING,
   calcCostUsd,
   // 권한 헬퍼도 외부에서 쓸 수 있게
