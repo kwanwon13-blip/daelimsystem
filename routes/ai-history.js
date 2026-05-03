@@ -296,7 +296,31 @@ function findRecentRootArtifacts(sinceMs) {
     .slice(0, 12);
 }
 
-function registerExistingArtifact(filePath, { ownerId, threadId, messageId = null, sinceMs = null }) {
+function isDeniedExternalArtifactPath(resolvedPath) {
+  const lower = String(resolvedPath || '').toLowerCase();
+  const appRoot = path.resolve(path.join(__dirname, '..')).toLowerCase();
+  const outputRoot = path.resolve(ai.OUTPUT_DIR).toLowerCase();
+  const denied = [
+    process.env.WINDIR,
+    process.env.SystemRoot,
+    process.env.ProgramFiles,
+    process.env['ProgramFiles(x86)'],
+    process.env.APPDATA,
+    process.env.LOCALAPPDATA,
+  ].filter(Boolean).map(p => path.resolve(p).toLowerCase());
+
+  if (denied.some(root => lower === root || lower.startsWith(root + path.sep))) return true;
+  if (lower.includes(`${path.sep}.git${path.sep}`) || lower.includes(`${path.sep}node_modules${path.sep}`)) return true;
+
+  // Do not expose app internals from data/ except the artifact output folder.
+  const appData = path.join(appRoot, 'data');
+  if ((lower === appData || lower.startsWith(appData + path.sep)) && !(lower === outputRoot || lower.startsWith(outputRoot + path.sep))) {
+    return true;
+  }
+  return false;
+}
+
+function registerExistingArtifact(filePath, { ownerId, threadId, messageId = null, sinceMs = null, allowMentionedRecentOutsideRoots = false }) {
   if (!filePath || !ai.ready) return null;
   const appRoot = path.join(__dirname, '..');
   const resolved = path.resolve(filePath);
@@ -305,11 +329,17 @@ function registerExistingArtifact(filePath, { ownerId, threadId, messageId = nul
     path.join(appRoot, 'outputs'),
     ai.OUTPUT_DIR,
   ].map(p => path.resolve(p));
-  if (!allowedRoots.some(root => isInside(root, resolved))) return null;
   const stat = fs.statSync(resolved);
   if (!stat.isFile()) return null;
   if (sinceMs && stat.mtimeMs < Number(sinceMs) - 1500) return null;
   if (!ARTIFACT_EXTS.includes(path.extname(resolved).toLowerCase())) return null;
+  if (stat.size > 100 * 1024 * 1024) return null;
+
+  const insideKnownRoot = allowedRoots.some(root => isInside(root, resolved));
+  if (!insideKnownRoot) {
+    const isRecentMentioned = allowMentionedRecentOutsideRoots && sinceMs && stat.mtimeMs >= Number(sinceMs) - 1500;
+    if (!isRecentMentioned || isDeniedExternalArtifactPath(resolved)) return null;
+  }
 
   const originalName = path.basename(resolved);
   const storedName = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}${path.extname(originalName) || '.bin'}`;
@@ -409,7 +439,13 @@ function recoverArtifactsFromText(text, { ownerId, threadId, messageId = null, s
   const created = [];
   for (const fp of paths) {
     try {
-      const art = registerExistingArtifact(fp, { ownerId, threadId, messageId, sinceMs });
+      const art = registerExistingArtifact(fp, {
+        ownerId,
+        threadId,
+        messageId,
+        sinceMs,
+        allowMentionedRecentOutsideRoots: true,
+      });
       if (art) created.push(artifactPayload(art));
     } catch (e) {
       console.warn('[ai/artifact-recover] failed:', fp, e.message);
