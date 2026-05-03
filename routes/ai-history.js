@@ -296,14 +296,19 @@ function findRecentRootArtifacts(sinceMs) {
     .slice(0, 12);
 }
 
-function registerExistingArtifact(filePath, { ownerId, threadId, messageId = null }) {
+function registerExistingArtifact(filePath, { ownerId, threadId, messageId = null, sinceMs = null }) {
   if (!filePath || !ai.ready) return null;
   const appRoot = path.join(__dirname, '..');
   const resolved = path.resolve(filePath);
   if (!fs.existsSync(resolved)) return null;
-  if (!isInside(appRoot, resolved) && !isInside(ai.OUTPUT_DIR, resolved)) return null;
+  const allowedRoots = [
+    path.join(appRoot, 'outputs'),
+    ai.OUTPUT_DIR,
+  ].map(p => path.resolve(p));
+  if (!allowedRoots.some(root => isInside(root, resolved))) return null;
   const stat = fs.statSync(resolved);
   if (!stat.isFile()) return null;
+  if (sinceMs && stat.mtimeMs < Number(sinceMs) - 1500) return null;
   if (!ARTIFACT_EXTS.includes(path.extname(resolved).toLowerCase())) return null;
 
   const originalName = path.basename(resolved);
@@ -400,14 +405,11 @@ function recoverArtifactsFromText(text, { ownerId, threadId, messageId = null, s
   if (existing.length) return existing;
 
   const paths = new Set(extractArtifactPaths(text));
-  if (sinceMs) {
-    for (const fp of findRecentRootArtifacts(sinceMs)) paths.add(fp);
-  }
 
   const created = [];
   for (const fp of paths) {
     try {
-      const art = registerExistingArtifact(fp, { ownerId, threadId, messageId });
+      const art = registerExistingArtifact(fp, { ownerId, threadId, messageId, sinceMs });
       if (art) created.push(artifactPayload(art));
     } catch (e) {
       console.warn('[ai/artifact-recover] failed:', fp, e.message);
@@ -903,6 +905,36 @@ function isBusinessCleanupRequest(prompt, attachments = []) {
     : /(퍼시스|fursys|하츠|haatz|나이스텍|nicetech).*(정리|마감|청구|집계|분리|대장|원장)|((정리|마감|청구|집계|분리|대장|원장).*(퍼시스|fursys|하츠|haatz|나이스텍|nicetech))/i.test(text);
 }
 
+function detectLedgerSkillSlug(prompt) {
+  const text = String(prompt || '');
+  if (/퍼시스|fursys|persys/i.test(text)) return 'persys-ledger';
+  if (/하츠|haatz/i.test(text)) return 'haatz-ledger';
+  if (/나이스텍|nicetech/i.test(text)) return 'nicetech-ledger';
+  return '';
+}
+
+function loadSkillInstructionBlock(slug) {
+  if (!slug) return '';
+  try {
+    const skillPath = path.join(__dirname, '..', '.claude', 'skills', slug, 'SKILL.md');
+    if (!fs.existsSync(skillPath)) return '';
+    const raw = fs.readFileSync(skillPath, 'utf8').replace(/^---\n[\s\S]*?\n---\s*/, '').trim();
+    if (!raw) return '';
+    return [
+      '',
+      `【반드시 적용할 업무 스킬: ${slug}】`,
+      '이번 요청에서는 아래 SKILL.md 절차를 우선 지침으로 적용하세요.',
+      '현재 첨부 파일만 원본 데이터로 사용하고, 이전 대화/이전 생성 파일/샘플 데이터/캐시 데이터는 절대 사용하지 마세요.',
+      '현재 첨부 파일을 읽지 못하면 결과 파일을 만들지 말고 읽기 실패를 보고하세요.',
+      raw.slice(0, 8000),
+      '',
+    ].join('\n');
+  } catch (e) {
+    console.warn('[ai/skill] failed to load skill:', slug, e.message);
+    return '';
+  }
+}
+
 function buildAutoWorkflowHint(prompt, attachments = []) {
   if (!isBusinessCleanupRequest(prompt, attachments)) return '';
   return [
@@ -1237,8 +1269,9 @@ router.post('/chat', async (req, res) => {
         }
       }
     }
+    const skillInstructionHint = loadSkillInstructionBlock(detectLedgerSkillSlug(prompt));
     const autoWorkflowHint = buildAutoWorkflowHint(prompt, attachments);
-    const currentText = templatePrefix + pageContext + attachmentBlock + autoWorkflowHint + prompt;
+    const currentText = templatePrefix + pageContext + attachmentBlock + skillInstructionHint + autoWorkflowHint + prompt;
     const imageBlocks = getImageBlocksForApi();
     if (imageBlocks.length > 0) {
       // multimodal — 이미지 블록 + 텍스트 블록 배열로 전송
@@ -1274,7 +1307,7 @@ router.post('/chat', async (req, res) => {
     const systemPrefix = DEFAULT_SYSTEM + '\n\n';
     const history = contextLines.length > 0 ? `【이전 대화】\n${contextLines.join('\n')}\n\n` : '';
     const cliFileOutputHint = buildCliFileOutputHint(prompt, attachments);
-    const fullPrompt = systemPrefix + templatePrefix + pageContext + attachmentBlock + autoWorkflowHint + cliFileOutputHint + history + cliAttachmentPathBlock + cliImageBlock + `【질문】\n${prompt}`;
+    const fullPrompt = systemPrefix + templatePrefix + pageContext + attachmentBlock + skillInstructionHint + autoWorkflowHint + cliFileOutputHint + history + cliAttachmentPathBlock + cliImageBlock + `【질문】\n${prompt}`;
     const forceCliForUnreadableSource = sourceBoundAttachmentRun
       && unreadableTextAttachments.length > 0
       && cliTextAttachmentPaths.length > 0;
@@ -1317,12 +1350,15 @@ router.post('/chat', async (req, res) => {
         const promptForceFile = shouldForceFileTool(prompt, attachments);
         for (turnCount = 0; turnCount < MAX_TOOL_TURNS; turnCount++) {
           throwIfAborted(requestAbort.signal);
+          const toolChoice = (turnCount === 0 && promptForceFile)
+            ? (detectLedgerSkillSlug(prompt) ? { type: 'tool', name: 'create_excel' } : { type: 'any' })
+            : undefined;
           const r = await callClaudeApi(loopMessages, {
             system: DEFAULT_SYSTEM,
             model: modelToUse,
             tools,
             signal: requestAbort.signal,
-            toolChoice: (turnCount === 0 && promptForceFile) ? { type: 'any' } : undefined,
+            toolChoice,
           });
           // 누적 usage
           if (r.usage) {
@@ -1414,6 +1450,12 @@ router.post('/chat', async (req, res) => {
     }
 
     // 7. AI 메시지 저장 (usage/backend/artifacts 메타 포함)
+    if (status === 'ok' && sourceBoundAttachmentRun && /(캐시|이전\s*세션|이전\s*(데이터|자료|생성)|cached\s*data)/i.test(aiText || '')) {
+      status = 'error';
+      errMsg = '현재 첨부 파일 기준으로만 작업해야 합니다. 이전 세션/캐시 데이터를 사용하려는 응답이 감지되어 결과 생성을 중단했습니다.';
+      aiText = '';
+      createdArtifacts.length = 0;
+    }
     if (status === 'ok' && (backend === 'cli' || createdArtifacts.length === 0)) {
       const recovered = recoverArtifactsFromText(aiText, {
         ownerId: req.user.userId,
