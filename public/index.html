@@ -1671,6 +1671,14 @@
             <span style="font-size:12px;">시안 작성기</span>
           </button>
         </template>
+        <template x-if="tabs.find(t=>t.id==='matchReview')">
+          <button @click="currentTab = 'matchReview'"
+            :class="currentTab === 'matchReview' ? 'active' : ''"
+            class="sidebar-nav-item w-full text-left">
+            <span class="material-symbols-outlined" style="font-size:17px">fact_check</span>
+            <span style="font-size:12px;">시안 매칭 검수</span>
+          </button>
+        </template>
         <template x-if="tabs.find(t=>t.id==='ocr')">
           <button @click="currentTab = 'ocr'"
             :class="currentTab === 'ocr' ? 'active' : ''"
@@ -4669,6 +4677,11 @@
         <!--INCLUDE:tab-design-input.html-->
       </template>
 
+      <!-- 시안 매칭 검수 탭 (사장님 — 미매칭 케이스 검수 + 체크/무시 표시) -->
+      <template x-if="currentTab === 'matchReview'">
+        <!--INCLUDE:tab-match-review.html-->
+      </template>
+
       <!-- OCR 탭 (이미지 → 텍스트 추출, Claude Vision) -->
       <template x-if="currentTab === 'ocr'">
         <!--INCLUDE:tab-ocr.html-->
@@ -6272,6 +6285,7 @@ function app() {
       { id: 'options', label: '옵션 관리' },
       { id: 'vendors', label: '업체 관리' },
       { id: 'design', label: '시안 검색' },
+      // { id: 'matchReview', label: '시안 매칭 검수' },  // 숨김 — Claude 채팅에서 직접 검수
       // { id: 'designInput', label: '시안 작성기' },  // 숨김 — UXP 패널로 통합 예정 (디자이너 CC 안에서 사용)
       // { id: 'productDesign', label: '시안 자동분석' },  // 숨김 — 미완성 기능
       // { id: 'ocr', label: 'OCR 텍스트 추출' },          // 숨김 — OCR 자동입력으로 흡수
@@ -10876,19 +10890,4 @@ function gpsLocationAdmin() {
       this.form = {
         id: loc.id,
         name: loc.name || '',
-        companyId: loc.companyId || 'dalim-sm',
-        addressQuery: loc.address || '',
-        latitude: loc.latitude,
-        longitude: loc.longitude,
-        radius: loc.radius || 100,
-      };
-      this.searchResults = [];
-      this.searchError = '';
-      this.showAdd = true;
-    }
-  };
-}
-</script>
-
-</body>
-</html>
+        companyId: loc.companyId || 'dali

@@ -306,32 +306,29 @@ function getReqUser(req) {
   return '알수없음';
 }
 
+// 세션 토큰 생성 (랜덤 32바이트 hex)
+function generateSessionToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
 module.exports = {
-  // 세션
   sessions,
   generateSessionToken,
-  // 쿠키
   parseCookies,
-  // 비밀번호
   hashPassword,
   hashPasswordPbkdf2,
   verifyPassword,
-  // 로그인 실패 제한
   getFailureKey,
   isLocked,
   recordFailure,
   clearFailures,
   getRemainingLockMinutes,
-  // 기본 미들웨어
   requireAuth,
   requireAdmin,
-  // 급여 미들웨어
   requireSalaryAccess,
   createSalarySession,
   expireSalarySession,
-  // 급여 로그
   logSalaryAccess,
   salaryAccessLog,
-  // 유틸
   getReqUser
 };

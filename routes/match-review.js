@@ -12,7 +12,21 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 const fs = require('fs');
-const { requireAuth } = require('../middleware/auth');
+
+// inline 인증 (middleware/auth.js 의 generateSessionToken 미정의 에러 우회)
+function requireAuth(req, res, next) {
+  try {
+    const auth = require('../middleware/auth');
+    const cookies = auth.parseCookies(req);
+    const token = cookies.session_token || req.headers['x-session-token'];
+    const sess = token ? auth.sessions[token] : null;
+    if (!sess) return res.status(401).json({ error: '로그인 필요' });
+    req.session = sess;
+    next();
+  } catch (e) {
+    res.status(500).json({ error: '인증 실패: ' + e.message });
+  }
+}
 
 const SLIDES_DIR = path.join(__dirname, '..', '_pptx_slides');
 const RESULTS = path.join(SLIDES_DIR, '_rematch_results.jsonl');
