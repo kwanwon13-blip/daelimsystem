@@ -784,17 +784,17 @@ function calcSalary({ config, settingsRow, overtimeData, yearMonth, extraItems, 
   let health = 0, ltc = 0;
   if (c.healthOpt === 'O') {
     // 보수월액(R열) 있으면 그 값 사용
+    // ※ healthRate(3.595%)는 이미 직원 부담률만이므로 ÷2 안 함 (2026-05-03 fix)
     const healthBase = c.healthBasisManual > 0 ? c.healthBasisManual : taxable;
     const healthTotal = Math.floor(healthBase * (s.healthRate || 3.595) / 100 / 10) * 10;
-    health = Math.floor(healthTotal / 2 / 10) * 10;
+    health = healthTotal;
     health = applyReduction(health, c.healthReductionPct);
     if (c.ltcOpt === 'O') {
-      // HTAX2: 장기요양보험 — 엑셀 공식: 건강보험 × (요양율 × 2) / 100
-      //   (위에서 health를 절반으로 나눴으므로, 건강보험 × 요양율 × 2 / 100 = 요양 총액 절반)
+      // HTAX2: 장기요양보험 — 직원 부담 건강보험료 × 요양율(13.14%) (2026-05-03 fix)
       // ltcRate는 "건강보험료 대비 %"로 저장 (2024년 12.95%, 2026년 13.14% 등)
       const rate = s.ltcRate || 13.14;
       const ltcTotal = Math.floor(healthTotal * rate / 100 / 10) * 10;
-      ltc = Math.floor(ltcTotal / 2 / 10) * 10;
+      ltc = ltcTotal;
       ltc = applyReduction(ltc, c.ltcReductionPct);
     }
   }
@@ -1030,7 +1030,7 @@ function getPayStatus(companyId, year) {
   // userId별 그룹핑
   const byUser = {};
   rows.forEach(r => {
-    if (!byUser[r.userId]) byUser[r.userId] = { userId: r.userId, months: {} }
+    if (!byUser[r.userId]) byUser[r.userId] = { userId: r.userId, months: {} };
     byUser[r.userId].months[r.yearMonth] = {
       grossPay: r.grossPay || 0, totalDeductions: r.totalDeductions || 0,
       netPay: r.netPay || 0, status: r.status || 'draft'

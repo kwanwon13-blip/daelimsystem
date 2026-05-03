@@ -672,7 +672,7 @@
           <thead>
             <!-- 2단 헤더 -->
             <tr style="background:#e5e7eb;border-bottom:1px solid #cbd5e1;">
-              <th colspan="7" style="padding:6px;text-align:center;background:#f3f4f6;font-weight:700;border-right:1px solid #cbd5e1;">기본 인사</th>
+              <th colspan="2" style="padding:6px;text-align:center;background:#f3f4f6;font-weight:700;border-right:1px solid #cbd5e1;">사원</th>
               <th colspan="8" style="padding:6px;text-align:center;background:#dcfce7;font-weight:700;border-right:1px solid #cbd5e1;">급여 기준</th>
               <th colspan="5" style="padding:6px;text-align:center;background:#fef3c7;font-weight:700;border-right:1px solid #cbd5e1;">세금/부양</th>
               <th colspan="4" style="padding:6px;text-align:center;background:#e0e7ff;font-weight:700;border-right:1px solid #cbd5e1;">4대보험</th>
@@ -680,14 +680,9 @@
               <th rowspan="2" style="padding:6px;text-align:center;background:#e5e7eb;">수정</th>
             </tr>
             <tr style="background:#f8fafc;border-bottom:2px solid #e5e7eb;font-weight:600;white-space:nowrap;">
-              <!-- 기본 인사 -->
+              <!-- 사원 (인사 정보는 사용자 관리 메뉴에서) -->
               <th style="padding:8px 6px;text-align:left;background:#f3f4f6;">사번</th>
               <th style="padding:8px 6px;text-align:left;background:#f3f4f6;">성명</th>
-              <th style="padding:8px 6px;text-align:left;background:#f3f4f6;">부서</th>
-              <th style="padding:8px 6px;text-align:left;background:#f3f4f6;">직위</th>
-              <th style="padding:8px 6px;text-align:center;background:#f3f4f6;">생년월일</th>
-              <th style="padding:8px 6px;text-align:center;background:#f3f4f6;">입사일</th>
-              <th style="padding:8px 6px;text-align:center;background:#f3f4f6;">퇴사일</th>
               <!-- 급여 기준 -->
               <th style="padding:8px 6px;text-align:right;background:#dcfce7;">기본급</th>
               <th style="padding:8px 6px;text-align:right;background:#dcfce7;">고정연장</th>
@@ -718,7 +713,7 @@
             <template x-for="c in configs" :key="c.userId">
               <tr :data-cfgid="c.userId" style="border-bottom:1px solid #f3f4f6;"
                   :style="resignDateOf(c.userId)?'color:#9ca3af;background:#fafafa;':''">
-                <!-- 기본 인사 -->
+                <!-- 사원 (인사 정보는 사용자 관리 메뉴에서) -->
                 <td style="padding:7px 6px;color:#6b7280;white-space:nowrap;" x-text="c.userId"></td>
                 <td style="padding:7px 6px;font-weight:600;white-space:nowrap;">
                   <span x-text="nameOf(c.userId)"></span>
@@ -726,11 +721,6 @@
                     <span style="margin-left:4px;padding:1px 5px;background:#fee2e2;color:#991b1b;font-size:10px;border-radius:3px;">퇴사</span>
                   </template>
                 </td>
-                <td style="padding:7px 6px;color:#6b7280;white-space:nowrap;" x-text="deptOf(c.userId)"></td>
-                <td style="padding:7px 6px;color:#6b7280;white-space:nowrap;" x-text="positionOf(c.userId)"></td>
-                <td style="padding:7px 6px;text-align:center;color:#6b7280;font-size:11px;white-space:nowrap;" x-text="birthDateOf(c.userId)"></td>
-                <td data-col="hireDate" style="padding:7px 6px;text-align:center;font-size:11px;white-space:nowrap;background:#eff6ff;cursor:cell;" x-text="hireDateOf(c.userId)"></td>
-                <td data-col="resignDate" style="padding:7px 6px;text-align:center;color:#dc2626;font-size:11px;white-space:nowrap;background:#eff6ff;cursor:cell;" x-text="resignDateOf(c.userId)"></td>
                 <!-- 급여 기준 -->
                 <td data-col="baseSalary" style="padding:7px 6px;text-align:right;background:#eff6ff;cursor:cell;" x-text="fmt(c.baseSalary)"></td>
                 <td data-col="fixedOvertimePay" style="padding:7px 6px;text-align:right;color:#374151;background:#eff6ff;cursor:cell;" x-text="c.fixedOvertimePay?fmt(c.fixedOvertimePay):''"></td>
@@ -2479,18 +2469,12 @@ function salaryApp() {
       }, opts);
 
       return [
-        // ── 기본정보 (사원번호 + 성명 frozen 좌측 고정)
+        // ── 기본정보 (사원번호 + 성명만 — 인사 정보는 인사명부에서)
         { title:'기본정보', headerHozAlign:'center', cssClass:'tg-grp-base', columns: [
           { title:'', formatter:'rowSelection', titleFormatter:'rowSelection', width:34, hozAlign:'center', headerSort:false, frozen:true, cssClass:'tg-cell-base' },
           { title:'사원번호', field:'userId', width:90, frozen:true, hozAlign:'left', cssClass:'tg-cell-base' },
-          { title:'부서', field:'_dept', width:90, hozAlign:'left', cssClass:'tg-cell-base',
-            mutator:(v,d)=>self.deptOf(d.userId) },
-          { title:'성명', field:'_name', width:80, frozen:true, hozAlign:'left', cssClass:'tg-cell-base',
+          { title:'성명', field:'_name', width:90, frozen:true, hozAlign:'left', cssClass:'tg-cell-base',
             mutator:(v,d)=>self.nameOf(d.userId) },
-          { title:'직위', field:'_position', width:70, hozAlign:'center', cssClass:'tg-cell-base',
-            mutator:(v,d)=>self.positionOf(d.userId) },
-          { title:'입사일', field:'_hireDate', width:90, hozAlign:'center', cssClass:'tg-cell-base',
-            mutator:(v,d)=>self.hireDateOf(d.userId) },
           { title:'근무일', field:'workDays', width:60, hozAlign:'right', cssClass:'tg-cell-base', formatter:(c)=>fmtNum(c), ...editorOpts('workDays') },
           { title:'기본시간', field:'workHours', width:65, hozAlign:'right', cssClass:'tg-cell-base', formatter:(c)=>fmtNum(c), ...editorOpts('workHours') },
         ]},

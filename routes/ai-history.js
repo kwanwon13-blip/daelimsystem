@@ -909,6 +909,8 @@ function buildAutoWorkflowHint(prompt, attachments = []) {
     '',
     '【자동 업무 지시】',
     '이 요청은 거래처 자료 정리/마감 업무입니다.',
+    '- 현재 요청에 첨부된 파일만 원본 데이터로 사용하세요. 이전 대화, 이전 생성 파일, 샘플 데이터, 추정 데이터로 정리본을 만들면 안 됩니다.',
+    '- 현재 첨부 데이터를 읽지 못했으면 결과 파일을 만들지 말고, 어떤 첨부를 읽지 못했는지 먼저 보고하세요.',
     '- 첨부된 엑셀/PDF/CSV/텍스트가 있으면 원본 데이터를 기준으로 거래처·현장·품목·규격·수량·단가·금액·비고를 정리하세요.',
     '- 퍼시스/하츠/나이스텍 같은 거래처 정리 요청은 텍스트 답변으로 표를 길게 쓰지 말고, 반드시 create_excel 도구로 결과 파일을 생성하세요.',
     '- 요청 거래처명과 원본 파일의 거래처명이 달라도 작업을 멈추거나 되묻지 말고, 요청 거래처 기준으로 정리하되 차이는 확인필요 시트/비고에 남기세요.',
@@ -921,6 +923,12 @@ function buildAutoWorkflowHint(prompt, attachments = []) {
 
 function shouldForceFileTool(prompt, attachments = []) {
   return FILE_REQUEST_KEYWORDS.test(String(prompt || '')) || isBusinessCleanupRequest(prompt, attachments);
+}
+
+function isReadFailureExcerpt(text) {
+  const s = String(text || '');
+  return !s.trim()
+    || /읽기 실패|read failed|Cannot read properties of undefined|reading ['"]anchors['"]|not supported on this server/i.test(s);
 }
 
 function buildCliFileOutputHint(prompt, attachments = []) {
@@ -1126,6 +1134,17 @@ router.post('/chat', async (req, res) => {
     }
 
     // 3. 프롬프트 구성 — 이전 대화 컨텍스트 (API messages 배열)
+    for (const a of attachments) {
+      if (!a || a.kind !== 'excel' || !isReadFailureExcerpt(a.text_excerpt)) continue;
+      const fp = path.join(ai.UPLOAD_DIR, a.stored_name || '');
+      if (!fs.existsSync(fp)) continue;
+      try {
+        const refreshed = await extractExcel(fp, a.original_name || a.stored_name || '');
+        if (refreshed && refreshed.trim()) a.text_excerpt = refreshed;
+      } catch (e) {
+        console.warn('[ai/chat] attachment re-extract failed:', a.original_name, e.message);
+      }
+    }
     const prior = ai.threads.recentMessages(thread.id, 8);
 
     // 템플릿
@@ -1141,6 +1160,8 @@ router.post('/chat', async (req, res) => {
     // 첨부 분리 — 이미지(vision 직접 전달) vs 텍스트 첨부(엑셀/PDF/워드 등 추출 텍스트)
     const imageAttachments = attachments.filter(a => a && a.kind === 'image');
     const textAttachments = attachments.filter(a => a && a.kind !== 'image');
+    const sourceBoundAttachmentRun = isBusinessCleanupRequest(prompt, attachments) && textAttachments.length > 0;
+    const unreadableTextAttachments = textAttachments.filter(a => isReadFailureExcerpt(a && a.text_excerpt));
 
     // 텍스트 첨부 (엑셀/PDF/워드 등) — 추출된 텍스트를 prompt 에 prefix
     let attachmentBlock = '';
@@ -1179,15 +1200,26 @@ router.post('/chat', async (req, res) => {
         .map(a => path.join(ai.UPLOAD_DIR, a.stored_name))
         .filter(p => fs.existsSync(p));
     }
+    function getTextAttachmentPathsForCli() {
+      return textAttachments
+        .map(a => ({
+          name: a.original_name,
+          kind: a.kind,
+          path: path.join(ai.UPLOAD_DIR, a.stored_name),
+        }))
+        .filter(a => fs.existsSync(a.path));
+    }
 
     const pageContext = pageContent ? `【참고: 현재 페이지 내용】\n${String(pageContent).slice(0, 200000)}\n\n` : '';
 
     // ── API 용 messages 배열 구성 (이미지 = multimodal blocks) ──
     const apiMessages = [];
-    for (const m of prior) {
-      if (m.role === 'user') apiMessages.push({ role: 'user', content: m.content });
-      else if (m.role === 'ai' && m.status === 'ok' && m.content) {
-        apiMessages.push({ role: 'assistant', content: m.content });
+    if (!sourceBoundAttachmentRun) {
+      for (const m of prior) {
+        if (m.role === 'user') apiMessages.push({ role: 'user', content: m.content });
+        else if (m.role === 'ai' && m.status === 'ok' && m.content) {
+          apiMessages.push({ role: 'assistant', content: m.content });
+        }
       }
     }
     const autoWorkflowHint = buildAutoWorkflowHint(prompt, attachments);
@@ -1205,9 +1237,11 @@ router.post('/chat', async (req, res) => {
 
     // ── CLI fallback 용 fullPrompt — 이미지는 파일 경로로 안내, Read 도구로 읽게 함 ──
     const contextLines = [];
-    for (const m of prior) {
-      if (m.role === 'user') contextLines.push(`[사용자] ${m.content}`);
-      else if (m.role === 'ai' && m.status === 'ok') contextLines.push(`[Claude] ${m.content}`);
+    if (!sourceBoundAttachmentRun) {
+      for (const m of prior) {
+        if (m.role === 'user') contextLines.push(`[사용자] ${m.content}`);
+        else if (m.role === 'ai' && m.status === 'ok') contextLines.push(`[Claude] ${m.content}`);
+      }
     }
     const cliImagePaths = getImagePathsForCli();
     let cliImageBlock = '';
@@ -1215,10 +1249,20 @@ router.post('/chat', async (req, res) => {
       cliImageBlock = '\n\n## 첨부 이미지 (' + cliImagePaths.length + '장) — 모두 Read 도구로 읽고 종합해서 답해주세요\n'
         + cliImagePaths.map((p, i) => `${i + 1}. ${p}`).join('\n') + '\n';
     }
+    const cliTextAttachmentPaths = getTextAttachmentPathsForCli();
+    let cliAttachmentPathBlock = '';
+    if (cliTextAttachmentPaths.length > 0) {
+      cliAttachmentPathBlock = '\n\n## Current source attachment file paths\n'
+        + 'Use only these current attachments as source data. If text extraction failed or looks incomplete, open these files directly. Do not use previous generated data.\n'
+        + cliTextAttachmentPaths.map((a, i) => `${i + 1}. ${a.name || a.kind}: ${a.path}`).join('\n') + '\n';
+    }
     const systemPrefix = DEFAULT_SYSTEM + '\n\n';
     const history = contextLines.length > 0 ? `【이전 대화】\n${contextLines.join('\n')}\n\n` : '';
     const cliFileOutputHint = buildCliFileOutputHint(prompt, attachments);
-    const fullPrompt = systemPrefix + templatePrefix + pageContext + attachmentBlock + autoWorkflowHint + cliFileOutputHint + history + cliImageBlock + `【질문】\n${prompt}`;
+    const fullPrompt = systemPrefix + templatePrefix + pageContext + attachmentBlock + autoWorkflowHint + cliFileOutputHint + history + cliAttachmentPathBlock + cliImageBlock + `【질문】\n${prompt}`;
+    const forceCliForUnreadableSource = sourceBoundAttachmentRun
+      && unreadableTextAttachments.length > 0
+      && cliTextAttachmentPaths.length > 0;
 
     // 4. 사용자 메시지 저장 (Claude 호출 실패해도 남아있게)
     ai.threads.addMessage(thread.id, {
@@ -1241,7 +1285,7 @@ router.post('/chat', async (req, res) => {
     let cliArtifactScanSince = null;
 
     try {
-      if (apiModeAvailable()) {
+      if (apiModeAvailable() && !forceCliForUnreadableSource) {
         backend = 'api';
         // Tool Use 루프: Claude 가 end_turn 까지 도구 반복 호출 가능
         const tools = aiTools.toolsForClaude(req.user.role === 'admin');
@@ -1663,20 +1707,30 @@ router.get('/artifacts/:id/preview', async (req, res) => {
     }
 
     if (a.kind === 'excel') {
-      const ExcelJS = require('exceljs');
-      const wb = new ExcelJS.Workbook();
       const ext = path.extname(a.original_name || a.stored_name).toLowerCase();
-      if (ext === '.csv') {
-        const ws = await wb.csv.readFile(filePath);
-        ws.name = 'CSV';
-      } else {
-        await wb.xlsx.readFile(filePath);
+      try {
+        const ExcelJS = require('exceljs');
+        const wb = new ExcelJS.Workbook();
+        if (ext === '.csv') {
+          const ws = await wb.csv.readFile(filePath);
+          ws.name = 'CSV';
+        } else {
+          await wb.xlsx.readFile(filePath);
+        }
+        const sheets = [];
+        wb.eachSheet((sheet) => {
+          sheets.push({ name: sheet.name, rows: sheetToRows(sheet, 200, 60) });
+        });
+        return res.json({ ok: true, kind: a.kind, sheets });
+      } catch (e) {
+        if (ext === '.xlsx' || ext === '.xlsm') {
+          const sheets = await extractXlsxZipSheets(filePath, 200, 60);
+          if (sheets.length) {
+            return res.json({ ok: true, kind: a.kind, sheets, parser: 'xlsx-zip-fallback', warning: e.message });
+          }
+        }
+        throw e;
       }
-      const sheets = [];
-      wb.eachSheet((sheet) => {
-        sheets.push({ name: sheet.name, rows: sheetToRows(sheet, 200, 60) });
-      });
-      return res.json({ ok: true, kind: a.kind, sheets });
     }
 
     if (['markdown', 'text', 'json', 'csv'].includes(a.kind)) {
@@ -2145,6 +2199,146 @@ function workbookToText(wb) {
   return parts.join('\n\n').slice(0, 1000000);
 }
 
+function decodeXmlText(value) {
+  return String(value || '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/_x([0-9A-Fa-f]{4})_/g, (_, hex) => {
+      try { return String.fromCharCode(parseInt(hex, 16)); } catch (_) { return ''; }
+    });
+}
+
+function xmlAttrs(tag) {
+  const attrs = {};
+  String(tag || '').replace(/([\w:.-]+)="([^"]*)"/g, (_, key, value) => {
+    attrs[key] = decodeXmlText(value);
+    return _;
+  });
+  return attrs;
+}
+
+function columnNameToIndex(ref) {
+  const letters = String(ref || '').match(/[A-Z]+/i);
+  if (!letters) return 1;
+  let n = 0;
+  for (const ch of letters[0].toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return Math.max(1, n);
+}
+
+function normalizeZipPath(baseDir, target) {
+  let t = String(target || '').replace(/\\/g, '/');
+  if (!t) return '';
+  if (t.startsWith('/')) t = t.slice(1);
+  else if (!t.startsWith('xl/')) t = baseDir.replace(/\/?$/, '/') + t;
+  const parts = [];
+  for (const part of t.split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..') parts.pop();
+    else parts.push(part);
+  }
+  return parts.join('/');
+}
+
+async function zipText(zip, name) {
+  const f = zip.file(name);
+  return f ? f.async('string') : '';
+}
+
+function parseSharedStringsXml(xml) {
+  const shared = [];
+  for (const m of String(xml || '').matchAll(/<si\b[\s\S]*?<\/si>/g)) {
+    const si = m[0];
+    const texts = [];
+    for (const tm of si.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)) {
+      texts.push(decodeXmlText(tm[1]));
+    }
+    shared.push(texts.join(''));
+  }
+  return shared;
+}
+
+function parseWorkbookSheets(workbookXml, relsXml) {
+  const rels = {};
+  for (const m of String(relsXml || '').matchAll(/<Relationship\b[^>]*\/?>/g)) {
+    const a = xmlAttrs(m[0]);
+    if (a.Id && a.Target) rels[a.Id] = normalizeZipPath('xl', a.Target);
+  }
+  const sheets = [];
+  for (const m of String(workbookXml || '').matchAll(/<sheet\b[^>]*\/?>/g)) {
+    const a = xmlAttrs(m[0]);
+    const rid = a['r:id'] || a.id || a.Id;
+    const pathName = rels[rid];
+    if (pathName) sheets.push({ name: a.name || `Sheet${sheets.length + 1}`, path: pathName });
+  }
+  return sheets;
+}
+
+function parseWorksheetRows(xml, sharedStrings, limitRows = 1000, limitCols = 80) {
+  const rows = [];
+  for (const rm of String(xml || '').matchAll(/<row\b[^>]*>[\s\S]*?<\/row>/g)) {
+    if (rows.length >= limitRows) break;
+    const vals = [];
+    for (const cm of rm[0].matchAll(/<c\b([^>]*)>[\s\S]*?<\/c>/g)) {
+      const cXml = cm[0];
+      const attrs = xmlAttrs(cm[0]);
+      const col = Math.min(limitCols, columnNameToIndex(attrs.r));
+      if (col < 1 || col > limitCols) continue;
+      let text = '';
+      const inline = cXml.match(/<is\b[\s\S]*?<\/is>/);
+      if (inline) {
+        const pieces = [];
+        for (const tm of inline[0].matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)) pieces.push(decodeXmlText(tm[1]));
+        text = pieces.join('');
+      } else {
+        const vm = cXml.match(/<v\b[^>]*>([\s\S]*?)<\/v>/);
+        const raw = vm ? decodeXmlText(vm[1]) : '';
+        if (attrs.t === 's') text = sharedStrings[parseInt(raw, 10)] || '';
+        else if (attrs.t === 'b') text = raw === '1' ? 'TRUE' : raw === '0' ? 'FALSE' : raw;
+        else text = raw;
+      }
+      vals[col - 1] = text;
+    }
+    for (let i = 0; i < vals.length; i++) if (vals[i] == null) vals[i] = '';
+    while (vals.length && vals[vals.length - 1] === '') vals.pop();
+    if (vals.some(v => v !== '')) rows.push(vals);
+  }
+  return rows;
+}
+
+async function extractXlsxZipSheets(filePath, limitRows = 1000, limitCols = 80) {
+  const JSZip = require('jszip');
+  const zip = await JSZip.loadAsync(fs.readFileSync(filePath));
+  const sharedStrings = parseSharedStringsXml(await zipText(zip, 'xl/sharedStrings.xml'));
+  let sheets = parseWorkbookSheets(
+    await zipText(zip, 'xl/workbook.xml'),
+    await zipText(zip, 'xl/_rels/workbook.xml.rels')
+  );
+  if (!sheets.length) {
+    sheets = Object.keys(zip.files)
+      .filter(name => /^xl\/worksheets\/sheet\d+\.xml$/i.test(name))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      .map((name, i) => ({ name: `Sheet${i + 1}`, path: name }));
+  }
+  const parsed = [];
+  for (const sheet of sheets.slice(0, 30)) {
+    const xml = await zipText(zip, sheet.path);
+    const rows = parseWorksheetRows(xml, sharedStrings, limitRows, limitCols);
+    if (rows.length) parsed.push({ name: sheet.name, rows });
+  }
+  return parsed;
+}
+
+async function extractXlsxZipText(filePath) {
+  const sheets = await extractXlsxZipSheets(filePath, 1000, 80);
+  return sheets
+    .map(sheet => `# ${sheet.name}\n${sheet.rows.map(row => row.join('\t')).join('\n')}`)
+    .join('\n\n')
+    .slice(0, 1000000);
+}
+
 async function extractExcel(filePath, originalName = '') {
   const ext = path.extname(originalName || filePath).toLowerCase();
   try {
@@ -2161,6 +2355,14 @@ async function extractExcel(filePath, originalName = '') {
     await wb.xlsx.readFile(filePath);
     return workbookToText(wb);
   } catch (e) {
+    if (ext === '.xlsx' || ext === '.xlsm') {
+      try {
+        const fallback = await extractXlsxZipText(filePath);
+        if (fallback && fallback.trim()) return fallback;
+      } catch (fallbackErr) {
+        console.warn('[ai/attachments] xlsx zip fallback failed:', fallbackErr.message);
+      }
+    }
     return '[엑셀 읽기 실패: ' + e.message + ']';
   }
 }
