@@ -135,6 +135,13 @@ function artifactMimeFromName(name) {
   }[ext] || 'application/octet-stream';
 }
 
+function stripArtifactFence(content) {
+  let text = String(content == null ? '' : content).replace(/^\uFEFF/, '');
+  const fence = text.match(/^\s*```(?:[a-z0-9_-]+)?\s*\r?\n([\s\S]*?)\r?\n```\s*$/i);
+  if (fence) text = fence[1];
+  return text;
+}
+
 function artifactPayload(a) {
   return {
     id: a.id,
@@ -198,7 +205,11 @@ function registerExistingArtifact(filePath, { ownerId, threadId, messageId = nul
   const originalName = path.basename(resolved);
   const storedName = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}${path.extname(originalName) || '.bin'}`;
   const storedPath = path.join(ai.OUTPUT_DIR, storedName);
-  fs.copyFileSync(resolved, storedPath);
+  if (['.svg', '.html', '.htm', '.md', '.txt', '.json', '.csv'].includes(path.extname(originalName).toLowerCase())) {
+    fs.writeFileSync(storedPath, stripArtifactFence(fs.readFileSync(resolved, 'utf8')), 'utf8');
+  } else {
+    fs.copyFileSync(resolved, storedPath);
+  }
   return ai.artifacts.create({
     ownerId,
     threadId,
@@ -1316,6 +1327,9 @@ router.get('/artifacts/:id/download', (req, res) => {
       const mime = a.mime || mimeFromName(a.original_name) || 'application/octet-stream';
       res.setHeader('Content-Type', mime);
       res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(a.original_name)}"`);
+      if (a.kind === 'svg') {
+        return res.send(stripArtifactFence(fs.readFileSync(filePath, 'utf8')));
+      }
       return res.sendFile(filePath);
     }
     res.download(filePath, a.original_name);
@@ -1333,6 +1347,15 @@ router.get('/artifacts/:id/preview', async (req, res) => {
     }
     const filePath = path.join(ai.OUTPUT_DIR, a.stored_name);
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'file missing' });
+
+    if (a.kind === 'svg') {
+      return res.json({
+        ok: true,
+        kind: a.kind,
+        content: stripArtifactFence(fs.readFileSync(filePath, 'utf8')).slice(0, 1000000),
+        previewUrl: `/api/ai/artifacts/${a.id}/download?inline=1`,
+      });
+    }
 
     if (a.kind === 'excel') {
       const ExcelJS = require('exceljs');

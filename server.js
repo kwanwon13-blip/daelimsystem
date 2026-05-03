@@ -286,6 +286,21 @@ app.use('/api/vendors', require('./routes/vendors'));
 // (vendorPrices/quotes 는 router.use(requireAuth) 라 쿠키 없는 요청은 401 으로 차단)
 app.use('/api', require('./routes/misc'));
 
+// ── 급여 모듈 (vendorPrices 보다 앞으로 이동) ────────────────────────────
+// /api/salary/admin-import 의 control-secret 인증이 도달하도록.
+// SALARY_MODE=proxy → 관리자 PC 데몬으로 프록시 (서버 PC에는 데이터 없음)
+// SALARY_MODE=local → 로컬 DB 직결
+{
+  const SALARY_MODE_EARLY = (process.env.SALARY_MODE || 'local').toLowerCase();
+  if (SALARY_MODE_EARLY === 'proxy') {
+    console.log('[salary] (early mount) 모드: proxy');
+    app.use('/api/salary', require('./routes/salary-proxy'));
+  } else {
+    console.log('[salary] (early mount) 모드: local');
+    app.use('/api/salary', require('./routes/salary'));
+  }
+}
+
 // ── 시안 검색 (routes/design.js) ──
 // vendorPrices/quotes 가 router.use(requireAuth) 쓰는데 /api prefix 로 마운트라서
 // VBS(쿠키없음) 요청이 design.js 에 도달하기 전 401 로 차단됨. 그래서 앞으로 이동.

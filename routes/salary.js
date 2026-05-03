@@ -2131,11 +2131,26 @@ router.delete('/overtime/:userId/:month', requireAdmin, (req, res) => {
 
 // ── 일자별 연장근무 API (엑셀 연장근무 시트 대응) ────────────────────────────
 // GET /api/salary/overtime/daily?company=&month=&userId=
+//   userId 있으면 그 직원 한 명의 일자별
+//   userId 없으면 그 달 전체 직원의 일자별 (엑셀 연장근무 시트 형태)
 router.get('/overtime/daily', (req, res) => {
   const { company, month, userId } = req.query;
-  if (!company || !month || !userId) return res.status(400).json({ error: '파라미터 누락(company,month,userId)' });
-  const rows = salaryDb.overtime.getDetail(userId, company, month).filter(r => r.workDate !== 'TOTAL');
+  if (!company || !month) return res.status(400).json({ error: '파라미터 누락(company,month)' });
+  if (userId) {
+    const rows = salaryDb.overtime.getDetail(userId, company, month).filter(r => r.workDate !== 'TOTAL');
+    return res.json({ daily: rows });
+  }
+  const rows = salaryDb.overtime.getAllDailyByMonth(company, month);
   res.json({ daily: rows });
+});
+
+// DELETE /api/salary/overtime/daily/by-id/:id — 단일 행 삭제 (그리드 행 삭제)
+router.delete('/overtime/daily/by-id/:id', requireAdmin, (req, res) => {
+  try {
+    salaryDb.overtime.deleteById(req.params.id);
+    logSalaryAccess(req.user.userId, 'OVERTIME_DAILY_DELETE_BY_ID', `id=${req.params.id}`);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // POST /api/salary/overtime/daily — 단건 upsert
@@ -2335,6 +2350,75 @@ router.get('/paystatus', (req, res) => {
   data.employees.sort((a,b) => (a.name||'').localeCompare(b.name||'', 'ko'));
   logSalaryAccess(req.user.userId, 'VIEW', `지급현황 조회 ${company} ${year}`);
   res.json(data);
+});
+
+// ======================================================================
+// Admin bypass - control-daemon secret 인증 (sandbox/자동화 용)
+// ======================================================================
+// POST /api/salary/admin-import
+// header: x-control-secret = .env CONTROL_DAEMON_SECRET
+// body: {
+//   companyId, yearMonth,
+//   labelUpdates: { extraPay1Name: '특근비', ... },
+//   overtimeDaily: [{ userId, workDate, overtimeH, nightH, holidayH, holidayOtH, memo }],
+//   recordUpdates: [{ userId, fields: { extraPay1, bonusPay, ... } }],
+//   triggerCalculate: true
+// }
+router.post('/admin-import', express.json({ limit: '1mb' }), async (req, res) => {
+  const ctrl = req.headers['x-control-secret'];
+  const expected = process.env.CONTROL_DAEMON_SECRET;
+  if (!ctrl || !expected || ctrl !== expected) {
+    return res.status(401).json({ error: 'Invalid secret' });
+  }
+  try {
+    const { companyId, yearMonth, labelUpdates, overtimeDaily, recordUpdates, triggerCalculate } = req.body || {};
+    if (!companyId || !yearMonth) return res.status(400).json({ error: 'companyId, yearMonth required' });
+
+    const summary = { labelUpdates: 0, overtimeDaily: 0, recordUpdates: 0, errors: [] };
+
+    if (labelUpdates && typeof labelUpdates === 'object' && Object.keys(labelUpdates).length) {
+      try { salaryDb.itemLabels.upsert(companyId, yearMonth, labelUpdates); summary.labelUpdates = Object.keys(labelUpdates).length; }
+      catch(e) { summary.errors.push({ step: 'labels', error: e.message }); }
+    }
+
+    if (Array.isArray(overtimeDaily) && overtimeDaily.length) {
+      try {
+        const rows = overtimeDaily.map(o => ({
+          userId: o.userId, companyId, yearMonth, workDate: o.workDate,
+          overtimeH: +(o.overtimeH || 0), nightH: +(o.nightH || 0),
+          holidayH: +(o.holidayH || 0), holidayOtH: +(o.holidayOtH || 0),
+          memo: o.memo || ''
+        }));
+        salaryDb.overtime.bulkUpsertDaily(rows);
+        summary.overtimeDaily = rows.length;
+      } catch(e) { summary.errors.push({ step: 'overtimeDaily', error: e.message }); }
+    }
+
+    if (Array.isArray(recordUpdates) && recordUpdates.length) {
+      for (const u of recordUpdates) {
+        try {
+          const rec = salaryDb.records.getOne(u.userId, companyId, yearMonth);
+          if (!rec) { summary.errors.push({ step: 'recordUpdate', userId: u.userId, error: 'record not found' }); continue; }
+          if (rec.status !== 'draft') { summary.errors.push({ step: 'recordUpdate', userId: u.userId, error: 'status=' + rec.status }); continue; }
+          salaryDb.records.update(rec.id, u.fields || {});
+          summary.recordUpdates++;
+        } catch(e) {
+          summary.errors.push({ step: 'recordUpdate', userId: u.userId, error: e.message });
+        }
+      }
+    }
+
+    if (triggerCalculate) {
+      summary.calculated = 0;
+      summary.note = 'ERP 화면에서 [⚡ 전체 자동계산] 버튼으로 실행해주세요';
+    }
+
+    console.log(`[ADMIN-IMPORT] ${companyId} ${yearMonth} — 라벨${summary.labelUpdates} 연장${summary.overtimeDaily} 레코드${summary.recordUpdates} 에러${summary.errors.length}`);
+    res.json({ ok: true, summary });
+  } catch (e) {
+    console.error('[ADMIN-IMPORT ERROR]', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 module.exports = router;

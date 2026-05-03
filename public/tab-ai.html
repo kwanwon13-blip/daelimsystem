@@ -153,6 +153,9 @@
   .ai-artifact-icon { font-size:22px; flex-shrink:0; }
   .ai-artifact-body { flex:1; min-width:0; }
   .ai-artifact-name { font-size:13px; font-weight:600; color:#1f2937; word-break:break-all; }
+  .ai-svg-thumb { background:#fff; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden; margin-bottom:6px; cursor:pointer; min-height:120px; display:flex; align-items:center; justify-content:center; }
+  .ai-svg-thumb img { width:100%; max-height:360px; display:block; object-fit:contain; background:#fff; }
+  .ai-svg-thumb.load-error::before { content:'SVG 미리보기를 열 수 없습니다. 클릭해서 패널에서 확인하세요.'; color:#9ca3af; font-size:12px; padding:24px; text-align:center; }
   /* 엑셀 미리보기 (SheetJS sheet_to_html 결과) */
   .xlsx-preview table { border-collapse:collapse; width:100%; font-size:11.5px; }
   .xlsx-preview th, .xlsx-preview td { border:1px solid #e5e7eb; padding:4px 8px; min-width:60px; vertical-align:top; }
@@ -160,6 +163,22 @@
   .xlsx-preview td:empty::before { content:'\00a0'; }
   .ai-artifact-meta { font-size:10px; color:#9ca3af; margin-top:2px; }
   .ai-artifact-dl { font-size:16px; color:#4f6ef7; flex-shrink:0; text-decoration:none; }
+  .ai-preview-backdrop { position:fixed; inset:0; z-index:1000; background:rgba(15,23,42,0.18); display:flex; justify-content:flex-end; }
+  .ai-preview-panel { width:min(720px, 42vw); min-width:520px; height:100%; background:#fff; box-shadow:-18px 0 38px rgba(15,23,42,.18); display:flex; flex-direction:column; border-left:1px solid #e5e7eb; }
+  .ai-preview-head { height:56px; padding:10px 14px; border-bottom:1px solid #e5e7eb; display:flex; align-items:center; gap:10px; flex-shrink:0; }
+  .ai-preview-title { flex:1; min-width:0; }
+  .ai-preview-title .name { font-size:13px; font-weight:700; color:#1f2937; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ai-preview-title .meta { font-size:10.5px; color:#9ca3af; margin-top:2px; }
+  .ai-preview-action { padding:6px 10px; border-radius:6px; border:1px solid #dbe2f0; background:#fff; color:#4f6ef7; font-size:12px; font-weight:600; text-decoration:none; cursor:pointer; }
+  .ai-preview-action.primary { background:#4f6ef7; color:#fff; border-color:#4f6ef7; }
+  .ai-preview-close { width:32px; height:32px; border:0; background:#f3f4f6; color:#6b7280; border-radius:6px; cursor:pointer; font-size:18px; display:flex; align-items:center; justify-content:center; }
+  .ai-preview-body { flex:1; min-height:0; overflow:auto; background:#f8fafc; }
+  .ai-preview-canvas { min-height:100%; padding:18px; display:flex; align-items:center; justify-content:center; }
+  .ai-preview-canvas img { max-width:100%; max-height:calc(100vh - 110px); object-fit:contain; background:#fff; border:1px solid #e5e7eb; border-radius:8px; box-shadow:0 1px 5px rgba(15,23,42,.06); }
+  .ai-preview-error { max-width:420px; color:#6b7280; font-size:13px; line-height:1.55; text-align:center; background:#fff; border:1px dashed #cbd5e1; border-radius:8px; padding:22px; }
+  @media (max-width: 980px) {
+    .ai-preview-panel { width:100vw; min-width:0; }
+  }
   /* 모델 선택 드롭다운 */
   .ai-model-picker { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; background:#fff; border:1px solid #e5e7eb; border-radius:20px; cursor:pointer; font-size:11px; color:#4b5563; user-select:none; }
   .ai-model-picker:hover { background:#f9fafb; border-color:#4f6ef7; }
@@ -624,7 +643,7 @@
     <div class="ai-side-head">
       <div class="ai-side-title">
         <span style="color:#4f6ef7;">🤖</span> AI 챗
-      </div>
+      </section>
       <button class="ai-new-btn" @click="startNewThread()">
         <span>+</span> 새 대화
       </button>
@@ -874,8 +893,8 @@
                       <div>
                         <!-- SVG 인라인 미리보기 (바로 렌더링) -->
                         <template x-if="a.kind === 'svg'">
-                          <div style="background:#fff; border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; margin-bottom:6px;">
-                            <object :data="artifactPreviewUrl(a)" type="image/svg+xml" style="width:100%; max-height:500px; display:block;" @click="openArtifactModal(a)" :style="'cursor:zoom-in;'"></object>
+                          <div class="ai-svg-thumb" @click="openArtifactModal(a)">
+                            <img :src="artifactPreviewUrl(a)" :alt="a.name || 'SVG preview'" @error="$event.currentTarget.parentElement.classList.add('load-error'); $event.currentTarget.style.display='none';">
                           </div>
                         </template>
                         <!-- HTML 인라인 미리보기 (iframe) -->
@@ -1053,25 +1072,35 @@
 
   <!-- Artifact 미리보기 모달 (SVG/HTML/MD/JSON/CSV/TXT 큰 화면) -->
   <template x-if="artifactModal">
-    <div style="position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:1000; display:flex; align-items:center; justify-content:center; padding:20px;" @click.self="closeArtifactModal()">
-      <div style="background:#fff; border-radius:12px; max-width:1100px; width:100%; max-height:95vh; display:flex; flex-direction:column; overflow:hidden;">
+    <div class="ai-preview-backdrop" @click.self="closeArtifactModal()">
+      <section class="ai-preview-panel">
         <!-- 헤더 -->
-        <div style="display:flex; align-items:center; gap:10px; padding:14px 18px; border-bottom:1px solid #e5e7eb;">
+        <div class="ai-preview-head">
           <span style="font-size:20px;" x-text="artifactIcon(artifactModal.kind)"></span>
-          <div style="flex:1; min-width:0;">
-            <div style="font-weight:600; font-size:14px; color:#1f2937;" x-text="artifactModal.name"></div>
-            <div style="font-size:11px; color:#9ca3af;">
+          <div class="ai-preview-title">
+            <div class="name" x-text="artifactModal.name"></div>
+            <div class="meta">
               <span x-text="(artifactModal.kind||'').toUpperCase()"></span>
               <span x-show="artifactModal.size" x-text="' · ' + formatSize(artifactModal.size)"></span>
             </div>
           </div>
-          <a :href="artifactModal.url" target="_blank" download style="padding:6px 12px; background:#4f6ef7; color:#fff; border-radius:6px; font-size:12px; text-decoration:none;">⬇ 다운로드</a>
-          <button @click="closeArtifactModal()" style="background:none; border:0; font-size:22px; cursor:pointer; color:#6b7280;">✕</button>
+          <a :href="artifactPreviewUrl(artifactModal)" target="_blank" class="ai-preview-action">새 탭</a>
+          <a :href="artifactModal.url" download class="ai-preview-action primary">다운로드</a>
+          <button @click="closeArtifactModal()" class="ai-preview-close">×</button>
         </div>
         <!-- 본문 (kind 별 렌더링) -->
-        <div style="flex:1; overflow:auto; background:#f9fafb;">
+        <div class="ai-preview-body">
           <template x-if="artifactModal.kind==='svg'">
-            <object :data="artifactPreviewUrl(artifactModal)" type="image/svg+xml" style="width:100%; height:80vh; display:block;"></object>
+            <div class="ai-preview-canvas">
+              <img x-show="!artifactModal.svgError"
+                :src="artifactModal.svgDataUrl || artifactPreviewUrl(artifactModal)"
+                :alt="artifactModal.name || 'SVG preview'"
+                @error="artifactModal.svgError = true">
+              <div class="ai-preview-error" x-show="artifactModal.svgError">
+                SVG를 이미지로 바로 렌더링하지 못했습니다.<br>
+                다운로드하거나 새 탭으로 열어 확인해주세요.
+              </div>
+            </div>
           </template>
           <template x-if="artifactModal.kind==='html'">
             <iframe :src="artifactPreviewUrl(artifactModal)" sandbox="allow-same-origin" style="width:100%; height:80vh; border:0;"></iframe>

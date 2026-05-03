@@ -982,6 +982,19 @@ const overtime = {
   deleteDaily(userId, companyId, yearMonth, workDate) {
     db.prepare('DELETE FROM salary_overtime WHERE userId=? AND companyId=? AND yearMonth=? AND workDate=?')
       .run(userId, companyId, yearMonth, workDate);
+  },
+  // 그 달 전체 직원의 일자별 (TOTAL 제외) — 엑셀 연장근무 시트와 동일 형태
+  getAllDailyByMonth(companyId, yearMonth) {
+    return db.prepare(`
+      SELECT id, userId, companyId, yearMonth, workDate, overtimeH, nightH, holidayH, holidayOtH, memo, updatedAt
+      FROM salary_overtime
+      WHERE companyId=? AND yearMonth=? AND workDate != 'TOTAL'
+      ORDER BY workDate, userId
+    `).all(companyId, yearMonth);
+  },
+  // 단일 행 삭제 (id 기반 — 그리드 행 삭제용)
+  deleteById(id) {
+    db.prepare('DELETE FROM salary_overtime WHERE id=?').run(id);
   }
 };
 
@@ -999,11 +1012,14 @@ function getPayStatus(companyId, year) {
   // userId별 그룹핑
   const byUser = {};
   rows.forEach(r => {
-    if (!byUser[r.userId]) byUser[r.userId] = { userId: r.userId, months: {} };
-    byUser[r.userId].months[r.yearMonth] = { grossPay: r.grossPay, totalDeductions: r.totalDeductions, netPay: r.netPay, status: r.status };
+    if (!byUser[r.userId]) byUser[r.userId] = { userId: r.userId, months: {} }
+    byUser[r.userId].months[r.yearMonth] = {
+      grossPay: r.grossPay || 0, totalDeductions: r.totalDeductions || 0,
+      netPay: r.netPay || 0, status: r.status || 'draft'
+    };
   });
 
-  // configs에서 이름 정보
+  // 이름 채우기
   const cfgs = db.prepare('SELECT userId, name FROM salary_configs WHERE companyId=? GROUP BY userId').all(companyId);
   cfgs.forEach(c => { if (byUser[c.userId]) byUser[c.userId].name = c.name; });
 
