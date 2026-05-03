@@ -312,6 +312,9 @@ app.use('/api/product-design', require('./routes/product-design'));
 // ── 디자이너 시안 작성기 — 표준 코드 CSV + 엑셀 출력 (routes/design-codes.js) ──
 app.use('/api/design-codes', require('./routes/design-codes'));
 
+// ── 시안 매칭 검수 — 미매칭 케이스 + 슬라이드 이미지 (routes/match-review.js) ──
+app.use('/api/match-review', require('./routes/match-review'));
+
 // ── 홈 화면 매일 연동/검수 대기 위젯 (routes/sync-status.js) ──
 app.use('/api/sync-status', require('./routes/sync-status'));
 

@@ -1,0 +1,202 @@
+<!-- tab-match-review.html — 시안 매칭 검수 (미매칭/매칭 케이스 + 슬라이드 이미지) -->
+<div x-data="matchReviewApp()" x-init="init()" class="p-6">
+  <style>
+    .mr-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:16px 18px; margin-bottom:14px; }
+    .mr-h { font-size:14px; font-weight:700; color:#1a1d23; display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+    .mr-summary { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px; }
+    .mr-summary .stat { background:#f8f9fb; border-radius:8px; padding:10px 14px; }
+    .mr-summary .stat .label { font-size:11.5px; color:#6b7280; }
+    .mr-summary .stat .value { font-size:20px; font-weight:700; color:#1a1d23; margin-top:3px; }
+    .mr-filter { display:flex; flex-wrap:wrap; gap:6px; margin:10px 0; }
+    .mr-chip { background:#fff; border:1px solid #d1d5db; border-radius:20px; padding:5px 12px; font-size:12px; cursor:pointer; }
+    .mr-chip.active { background:#4f6ef7; color:#fff; border-color:#4f6ef7; }
+    .mr-chip .cnt { color:#9ca3af; margin-left:4px; }
+    .mr-chip.active .cnt { color:#dbeafe; }
+    .mr-list { display:grid; grid-template-columns:1fr; gap:12px; }
+    .mr-item { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:0; overflow:hidden; }
+    .mr-item.unmatched { border-left:3px solid #ef4444; }
+    .mr-item.matched { border-left:3px solid #16a34a; }
+    .mr-item.decided-ignore { background:#f9fafb; opacity:0.6; }
+    .mr-item.decided-check { border-left-color:#f59e0b; }
+    .mr-row { display:grid; grid-template-columns:200px 1fr; gap:12px; }
+    .mr-img-wrap { background:#f8f9fb; padding:8px; }
+    .mr-img-wrap img { max-width:100%; max-height:140px; cursor:pointer; border-radius:4px; transition:all .15s; }
+    .mr-img-wrap img:hover { transform:scale(1.02); box-shadow:0 4px 12px rgba(0,0,0,0.1); }
+    .mr-img-zoom { position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:9999; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+    .mr-img-zoom img { max-width:90vw; max-height:90vh; }
+    .mr-detail { padding:12px 14px; }
+    .mr-meta { font-size:11px; color:#9ca3af; margin-bottom:6px; }
+    .mr-frag { font-size:12.5px; color:#374151; margin-bottom:8px; line-height:1.5; word-break:break-all; }
+    .mr-extracted { display:flex; flex-wrap:wrap; gap:5px; font-size:11.5px; margin-bottom:8px; }
+    .mr-extracted .tag { background:#eef2ff; color:#3730a3; padding:2px 8px; border-radius:99px; }
+    .mr-matched-row { background:#f0fdf4; border:1px solid #bbf7d0; border-radius:6px; padding:8px 10px; font-size:12px; }
+    .mr-fail { background:#fef2f2; border:1px solid #fecaca; border-radius:6px; padding:6px 10px; font-size:12px; color:#991b1b; }
+    .mr-actions { display:flex; gap:6px; margin-top:10px; align-items:center; }
+    .mr-btn { padding:5px 12px; border-radius:6px; font-size:11.5px; font-weight:600; cursor:pointer; border:1px solid #d1d5db; background:#fff; }
+    .mr-btn.active-check { background:#fef3c7; color:#92400e; border-color:#fde68a; }
+    .mr-btn.active-ignore { background:#e5e7eb; color:#6b7280; }
+    .mr-btn.active-missing { background:#fee2e2; color:#991b1b; border-color:#fecaca; }
+    .mr-memo { flex:1; padding:5px 10px; border:1px solid #e5e7eb; border-radius:6px; font-size:11.5px; }
+  </style>
+
+  <!-- 헤더 + 요약 -->
+  <div class="mr-card">
+    <div class="mr-h">
+      <span style="font-size:18px;">🔍</span>
+      <span>시안 매칭 검수</span>
+      <button @click="load(true)" class="mr-btn" style="margin-left:auto;">새로고침</button>
+    </div>
+    <p style="color:#6b7280; font-size:12px; margin-bottom:12px;">
+      OCR 자동매칭 결과를 검수하고 매출 누락/시안 아님 등 표시. 무시한 항목은 매칭률 계산에서 제외.
+    </p>
+    <div class="mr-summary">
+      <div class="stat"><div class="label">전체 추출</div><div class="value" x-text="summary.total"></div></div>
+      <div class="stat"><div class="label">매칭 ✓</div><div class="value" style="color:#16a34a;" x-text="summary.matched"></div></div>
+      <div class="stat"><div class="label">미매칭 ✗</div><div class="value" style="color:#ef4444;" x-text="summary.unmatched"></div></div>
+      <div class="stat"><div class="label">매칭률</div><div class="value" x-text="(summary.matchRate||0)+'%'"></div></div>
+    </div>
+  </div>
+
+  <!-- 필터 chip -->
+  <div class="mr-card">
+    <div class="mr-filter">
+      <span class="mr-chip" :class="{active: filter==='all'}" @click="filter='all'">전체 <span class="cnt" x-text="items.length"></span></span>
+      <span class="mr-chip" :class="{active: filter==='unmatched'}" @click="filter='unmatched'">미매칭 <span class="cnt" x-text="items.filter(i=>!i.matched).length"></span></span>
+      <span class="mr-chip" :class="{active: filter==='matched'}" @click="filter='matched'">매칭됨 <span class="cnt" x-text="items.filter(i=>i.matched).length"></span></span>
+      <template x-for="(n, kind) in summary.byKind" :key="kind">
+        <span class="mr-chip" :class="{active: filter===kind}" @click="filter=kind">
+          <span x-text="kind"></span> <span class="cnt" x-text="n"></span>
+        </span>
+      </template>
+    </div>
+    <div style="margin-top:6px; font-size:11.5px; color:#6b7280;">
+      필터: <strong x-text="filter"></strong> · 표시 <span x-text="filtered.length"></span>건
+    </div>
+  </div>
+
+  <!-- 목록 -->
+  <div class="mr-list">
+    <template x-for="it in filtered.slice(0, displayLimit)" :key="it.key">
+      <div class="mr-item"
+           :class="{
+             unmatched: !it.matched,
+             matched: !!it.matched,
+             ['decided-' + (it.decision?.decision || '')]: it.decision
+           }">
+        <div class="mr-row">
+          <div class="mr-img-wrap">
+            <img :src="it.imageUrl" @click="zoomImg=it.imageUrl" alt="slide">
+          </div>
+          <div class="mr-detail">
+            <div class="mr-meta">
+              <span x-text="it.date"></span> · <span x-text="it.pptxCat"></span> · <span x-text="it.slide"></span>
+              <template x-if="it.site">
+                · <span style="color:#4f6ef7;">📍 <span x-text="it.site"></span></span>
+              </template>
+              <template x-if="it.failureKind">
+                · <span style="color:#dc2626; font-weight:600;" x-text="it.failureKind"></span>
+              </template>
+            </div>
+            <div class="mr-frag" x-text="'OCR: ' + it.ocrFragment"></div>
+            <div class="mr-extracted">
+              <template x-if="it.extractedSpec"><span class="tag" x-text="'사이즈: ' + it.extractedSpec"></span></template>
+              <template x-for="m in it.extractedMaterials" :key="m"><span class="tag" x-text="m"></span></template>
+              <template x-if="it.extractedQty"><span class="tag" x-text="'수량: ' + it.extractedQty"></span></template>
+            </div>
+            <template x-if="it.matched">
+              <div class="mr-matched-row">
+                ✓ <strong x-text="it.matched.item"></strong> /
+                <span x-text="it.matched.spec"></span> /
+                수량 <span x-text="it.matched.qty"></span>
+                <template x-if="it.matched.price">· 단가 <span x-text="it.matched.price.toLocaleString()"></span>원</template>
+                <template x-if="it.matched.memoDetail">· 비고: <span x-text="it.matched.memoDetail"></span></template>
+                <span style="color:#9ca3af; font-size:11px; margin-left:6px;" x-text="'(' + it.reason + ')'"></span>
+              </div>
+            </template>
+            <template x-if="!it.matched">
+              <div class="mr-fail">✗ <span x-text="it.reason"></span></div>
+            </template>
+            <div class="mr-actions">
+              <button class="mr-btn"
+                      :class="{'active-check': it.decision?.decision === 'check'}"
+                      @click="decide(it, 'check')">✓ 체크</button>
+              <button class="mr-btn"
+                      :class="{'active-ignore': it.decision?.decision === 'ignore'}"
+                      @click="decide(it, 'ignore')">— 무시</button>
+              <button class="mr-btn"
+                      :class="{'active-missing': it.decision?.decision === 'missing'}"
+                      @click="decide(it, 'missing')">⚠ 매출누락</button>
+              <input class="mr-memo" type="text" placeholder="메모..."
+                     :value="it.decision?.memo || ''"
+                     @change="decide(it, it.decision?.decision || 'check', $event.target.value)">
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+    <div x-show="filtered.length > displayLimit" style="text-align:center; padding:14px;">
+      <button @click="displayLimit += 30" class="mr-btn">+30 더 보기</button>
+    </div>
+    <div x-show="filtered.length === 0" style="text-align:center; padding:24px; color:#9ca3af;">
+      해당 필터에 결과 없음
+    </div>
+  </div>
+
+  <!-- 이미지 줌 -->
+  <div class="mr-img-zoom" x-show="zoomImg" @click="zoomImg=''" x-cloak>
+    <img :src="zoomImg" alt="zoom">
+  </div>
+</div>
+
+<script>
+function matchReviewApp() {
+  return {
+    items: [],
+    summary: { total: 0, matched: 0, unmatched: 0, matchRate: 0, byKind: {} },
+    filter: 'unmatched',
+    displayLimit: 30,
+    zoomImg: '',
+
+    get filtered() {
+      if (this.filter === 'all') return this.items;
+      if (this.filter === 'matched') return this.items.filter(i => i.matched);
+      if (this.filter === 'unmatched') return this.items.filter(i => !i.matched);
+      return this.items.filter(i => !i.matched && i.failureKind === this.filter);
+    },
+
+    async init() {
+      await this.load();
+    },
+
+    async load(force) {
+      try {
+        const r = await fetch('/api/match-review/list', { credentials: 'include' });
+        const j = await r.json();
+        if (j.ok) {
+          this.items = j.items || [];
+          this.summary = j.summary || this.summary;
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    },
+
+    async decide(it, decision, memo) {
+      try {
+        const r = await fetch('/api/match-review/decision', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ key: it.key, decision, memo: memo ?? it.decision?.memo ?? '' }),
+        });
+        const j = await r.json();
+        if (j.ok) {
+          it.decision = { decision, memo: memo ?? it.decision?.memo ?? '', at: Date.now() };
+        }
+      } catch (e) {
+        alert('저장 실패: ' + e.message);
+      }
+    },
+  };
+}
+</script>

@@ -643,7 +643,7 @@
     <div class="ai-side-head">
       <div class="ai-side-title">
         <span style="color:#4f6ef7;">🤖</span> AI 챗
-      </section>
+      </div>
       <button class="ai-new-btn" @click="startNewThread()">
         <span>+</span> 새 대화
       </button>
@@ -1135,7 +1135,7 @@
             </div>
           </template>
         </div>
-      </div>
+      </section>
     </div>
   </template>
 
@@ -1766,9 +1766,9 @@ function aiApp() {
 
     artifactModal: null,  // { url, name, kind, content, sheets, activeSheet }
     async openArtifactModal(a) {
-      this.artifactModal = { ...a, content: '', loading: true, sheets: [], activeSheet: 0, html: '' };
+      this.artifactModal = { ...a, content: '', loading: true, sheets: [], activeSheet: 0, html: '', svgDataUrl: '', svgError: false };
       try {
-        if (['markdown', 'text', 'json', 'csv', 'excel'].includes(a.kind)) {
+        if (['markdown', 'text', 'json', 'csv', 'excel', 'svg'].includes(a.kind)) {
           const d = await fetch(this.artifactPreviewApiUrl(a)).then(r => r.json());
           if (!d.ok) throw new Error(d.error || 'preview failed');
           if (a.kind === 'excel') {
@@ -1777,6 +1777,13 @@ function aiApp() {
               html: this.sheetRowsToHtml(s.rows || []),
             }));
             this.artifactModal.activeSheet = 0;
+          } else if (a.kind === 'svg') {
+            this.artifactModal.content = d.content || '';
+            if (this.artifactModal.content.trim()) {
+              this.artifactModal.svgDataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(this.artifactModal.content);
+            } else {
+              this.artifactModal.svgDataUrl = d.previewUrl || this.artifactPreviewUrl(a);
+            }
           } else {
             this.artifactModal.content = d.content || '';
           }

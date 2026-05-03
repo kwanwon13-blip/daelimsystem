@@ -43,8 +43,14 @@ function normalizeIp(raw) {
   return raw;
 }
 
-// ── 1차 게이트: 관리자 PC IP 여부 ──────────────────────────
+// ── 1차 게이트: 관리자 PC IP 여부 (control-secret 으로 우회 가능) ──────
 router.use((req, res, next) => {
+  // control-daemon secret 인증된 요청은 IP 체크 통과 (sandbox/자동화 호출용)
+  const ctrlSecret = req.headers['x-control-secret'];
+  const expectedCtrl = process.env.CONTROL_DAEMON_SECRET;
+  if (ctrlSecret && expectedCtrl && ctrlSecret === expectedCtrl) {
+    return next();
+  }
   const clientIp = normalizeIp(req.ip || req.socket?.remoteAddress || '');
   // X-Forwarded-For가 설정되어 있어도 신뢰하지 않음 (trust proxy 미설정)
   if (clientIp !== SOURCE_IP) {

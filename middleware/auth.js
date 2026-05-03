@@ -179,6 +179,17 @@ function requireAdmin(req, res, next) {
  *   (헤더 1차 검증은 salary-daemon.js 진입 미들웨어에서 수행)
  */
 function requireSalaryAccess(req, res, next) {
+  // ── control-daemon secret bypass — sandbox/자동화 호출 (admin-import 등) ──
+  // x-control-secret 헤더가 .env CONTROL_DAEMON_SECRET 와 일치하면 인증 통과
+  // 이건 LAN 안에서만 도달 가능하고 secret 보안에 의존하므로 안전함
+  const ctrlSecret = req.headers['x-control-secret'];
+  const expectedCtrl = process.env.CONTROL_DAEMON_SECRET;
+  if (ctrlSecret && expectedCtrl && ctrlSecret === expectedCtrl) {
+    req.user = { userId: 'control-daemon', name: 'AUTO', role: 'admin', permissions: [] };
+    req.sessionToken = 'control-daemon-bypass';
+    return next();
+  }
+
   // ── 데몬 모드: 프록시 헤더로부터 req.user 재구성 ──
   if (process.env.SALARY_DAEMON_MODE === '1') {
     const userId = req.headers['x-proxy-user-id'];
@@ -291,14 +302,14 @@ function getReqUser(req) {
   if (req.user) return req.user.userId || req.user.name || '알수없음';
   const cookies = parseCookies(req);
   const token = cookies.session_token || req.headers['x-session-token'];
-  if (token && sessions[token]) return sessions[token].userId;
-  return '비로그인';
+  if (token && sessions[token]) return sessions[token].userId || sessions[token].name || '알수없음';
+  return '알수없음';
 }
 
 module.exports = {
   // 세션
   sessions,
-  salarySessions,
+  generateSessionToken,
   // 쿠키
   parseCookies,
   // 비밀번호
