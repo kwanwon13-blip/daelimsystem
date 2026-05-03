@@ -58,6 +58,17 @@ const IMAGE_DAILY_LIMIT_ADMIN = parseInt(process.env.AI_IMAGE_DAILY_LIMIT_ADMIN 
 // 레거시 호환 (텍스트 한도 — 이제 사용 안 함, 무제한)
 const DAILY_REQUEST_LIMIT_EMPLOYEE = parseInt(process.env.AI_DAILY_LIMIT_EMPLOYEE || '100', 10);
 const DAILY_REQUEST_LIMIT_ADMIN = parseInt(process.env.AI_DAILY_LIMIT_ADMIN || '500', 10);
+const AI_CLI_TIMEOUT_MS = parseInt(process.env.AI_CLI_TIMEOUT_MS || String(10 * 60 * 1000), 10);
+
+function createAbortError(message = 'request aborted') {
+  const err = new Error(message);
+  err.name = 'AbortError';
+  return err;
+}
+
+function throwIfAborted(signal) {
+  if (signal && signal.aborted) throw createAbortError();
+}
 
 // ──────────────────────────────────────────────────────────
 // 모든 라우트 인증 필수
@@ -900,6 +911,8 @@ function buildAutoWorkflowHint(prompt, attachments = []) {
     '이 요청은 거래처 자료 정리/마감 업무입니다.',
     '- 첨부된 엑셀/PDF/CSV/텍스트가 있으면 원본 데이터를 기준으로 거래처·현장·품목·규격·수량·단가·금액·비고를 정리하세요.',
     '- 퍼시스/하츠/나이스텍 같은 거래처 정리 요청은 텍스트 답변으로 표를 길게 쓰지 말고, 반드시 create_excel 도구로 결과 파일을 생성하세요.',
+    '- 요청 거래처명과 원본 파일의 거래처명이 달라도 작업을 멈추거나 되묻지 말고, 요청 거래처 기준으로 정리하되 차이는 확인필요 시트/비고에 남기세요.',
+    '- 월/업체/양식이 애매해도 가능한 범위의 정리본을 먼저 만들고, 부족한 점은 확인필요 시트에 따로 적으세요.',
     '- 원본에서 판단이 어려운 항목은 누락하지 말고 "확인필요" 시트나 비고 컬럼에 남기세요.',
     '- 시트는 가능하면 "정리본", "확인필요", "요약" 순서로 구성하세요.',
     '',
@@ -933,6 +946,7 @@ function buildCliFileOutputHint(prompt, attachments = []) {
  * @returns {Promise<{text, durationMs, usage, stopReason, toolUses, raw}>}
  */
 async function callClaudeApi(messages, options = {}) {
+  throwIfAborted(options.signal);
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY 미설정 — .env 파일에 키를 추가하세요');
 
@@ -964,6 +978,7 @@ async function callClaudeApi(messages, options = {}) {
         'anthropic-version': '2023-06-01',
         'content-type': 'application/json',
       },
+      signal: options.signal,
       body: JSON.stringify(body),
     });
   } catch (e) {
@@ -999,7 +1014,7 @@ async function callClaudeApi(messages, options = {}) {
 // CLI fallback (API 키 없을 때만 사용)
 // ⚠ Claude CLI 는 cwd 기반으로 프로젝트 잠금 → 같은 cwd 에서 동시 spawn 시 직렬화됨.
 // 호출별 고유 임시 폴더로 격리해야 진짜 병렬 동작.
-function runClaudeCli(prompt) {
+function runClaudeCli(prompt, options = {}) {
   return new Promise((resolve, reject) => {
     const { spawn } = require('child_process');
     const os = require('os');
@@ -1008,6 +1023,11 @@ function runClaudeCli(prompt) {
     const tmpDir = path.join(os.tmpdir(), 'claude-chat-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex'));
     try { fs.mkdirSync(tmpDir, { recursive: true }); } catch (_) {}
     const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {} };
+    const signal = options.signal;
+    if (signal && signal.aborted) {
+      cleanup();
+      return reject(createAbortError());
+    }
 
     // --add-dir: 격리 cwd 라도 ERP 의 .claude/skills/ 인식하게
     // --model: 모든 답을 Opus 로
@@ -1025,21 +1045,39 @@ function runClaudeCli(prompt) {
       windowsHide: true,
     });
     let out = '', err = '';
-    const timer = setTimeout(() => {
+    let done = false;
+    let timer = null;
+    const abort = () => {
+      if (done) return;
+      done = true;
+      if (timer) clearTimeout(timer);
       try { child.kill('SIGTERM'); } catch(_) {}
       cleanup();
-      reject(new Error('timeout'));
-    }, 120000);
+      reject(createAbortError());
+    };
+    if (signal) signal.addEventListener('abort', abort, { once: true });
+    const finish = (fn) => {
+      if (done) return;
+      done = true;
+      if (timer) clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', abort);
+      cleanup();
+      fn();
+    };
+    timer = setTimeout(() => {
+      try { child.kill('SIGTERM'); } catch(_) {}
+      finish(() => reject(new Error(`Claude CLI timeout after ${Math.round(AI_CLI_TIMEOUT_MS / 60000)} minutes. Large Excel cleanup jobs may need more time or smaller source files.`)));
+    }, AI_CLI_TIMEOUT_MS);
     child.stdout.on('data', d => { out += d.toString('utf8'); });
     child.stderr.on('data', d => { err += d.toString('utf8'); });
-    child.on('error', e => { clearTimeout(timer); cleanup(); reject(e); });
+    child.on('error', e => finish(() => reject(e)));
     child.on('close', code => {
-      clearTimeout(timer);
-      cleanup();
-      if (code !== 0) {
-        return reject(new Error((err || '').trim() || `claude exit ${code}`));
-      }
-      resolve({ text: (out || '').trim(), durationMs: Date.now() - started, usage: null });
+      finish(() => {
+        if (code !== 0) {
+          return reject(new Error((err || '').trim() || `claude exit ${code}`));
+        }
+        resolve({ text: (out || '').trim(), durationMs: Date.now() - started, usage: null });
+      });
     });
     child.stdin.write(prompt, 'utf8');
     child.stdin.end();
@@ -1050,6 +1088,12 @@ router.post('/chat', async (req, res) => {
   try {
     const { threadId, projectId, prompt, pageContent, attachmentIds, templateId,
             sourcePageId, mode } = req.body || {};
+    const requestAbort = new AbortController();
+    let responseFinished = false;
+    res.on('finish', () => { responseFinished = true; });
+    res.on('close', () => {
+      if (!responseFinished) requestAbort.abort();
+    });
     if (!prompt || !String(prompt).trim()) return res.status(400).json({ error: 'prompt 필수' });
 
     // 1. 스레드 확보 (없으면 생성)
@@ -1213,10 +1257,12 @@ router.post('/chat', async (req, res) => {
         // 파일/거래처 정리 요청이면 첫 턴에 도구 강제 (Claude 가 텍스트로만 답하지 않게)
         const promptForceFile = shouldForceFileTool(prompt, attachments);
         for (turnCount = 0; turnCount < MAX_TOOL_TURNS; turnCount++) {
+          throwIfAborted(requestAbort.signal);
           const r = await callClaudeApi(loopMessages, {
             system: DEFAULT_SYSTEM,
             model: modelToUse,
             tools,
+            signal: requestAbort.signal,
             toolChoice: (turnCount === 0 && promptForceFile) ? { type: 'any' } : undefined,
           });
           // 누적 usage
@@ -1242,6 +1288,7 @@ router.post('/chat', async (req, res) => {
           loopMessages.push({ role: 'assistant', content: r.raw.content });
           const toolResults = [];
           for (const tu of r.toolUses) {
+            throwIfAborted(requestAbort.signal);
             usedToolNames.push(tu.name);
             let resultContent = '';
             let isError = false;
@@ -1289,15 +1336,22 @@ router.post('/chat', async (req, res) => {
       } else {
         backend = 'cli';
         cliArtifactScanSince = Date.now();
-        const r = await runClaudeCli(fullPrompt);
+        const r = await runClaudeCli(fullPrompt, { signal: requestAbort.signal });
         aiText = r.text;
         durationMs = r.durationMs;
         turnCount = 1;
         if (!aiText) { status = 'error'; errMsg = 'Claude 응답이 비어있습니다'; }
       }
     } catch (e) {
+      if (requestAbort.signal.aborted || e.name === 'AbortError') {
+        console.warn('[ai/chat] request cancelled by client');
+        return;
+      }
       status = 'error';
       errMsg = e.message;
+      if (/Claude CLI timeout/i.test(errMsg || '')) {
+        errMsg = '작업 시간이 오래 걸려 중단되었습니다. 큰 엑셀 정리 작업은 최대 10분까지 기다리도록 늘렸지만, 계속 반복되면 파일을 월/거래처별로 나눠서 다시 요청해 주세요.';
+      }
     }
 
     // 7. AI 메시지 저장 (usage/backend/artifacts 메타 포함)

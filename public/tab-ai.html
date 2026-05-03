@@ -107,8 +107,9 @@
        텍스트 div 안에서만 pre-wrap 으로 사용자가 입력한 줄바꿈 보존 */
     white-space: normal;
   }
-  /* 실제 텍스트 컨테이너는 pre-wrap — 코드/사용자 줄바꿈 보존 */
-  .ai-msg .bubble > div { white-space: pre-wrap; }
+  /* 실제 텍스트 컨테이너만 pre-wrap — 카드/버튼 레이아웃 공백은 보존하지 않음 */
+  .ai-msg .bubble > div { white-space: normal; }
+  .ai-msg-text { white-space: pre-wrap !important; }
   /* template 자체는 무조건 invisible (브라우저 기본이지만 안전망) */
   .ai-msg .bubble > template { display: none; }
   .ai-msg.user .bubble {
@@ -147,24 +148,27 @@
   /* 시스템 에러 배너 (AI 답변이 아닌 서버 에러 전용) */
   .ai-system-error { display:flex; align-items:flex-start; gap:10px; margin:12px auto; padding:12px 14px; max-width:560px; background:#fef2f2; border:1px solid #fecaca; border-radius:12px; box-shadow:0 1px 3px rgba(220,38,38,0.08); }
   /* AI 가 생성한 파일 (엑셀/PDF 등) */
-  .ai-artifacts { display:flex; flex-direction:column; gap:6px; margin-top:10px; }
-  .ai-artifact { display:flex; align-items:center; gap:10px; padding:8px 12px; background:#fff; border:1px solid #e5e7eb; border-radius:10px; text-decoration:none; color:inherit; transition:all 0.15s; cursor:pointer; }
-  .ai-artifact:hover { background:#f9fafb; border-color:#4f6ef7; box-shadow:0 2px 6px rgba(79,110,247,0.1); }
-  .ai-artifact-icon { font-size:22px; flex-shrink:0; }
+  .ai-artifacts { display:flex; flex-direction:column; gap:6px; margin-top:10px; min-width:min(520px, 72vw); }
+  .ai-artifact { display:grid; grid-template-columns:34px minmax(0,1fr) auto; align-items:center; gap:10px; padding:10px 12px; background:#fff; border:1px solid #dbe2f0; border-radius:8px; text-decoration:none; color:inherit; transition:all 0.15s; cursor:pointer; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+  .ai-artifact:hover { background:#f8fbff; border-color:#9db4ff; box-shadow:0 3px 10px rgba(79,110,247,0.12); }
+  .ai-artifact-icon { width:34px; height:34px; border-radius:8px; background:#eef2ff; color:#4f46e5; font-size:10.5px; font-weight:800; letter-spacing:0; flex-shrink:0; display:flex; align-items:center; justify-content:center; }
   .ai-artifact-body { flex:1; min-width:0; }
-  .ai-artifact-name { font-size:13px; font-weight:600; color:#1f2937; word-break:break-all; }
+  .ai-artifact-name { font-size:13px; font-weight:700; color:#1f2937; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   /* 엑셀 미리보기 (SheetJS sheet_to_html 결과) */
   .xlsx-preview table { border-collapse:collapse; width:100%; font-size:11.5px; }
   .xlsx-preview th, .xlsx-preview td { border:1px solid #e5e7eb; padding:4px 8px; min-width:60px; vertical-align:top; }
   .xlsx-preview tr:first-child th, .xlsx-preview tr:first-child td { background:#f3f4f6; font-weight:600; position:sticky; top:0; }
   .xlsx-preview td:empty::before { content:'\00a0'; }
-  .ai-artifact-meta { font-size:10px; color:#9ca3af; margin-top:2px; }
+  .ai-artifact-meta { font-size:10.5px; color:#9ca3af; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .ai-artifact-actions { display:flex; align-items:center; gap:6px; flex-shrink:0; }
-  .ai-artifact-preview, .ai-artifact-dl { border:1px solid #dbe2f0; background:#fff; color:#4f6ef7; border-radius:7px; padding:5px 9px; font-size:11px; font-weight:700; text-decoration:none; cursor:pointer; white-space:nowrap; }
-  .ai-artifact-preview:hover, .ai-artifact-dl:hover { background:#eef2ff; border-color:#c7d2fe; }
-  .ai-preview-backdrop { position:fixed; inset:0; z-index:1000; background:rgba(15,23,42,0.18); display:flex; justify-content:flex-end; }
-  .ai-preview-panel { width:min(860px, 48vw); min-width:560px; height:100%; background:#fff; box-shadow:-18px 0 38px rgba(15,23,42,.18); display:flex; flex-direction:column; border-left:1px solid #e5e7eb; }
+  .ai-artifact-preview, .ai-artifact-dl { border:1px solid #dbe2f0; background:#fff; color:#4f6ef7; border-radius:6px; padding:5px 10px; font-size:11px; font-weight:700; text-decoration:none; cursor:pointer; white-space:nowrap; line-height:1.2; }
+  .ai-artifact-preview { background:#4f6ef7; border-color:#4f6ef7; color:#fff; }
+  .ai-artifact-preview:hover { filter:brightness(1.05); }
+  .ai-artifact-dl:hover { background:#eef2ff; border-color:#c7d2fe; }
+  .ai-preview-backdrop { position:fixed; inset:0; z-index:1000; background:transparent; display:flex; justify-content:flex-end; pointer-events:none; }
+  .ai-preview-panel { width:min(900px, 50vw); min-width:560px; height:100%; background:#fff; box-shadow:-12px 0 30px rgba(15,23,42,.16); display:flex; flex-direction:column; border-left:1px solid #dbe2f0; pointer-events:auto; }
   .ai-preview-head { height:56px; padding:10px 14px; border-bottom:1px solid #e5e7eb; display:flex; align-items:center; gap:10px; flex-shrink:0; }
+  .ai-preview-kind-badge { width:36px; height:30px; border-radius:8px; background:#eef2ff; color:#4f46e5; display:flex; align-items:center; justify-content:center; font-size:10.5px; font-weight:800; letter-spacing:0; flex-shrink:0; }
   .ai-preview-title { flex:1; min-width:0; }
   .ai-preview-title .name { font-size:13px; font-weight:700; color:#1f2937; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .ai-preview-title .meta { font-size:10.5px; color:#9ca3af; margin-top:2px; }
@@ -579,6 +583,9 @@
   .ai-send-btn:hover { filter:brightness(1.06); transform:translateY(-1px); box-shadow:0 3px 8px rgba(79,110,247,.3); }
   .ai-send-btn:disabled { opacity:.5; cursor:not-allowed; transform:none; box-shadow:none; }
   .ai-send-btn.image { background:linear-gradient(135deg,#f59e0b,#d97706); }
+  .ai-cancel-btn { border:1px solid #fecaca; background:#fff; color:#dc2626; border-radius:8px; padding:5px 10px; font-size:11.5px; font-weight:700; cursor:pointer; }
+  .ai-cancel-btn:hover { background:#fef2f2; border-color:#fca5a5; }
+  .ai-thinking-bubble { display:inline-flex !important; align-items:center; gap:10px; }
 
   /* 프로젝트 드롭다운 (입력박스 위로 떠오름) */
   .ai-proj-picker { position:absolute; bottom:100%; left:0; margin-bottom:6px; min-width:240px; background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:6px; max-height:280px; overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,.12); z-index:5; }
@@ -840,12 +847,12 @@
                               x-show="!(m.metadata_parsed && m.metadata_parsed.upscaledFrom)"
                               @click.stop="openUpscaleModal(m)" title="업스케일">🔍</button>
                     </div>
-                    <div x-show="m.content" x-text="cleanMsgText(m.content)" style="margin-top:6px;font-size:12px;color:#6b7280;"></div>
+                    <div class="ai-msg-text" x-show="m.content" x-text="cleanMsgText(m.content)" style="margin-top:6px;font-size:12px;color:#6b7280;"></div>
                   </div>
                 </template>
                 <!-- 일반 텍스트 / 이미지 생성 사용자 프롬프트 — cleanMsgText 가 빈 줄 정리 -->
                 <template x-if="m.kind !== 'agent' && (m.kind !== 'image' || !m.image_url)">
-                  <div x-text="messageDisplayText(m)"></div>
+                  <div class="ai-msg-text" x-text="messageDisplayText(m)"></div>
                 </template>
                 <!-- 🤖 Agent 모드 메시지 — 진행상황 + 출력 + 생성된 파일 -->
                 <template x-if="m.kind === 'agent'">
@@ -914,7 +921,7 @@
                           </div>
                           <div class="ai-artifact-actions">
                             <button class="ai-artifact-preview" @click.stop="openArtifactOrFile(a)">미리보기</button>
-                            <a :href="a.url" download class="ai-artifact-dl" @click.stop="void 0" title="다운로드">다운로드</a>
+                            <a :href="a.url" :download="a.name || ''" class="ai-artifact-dl" @click.stop="void 0" title="다운로드">다운로드</a>
                           </div>
                         </div>
                       </div>
@@ -933,7 +940,10 @@
         </template>
         <div class="ai-msg ai thinking" x-show="loading">
           <div class="avatar">✦</div>
-          <div class="bubble" x-text="imageMode ? '이미지를 그리고 있어요... (최대 3분)' : 'Claude가 생각하는 중...'"></div>
+          <div class="bubble ai-thinking-bubble">
+            <span x-text="imageMode ? '이미지를 그리고 있어요... (최대 3분)' : 'Claude가 생각하는 중...'"></span>
+            <button x-show="chatAbortController && !imageMode" class="ai-cancel-btn" @click="cancelChat()">취소</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1055,6 +1065,7 @@
                 <span x-show="imageMode && !hasImageAttachment" x-text="'🎨 ' + (imageQuality==='low'?'초안 (~₩8/장)':imageQuality==='high'?'최종품질 (~₩280/장)':'시안품질 (~₩70/장)')"></span>
                 <span x-show="imageMode && hasImageAttachment">✏️ 첨부 이미지를 편집합니다</span>
               </span>
+              <button x-show="loading && chatAbortController && !imageMode" class="ai-cancel-btn" @click="cancelChat()">취소</button>
               <button class="ai-send-btn" :class="imageMode ? 'image' : (agentMode ? 'agent' : '')"
                 @click="send()"
                 :disabled="loading || agentRunning || (!draft.trim() && pendingAttachments.length===0)">
@@ -1077,7 +1088,7 @@
       <section class="ai-preview-panel">
         <!-- 헤더 -->
         <div class="ai-preview-head">
-          <span style="font-size:20px;" x-text="artifactIcon(artifactModal.kind)"></span>
+          <span class="ai-preview-kind-badge" x-text="artifactIcon(artifactModal.kind)"></span>
           <div class="ai-preview-title">
             <div class="name" x-text="artifactModal.name"></div>
             <div class="meta">
@@ -1086,7 +1097,7 @@
             </div>
           </div>
           <a :href="artifactPreviewUrl(artifactModal)" target="_blank" class="ai-preview-action">새 탭</a>
-          <a :href="artifactModal.url" download class="ai-preview-action primary">다운로드</a>
+          <a :href="artifactModal.url" :download="artifactModal.name || ''" class="ai-preview-action primary">다운로드</a>
           <button @click="closeArtifactModal()" class="ai-preview-close">×</button>
         </div>
         <!-- 본문 (kind 별 렌더링) -->
@@ -1445,6 +1456,8 @@ function aiApp() {
     agentMode: localStorage.getItem('aiTab:agentMode') === '1',  // 🤖 Agent 모드 (코워크식 작업)
     imageQuality: localStorage.getItem('aiTab:imgQuality') || 'medium',  // low/medium/high
     loading: false,
+    chatAbortController: null,
+    chatCancelled: false,
     pendingAttachments: [],
     currentProjectId: null,
     showProjectPicker: false,
@@ -1809,16 +1822,16 @@ function aiApp() {
     // AI 가 만든 파일 아이콘 (kind 별)
     artifactIcon(kind) {
       switch ((kind || '').toLowerCase()) {
-        case 'excel': return '📊';
-        case 'pdf': return '📄';
-        case 'image': return '🖼️';
-        case 'svg': return '🎨';
-        case 'html': return '🌐';
-        case 'markdown': return '📝';
-        case 'json': return '📋';
-        case 'csv': return '📈';
-        case 'text': return '📝';
-        default: return '📁';
+        case 'excel': return 'XLS';
+        case 'pdf': return 'PDF';
+        case 'image': return 'IMG';
+        case 'svg': return 'SVG';
+        case 'html': return 'WEB';
+        case 'markdown': return 'MD';
+        case 'json': return 'JSON';
+        case 'csv': return 'CSV';
+        case 'text': return 'TXT';
+        default: return 'FILE';
       }
     },
 
@@ -2223,6 +2236,13 @@ function aiApp() {
       ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
     },
 
+    cancelChat() {
+      if (!this.chatAbortController) return;
+      this.chatCancelled = true;
+      try { this.chatAbortController.abort(); } catch(e) {}
+      this.loading = false;
+    },
+
     async send() {
       const prompt = this.cleanMsgText(this.draft);
       if (!prompt || this.loading || this.agentRunning) return;
@@ -2239,6 +2259,9 @@ function aiApp() {
       }
 
       this.loading = true;
+      this.chatCancelled = false;
+      const ctrl = new AbortController();
+      this.chatAbortController = ctrl;
 
       // 낙관적 UI: 유저 메시지 즉시 추가
       const userMsg = {
@@ -2263,6 +2286,7 @@ function aiApp() {
         const res = await fetch('/api/ai/chat', {
           method:'POST',
           headers: { 'Content-Type':'application/json' },
+          signal: ctrl.signal,
           body: JSON.stringify({
             threadId: this.currentThreadId || null,
             projectId: projectId,
@@ -2307,16 +2331,23 @@ function aiApp() {
           }
         }
       } catch(e) {
-        this.currentMessages = this.currentMessages.filter(m => m.id !== userMsg.id);
-        this.currentMessages.push({
-          id: 'err-' + Date.now(),
-          role: 'system', kind:'error',
-          content: '서버 연결 실패: ' + e.message,
-          status: 'error',
-          created_at: new Date(Date.now()+9*3600*1000).toISOString().replace('T',' ').slice(0,19)
-        });
+        const cancelled = ctrl.signal.aborted || this.chatCancelled || e.name === 'AbortError';
+        if (cancelled) {
+          if (this._toast) this._toast('요청을 취소했습니다.');
+        } else {
+          this.currentMessages = this.currentMessages.filter(m => m.id !== userMsg.id);
+          this.currentMessages.push({
+            id: 'err-' + Date.now(),
+            role: 'system', kind:'error',
+            content: '서버 연결 실패: ' + e.message,
+            status: 'error',
+            created_at: new Date(Date.now()+9*3600*1000).toISOString().replace('T',' ').slice(0,19)
+          });
+        }
       }
       this.loading = false;
+      if (this.chatAbortController === ctrl) this.chatAbortController = null;
+      this.chatCancelled = false;
       this.$nextTick(() => this.scrollToBottom());
     },
 
