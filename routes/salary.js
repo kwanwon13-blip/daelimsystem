@@ -2371,10 +2371,18 @@ router.post('/admin-import', express.json({ limit: '1mb' }), async (req, res) =>
     return res.status(401).json({ error: 'Invalid secret' });
   }
   try {
-    const { companyId, yearMonth, labelUpdates, overtimeDaily, recordUpdates, triggerCalculate } = req.body || {};
+    const { companyId, yearMonth, labelUpdates, overtimeDaily, recordUpdates, triggerCalculate, recomputeConfigs } = req.body || {};
     if (!companyId || !yearMonth) return res.status(400).json({ error: 'companyId, yearMonth required' });
 
-    const summary = { labelUpdates: 0, overtimeDaily: 0, recordUpdates: 0, errors: [] };
+    const summary = { labelUpdates: 0, overtimeDaily: 0, recordUpdates: 0, recomputeConfigs: 0, errors: [] };
+
+    // 0) 모든 직원의 시급/통상임금 강제 재계산 (공식 변경 시 일괄 갱신)
+    if (recomputeConfigs) {
+      try {
+        const r = salaryDb.configs.recomputeAll(companyId);
+        summary.recomputeConfigs = r.updated || 0;
+      } catch(e) { summary.errors.push({ step: 'recomputeConfigs', error: e.message }); }
+    }
 
     if (labelUpdates && typeof labelUpdates === 'object' && Object.keys(labelUpdates).length) {
       try { salaryDb.itemLabels.upsert(companyId, yearMonth, labelUpdates); summary.labelUpdates = Object.keys(labelUpdates).length; }

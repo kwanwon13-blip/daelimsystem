@@ -9,11 +9,16 @@ const RESULTS = path.join(__dirname, '_pptx_slides', '_results.jsonl');
 const META = path.join(__dirname, '_pptx_slides', '_meta.json');
 const OUT = path.join(__dirname, '_pptx_slides', '_rematch_results.jsonl');
 const REPORT = path.join(__dirname, '_pptx_slides', '_rematch_report.txt');
+const USER_DECISIONS = path.join(__dirname, '_pptx_slides', '_user_decisions.json');
 
 (async () => {
   await pool.load();
   const meta = JSON.parse(fs.readFileSync(META, 'utf8'));
   const lines = fs.readFileSync(RESULTS, 'utf8').split('\n').filter(l => l.trim());
+  // 사장님 검수 결정 (체크/무시/매출누락) 로드
+  const userDecisions = fs.existsSync(USER_DECISIONS)
+    ? JSON.parse(fs.readFileSync(USER_DECISIONS, 'utf8'))
+    : {};
 
   // 로그 + 결과 저장
   const out = [];
@@ -51,18 +56,41 @@ const REPORT = path.join(__dirname, '_pptx_slides', '_rematch_report.txt');
       excludeKeys: usedKeysGlobal[dateCatKey],
     });
 
-    extractedTotal += r.extracted;
-    matchedTotal += r.matchedCount;
+    // 사장님 검수 결정 적용 — "체크" 한 미매칭은 매칭 처리, "무시" 는 분모에서 제외
+    const slideDecisions = userDecisions[j.image] || {};
+    let userCheckCount = 0;
+    let userIgnoreCount = 0;
+    for (const m of r.matches) {
+      if (m.matched) continue;
+      const dec = slideDecisions[m.extractedSpec];
+      if (!dec) continue;
+      if (dec.decision === 'check') {
+        m._userCheck = true;
+        m.reason = (m.reason || '') + ' [사장님 체크: ' + (dec.memo || '확인됨') + ']';
+        userCheckCount++;
+      } else if (dec.decision === 'ignore') {
+        m._userIgnore = true;
+        m.reason = (m.reason || '') + ' [사장님 무시: ' + (dec.memo || '') + ']';
+        userIgnoreCount++;
+      }
+    }
+    // 매칭 카운트 = 자동 매칭 + 사장님 체크
+    const effectiveMatched = r.matchedCount + userCheckCount;
+    // 분모 = 전체 - 사장님 무시
+    const effectiveExtracted = r.extracted - userIgnoreCount;
+
+    extractedTotal += effectiveExtracted;
+    matchedTotal += effectiveMatched;
 
     byCat[j.cat] = byCat[j.cat] || { ok: 0, extracted: 0, matched: 0 };
     byCat[j.cat].ok++;
-    byCat[j.cat].extracted += r.extracted;
-    byCat[j.cat].matched += r.matchedCount;
+    byCat[j.cat].extracted += effectiveExtracted;
+    byCat[j.cat].matched += effectiveMatched;
 
     byDate[j.date] = byDate[j.date] || { ok: 0, extracted: 0, matched: 0 };
     byDate[j.date].ok++;
-    byDate[j.date].extracted += r.extracted;
-    byDate[j.date].matched += r.matchedCount;
+    byDate[j.date].extracted += effectiveExtracted;
+    byDate[j.date].matched += effectiveMatched;
 
     out.push({
       pptx: j.pptx,

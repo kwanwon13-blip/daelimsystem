@@ -403,10 +403,10 @@ const configs = {
   upsert(data) {
     const { userId, companyId, bankAccount, effectiveFrom = '2020-01-01' } = data;
     const bankAccountEnc = encrypt(bankAccount);
-    // ── 통상임금 / 통상시급 (엑셀 사원정보 I/AC열 공식) ─────────────────────────
+    // ── 통상임금 / 통상시급 (사장님 엑셀 사원정보 I/AC열 공식과 일치) ──────────────
     // 통상임금 = 기본급 + 고정연장수당 + 고정휴일수당 + 식대 + 차량유지비 + 팀장수당
-    // 통상시급 = 통상임금 ÷ (월소정근로시간 + 고정연장시간 × 1.5 + 고정휴일시간 × 1.5)
-    //   — 고정수당에 대한 "가산된" 시간을 분모에 포함해야 실제 시급이 나옴
+    // 통상시급 = 통상임금 ÷ (월소정근로시간 + 고정연장시간 + 고정휴일시간)
+    //   ※ 가산 1.5배 안 함 — 사장님 엑셀과 일치 (2026-05-03 변경)
     const normalWage =
       (+data.baseSalary || 0) +
       (+data.fixedOvertimePay || 0) +
@@ -417,7 +417,7 @@ const configs = {
     const wh = +data.workingHours || 209;
     const fotH = +data.fixedOvertimeHours || 0;
     const fholH = +data.fixedHolidayHours || 0;
-    const denomH = wh + fotH * 1.5 + fholH * 1.5;
+    const denomH = wh + fotH + fholH;
     const hourlyRate = denomH > 0 ? Math.floor(normalWage / denomH) : 0;
     const existing = db.prepare('SELECT id FROM salary_configs WHERE userId=? AND companyId=? AND effectiveFrom=?').get(userId, companyId, effectiveFrom);
     const fields = [
@@ -442,6 +442,24 @@ const configs = {
         .run(merged);
     }
     return this.get(userId, companyId);
+  },
+  // 모든 config 의 hourlyRate 강제 재계산 (공식 변경 시 일괄 갱신)
+  recomputeAll(companyId) {
+    const rows = db.prepare('SELECT * FROM salary_configs WHERE companyId=?').all(companyId);
+    let updated = 0;
+    for (const r of rows) {
+      const wh = +r.workingHours || 209;
+      const fotH = +r.fixedOvertimeHours || 0;
+      const fholH = +r.fixedHolidayHours || 0;
+      const denomH = wh + fotH + fholH;
+      const normalWage = (+r.baseSalary || 0) + (+r.fixedOvertimePay || 0) + (+r.fixedHolidayPay || 0)
+        + (+r.mealAllowance || 0) + (+r.transportAllowance || 0) + (+r.teamLeaderAllowance || 0);
+      const hourlyRate = denomH > 0 ? Math.floor(normalWage / denomH) : 0;
+      db.prepare('UPDATE salary_configs SET normalWage=?, hourlyRate=? WHERE id=?')
+        .run(normalWage, hourlyRate, r.id);
+      updated++;
+    }
+    return { updated };
   },
   delete(userId, companyId) {
     db.prepare('DELETE FROM salary_configs WHERE userId=? AND companyId=?').run(userId, companyId);
