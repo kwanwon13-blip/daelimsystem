@@ -249,8 +249,8 @@ function extractArtifactPaths(text) {
   const out = new Set();
   const raw = String(text || '');
   const extGroup = ARTIFACT_EXTS.map(e => e.slice(1).replace('.', '\\.')).join('|');
-  const winPathRe = new RegExp(`[A-Za-z]:\\\\[^\\r\\n<>"|?*\\\`]+?\\\\?[^\\r\\n<>"|?*\\\`]*?\\.(${extGroup})\\b`, 'gi');
-  for (const m of raw.matchAll(winPathRe)) out.add(m[0].trim().replace(/[),.]+$/g, ''));
+  const winPathRe = new RegExp(`([A-Za-z]:[\\\\/][^\\r\\n<>"|?*\\\`]+?\\.(${extGroup}))(?=$|[\\s\\])}>.,;])`, 'gi');
+  for (const m of raw.matchAll(winPathRe)) out.add(String(m[1] || m[0]).trim().replace(/[),.]+$/g, ''));
 
   const nameRe = new RegExp(`(?:파일명|file name|filename)\\s*[:：]\\s*[\\\`"']?([^\\\`"'\\r\\n]+?\\.(${extGroup}))\\b`, 'gi');
   for (const m of raw.matchAll(nameRe)) {
@@ -320,6 +320,22 @@ function isDeniedExternalArtifactPath(resolvedPath) {
   return false;
 }
 
+function isSameOrInside(parent, target) {
+  const rel = path.relative(path.resolve(parent), path.resolve(target));
+  return rel === '' || (!!rel && !rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+function getExternalArtifactRoots() {
+  const configured = String(process.env.AI_EXTERNAL_ARTIFACT_ROOTS || '')
+    .split(path.delimiter)
+    .map(s => s.trim())
+    .filter(Boolean);
+  const defaults = process.platform === 'win32' ? ['D:\\퍼시스마감'] : [];
+  return [...configured, ...defaults]
+    .map(p => path.resolve(p))
+    .filter((p, idx, arr) => arr.indexOf(p) === idx);
+}
+
 function registerExistingArtifact(filePath, { ownerId, threadId, messageId = null, sinceMs = null, allowMentionedRecentOutsideRoots = false }) {
   if (!filePath || !ai.ready) return null;
   const appRoot = path.join(__dirname, '..');
@@ -331,15 +347,16 @@ function registerExistingArtifact(filePath, { ownerId, threadId, messageId = nul
   ].map(p => path.resolve(p));
   const stat = fs.statSync(resolved);
   if (!stat.isFile()) return null;
-  if (sinceMs && stat.mtimeMs < Number(sinceMs) - 1500) return null;
   if (!ARTIFACT_EXTS.includes(path.extname(resolved).toLowerCase())) return null;
   if (stat.size > 100 * 1024 * 1024) return null;
 
   const insideKnownRoot = allowedRoots.some(root => isInside(root, resolved));
-  if (!insideKnownRoot) {
+  const insideExternalArtifactRoot = getExternalArtifactRoots().some(root => isSameOrInside(root, resolved));
+  if (!insideKnownRoot && !insideExternalArtifactRoot) {
     const isRecentMentioned = allowMentionedRecentOutsideRoots && sinceMs && stat.mtimeMs >= Number(sinceMs) - 1500;
     if (!isRecentMentioned || isDeniedExternalArtifactPath(resolved)) return null;
   }
+  if (insideExternalArtifactRoot && isDeniedExternalArtifactPath(resolved)) return null;
 
   const originalName = path.basename(resolved);
   const storedName = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}${path.extname(originalName) || '.bin'}`;
