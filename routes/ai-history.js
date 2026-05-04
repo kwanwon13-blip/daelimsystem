@@ -2297,11 +2297,11 @@ function excelCellToText(cellOrValue) {
     : cellOrValue;
   if (value == null) return '';
   if (value instanceof Date) return value.toISOString().slice(0, 10);
-  if (typeof value !== 'object') return String(value);
+  if (typeof value !== 'object') return decodeXmlText(value);
   if (Object.prototype.hasOwnProperty.call(value, 'result')) return excelCellToText(value.result);
-  if (Object.prototype.hasOwnProperty.call(value, 'text')) return String(value.text || '');
-  if (Array.isArray(value.richText)) return value.richText.map(r => r.text || '').join('');
-  if (value.hyperlink && value.text) return String(value.text);
+  if (Object.prototype.hasOwnProperty.call(value, 'text')) return decodeXmlText(value.text || '');
+  if (Array.isArray(value.richText)) return decodeXmlText(value.richText.map(r => r.text || '').join(''));
+  if (value.hyperlink && value.text) return decodeXmlText(value.text);
   if (value.formula) return value.result == null ? '' : excelCellToText(value.result);
   try { return JSON.stringify(value); } catch (_) { return String(value); }
 }
@@ -2329,13 +2329,24 @@ function workbookToText(wb) {
 }
 
 function decodeXmlText(value) {
-  return String(value || '')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, '&')
-    .replace(/_x([0-9A-Fa-f]{4})_/g, (_, hex) => {
+  let text = String(value || '');
+  for (let i = 0; i < 3; i++) {
+    const before = text;
+    text = text
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&amp;/g, '&')
+      .replace(/&#x([0-9A-Fa-f]+);/g, (_, hex) => {
+        try { return String.fromCodePoint(parseInt(hex, 16)); } catch (_) { return ''; }
+      })
+      .replace(/&#(\d+);/g, (_, dec) => {
+        try { return String.fromCodePoint(parseInt(dec, 10)); } catch (_) { return ''; }
+      });
+    if (text === before) break;
+  }
+  return text.replace(/_x([0-9A-Fa-f]{4})_/g, (_, hex) => {
       try { return String.fromCharCode(parseInt(hex, 16)); } catch (_) { return ''; }
     });
 }
@@ -2389,6 +2400,62 @@ function parseSharedStringsXml(xml) {
   return shared;
 }
 
+function isBuiltInDateNumFmt(numFmtId) {
+  const id = parseInt(numFmtId, 10);
+  return (id >= 14 && id <= 22)
+    || (id >= 27 && id <= 36)
+    || (id >= 45 && id <= 47)
+    || (id >= 50 && id <= 58)
+    || (id >= 71 && id <= 81);
+}
+
+function isDateFormatCode(formatCode) {
+  let fmt = decodeXmlText(formatCode || '');
+  fmt = fmt
+    .replace(/"[^"]*"/g, '')
+    .replace(/\[[^\]]*\]/g, '')
+    .replace(/\\./g, '')
+    .toLowerCase();
+  return /(yyyy|yy|년|월|일|am\/pm|a\/p)/i.test(fmt)
+    || /(^|[^a-z])d{1,4}([^a-z]|$)/i.test(fmt)
+    || /(^|[^a-z])h{1,2}([^a-z]|$)/i.test(fmt)
+    || /(시|분|초)/.test(fmt);
+}
+
+function parseDateStyleIds(stylesXml) {
+  const xml = String(stylesXml || '');
+  const customFormats = {};
+  for (const m of xml.matchAll(/<numFmt\b[^>]*\/?>/g)) {
+    const attrs = xmlAttrs(m[0]);
+    if (attrs.numFmtId) customFormats[attrs.numFmtId] = attrs.formatCode || '';
+  }
+
+  const dateStyles = new Set();
+  const cellXfs = (xml.match(/<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/) || [null, ''])[1];
+  let idx = 0;
+  for (const m of cellXfs.matchAll(/<xf\b[^>]*\/?>/g)) {
+    const attrs = xmlAttrs(m[0]);
+    const numFmtId = attrs.numFmtId || '0';
+    if (isBuiltInDateNumFmt(numFmtId) || isDateFormatCode(customFormats[numFmtId])) {
+      dateStyles.add(idx);
+    }
+    idx++;
+  }
+  return dateStyles;
+}
+
+function excelSerialDateToText(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0 || n > 100000) return String(raw || '');
+  const millis = Math.round((n - 25569) * 86400 * 1000);
+  const d = new Date(millis);
+  if (Number.isNaN(d.getTime())) return String(raw || '');
+  const datePart = d.toISOString().slice(0, 10);
+  const fraction = Math.abs(n - Math.floor(n));
+  if (fraction < 0.000001) return datePart;
+  return `${datePart} ${d.toISOString().slice(11, 19)}`;
+}
+
 function parseWorkbookSheets(workbookXml, relsXml) {
   const rels = {};
   for (const m of String(relsXml || '').matchAll(/<Relationship\b[^>]*\/?>/g)) {
@@ -2405,7 +2472,7 @@ function parseWorkbookSheets(workbookXml, relsXml) {
   return sheets;
 }
 
-function parseWorksheetRows(xml, sharedStrings, limitRows = 1000, limitCols = 80) {
+function parseWorksheetRows(xml, sharedStrings, dateStyleIds, limitRows = 1000, limitCols = 80) {
   const rows = [];
   for (const rm of String(xml || '').matchAll(/<row\b[^>]*>[\s\S]*?<\/row>/g)) {
     if (rows.length >= limitRows) break;
@@ -2426,8 +2493,10 @@ function parseWorksheetRows(xml, sharedStrings, limitRows = 1000, limitCols = 80
         const raw = vm ? decodeXmlText(vm[1]) : '';
         if (attrs.t === 's') text = sharedStrings[parseInt(raw, 10)] || '';
         else if (attrs.t === 'b') text = raw === '1' ? 'TRUE' : raw === '0' ? 'FALSE' : raw;
+        else if (attrs.s != null && dateStyleIds && dateStyleIds.has(parseInt(attrs.s, 10))) text = excelSerialDateToText(raw);
         else text = raw;
       }
+      text = decodeXmlText(text);
       vals[col - 1] = text;
     }
     for (let i = 0; i < vals.length; i++) if (vals[i] == null) vals[i] = '';
@@ -2441,6 +2510,7 @@ async function extractXlsxZipSheets(filePath, limitRows = 1000, limitCols = 80) 
   const JSZip = require('jszip');
   const zip = await JSZip.loadAsync(fs.readFileSync(filePath));
   const sharedStrings = parseSharedStringsXml(await zipText(zip, 'xl/sharedStrings.xml'));
+  const dateStyleIds = parseDateStyleIds(await zipText(zip, 'xl/styles.xml'));
   let sheets = parseWorkbookSheets(
     await zipText(zip, 'xl/workbook.xml'),
     await zipText(zip, 'xl/_rels/workbook.xml.rels')
@@ -2454,7 +2524,7 @@ async function extractXlsxZipSheets(filePath, limitRows = 1000, limitCols = 80) 
   const parsed = [];
   for (const sheet of sheets.slice(0, 30)) {
     const xml = await zipText(zip, sheet.path);
-    const rows = parseWorksheetRows(xml, sharedStrings, limitRows, limitCols);
+    const rows = parseWorksheetRows(xml, sharedStrings, dateStyleIds, limitRows, limitCols);
     if (rows.length) parsed.push({ name: sheet.name, rows });
   }
   return parsed;
