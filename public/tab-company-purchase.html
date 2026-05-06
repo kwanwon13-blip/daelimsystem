@@ -57,8 +57,13 @@
     table.pur-grid tbody td {
       border-bottom:1px solid #f3f4f6; padding:0;
     }
-    table.pur-grid tbody tr.unmatched { background:#fef2f2; }
-    table.pur-grid tbody tr.unmatched td input { background:transparent; }
+    table.pur-grid tbody tr.matched { background:#f0fdf4; }   /* 녹색 — 정확 매칭 */
+    table.pur-grid tbody tr.predicted { background:#fefce8; } /* 노란색 — 예측 (신규 등록 필요) */
+    table.pur-grid tbody tr.unknown { background:#fef2f2; }   /* 빨간색 — 직접 입력 */
+    table.pur-grid tbody tr.unmatched { background:#fef2f2; } /* 호환 */
+    table.pur-grid tbody tr.unmatched td input,
+    table.pur-grid tbody tr.unknown td input,
+    table.pur-grid tbody tr.predicted td input { background:transparent; }
     table.pur-grid tbody tr.skip { opacity:.4; background:#f3f4f6; }
     table.pur-grid tbody tr.skip td input { text-decoration:line-through; }
     table.pur-grid input {
@@ -73,6 +78,9 @@
     table.pur-grid .badge {
       display:inline-block; padding:1px 6px; border-radius:3px; font-size:10px; font-weight:500;
     }
+    table.pur-grid .badge.matched { background:#d1fae5; color:#065f46; }
+    table.pur-grid .badge.predicted { background:#fef3c7; color:#92400e; }
+    table.pur-grid .badge.unknown { background:#fee2e2; color:#991b1b; }
     table.pur-grid .badge.auto { background:#d1fae5; color:#065f46; }
     table.pur-grid .badge.learned { background:#dbeafe; color:#1e40af; }
     table.pur-grid .badge.unmatched { background:#fee2e2; color:#991b1b; }
@@ -179,8 +187,9 @@
         <div class="pur-meta">
           <span>거래처: <b x-text="vendor.name || '-'"></b></span>
           <span>일자: <input type="date" x-model="trxDate" style="border:1px solid #d1d5db; border-radius:4px; padding:2px 6px; font-size:12px;"></span>
-          <span class="stat ok">자동매칭 <b x-text="stats.matched"></b></span>
-          <span class="stat warn" x-show="stats.unmatched > 0">미매칭 <b x-text="stats.unmatched"></b></span>
+          <span class="stat ok">🟢 매칭 <b x-text="stats.matched"></b></span>
+          <span class="stat" style="background:#fef3c7; color:#92400e;" x-show="stats.predicted > 0">🟡 예측 <b x-text="stats.predicted"></b></span>
+          <span class="stat warn" x-show="stats.unknown > 0">🔴 신규 <b x-text="stats.unknown"></b></span>
           <span class="stat">합계 <b x-text="totalAmt.toLocaleString() + '원'"></b></span>
         </div>
       </template>
@@ -222,18 +231,27 @@
             </thead>
             <tbody>
               <template x-for="(line, idx) in lines" :key="idx">
-                <tr :class="{ unmatched: !line.matched && !line.skip, skip: line.skip }">
+                <tr :class="{ matched: line.status==='matched' && !line.skip, predicted: line.status==='predicted' && !line.skip, unknown: line.status==='unknown' && !line.skip, skip: line.skip }">
                   <td class="row-no" x-text="line.row_no"></td>
-                  <td><input type="text" x-model="line.item" :placeholder="!line.matched ? '품명 입력' : ''" @input="line.matched = !!line.item; recalc()"></td>
-                  <td><input type="text" x-model="line.spec" :placeholder="!line.matched ? '규격 입력' : ''"></td>
+                  <td>
+                    <input type="text" x-model="line.item" :placeholder="line.status==='unknown' ? '품명 입력 (신규 규칙)' : ''" @input="line.status=line.item?(line.code?'matched':'predicted'):'unknown'; recalc()">
+                    <small x-show="line.code" style="color:#16a34a; font-size:10px; padding:0 8px;">📋 <span x-text="line.code"></span></small>
+                  </td>
+                  <td><input type="text" x-model="line.spec" :placeholder="line.status==='unknown' ? '규격 입력' : ''"></td>
                   <td class="num"><input type="number" step="0.1" x-model.number="line.qty" @input="recalcLine(line)"></td>
                   <td class="num"><input type="number" x-model.number="line.unit_price" @input="recalcLine(line)"></td>
                   <td class="num"><input type="number" x-model.number="line.supply_amt" @input="recalcLine(line, 'supply')"></td>
                   <td class="num"><input type="number" x-model.number="line.vat_amt"></td>
                   <td class="num" x-text="(line.total_amt||0).toLocaleString()"></td>
                   <td>
-                    <span class="badge" :class="{ auto: line.match_source==='auto', learned: line.match_source==='learned', unmatched: !line.matched, skip: line.skip }"
-                          x-text="line.skip ? '스킵' : (line.match_source==='learned' ? '학습' : (line.match_source==='auto' ? '자동' : '직접입력'))"></span>
+                    <span class="badge" :class="line.skip ? 'skip' : line.status"
+                          x-text="line.skip ? '스킵' : (line.status==='matched' ? '✓ 매칭' : (line.status==='predicted' ? '⚠ 예측' : '✗ 신규'))"></span>
+                    <div x-show="line.status==='predicted' && line.match_suggestion" style="font-size:10px; color:#92400e; padding:2px 6px;">
+                      💡 <span x-text="line.match_reason"></span>
+                    </div>
+                    <div x-show="line.suggested_options && line.suggested_options.length" style="font-size:10px; color:#0369a1; padding:1px 6px;">
+                      🏷 <span x-text="(line.suggested_options||[]).join(', ')"></span>
+                    </div>
                   </td>
                   <td class="action">
                     <input type="checkbox" x-model="line.skip" title="이 라인을 매입에서 제외 (예: 재단비)">

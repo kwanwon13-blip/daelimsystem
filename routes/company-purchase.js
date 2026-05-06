@@ -307,22 +307,49 @@ router.post('/parse', requireAuth, upload.single('file'), async (req, res) => {
       const rawText = String(line.ocr_text || '');
       const specRaw = String(line.spec || '');
 
-      // 1) 사용자 학습 매핑 우선 (예: 주문제작1 + 150*150 → 스티커)
+      // 1) 사용자 학습 매핑 우선
       const learned = findLearnedMapping(vendorName, rawText, specRaw);
-
-      // 2) 학습풀 매칭
+      // 2) 9,950 품목코드 마스터 매칭 (3단계: matched / predicted / unknown)
+      const masterResult = pool.matchSlideToProductMaster(rawText + ' ' + specRaw + ' ' + (line.qty || ''));
+      // 3) 학습풀 매입 이력 매칭 (거래처별 평균 단가 등)
       const m = pool.matchPurchaseLineToPool({
         ocr_text: rawText + ' ' + specRaw,
         qty: line.qty, unit_price: line.unit_price,
       }, { vendor: vendorName, dateStr: trxDate, dayRange: 60 });
 
-      // 결정: 학습 매핑 > 자동 매칭
-      const useLearned = learned && learned.item;
-      const finalItem = useLearned ? learned.item : (m.matched ? m.matched.item : '');
-      const finalSpec = useLearned ? (learned.spec || specRaw) : (m.matched ? m.matched.spec : specRaw);
-      const isMatched = !!(useLearned || m.matched);
+      // 우선순위: 학습 > 마스터 매칭(matched) > 마스터 예측(predicted) > 학습풀 > 미매칭
+      let status, finalItem, finalSpec, finalCode, finalPrice, source, reason;
+      if (learned && learned.item) {
+        status = 'matched'; source = 'learned';
+        finalItem = learned.item; finalSpec = learned.spec || specRaw;
+        finalCode = ''; finalPrice = Number(line.unit_price) || 0;
+        reason = '사용자 학습';
+      } else if (masterResult.status === 'matched') {
+        status = 'matched'; source = 'master';
+        finalItem = masterResult.item; finalSpec = masterResult.spec;
+        finalCode = masterResult.code;
+        finalPrice = Number(line.unit_price) || masterResult.priceIn || masterResult.priceOut || 0;
+        reason = masterResult.reason;
+      } else if (masterResult.status === 'predicted') {
+        status = 'predicted'; source = 'master_predict';
+        finalItem = masterResult.item; finalSpec = masterResult.spec;
+        finalCode = '';
+        finalPrice = Number(line.unit_price) || masterResult.priceOut || 0;
+        reason = masterResult.reason;
+      } else if (m.matched) {
+        status = 'matched'; source = 'history';
+        finalItem = m.matched.item; finalSpec = m.matched.spec;
+        finalCode = '';
+        finalPrice = Number(line.unit_price) || m.matched.price || 0;
+        reason = m.reason;
+      } else {
+        status = 'unknown'; source = null;
+        finalItem = ''; finalSpec = specRaw; finalCode = '';
+        finalPrice = Number(line.unit_price) || 0;
+        reason = '마스터에 없음 — 직접 입력 필요';
+      }
 
-      const supply = Number(line.supply_amt) || Math.round((line.qty || 0) * (line.unit_price || 0));
+      const supply = Number(line.supply_amt) || Math.round((line.qty || 0) * finalPrice);
       const vat = Number(line.vat_amt) || Math.round(supply * 0.1);
 
       return {
@@ -331,16 +358,19 @@ router.post('/parse', requireAuth, upload.single('file'), async (req, res) => {
         ocr_spec: specRaw,
         item: finalItem,
         spec: finalSpec,
+        code: finalCode,                            // 품목코드 (matched 일 때)
+        suggested_options: masterResult.options || [],  // 자동 추출 옵션
         qty: Number(line.qty) || 0,
-        unit_price: Number(line.unit_price) || 0,
+        unit_price: finalPrice,
         supply_amt: supply,
         vat_amt: vat,
         total_amt: supply + vat,
-        matched: isMatched,
-        match_source: useLearned ? 'learned' : (m.matched ? 'auto' : null),
-        match_score: useLearned ? 999 : m.score,
-        match_reason: useLearned ? '사용자 학습' : m.reason,
-        skip: false, // 재단비 등 매입 등록 X
+        status,                                     // matched / predicted / unknown
+        matched: status === 'matched',              // 호환용
+        match_source: source,
+        match_reason: reason,
+        match_suggestion: masterResult.suggestion,  // 예측 시 단가 범위 등
+        skip: false,
       };
     });
 
@@ -358,11 +388,13 @@ router.post('/parse', requireAuth, upload.single('file'), async (req, res) => {
       lines: matched,
       stats: {
         total: matched.length,
-        matched: matched.filter(m => m.matched).length,
-        unmatched: matched.filter(m => !m.matched).length,
+        matched: matched.filter(m => m.status === 'matched').length,
+        predicted: matched.filter(m => m.status === 'predicted').length,
+        unknown: matched.filter(m => m.status === 'unknown').length,
+        unmatched: matched.filter(m => m.status !== 'matched').length,  // 호환
       },
       total_amt: matched.reduce((s, m) => s + (Number(m.total_amt) || 0), 0),
-      status: 'parsed',  // parsed → confirmed (export 후)
+      status: 'parsed',
     };
     appendHistoryRow(histEntry);
 

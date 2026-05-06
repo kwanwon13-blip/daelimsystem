@@ -390,6 +390,38 @@ function statementsApp() {
       await this.loadStats();
       await this.load();
       await this.loadPoolStats();
+      // Ctrl+V 붙여넣기 (페이지 어디서든)
+      this._pasteHandler = (e) => {
+        // input/textarea 안에 있고 클립보드에 이미지 없으면 인터셉트 안 함
+        const tg = e.target;
+        const items = (e.clipboardData && e.clipboardData.items) || [];
+        const imgFiles = [];
+        for (const it of items) {
+          if (it.type && it.type.startsWith('image/')) {
+            const f = it.getAsFile();
+            if (f) imgFiles.push(f);
+          }
+        }
+        if (imgFiles.length === 0) return;  // 텍스트 붙여넣기는 그대로 통과
+        if (tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA' || tg.contentEditable === 'true')) {
+          // 폼 안이지만 이미지 있으면 → 업로드 (텍스트 input 에는 어차피 이미지 못 넣음)
+        }
+        e.preventDefault();
+        // File 배열 → uploadFiles 호출
+        const dt = new DataTransfer();
+        for (const f of imgFiles) {
+          // 카톡 사진처럼 보이는 이름 자동 부여
+          const ts = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+          const ext = (f.type === 'image/png') ? 'png' : 'jpg';
+          const renamed = new File([f], `paste_${ts}.${ext}`, { type: f.type });
+          dt.items.add(renamed);
+        }
+        this.uploadFiles(dt.files);
+      };
+      document.addEventListener('paste', this._pasteHandler);
+    },
+    destroy() {
+      if (this._pasteHandler) document.removeEventListener('paste', this._pasteHandler);
     },
     async loadStats() {
       try { const r = await fetch('/api/statements/stats').then(r=>r.json()); if (r.ok) this.stats = r; } catch(e) {}
