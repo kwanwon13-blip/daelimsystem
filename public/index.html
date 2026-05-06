@@ -4692,6 +4692,11 @@
         <!--INCLUDE:tab-purchase-auto.html-->
       </template>
 
+      <!-- 컴퍼니 매입 OCR 탭 (매입명세서 사진 → 학습풀 매칭 → E2E 엑셀) -->
+      <template x-if="currentTab === 'companyPurchase'">
+        <!--INCLUDE:tab-company-purchase.html-->
+      </template>
+
       <!-- 사진 라이브러리 탭 (47K 카톡 사진 검색·필터·편집·라벨링) -->
       <template x-if="currentTab === 'photos'">
         <!--INCLUDE:tab-photos.html-->
@@ -6292,6 +6297,7 @@ function app() {
       // { id: 'purchaseAuto', label: '매입 자동화' },     // 숨김 — OCR 자동입력으로 흡수
       { id: 'photos', label: '사진 라이브러리' },
       { id: 'statements', label: 'OCR 자동입력' },
+      { id: 'companyPurchase', label: '컴퍼니 매입 OCR' },
       { id: 'contacts', label: '연락처' },
       { id: 'calendar', label: '캘린더' },
       { id: 'approval', label: '결재' },

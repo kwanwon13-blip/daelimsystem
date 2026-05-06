@@ -315,6 +315,9 @@ app.use('/api/design-codes', require('./routes/design-codes'));
 // (제거: 시안 매칭 검수 라우터 — Claude 채팅에서 직접 검수하기로 변경)
 // app.use('/api/match-review', require('./routes/match-review'));
 
+// ── 컴퍼니 매입 OCR (routes/company-purchase.js) — 매입명세서 사진 → E2E 엑셀 ──
+app.use('/api/company-purchase', require('./routes/company-purchase'));
+
 // ── 홈 화면 매일 연동/검수 대기 위젯 (routes/sync-status.js) ──
 app.use('/api/sync-status', require('./routes/sync-status'));
 

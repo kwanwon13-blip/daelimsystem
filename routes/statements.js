@@ -390,12 +390,12 @@ async function processQueueItem() {
       // PPTX 파일명 → 카테고리 (출력물 / 용접물)
       const pptxCategory = learningPool.categorizePptx(item.parentPptx);
       console.log(`[learning-pool] PPTX ${item.parentPptx} 카테고리: ${pptxCategory || '?'}`);
-      const match = learningPool.matchCompanySaleItem(aiItem, {
+      // 신규 매칭 함수 사용 (matchOcrTextToPool 기반 — 91.2% 매칭률 + 호이스트/깃발/메모/현장명/묶음 룰)
+      // matchText = OCR 텍스트 (시안 본문 + 힌트)
+      const match = learningPool.matchPptxSlideToCompanySales(matchText, {
         dateStr: item.inferredDate,
         altDateStr: docDate,
-        pptxCategory,         // ← 카테고리 필터 (matchCompanySaleItem 에서 사용)
-        vendorHint: p.vendor_name,
-        textHint: matchText,
+        pptxCategory,
         dayRange,
         excludeKeys: usedRows,
       });
@@ -613,7 +613,34 @@ router.patch('/:id(\\d+)', requireAuth, (req, res) => {
 
 // 확정
 router.post('/:id(\\d+)/confirm', requireAuth, (req, res) => {
-  const result = dbSt.setStatus(parseInt(req.params.id), 'confirmed', req.user.userId);
+  const id = parseInt(req.params.id);
+  const result = dbSt.setStatus(id, 'confirmed', req.user.userId);
+  // ★ 학습풀 자동 누적 — 확정한 매출 라인을 학습풀에 추가
+  try {
+    const learningPool = require('../lib/learning-pool');
+    const st = dbSt.getById(id);
+    if (st && st.doc_class === '매출' && st.company_code === 'COMPANY' && Array.isArray(st.items)) {
+      let added = 0;
+      for (const it of st.items) {
+        if (!it.item_name) continue;
+        const ok = learningPool.addCompanySaleLearned({
+          date: st.doc_date || '',
+          vendor: st.vendor_name || '',
+          item: it.item_name,
+          spec: it.spec || '',
+          qty: Number(it.quantity) || 0,
+          price: Number(it.unit_price) || 0,
+          amount: Number(it.amount) || 0,
+          memo: it.notes || '',
+          memoDetail: '',
+          addedBy: req.user.userId || 'unknown',
+          source: 'statements-confirm',
+        });
+        if (ok) added++;
+      }
+      if (added > 0) console.log(`[statements] 학습풀 자동 누적: 매출 ${added}행 (${st.vendor_name} ${st.doc_date})`);
+    }
+  } catch (e) { console.error('[statements] 학습풀 누적 실패:', e.message); }
   res.json({ ok: true, statement: result });
 });
 // 반려
@@ -971,15 +998,11 @@ router.post('/rematch-company-sales', requireAuth, (req, res) => {
       const dayRange = getPptMatchDayRange(dateStr || r.doc_date);
       if (pptKey && !usedByPpt.has(pptKey)) usedByPpt.set(pptKey, new Set());
       const excludeKeys = pptKey ? usedByPpt.get(pptKey) : null;
-      const m = learningPool.matchCompanySaleItem({
-        item_name: r.item_name,
-        spec: r.spec,
-        quantity: r.quantity,
-      }, {
+      // 신규 매칭 함수 (matchOcrTextToPool 기반 — 91.2% 매칭률)
+      const slideText = [textByPpt.get(pptKey), r.source_file, r.raw_extract, r.statement_notes, r.item_notes, r.item_name, r.spec].filter(Boolean).join('\n');
+      const m = learningPool.matchPptxSlideToCompanySales(slideText, {
         dateStr,
         altDateStr: r.doc_date,
-        vendorHint: r.vendor_name || r.norm_vendor,
-        textHint: [textByPpt.get(pptKey), r.source_file, r.raw_extract, r.statement_notes, r.item_notes, r.item_name, r.spec].filter(Boolean).join('\n'),
         dayRange,
         pptxCategory: learningPool.categorizePptx(r.source_file || pptKey),
         excludeKeys,
