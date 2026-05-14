@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>연락처 변경 기록 (관리자 전용)</title>
+  <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'Pretendard', -apple-system, sans-serif; background: #f9fafb; color: #111827; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    .subtitle { font-size: 13px; color: #6b7280; margin-bottom: 20px; }
+    .filters { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; background: #fff; padding: 14px 16px; border: 1px solid #e5e7eb; border-radius: 10px; }
+    .filters label { font-size: 12px; color: #6b7280; display: flex; flex-direction: column; gap: 4px; }
+    .filters input, .filters select { padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; }
+    .stats { font-size: 12px; color: #6b7280; }
+    .stats b { color: #111827; font-size: 14px; }
+    .row { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; display: grid; grid-template-columns: 130px 70px 70px 1fr 90px; gap: 12px; align-items: center; font-size: 13px; }
+    .row.action-CREATE { border-left: 3px solid #10b981; }
+    .row.action-UPDATE { border-left: 3px solid #3b82f6; }
+    .row.action-DELETE { border-left: 3px solid #ef4444; }
+    .ts { font-family: 'Menlo', monospace; font-size: 11px; color: #6b7280; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-align: center; }
+    .badge-CREATE { background: #d1fae5; color: #065f46; }
+    .badge-UPDATE { background: #dbeafe; color: #1e40af; }
+    .badge-DELETE { background: #fee2e2; color: #991b1b; }
+    .badge-type-company { background: #fef3c7; color: #92400e; }
+    .badge-type-project { background: #ede9fe; color: #5b21b6; }
+    .badge-type-contact { background: #e0f2fe; color: #075985; }
+    .name { font-weight: 600; }
+    .user-id { font-size: 11px; color: #6b7280; }
+    .btn { padding: 6px 10px; border: 1px solid #d1d5db; background: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; }
+    .btn-restore { background: #fbbf24; color: #78350f; border-color: #f59e0b; font-weight: 600; }
+    .btn-restore:hover { background: #f59e0b; color: #fff; }
+    .btn-detail { background: #f3f4f6; }
+    .detail-panel { grid-column: 1 / -1; margin-top: 8px; padding: 10px; background: #f9fafb; border-radius: 6px; border: 1px solid #e5e7eb; font-family: monospace; font-size: 11px; max-height: 300px; overflow: auto; white-space: pre-wrap; }
+    .empty { text-align: center; padding: 40px; color: #9ca3af; }
+    .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .back-btn { font-size: 13px; color: #2563eb; text-decoration: none; padding: 6px 12px; border: 1px solid #2563eb; border-radius: 6px; }
+    .back-btn:hover { background: #2563eb; color: #fff; }
+    .err-box { background: #fee2e2; color: #991b1b; padding: 16px; border-radius: 8px; margin-bottom: 16px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="container" x-data="auditApp()" x-init="load()">
+    <div class="header-bar">
+      <div>
+        <h1>📋 연락처 변경 기록</h1>
+        <div class="subtitle">관리자 전용 — 직원이 누가 언제 무엇을 바꿨는지 추적 + 삭제 항목 복구</div>
+      </div>
+      <a href="/" class="back-btn">← ERP 메인</a>
+    </div>
+
+    <template x-if="error">
+      <div class="err-box" x-text="error"></div>
+    </template>
+
+    <div class="filters">
+      <label>검색 (이름/회사/현장)
+        <input type="text" x-model="q" placeholder="예: 김부장">
+      </label>
+      <label>유형
+        <select x-model="filterType">
+          <option value="">전체</option>
+          <option value="company">회사</option>
+          <option value="project">현장</option>
+          <option value="contact">담당자</option>
+        </select>
+      </label>
+      <label>작업
+        <select x-model="filterAction">
+          <option value="">전체</option>
+          <option value="CREATE">추가</option>
+          <option value="UPDATE">수정</option>
+          <option value="DELETE">삭제</option>
+        </select>
+      </label>
+      <div style="margin-left:auto" class="stats">
+        총 <b x-text="logs.length"></b>건 / 표시 <b x-text="filteredLogs.length"></b>건
+      </div>
+    </div>
+
+    <template x-if="filteredLogs.length === 0 && !error">
+      <div class="empty">변경 기록이 없습니다.</div>
+    </template>
+
+    <template x-for="(log, idx) in filteredLogs" :key="log.ts + idx">
+      <div :class="'row action-' + log.action">
+        <div class="ts" x-text="fmt(log.ts)"></div>
+        <div>
+          <span class="badge" :class="'badge-' + log.action"
+                x-text="log.action === 'CREATE' ? '추가' : log.action === 'UPDATE' ? '수정' : '삭제'"></span>
+        </div>
+        <div>
+          <span class="badge" :class="'badge-type-' + log.type"
+                x-text="log.type === 'company' ? '회사' : log.type === 'project' ? '현장' : '담당자'"></span>
+        </div>
+        <div>
+          <div class="name" x-text="log.name || '(이름없음)'"></div>
+          <div class="user-id" x-text="'바꾼사람: ' + (log.userId || 'unknown')"></div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="btn btn-detail" @click="toggleDetail(idx)" x-text="openIdx === idx ? '접기' : '상세'"></button>
+          <template x-if="log.action === 'DELETE'">
+            <button class="btn btn-restore" @click="restore(log)">복구</button>
+          </template>
+        </div>
+        <template x-if="openIdx === idx">
+          <div class="detail-panel" x-text="JSON.stringify({ before: log.before, after: log.after }, null, 2)"></div>
+        </template>
+      </div>
+    </template>
+  </div>
+
+  <script>
+    function auditApp() {
+      return {
+        logs: [],
+        q: '',
+        filterType: '',
+        filterAction: '',
+        openIdx: -1,
+        error: '',
+
+        get filteredLogs() {
+          const q = this.q.trim().toLowerCase();
+          return this.logs.filter(l => {
+            if (this.filterType && l.type !== this.filterType) return false;
+            if (this.filterAction && l.action !== this.filterAction) return false;
+            if (q && !((l.name || '').toLowerCase().includes(q) || (l.userId || '').toLowerCase().includes(q))) return false;
+            return true;
+          });
+        },
+
+        async load() {
+          try {
+            const r = await fetch('/api/contacts/audit?limit=500', { credentials: 'include' });
+            if (r.status === 401) { this.error = '로그인이 필요합니다. ERP에서 먼저 로그인해주세요.'; return; }
+            if (r.status === 403) { this.error = '관리자(사장님) 권한이 필요합니다.'; return; }
+            if (!r.ok) { this.error = '불러오기 실패: ' + r.status; return; }
+            this.logs = await r.json();
+          } catch (e) {
+            this.error = '네트워크 오류: ' + e.message;
+          }
+        },
+
+        fmt(ts) {
+          try {
+            const d = new Date(ts);
+            return d.toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          } catch (e) { return ts; }
+        },
+
+        toggleDetail(idx) {
+          this.openIdx = (this.openIdx === idx) ? -1 : idx;
+        },
+
+        async restore(log) {
+          const label = log.type === 'company' ? '회사' : log.type === 'project' ? '현장' : '담당자';
+          if (!confirm(`삭제된 ${label} "${log.name}" 을(를) 복구하시겠습니까?\n(연결된 하위 항목도 함께 복구됩니다)`)) return;
+          try {
+            const r = await fetch('/api/contacts/audit/restore', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ ts: log.ts }),
+            });
+            const data = await r.json();
+            if (!r.ok) { alert('복구 실패: ' + (data.error || r.status)); return; }
+            alert(`복구 완료: ${data.message || ''}`);
+            this.load();
+          } catch (e) {
+            alert('복구 오류: ' + e.message);
+          }
+        },
+      };
+    }
+  </script>
+</body>
+</html>

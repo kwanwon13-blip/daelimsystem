@@ -4,8 +4,45 @@
  */
 const express = require('express');
 const router = express.Router();
+const fs = require('fs');
+const path = require('path');
 const db = require('../db');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { auditLog } = require('../middleware/audit');
+
+// ── 연락처 변경 상세 로그 (복구 가능하도록 변경 전 데이터 통째로 저장) ──
+// 기존 감사로그(action+target 짧은 텍스트) 외에, 누가 무엇을 어떻게 바꿨는지
+// 원본 객체까지 보존. 직원이 실수로 지운 거 사장님이 복구할 수 있게.
+const CONTACT_AUDIT_PATH = path.join(__dirname, '..', 'data', '연락처변경기록.json');
+function logContactChange(userId, action, target, before, after) {
+  try {
+    let logs = [];
+    if (fs.existsSync(CONTACT_AUDIT_PATH)) {
+      try { logs = JSON.parse(fs.readFileSync(CONTACT_AUDIT_PATH, 'utf8')); } catch(e) { logs = []; }
+    }
+    logs.push({
+      ts: new Date().toISOString(),
+      userId: userId || 'unknown',
+      action,
+      type: target.type,
+      id: target.id,
+      name: target.name,
+      before,
+      after,
+    });
+    const cutoff = Date.now() - 365 * 24 * 60 * 60 * 1000;
+    logs = logs.filter(l => new Date(l.ts).getTime() > cutoff);
+    const dataDir = path.dirname(CONTACT_AUDIT_PATH);
+    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+    fs.writeFileSync(CONTACT_AUDIT_PATH, JSON.stringify(logs, null, 2), 'utf8');
+  } catch (e) {
+    console.error('[contact-audit]', e.message);
+  }
+  try {
+    auditLog(userId || 'unknown', `거래처 ${action === 'CREATE' ? '추가' : action === 'UPDATE' ? '수정' : '삭제'}`,
+             `${target.type === 'company' ? '회사' : target.type === 'project' ? '현장' : '담당자'}: ${target.name || target.id}`);
+  } catch(e) {}
+}
 
 // ── 전화번호부 (3단계: 업체 → 프로젝트 → 연락처) ──────
 // ══════════════════════════════════════════════════════════
@@ -125,6 +162,7 @@ router.post('/companies', requireAuth, (req, res) => {
 
   data.contactCompanies.push(company);
   db.saveContacts(data);
+  logContactChange(req.user?.userId, 'CREATE', { type:'company', id:company.id, name:company.name }, null, company);
   res.json(company);
 });
 
@@ -133,31 +171,33 @@ router.put('/companies/:id', requireAuth, (req, res) => {
   const company = (data.contactCompanies || []).find(c => c.id === req.params.id);
   if (!company) return res.status(404).json({ error: '업체 없음' });
 
+  const before = { ...company };
   if (req.body.name !== undefined) company.name = req.body.name;
   if (req.body.note !== undefined) company.note = req.body.note;
   if (req.body.order !== undefined) company.order = req.body.order;
 
   db.saveContacts(data);
+  logContactChange(req.user?.userId, 'UPDATE', { type:'company', id:company.id, name:company.name }, before, { ...company });
   res.json(company);
 });
 
 router.delete('/companies/:id', requireAuth, (req, res) => {
   const data = db.loadContacts();
 
-  // 해당 업체의 모든 프로젝트 삭제
-  const projectIds = (data.contactProjects || [])
-    .filter(p => p.companyId === req.params.id)
-    .map(p => p.id);
+  // 삭제 전 데이터 보존 (복구용)
+  const beforeCompany = (data.contactCompanies || []).find(c => c.id === req.params.id);
+  if (!beforeCompany) return res.status(404).json({ error: '업체 없음' });
+  const beforeProjects = (data.contactProjects || []).filter(p => p.companyId === req.params.id);
+  const projectIds = beforeProjects.map(p => p.id);
+  const beforeContacts = (data.contacts || []).filter(c => projectIds.includes(c.projectId));
 
   data.contactProjects = (data.contactProjects || []).filter(p => p.companyId !== req.params.id);
-
-  // 해당 프로젝트의 모든 연락처 삭제
   data.contacts = (data.contacts || []).filter(c => !projectIds.includes(c.projectId));
-
-  // 업체 삭제
   data.contactCompanies = (data.contactCompanies || []).filter(c => c.id !== req.params.id);
 
   db.saveContacts(data);
+  logContactChange(req.user?.userId, 'DELETE', { type:'company', id:beforeCompany.id, name:beforeCompany.name },
+                   { company: beforeCompany, projects: beforeProjects, contacts: beforeContacts }, null);
   res.json({ ok: true });
 });
 
@@ -196,6 +236,7 @@ router.post('/projects', requireAuth, (req, res) => {
 
   data.contactProjects.push(project);
   db.saveContacts(data);
+  logContactChange(req.user?.userId, 'CREATE', { type:'project', id:project.id, name:project.name }, null, project);
   res.json(project);
 });
 
@@ -204,6 +245,7 @@ router.put('/projects/:id', requireAuth, (req, res) => {
   const project = (data.contactProjects || []).find(p => p.id === req.params.id);
   if (!project) return res.status(404).json({ error: '프로젝트 없음' });
 
+  const before = { ...project };
   if (req.body.name !== undefined) project.name = req.body.name;
   if (req.body.address !== undefined) project.address = req.body.address;
   if (req.body.note !== undefined) project.note = req.body.note;
@@ -211,19 +253,24 @@ router.put('/projects/:id', requireAuth, (req, res) => {
   if (req.body.companyId !== undefined) project.companyId = req.body.companyId;
 
   db.saveContacts(data);
+  logContactChange(req.user?.userId, 'UPDATE', { type:'project', id:project.id, name:project.name }, before, { ...project });
   res.json(project);
 });
 
 router.delete('/projects/:id', requireAuth, (req, res) => {
   const data = db.loadContacts();
 
-  // 해당 프로젝트의 모든 연락처 삭제
-  data.contacts = (data.contacts || []).filter(c => c.projectId !== req.params.id);
+  // 삭제 전 데이터 보존 (복구용)
+  const beforeProject = (data.contactProjects || []).find(p => p.id === req.params.id);
+  if (!beforeProject) return res.status(404).json({ error: '프로젝트 없음' });
+  const beforeContacts = (data.contacts || []).filter(c => c.projectId === req.params.id);
 
-  // 프로젝트 삭제
+  data.contacts = (data.contacts || []).filter(c => c.projectId !== req.params.id);
   data.contactProjects = (data.contactProjects || []).filter(p => p.id !== req.params.id);
 
   db.saveContacts(data);
+  logContactChange(req.user?.userId, 'DELETE', { type:'project', id:beforeProject.id, name:beforeProject.name },
+                   { project: beforeProject, contacts: beforeContacts }, null);
   res.json({ ok: true });
 });
 
@@ -413,6 +460,7 @@ router.post('/', requireAuth, (req, res) => {
 
   data.contacts.push(contact);
   db.saveContacts(data);
+  logContactChange(req.user?.userId, 'CREATE', { type:'contact', id:contact.id, name:contact.name }, null, contact);
   res.json(contact);
 });
 
@@ -421,6 +469,7 @@ router.put('/:id', requireAuth, (req, res) => {
   const c = (data.contacts || []).find(x => x.id === req.params.id);
   if (!c) return res.status(404).json({ error: '연락처 없음' });
 
+  const before = { ...c };
   const updateFields = ['name','company','companyId','position','dept','phone','mobile','email','note','projectId','siteId','order'];
   for (const key of updateFields) {
     if (req.body[key] !== undefined) {
@@ -437,13 +486,17 @@ router.put('/:id', requireAuth, (req, res) => {
   }
 
   db.saveContacts(data);
+  logContactChange(req.user?.userId, 'UPDATE', { type:'contact', id:c.id, name:c.name }, before, { ...c });
   res.json(c);
 });
 
 router.delete('/:id', requireAuth, (req, res) => {
   const data = db.loadContacts();
+  const before = (data.contacts || []).find(c => c.id === req.params.id);
+  if (!before) return res.status(404).json({ error: '연락처 없음' });
   data.contacts = (data.contacts || []).filter(c => c.id !== req.params.id);
   db.saveContacts(data);
+  logContactChange(req.user?.userId, 'DELETE', { type:'contact', id:before.id, name:before.name }, before, null);
   res.json({ ok: true });
 });
 
@@ -732,6 +785,75 @@ router.post('/favorites/toggle', requireAuth, (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════
+// 연락처 변경 기록 조회 + 삭제 복구 (관리자 전용)
+// — 직원 실수 추적 + 데이터 복구
+// ═══════════════════════════════════════════════════════════
+
+// GET /api/contacts/audit — 변경 기록 최근순 (admin only)
+router.get('/audit', requireAdmin, (req, res) => {
+  try {
+    if (!fs.existsSync(CONTACT_AUDIT_PATH)) return res.json([]);
+    const logs = JSON.parse(fs.readFileSync(CONTACT_AUDIT_PATH, 'utf8'));
+    logs.sort((a, b) => new Date(b.ts) - new Date(a.ts));
+    const limit = Math.min(parseInt(req.query.limit) || 200, 1000);
+    res.json(logs.slice(0, limit));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/contacts/audit/restore — 삭제된 항목 복구 (admin only)
+router.post('/audit/restore', requireAdmin, (req, res) => {
+  try {
+    const logTs = req.body.ts;
+    if (!logTs) return res.status(400).json({ error: 'ts 필요' });
+    if (!fs.existsSync(CONTACT_AUDIT_PATH)) return res.status(404).json({ error: '로그 없음' });
+    const logs = JSON.parse(fs.readFileSync(CONTACT_AUDIT_PATH, 'utf8'));
+    const log = logs.find(l => l.ts === logTs);
+    if (!log) return res.status(404).json({ error: '해당 로그 없음' });
+    if (log.action !== 'DELETE') return res.status(400).json({ error: 'DELETE 로그만 복구 가능' });
+    if (!log.before) return res.status(400).json({ error: '복구할 데이터 없음' });
+
+    const data = db.loadContacts();
+    let restored = 0;
+    if (log.type === 'contact') {
+      data.contacts = data.contacts || [];
+      if (!data.contacts.find(c => c.id === log.before.id)) {
+        data.contacts.push(log.before); restored = 1;
+      }
+    } else if (log.type === 'project') {
+      data.contactProjects = data.contactProjects || [];
+      if (log.before.project && !data.contactProjects.find(p => p.id === log.before.project.id)) {
+        data.contactProjects.push(log.before.project); restored++;
+      }
+      data.contacts = data.contacts || [];
+      for (const c of (log.before.contacts || [])) {
+        if (!data.contacts.find(x => x.id === c.id)) { data.contacts.push(c); restored++; }
+      }
+    } else if (log.type === 'company') {
+      data.contactCompanies = data.contactCompanies || [];
+      if (log.before.company && !data.contactCompanies.find(c => c.id === log.before.company.id)) {
+        data.contactCompanies.push(log.before.company); restored++;
+      }
+      data.contactProjects = data.contactProjects || [];
+      for (const p of (log.before.projects || [])) {
+        if (!data.contactProjects.find(x => x.id === p.id)) { data.contactProjects.push(p); restored++; }
+      }
+      data.contacts = data.contacts || [];
+      for (const c of (log.before.contacts || [])) {
+        if (!data.contacts.find(x => x.id === c.id)) { data.contacts.push(c); restored++; }
+      }
+    }
+
+    db.saveContacts(data);
+    logContactChange(req.user?.userId, 'CREATE', { type:log.type, id:log.before.id || log.before.company?.id, name:`[복구] ${log.name}` }, null, log.before);
+    res.json({ ok: true, restored, message: `${restored}건 복구됨` });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
 // 모바일 비공개 검색 (토큰 인증)
 // — 외근직/사무실 직원이 핸드폰에서 거래처 검색용
 // — 토큰을 모르면 접근 불가. URL: /contacts-mobile.html?t=토큰
@@ -823,6 +945,58 @@ router.get('/m/search', checkMobileToken, (req, res) => {
   });
 
   res.json(results);
+});
+
+// GET /api/contacts/m/geocode?t=토큰&q=주소
+// 모바일 길찾기용 — 주소(또는 회사명+현장명) → 위경도 변환
+// Kakao Local API (KAKAO_REST_KEY 환경변수 있으면) → Nominatim fallback
+router.get('/m/geocode', checkMobileToken, async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    if (!q) return res.status(400).json({ ok:false, error: 'q 필요' });
+
+    const kakaoKey = process.env.KAKAO_REST_KEY;
+    if (kakaoKey) {
+      try {
+        const url1 = 'https://dapi.kakao.com/v2/local/search/keyword.json?query=' + encodeURIComponent(q);
+        const r1 = await fetch(url1, { headers: { Authorization: 'KakaoAK ' + kakaoKey } });
+        if (r1.ok) {
+          const data1 = await r1.json();
+          const doc1 = (data1.documents || [])[0];
+          if (doc1 && doc1.x && doc1.y) {
+            return res.json({ ok:true, lat: parseFloat(doc1.y), lng: parseFloat(doc1.x), name: doc1.place_name || doc1.address_name || q, source: 'kakao-keyword' });
+          }
+        }
+        const url2 = 'https://dapi.kakao.com/v2/local/search/address.json?query=' + encodeURIComponent(q);
+        const r2 = await fetch(url2, { headers: { Authorization: 'KakaoAK ' + kakaoKey } });
+        if (r2.ok) {
+          const data2 = await r2.json();
+          const doc2 = (data2.documents || [])[0];
+          if (doc2 && doc2.x && doc2.y) {
+            return res.json({ ok:true, lat: parseFloat(doc2.y), lng: parseFloat(doc2.x), name: doc2.address_name || q, source: 'kakao-address' });
+          }
+        }
+      } catch (e) {
+        console.warn('[m/geocode] Kakao 실패:', e.message);
+      }
+    }
+
+    try {
+      const url3 = 'https://nominatim.openstreetmap.org/search?format=json&countrycodes=kr&limit=1&q=' + encodeURIComponent(q);
+      const r3 = await fetch(url3, { headers: { 'User-Agent': 'daelim-sm-erp/1.0 (kwanwon13@gmail.com)' } });
+      if (r3.ok) {
+        const data3 = await r3.json();
+        const hit = (data3 || [])[0];
+        if (hit) return res.json({ ok:true, lat: parseFloat(hit.lat), lng: parseFloat(hit.lon), name: hit.display_name, source: 'nominatim' });
+      }
+    } catch (e) {
+      console.warn('[m/geocode] Nominatim 실패:', e.message);
+    }
+
+    res.json({ ok:false, error: '좌표를 찾을 수 없음' });
+  } catch (e) {
+    res.status(500).json({ ok:false, error: e.message });
+  }
 });
 
 module.exports = router;
