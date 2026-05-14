@@ -353,6 +353,11 @@ app.use('/api/sync-status', require('./routes/sync-status'));
 // ── 품목 마스터 엑셀 (routes/master.js) — v7 엑셀 watch + API ──
 app.use('/api/master', require('./routes/master'));
 
+// ── 전화번호부 (routes/contacts.js) ──
+// ★ 중요: /api 에 마운트된 router.use(requireAuth) 라우터들(vendorPrices/quotes)보다 앞에 마운트해야
+// /api/contacts/m/* (무인증 모바일 라우트) 가 그들에게 가로채여 401 떨어지지 않음.
+app.use('/api/contacts', require('./routes/contacts'));
+
 // ── 업체별 단가 (routes/vendorPrices.js) ──
 app.use('/api', require('./routes/vendorPrices'));
 
@@ -367,8 +372,8 @@ app.use('/api', require('./routes/mail'));
 app.use('/api', require('./routes/backup'));
 
 // ══════════════════════════════════════════════════════════
-// ── 전화번호부 (routes/contacts.js) ──
-app.use('/api/contacts', require('./routes/contacts'));
+// ── 전화번호부는 위쪽으로 이동 (vendorPrices/quotes 앞) ──
+// (모바일 무인증 라우트 /api/contacts/m/* 가 401 안 떨어지게 하기 위함)
 // 마이그레이션: 서버 시작 시 기존 flat 연락처 데이터를 3단 구조로 변환
 try { (function migrateContactsData() {
   const data = db.load(); const contacts = data.contacts || [];
