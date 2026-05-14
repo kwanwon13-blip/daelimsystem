@@ -23,6 +23,35 @@ const PORT = 3000;
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
+// ── 빌드 정보 (배포 버전 확인용) ─────────────────────────
+// 서버 시작 시점에 git HEAD commit 정보 + 시작 시각 캐싱.
+// 메인 홈 헤더에 표시되어 사장님이 배포 후 새 코드 적용 여부를 한눈에 확인.
+const BUILD_INFO = (() => {
+  const info = {
+    commit: 'unknown',
+    commitShort: 'unknown',
+    commitDate: '',
+    commitMsg: '',
+    startedAt: new Date().toISOString(),
+  };
+  try {
+    const { execSync } = require('child_process');
+    info.commit = execSync('git rev-parse HEAD', { cwd: __dirname, encoding: 'utf8' }).trim();
+    info.commitShort = info.commit.substring(0, 7);
+    info.commitDate = execSync('git log -1 --format=%cI', { cwd: __dirname, encoding: 'utf8' }).trim();
+    info.commitMsg = execSync('git log -1 --format=%s', { cwd: __dirname, encoding: 'utf8' }).trim();
+  } catch (e) {
+    console.warn('[BUILD_INFO] git info 조회 실패:', e.message);
+  }
+  console.log(`[BUILD_INFO] commit=${info.commitShort} "${info.commitMsg}" (started ${info.startedAt})`);
+  return info;
+})();
+
+// GET /api/version — 누구나 (무인증) 호출 가능. 배포 버전 확인용.
+app.get('/api/version', (req, res) => {
+  res.json(BUILD_INFO);
+});
+
 // ── index.html 서버사이드 인클루드 ─────────────────────────
 // <!--INCLUDE:파일명.html--> 태그를 실제 파일 내용으로 치환하여 서빙
 // 분리된 탭 HTML (tab-pricing.html, tab-options.html 등)을 index.html에 합쳐서 전송

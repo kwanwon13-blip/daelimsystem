@@ -1773,6 +1773,11 @@
         </h2>
       </div>
       <div class="flex items-center gap-3">
+        <!-- 배포 버전 표시 (사장님이 새 코드 적용 여부 한눈에 확인) -->
+        <span x-show="buildInfo.commitShort"
+              :title="'배포: ' + buildInfo.commitMsg + ' (' + buildInfo.commitDate + ')&#10;시작: ' + buildInfo.startedAt"
+              style="font-family:monospace;font-size:10px;color:#9ca3af;cursor:help;letter-spacing:0;"
+              x-text="'v:' + buildInfo.commitShort"></span>
         <span class="text-xs font-medium px-3 py-1.5 rounded-full" style="background:#f1f3f8;color:#6b7280;" x-text="new Date().toLocaleDateString('ko-KR', {year:'numeric',month:'long',day:'numeric',weekday:'short'})"></span>
       </div>
     </header>
@@ -6257,6 +6262,8 @@ function app() {
   return {
     // 기억할 탭 목록을 data에도 노출 (Alpine 내부에서 참조 가능)
     _rememberedTabs: REMEMBERED_TABS,
+    // 배포 버전 (헤더에 표시 — 서버에 어떤 코드가 깔려있는지 확인용)
+    buildInfo: { commit: '', commitShort: '', commitDate: '', commitMsg: '', startedAt: '' },
     // 인증
     auth: { loggedIn: false, userId: '', name: '', role: '', position: '', phone: '', permissions: [] },
     // 급여 탭 가용성 (false이면 메뉴 자체를 숨김 — 관리자 PC 외에서는 존재조차 노출 안 함)
@@ -7182,6 +7189,8 @@ function app() {
       }
       // Ctrl+V 이미지 붙여넣기 전역 리스너
       document.addEventListener('paste', (e) => this.handlePaste(e));
+      // 배포 버전 조회 (헤더에 표시 — 어떤 코드가 깔려있는지 확인용)
+      fetch('/api/version').then(r => r.ok ? r.json() : null).then(v => { if (v) this.buildInfo = v; }).catch(() => {});
       // 로그인 상태 확인
       try {
         const r = await fetch('/api/auth/me');
