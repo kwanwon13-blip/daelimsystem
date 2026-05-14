@@ -367,6 +367,29 @@ async function processQueueItem() {
       parentPptx: item.parentPptx,
     });
     const p = ext.parsed || {};
+    // ★ 사업자번호 우선 거래처 정정 — OCR이 회사명 잘못 읽어도 사업자번호로 정정
+    try {
+      const vendorResolver = require('../lib/vendor-resolver');
+      const corrected = vendorResolver.correctVendor({
+        biz_no: p.vendor_biz_no,
+        name: p.vendor_name,
+      });
+      if (corrected.source === 'biz-no-exact') {
+        console.log(`[statements] 사업자번호 ${p.vendor_biz_no} 매칭: OCR "${p.vendor_name}" → 정정 "${corrected.name}"`);
+        if (corrected.isBuyer) {
+          // OCR이 받는자(우리 회사)를 거래처로 잘못 추출 — 처리 보류 또는 다시 처리 필요
+          console.warn(`[statements] OCR 오류: 받는자(${corrected.name})를 거래처로 잘못 인식. 명세서 재확인 필요.`);
+        } else {
+          p.vendor_name = corrected.name;
+        }
+      } else if (corrected.source === 'alias-match') {
+        console.log(`[statements] 거래처 별칭 매칭: "${p.vendor_name}" → "${corrected.name}"`);
+        p.vendor_name = corrected.name;
+      } else if (corrected.source === 'auto-learned') {
+        console.log(`[statements] 새 사업자번호 ${corrected.biz_no} 자동 학습: ${corrected.name}`);
+      }
+    } catch (e) { console.error('[statements] vendor-resolver 실패:', e.message); }
+
     // 회사 코드 정규화 ("SM" / "COMPANY" / null 만 허용)
     let companyCode = (p.company_code === 'SM' || p.company_code === 'COMPANY') ? p.company_code : null;
     let docClass = (p.doc_class === '매입' || p.doc_class === '매출') ? p.doc_class : null;
@@ -405,7 +428,7 @@ async function processQueueItem() {
         const matched = match.matched;
         const amount = Number(matched.amount) || ((Number(matched.qty) || 0) * (Number(matched.price) || 0)) || 0;
         const vat = Math.round(amount * 0.1);
-        console.log(`[learning-pool] ✓ 매칭: AI"${aiItem.item_name}/${aiItem.spec}" → DB"${matched.item}/${matched.spec}" (${match.reason})`);
+        console.log(`[learning-pool] ✓ 매칭(이력): AI"${aiItem.item_name}/${aiItem.spec}" → DB"${matched.item}/${matched.spec}" (${match.reason})`);
         autoItems = [{
           item_name: matched.item,
           spec: matched.spec,
@@ -413,7 +436,7 @@ async function processQueueItem() {
           unit_price: matched.price || 0,
           amount,
           vat,
-          notes: `학습매칭: ${match.reason} / score ${match.score}`,
+          notes: `🟢 학습매칭: ${match.reason} / score ${match.score}`,
         }];
         if (matched.vendor) p.vendor_name = matched.vendor;
         p.supply_amount = amount;
@@ -421,12 +444,54 @@ async function processQueueItem() {
         p.total_amount = amount + vat;
         if (usedRows) usedRows.add(learningPool.companySaleRowKey(matched));
       } else {
-        const top = (match.candidates || []).slice(0, 3)
-          .map(c => `${c.row.item}/${c.row.spec}/${c.row.qty}개/${c.row.price}원(${c.score})`)
-          .join(' | ');
-        console.log(`[learning-pool] ✗ 매칭 실패: ${match.reason} / 후보: ${top || '없음'}`);
-        if (autoItems[0]) {
-          autoItems[0].notes = `학습매칭실패: ${match.reason}${top ? ' / 후보 ' + top : ''}`;
+        // ★ 학습풀 매칭 실패 → 9,950 품목코드 마스터 + 거래처별 단가 우선
+        const masterResult = learningPool.matchSlideToProductMaster(matchText, {
+          vendor: p.vendor_name || '',
+        });
+        if (masterResult.status === 'matched') {
+          const qty = Number(aiItem.quantity) || 1;
+          const price = masterResult.priceOut || 0;
+          const amount = qty * price;
+          const vat = Math.round(amount * 0.1);
+          console.log(`[learning-pool] ✓ 매칭(마스터): "${masterResult.item}/${masterResult.spec}" 코드=${masterResult.code}`);
+          autoItems = [{
+            item_name: masterResult.item,
+            spec: masterResult.spec,
+            quantity: qty,
+            unit_price: price,
+            amount, vat,
+            notes: `🟢 마스터매칭: ${masterResult.code} / ${masterResult.reason}`,
+          }];
+          p.supply_amount = amount;
+          p.vat_amount = vat;
+          p.total_amount = amount + vat;
+        } else if (masterResult.status === 'predicted') {
+          const qty = Number(aiItem.quantity) || 1;
+          const price = masterResult.priceOut || 0;
+          const amount = qty * price;
+          const vat = Math.round(amount * 0.1);
+          const opts = (masterResult.options || []).join(', ');
+          console.log(`[learning-pool] 🟡 예측: "${masterResult.item}/${masterResult.spec}" 평균단가 ${price}`);
+          autoItems = [{
+            item_name: masterResult.item,
+            spec: masterResult.spec,
+            quantity: qty,
+            unit_price: price,
+            amount, vat,
+            notes: `🟡 룰예측: ${masterResult.reason}${opts ? ' / 옵션후보: ' + opts : ''}`,
+          }];
+          p.supply_amount = amount;
+          p.vat_amount = vat;
+          p.total_amount = amount + vat;
+        } else {
+          // 마스터에도 없음 → 사장님 직접 입력
+          const top = (match.candidates || []).slice(0, 3)
+            .map(c => `${c.row.item}/${c.row.spec}/${c.row.qty}개/${c.row.price}원(${c.score})`)
+            .join(' | ');
+          console.log(`[learning-pool] 🔴 미매칭: ${match.reason} / ${masterResult.reason}`);
+          if (autoItems[0]) {
+            autoItems[0].notes = `🔴 신규: ${masterResult.reason}${top ? ' / 학습풀후보: ' + top : ''}`;
+          }
         }
       }
     }

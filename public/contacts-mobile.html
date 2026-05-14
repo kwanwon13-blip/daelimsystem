@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#4f6ef7">
+<title>거래처 검색 — 대림에스엠</title>
+<link rel="manifest" href="/contacts-mobile-manifest.json">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overscroll-behavior: none; }
+  body {
+    font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+    background: #f3f4f6;
+    color: #111827;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* PC 에서는 모바일 화면 시뮬레이션 */
+  .container {
+    max-width: 480px;
+    margin: 0 auto;
+    background: #f3f4f6;
+    min-height: 100vh;
+    box-shadow: 0 0 30px rgba(0,0,0,0.08);
+    position: relative;
+  }
+  @media (max-width: 480px) {
+    .container { box-shadow: none; }
+  }
+
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, #4f6ef7 0%, #7c5cff 100%);
+    color: white;
+    padding: calc(env(safe-area-inset-top) + 14px) 18px 14px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 12px rgba(79, 110, 247, 0.25);
+  }
+  .header-row { display: flex; justify-content: space-between; align-items: center; }
+  .header-title { font-size: 12px; font-weight: 500; opacity: 0.85; margin-bottom: 2px; }
+  .header-h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
+  .settings-btn {
+    width: 40px; height: 40px;
+    background: rgba(255,255,255,0.15);
+    border: none;
+    border-radius: 50%;
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Search */
+  .search-wrap {
+    padding: 14px 14px 8px;
+    background: #f3f4f6;
+    position: sticky;
+    top: 70px;
+    z-index: 99;
+  }
+  .search-input-wrap { position: relative; }
+  .search-input {
+    width: 100%;
+    padding: 14px 44px 14px 44px;
+    font-size: 16px;
+    border: 2px solid transparent;
+    border-radius: 12px;
+    background: white;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    -webkit-appearance: none;
+  }
+  .search-input:focus { outline: none; border-color: #4f6ef7; }
+  .search-icon {
+    position: absolute; left: 14px; top: 50%;
+    transform: translateY(-50%);
+    width: 20px; height: 20px;
+    color: #9ca3af;
+  }
+  .search-clear {
+    position: absolute; right: 12px; top: 50%;
+    transform: translateY(-50%);
+    width: 24px; height: 24px;
+    background: #e5e7eb;
+    border-radius: 50%;
+    border: none;
+    color: #6b7280;
+    cursor: pointer;
+    font-size: 14px;
+    display: none;
+  }
+  .search-clear.visible { display: block; }
+
+  /* Filter chips */
+  .filter-row {
+    padding: 4px 14px 12px;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .filter-row::-webkit-scrollbar { display: none; }
+  .chip {
+    flex-shrink: 0;
+    padding: 6px 14px;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 20px;
+    font-size: 12px;
+    color: #4b5563;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .chip.active {
+    background: #4f6ef7;
+    color: white;
+    border-color: #4f6ef7;
+  }
+
+  .result-count {
+    padding: 4px 18px 8px;
+    font-size: 12px;
+    color: #6b7280;
+  }
+
+  /* Results */
+  .results { padding: 0 12px 100px; }
+
+  .card {
+    background: white;
+    border-radius: 14px;
+    padding: 14px 14px 12px;
+    margin-bottom: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    border: 1px solid #f3f4f6;
+  }
+  .card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
+  .card-name { font-size: 17px; font-weight: 700; letter-spacing: -0.2px; }
+  .card-position { display: inline-block; margin-left: 6px; font-size: 12px; color: #6b7280; font-weight: 400; }
+  .card-fav {
+    width: 32px; height: 32px;
+    border: none; background: none;
+    color: #d1d5db;
+    cursor: pointer;
+    font-size: 20px;
+  }
+  .card-fav.active { color: #f59e0b; }
+
+  .card-company { font-size: 12px; color: #4f6ef7; margin-bottom: 3px; font-weight: 500; }
+  .card-site { font-size: 13px; color: #4b5563; margin-bottom: 4px; }
+  .card-mobile { font-size: 12px; color: #9ca3af; margin-bottom: 12px; font-feature-settings: 'tnum'; }
+
+  .card-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+  }
+  .btn {
+    padding: 11px 6px;
+    border-radius: 10px;
+    border: none;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    text-decoration: none;
+    color: white;
+    transition: opacity 0.1s;
+  }
+  .btn:active { opacity: 0.7; }
+  .btn-call { background: #10b981; }
+  .btn-map { background: #3b82f6; }
+  .btn-route { background: #ef4444; }
+  .btn-icon { width: 14px; height: 14px; flex-shrink: 0; }
+
+  /* Empty / States */
+  .empty {
+    padding: 60px 30px;
+    text-align: center;
+    color: #9ca3af;
+  }
+  .empty-icon { font-size: 56px; margin-bottom: 12px; opacity: 0.3; }
+  .empty-title { font-size: 15px; color: #6b7280; margin-bottom: 4px; font-weight: 500; }
+  .empty-sub { font-size: 13px; color: #9ca3af; line-height: 1.5; }
+
+  /* Loading */
+  .loading {
+    padding: 40px; text-align: center; color: #9ca3af;
+  }
+  .spinner {
+    width: 30px; height: 30px;
+    border: 3px solid #e5e7eb;
+    border-top-color: #4f6ef7;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 8px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Modal (지도 앱 선택 / 설정) */
+  .modal-bg {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.5);
+    display: none;
+    align-items: flex-end;
+    z-index: 200;
+  }
+  .modal-bg.visible { display: flex; }
+  .modal {
+    background: white;
+    width: 100%;
+    max-width: 480px;
+    margin: 0 auto;
+    border-radius: 20px 20px 0 0;
+    padding: 24px 20px calc(20px + env(safe-area-inset-bottom));
+    animation: slideUp 0.25s;
+  }
+  @keyframes slideUp { from { transform: translateY(100%); } }
+  .modal-title { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
+  .modal-sub { font-size: 13px; color: #6b7280; margin-bottom: 18px; }
+  .map-options { display: grid; gap: 10px; }
+  .map-option {
+    padding: 14px 16px;
+    border: 2px solid #e5e7eb;
+    border-radius: 12px;
+    background: white;
+    cursor: pointer;
+    text-align: left;
+    font-size: 15px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .map-option.selected {
+    border-color: #4f6ef7;
+    background: #eff6ff;
+    color: #4f6ef7;
+  }
+  .map-option-icon {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 700;
+    color: white;
+  }
+  .map-icon-kakao { background: #fee500; color: #000; }
+  .map-icon-tmap { background: #1ec3f6; }
+  .map-icon-naver { background: #03c75a; }
+
+  .info-bar {
+    position: fixed;
+    bottom: 0; left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 480px;
+    background: rgba(255,255,255,0.95);
+    backdrop-filter: blur(10px);
+    border-top: 1px solid #e5e7eb;
+    padding: 8px 14px calc(8px + env(safe-area-inset-bottom));
+    text-align: center;
+    font-size: 11px;
+    color: #6b7280;
+    z-index: 50;
+  }
+
+  /* Skeleton */
+  .skeleton-card {
+    background: white; border-radius: 14px;
+    padding: 14px; margin-bottom: 10px;
+    border: 1px solid #f3f4f6;
+  }
+  .sk-line {
+    height: 14px;
+    background: linear-gradient(90deg, #f3f4f6 0%, #e5e7eb 50%, #f3f4f6 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s infinite;
+    border-radius: 6px;
+    margin-bottom: 8px;
+  }
+  @keyframes shimmer { from { background-position: -200% 0; } to { background-position: 200% 0; } }
+  .sk-line.short { width: 50%; }
+  .sk-line.medium { width: 75%; }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-row">
+      <div>
+        <div class="header-title">대림에스엠</div>
+        <div class="header-h1">거래처 검색</div>
+      </div>
+      <button class="settings-btn" id="settingsBtn" title="설정">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Search -->
+  <div class="search-wrap">
+    <div class="search-input-wrap">
+      <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+      </svg>
+      <input type="text" class="search-input" id="searchInput" placeholder="이름 / 회사 / 전화번호" autocomplete="off">
+      <button class="search-clear" id="searchClear">×</button>
+    </div>
+  </div>
+
+  <!-- Filter chips -->
+  <div class="filter-row" id="filterRow">
+    <div class="chip active" data-id="">전체</div>
+  </div>
+
+  <!-- Result count -->
+  <div class="result-count" id="resultCount" style="display:none;"></div>
+
+  <!-- Results -->
+  <div class="results" id="results">
+    <div class="empty">
+      <div class="empty-icon">🔍</div>
+      <div class="empty-title">검색해 보세요</div>
+      <div class="empty-sub">이름, 회사, 전화번호 일부만 쳐도<br>찾을 수 있어요. ★ 누르면 즐겨찾기.</div>
+    </div>
+  </div>
+
+  <div class="info-bar">
+    💡 검색창에 일부만 쳐도 됨 · ★ 즐겨찾기 · ⚙️ 지도 앱 변경
+  </div>
+
+</div>
+
+<!-- Modal: 지도 앱 선택 -->
+<div class="modal-bg" id="mapModal">
+  <div class="modal">
+    <div class="modal-title">평소 쓰시는 지도 앱은?</div>
+    <div class="modal-sub" id="mapModalSub">한 번만 선택하면 다음부턴 자동으로 그 앱이 열려요. 나중에 ⚙️에서 바꿀 수 있어요.</div>
+    <div class="map-options" id="mapOptions">
+      <button class="map-option" data-map="kakao">
+        <div class="map-option-icon map-icon-kakao">K</div>
+        <span>카카오맵</span>
+      </button>
+      <button class="map-option" data-map="tmap">
+        <div class="map-option-icon map-icon-tmap">T</div>
+        <span>T맵</span>
+      </button>
+      <button class="map-option" data-map="naver">
+        <div class="map-option-icon map-icon-naver">N</div>
+        <span>네이버지도</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ───────────────────────────────────────────────────────────
+  // 상태
+  // ───────────────────────────────────────────────────────────
+  const STORE = {
+    favs: () => JSON.parse(localStorage.getItem('contacts_mobile_favs') || '[]'),
+    setFavs: (a) => localStorage.setItem('contacts_mobile_favs', JSON.stringify(a)),
+    map: () => localStorage.getItem('contacts_mobile_map') || '',
+    setMap: (v) => localStorage.setItem('contacts_mobile_map', v),
+    company: () => localStorage.getItem('contacts_mobile_company') || ''
+  };
+
+  let allCompanies = [];
+  let activeCompanyId = '';
+  let currentResults = [];
+  let searchTimer = null;
+
+  const $ = (sel) => document.querySelector(sel);
+  const $all = (sel) => Array.from(document.querySelectorAll(sel));
+
+  // ───────────────────────────────────────────────────────────
+  // 초기화
+  // ───────────────────────────────────────────────────────────
+  async function init() {
+    if (!STORE.map()) {
+      $('#mapModal').classList.add('visible');
+    }
+    bindEvents();
+    await loadCompanies();
+  }
+
+  async function loadCompanies() {
+    try {
+      const r = await fetch('/api/contacts/companies', { credentials: 'include' });
+      if (!r.ok) return;
+      const d = await r.json();
+      allCompanies = Array.isArray(d) ? d : (d.companies || []);
+      renderFilters();
+    } catch (e) { console.error('회사 목록 로드 실패', e); }
+  }
+
+  function renderFilters() {
+    const row = $('#filterRow');
+    row.innerHTML = '<div class="chip active" data-id="">전체</div>';
+    allCompanies.forEach(c => {
+      const chip = document.createElement('div');
+      chip.className = 'chip';
+      chip.dataset.id = c.id;
+      chip.textContent = c.name;
+      row.appendChild(chip);
+    });
+    $all('.chip').forEach(c => {
+      c.addEventListener('click', () => {
+        $all('.chip').forEach(x => x.classList.remove('active'));
+        c.classList.add('active');
+        activeCompanyId = c.dataset.id;
+        doSearch($('#searchInput').value);
+      });
+    });
+  }
+
+  function bindEvents() {
+    const input = $('#searchInput');
+    input.addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      const q = input.value.trim();
+      $('#searchClear').classList.toggle('visible', q.length > 0);
+      searchTimer = setTimeout(() => doSearch(q), 220);
+    });
+
+    $('#searchClear').addEventListener('click', () => {
+      input.value = '';
+      $('#searchClear').classList.remove('visible');
+      input.focus();
+      doSearch('');
+    });
+
+    $('#settingsBtn').addEventListener('click', () => {
+      $('#mapModalSub').textContent = '평소 쓰시는 지도 앱을 선택하세요. 다음부터 자동으로 이 앱이 열려요.';
+      $('#mapModal').classList.add('visible');
+      highlightSelectedMap();
+    });
+
+    $all('.map-option').forEach(b => {
+      b.addEventListener('click', () => {
+        STORE.setMap(b.dataset.map);
+        $('#mapModal').classList.remove('visible');
+      });
+    });
+
+    $('#mapModal').addEventListener('click', (e) => {
+      if (e.target.id === 'mapModal') {
+        if (STORE.map()) $('#mapModal').classList.remove('visible');
+      }
+    });
+  }
+
+  function highlightSelectedMap() {
+    const cur = STORE.map();
+    $all('.map-option').forEach(b => b.classList.toggle('selected', b.dataset.map === cur));
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // 검색
+  // ───────────────────────────────────────────────────────────
+  async function doSearch(q) {
+    const results = $('#results');
+    if (!q && !activeCompanyId) {
+      renderEmpty('initial');
+      $('#resultCount').style.display = 'none';
+      return;
+    }
+
+    showSkeleton();
+
+    try {
+      let list = [];
+      if (q) {
+        const r = await fetch('/api/contacts/search?q=' + encodeURIComponent(q), { credentials: 'include' });
+        if (!r.ok) throw new Error('search ' + r.status);
+        list = await r.json();
+      } else {
+        const r = await fetch('/api/contacts/all', { credentials: 'include' });
+        if (!r.ok) throw new Error('all ' + r.status);
+        const d = await r.json();
+        list = (Array.isArray(d) ? d : (d.contacts || [])).map(c => ({ ...c }));
+        const projects = (window._projectMap = window._projectMap || await loadProjectMap());
+        const companies = (window._companyMap = window._companyMap || await loadCompanyMap());
+        list = list.map(c => {
+          const p = projects[c.projectId];
+          const co = p ? companies[p.companyId] : null;
+          return { ...c, projectName: p ? p.name : '', companyName: co ? co.name : '' };
+        });
+      }
+      if (activeCompanyId) {
+        const projects = (window._projectMap = window._projectMap || await loadProjectMap());
+        list = list.filter(c => {
+          const p = projects[c.projectId];
+          return p && p.companyId === activeCompanyId;
+        });
+      }
+      currentResults = list;
+      renderResults(list, q);
+    } catch (e) {
+      console.error('검색 실패', e);
+      renderEmpty('error');
+    }
+  }
+
+  async function loadProjectMap() {
+    try {
+      const r = await fetch('/api/contacts/projects', { credentials: 'include' });
+      if (!r.ok) return {};
+      const d = await r.json();
+      const list = Array.isArray(d) ? d : (d.projects || []);
+      const map = {};
+      list.forEach(p => map[p.id] = p);
+      return map;
+    } catch { return {}; }
+  }
+  async function loadCompanyMap() {
+    const map = {};
+    allCompanies.forEach(c => map[c.id] = c);
+    return map;
+  }
+
+  function showSkeleton() {
+    const html = Array(3).fill(0).map(() => `
+      <div class="skeleton-card">
+        <div class="sk-line short"></div>
+        <div class="sk-line medium"></div>
+        <div class="sk-line"></div>
+      </div>`).join('');
+    $('#results').innerHTML = html;
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // 렌더
+  // ───────────────────────────────────────────────────────────
+  function renderResults(list, q) {
+    const favs = STORE.favs();
+    list.sort((a, b) => {
+      const af = favs.includes(a.id) ? 0 : 1;
+      const bf = favs.includes(b.id) ? 0 : 1;
+      if (af !== bf) return af - bf;
+      return (a.name || '').localeCompare(b.name || '', 'ko');
+    });
+
+    if (list.length === 0) {
+      renderEmpty('no-result', q);
+      $('#resultCount').style.display = 'none';
+      return;
+    }
+
+    $('#resultCount').style.display = 'block';
+    $('#resultCount').textContent = `${list.length}건${q ? ' · "' + q + '"' : ''}`;
+
+    const html = list.map(c => cardHTML(c, favs.includes(c.id))).join('');
+    $('#results').innerHTML = html;
+
+    $all('.card-fav').forEach(b => b.addEventListener('click', e => toggleFav(e, b)));
+    $all('[data-action]').forEach(el => el.addEventListener('click', e => actionClick(e, el)));
+  }
+
+  function cardHTML(c, isFav) {
+    const phone = (c.mobile || c.phone || '').replace(/[^0-9]/g, '');
+    const displayPhone = formatPhone(c.mobile || c.phone || '');
+    const site = c.projectName || '';
+    const company = c.companyName || c.company || '';
+    const mapQ = encodeURIComponent(site || company || c.name || '');
+
+    return `
+      <div class="card" data-id="${c.id}">
+        <div class="card-top">
+          <div>
+            <span class="card-name">${esc(c.name || '?')}</span>
+            ${c.position ? `<span class="card-position">${esc(c.position)}</span>` : ''}
+          </div>
+          <button class="card-fav ${isFav ? 'active' : ''}" data-fav="${c.id}">★</button>
+        </div>
+        ${company ? `<div class="card-company">${esc(company)}</div>` : ''}
+        ${site ? `<div class="card-site">📍 ${esc(site)}</div>` : ''}
+        ${displayPhone ? `<div class="card-mobile">${displayPhone}</div>` : ''}
+        <div class="card-actions">
+          <button class="btn btn-call" data-action="call" data-phone="${phone}" ${!phone ? 'style="opacity:0.4;pointer-events:none;"' : ''}>
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            전화
+          </button>
+          <button class="btn btn-map" data-action="map" data-q="${mapQ}" ${!mapQ ? 'style="opacity:0.4;pointer-events:none;"' : ''}>
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+            지도
+          </button>
+          <button class="btn btn-route" data-action="route" data-q="${mapQ}" ${!mapQ ? 'style="opacity:0.4;pointer-events:none;"' : ''}>
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+            길찾기
+          </button>
+        </div>
+      </div>`;
+  }
+
+  function renderEmpty(type, q) {
+    const r = $('#results');
+    if (type === 'initial') {
+      r.innerHTML = `
+        <div class="empty">
+          <div class="empty-icon">🔍</div>
+          <div class="empty-title">검색해 보세요</div>
+          <div class="empty-sub">이름, 회사, 전화번호 일부만 쳐도<br>찾을 수 있어요. ★ 누르면 즐겨찾기.</div>
+        </div>`;
+    } else if (type === 'no-result') {
+      r.innerHTML = `
+        <div class="empty">
+          <div class="empty-icon">😶</div>
+          <div class="empty-title">"${esc(q || '')}" 검색 결과 없음</div>
+          <div class="empty-sub">다른 단어로 시도해 보세요.<br>회사명·이름·번호 일부만 쳐도 됩니다.</div>
+        </div>`;
+    } else {
+      r.innerHTML = `
+        <div class="empty">
+          <div class="empty-icon">⚠️</div>
+          <div class="empty-title">검색 실패</div>
+          <div class="empty-sub">잠시 후 다시 시도해 주세요.<br>로그인이 필요할 수 있어요.</div>
+        </div>`;
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // 액션
+  // ───────────────────────────────────────────────────────────
+  function toggleFav(e, btn) {
+    e.stopPropagation();
+    const id = btn.dataset.fav;
+    const favs = STORE.favs();
+    const idx = favs.indexOf(id);
+    if (idx >= 0) favs.splice(idx, 1); else favs.push(id);
+    STORE.setFavs(favs);
+    btn.classList.toggle('active');
+  }
+
+  function actionClick(e, el) {
+    const action = el.dataset.action;
+    if (action === 'call') {
+      window.location.href = 'tel:' + el.dataset.phone;
+    } else if (action === 'map') {
+      openMap(decodeURIComponent(el.dataset.q), false);
+    } else if (action === 'route') {
+      openMap(decodeURIComponent(el.dataset.q), true);
+    }
+  }
+
+  function openMap(q, route) {
+    const app = STORE.map();
+    if (!app) {
+      $('#mapModal').classList.add('visible');
+      return;
+    }
+    let url;
+    if (app === 'kakao') {
+      url = route
+        ? `https://map.kakao.com/?sName=내위치&eName=${encodeURIComponent(q)}`
+        : `https://map.kakao.com/?q=${encodeURIComponent(q)}`;
+    } else if (app === 'tmap') {
+      url = route
+        ? `tmap://route?goalname=${encodeURIComponent(q)}`
+        : `tmap://search?name=${encodeURIComponent(q)}`;
+    } else if (app === 'naver') {
+      url = route
+        ? `nmap://route/car?dname=${encodeURIComponent(q)}&appname=daelimsm.com`
+        : `nmap://search?query=${encodeURIComponent(q)}&appname=daelimsm.com`;
+    } else {
+      url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+    }
+    window.location.href = url;
+  }
+
+  function formatPhone(s) {
+    if (!s) return '';
+    const n = s.replace(/[^0-9]/g, '');
+    if (n.length === 11) return `${n.slice(0,3)}-${n.slice(3,7)}-${n.slice(7)}`;
+    if (n.length === 10) return `${n.slice(0,3)}-${n.slice(3,6)}-${n.slice(6)}`;
+    return s;
+  }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+
+  // 시작
+  init();
+</script>
+
+</body>
+</html>

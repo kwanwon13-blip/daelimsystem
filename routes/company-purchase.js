@@ -52,6 +52,17 @@ const upload = multer({
   limits: { fileSize: 30 * 1024 * 1024 }, // 30MB
 });
 
+// ─── 사업자번호 매칭 (lib/vendor-resolver) ─────
+const vendorResolver = require('../lib/vendor-resolver');
+
+// ─── 이미지 중복 방지 (해시) ─────
+function imageHash(filePath) {
+  try {
+    const buf = fs.readFileSync(filePath);
+    return crypto.createHash('sha256').update(buf).digest('hex').slice(0, 16);
+  } catch (e) { return null; }
+}
+
 // ─── SQLite DB (학습매핑 + 처리이력) ─────────────
 const DB_PATH = path.join(__dirname, '..', 'data', 'company-purchase.db');
 let _db = null;
@@ -299,7 +310,17 @@ router.post('/parse', requireAuth, upload.single('file'), async (req, res) => {
     if (!pool.pool.ready) await pool.load();
     const ocr = await runOcr(req.file.path, req.file.mimetype);
 
-    const vendorName = (ocr.vendor && ocr.vendor.name) || '';
+    // ★ 사업자번호 우선 매칭 — OCR이 회사명 잘못 읽어도 사업자번호로 정정
+    const corrected = vendorResolver.correctVendor(ocr.vendor || {});
+    let vendorName = corrected.name || (ocr.vendor && ocr.vendor.name) || '';
+    if (corrected.source === 'biz-no-exact') {
+      console.log(`[company-purchase] 사업자번호 ${corrected.biz_no} 매칭: OCR "${ocr.vendor?.name}" → 정정 "${vendorName}"`);
+      if (corrected.isBuyer) {
+        console.warn(`[company-purchase] ⚠️ 받는자(${corrected.name})를 거래처로 잘못 인식. OCR 재확인.`);
+      }
+    } else if (corrected.source === 'auto-learned') {
+      console.log(`[company-purchase] 새 사업자번호 ${corrected.biz_no} 자동 학습: ${vendorName}`);
+    }
     const trxDate = ocr.trx_date || '';
     const lines = Array.isArray(ocr.lines) ? ocr.lines : [];
 
@@ -309,8 +330,10 @@ router.post('/parse', requireAuth, upload.single('file'), async (req, res) => {
 
       // 1) 사용자 학습 매핑 우선
       const learned = findLearnedMapping(vendorName, rawText, specRaw);
-      // 2) 9,950 품목코드 마스터 매칭 (3단계: matched / predicted / unknown)
-      const masterResult = pool.matchSlideToProductMaster(rawText + ' ' + specRaw + ' ' + (line.qty || ''));
+      // 2) 9,950 품목코드 마스터 + 거래처별 학습풀 (라코스가 라코스 단가로 등록한 거 우선)
+      const masterResult = pool.matchSlideToProductMaster(rawText + ' ' + specRaw + ' ' + (line.qty || ''), {
+        vendor: vendorName,
+      });
       // 3) 학습풀 매입 이력 매칭 (거래처별 평균 단가 등)
       const m = pool.matchPurchaseLineToPool({
         ocr_text: rawText + ' ' + specRaw,

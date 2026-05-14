@@ -3102,7 +3102,7 @@
                       <button x-show="u.status === 'pending'" @click="approveUser(u.id)" style="font-size:10px;color:#15803d;font-weight:600;margin-right:4px;">승인</button>
                       <button x-show="u.status === 'pending'" @click="rejectUser(u.id)" style="font-size:10px;color:#dc2626;font-weight:600;margin-right:4px;">거절</button>
                       <button @click="if(editingProfileUserId === u.id) editingProfileUserId = null; else { editingProfileUserId = u.id; profileEditForm = { name: u.name||'', position: u.position||'', phone: u.phone||'', hireDate: u.hireDate||'', capsName: u.capsName||'', attendanceRule: u.attendanceRule||'general', error: '', success: '' }; }" style="font-size:10px;color:#2563eb;font-weight:600;margin-right:4px;" x-text="editingProfileUserId === u.id ? '완료' : '프로필'"></button>
-                      <button @click="resetUserPw(u.id, u.name)" style="font-size:10px;color:#6b7280;font-weight:600;margin-right:4px;">PW</button>
+                      <button @click="resetUserPw(u.id, u.name)" title="비밀번호를 잊었을 때 — 임시 비밀번호로 초기화" style="font-size:10px;color:#fff;font-weight:700;background:#f59e0b;padding:2px 7px;border-radius:5px;border:none;margin-right:4px;cursor:pointer;">🔑 비번리셋</button>
                       <button x-show="u.status === 'approved'" @click="resignUser(u.id, u.name)" style="font-size:10px;color:#9333ea;font-weight:600;margin-right:4px;">퇴사</button>
                       <button x-show="u.status === 'resigned'" @click="reinstateUser(u.id, u.name)" style="font-size:10px;color:#059669;font-weight:600;margin-right:4px;">복귀</button>
                       <button @click="deleteUser(u.id, u.name)" class="text-red-400 hover:text-red-600" style="font-size:13px;line-height:1;">×</button>
@@ -3380,7 +3380,7 @@
           searchTimer:null, thumbSize:160, pollTimer:null, yearFilter:'',
           isInternal:false,
           currentPage:1, pageSize:40, hasMore:false,
-          typeFilter:[], // 빈 배열 = 전체
+          typeFilter:['image'], // 기본은 이미지 — '전체' 버튼으로 전부 보기 가능
           typeCounts:{image:0,pdf:0,ai:0,psd:0,excel:0,hwp:0,word:0},
           selectedPaths:[],          // 체크박스로 선택된 시안 경로 배열
           watermarkBusy:false,       // 워터마크 다운로드 진행 중 플래그
@@ -3590,7 +3590,7 @@
             this.pollTimer=setInterval(function(){self.init();},3000);
           }
         }">
-          <div class="card" style="padding:16px 20px 14px;margin-bottom:12px;">
+          <div class="card" style="padding:16px 20px 14px;margin-bottom:12px;position:sticky;top:0;z-index:30;background:#fff;box-shadow:0 4px 14px rgba(0,0,0,0.06);">
             <div class="flex items-center justify-between mb-3">
               <h3 class="font-work text-[15px] font-bold text-gray-800 flex items-center gap-2 m-0">
                 <span class="material-symbols-outlined" style="font-size:18px;color:#4f6ef7;">image_search</span> 시안 검색
