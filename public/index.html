@@ -8989,10 +8989,24 @@ function app() {
       await fetch('/api/admin/users/'+id+'/role',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:newRole})}); await this.loadAdminUsers();
     },
     async resetUserPw(id, name) {
-      const pw = prompt(name+'의 새 비밀번호 (4자 이상):');
-      if(!pw || pw.length<4) { if(pw!==null) this.showToast('4자 이상 입력해주세요','error'); return; }
-      await fetch('/api/admin/users/'+id+'/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
-      this.showToast('비밀번호가 초기화되었습니다');
+      const pw = prompt(name + '의 새 비밀번호를 입력하세요\n(6자 이상, 직원한테 알려주고 첫 로그인 시 본인이 다시 바꾸게 안내)');
+      if (pw === null) return;  // 취소
+      if (pw.length < 6) { this.showToast('비밀번호는 6자 이상이어야 합니다', 'error'); return; }
+      try {
+        const r = await fetch('/api/admin/users/' + id + '/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pw })
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          this.showToast('초기화 실패: ' + (j.error || ('HTTP ' + r.status)), 'error');
+          return;
+        }
+        this.showToast('✅ ' + name + '의 비밀번호가 "' + pw + '" 로 초기화되었습니다. 직원에게 알려주세요.', 'success');
+      } catch (e) {
+        this.showToast('초기화 오류: ' + e.message, 'error');
+      }
     },
     async deleteUser(id, name) {
       if(!confirm(name+' 사용자를 삭제하시겠습니까?')) return;
