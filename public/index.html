@@ -10003,13 +10003,17 @@ function app() {
         const body = { leaveType, leaveLabel, note };
         if (modifiedInTime !== undefined) body.modifiedInTime = modifiedInTime;
         if (modifiedOutTime !== undefined) body.modifiedOutTime = modifiedOutTime;
-        await fetch(`/api/attendance/notes/${encodeURIComponent(key)}`, {
+        const resp = await fetch(`/api/attendance/notes/${encodeURIComponent(key)}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        // 모달 records 업데이트
-        const r = this.attendance.detailModal.records.find(x => x.date === date);
+        if (!resp.ok) {
+          const errTxt = await resp.text().catch(() => '');
+          throw new Error(errTxt || ('HTTP ' + resp.status));
+        }
+        // 모달이 열려 있을 때만 in-memory records 업데이트 (모달 없이 그리드에서 호출 시 skip)
+        const r = this.attendance.detailModal?.records?.find(x => x.date === date);
         if (r) {
           r.leaveType = leaveType;
           r.leaveLabel = leaveLabel;
@@ -10030,6 +10034,11 @@ function app() {
           }
         }
         this.showToast('수정 저장 완료', 'success');
+        // 모달 없이 그리드에서 호출했을 경우 그리드 데이터도 갱신
+        if (!this.attendance.detailModal) {
+          this.invalidateAttendanceCache();
+          await this.loadAttendanceSummary();
+        }
       } catch(e) {
         this.showToast('저장 실패: ' + e.message, 'error');
       }
