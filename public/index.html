@@ -1736,6 +1736,9 @@
         <button @click="showMyCardModal=true" class="flex-1 text-center text-[11px] font-medium py-1.5 rounded-lg transition-all" style="color:rgba(255,255,255,.5);background:transparent;" onmouseover="this.style.background='rgba(255,255,255,.06)';this.style.color='#a78bfa';" onmouseout="this.style.background='transparent';this.style.color='rgba(255,255,255,.5)';">
           <span class="material-symbols-outlined" style="font-size:13px;vertical-align:-2px;">badge</span> 내 명함
         </button>
+        <button @click="changeMyPassword()" class="flex-1 text-center text-[11px] font-medium py-1.5 rounded-lg transition-all" style="color:rgba(255,255,255,.5);background:transparent;" onmouseover="this.style.background='rgba(255,255,255,.06)';this.style.color='#fbbf24';" onmouseout="this.style.background='transparent';this.style.color='rgba(255,255,255,.5)';" title="내 비밀번호 변경">
+          <span class="material-symbols-outlined" style="font-size:13px;vertical-align:-2px;">key</span> 비번
+        </button>
         <button @click="doLogout()" class="flex-1 text-center text-[11px] font-medium py-1.5 rounded-lg transition-all" style="color:rgba(255,255,255,.35);background:transparent;" onmouseover="this.style.background='rgba(255,255,255,.06)';this.style.color='#f87171';" onmouseout="this.style.background='transparent';this.style.color='rgba(255,255,255,.35)';">
           <span class="material-symbols-outlined" style="font-size:13px;vertical-align:-2px;">logout</span> 로그아웃
         </button>
@@ -7184,8 +7187,12 @@ function app() {
         const r = await fetch('/api/auth/me');
         const me = await r.json();
         if (me.loggedIn) {
-          this.auth = { loggedIn: true, userId: me.userId, name: me.name||me.userId, role: me.role||'user', position: me.position||'', phone: me.phone||'', permissions: me.permissions||[], isTeamLeader: me.isTeamLeader||false };
+          this.auth = { loggedIn: true, userId: me.userId, name: me.name||me.userId, role: me.role||'user', position: me.position||'', phone: me.phone||'', permissions: me.permissions||[], isTeamLeader: me.isTeamLeader||false, mustChangePassword: !!me.mustChangePassword };
           this.quoteHeader.vendorManager = this.auth.name + (this.auth.position ? ' ' + this.auth.position : '') + (this.auth.phone ? ' ' + this.auth.phone : '');
+          // admin이 비번 리셋 → mustChangePassword=true → 강제 변경 다이얼로그
+          if (this.auth.mustChangePassword) {
+            setTimeout(() => this.changeMyPassword(true), 1500);
+          }
           // 급여 탭 가용성 체크 (관리자 PC 외엔 메뉴 자체를 숨김)
           try {
             const sa = await fetch('/api/salary-availability');
@@ -7316,7 +7323,10 @@ function app() {
           body: JSON.stringify({ userId: this.loginForm.userId, password: this.loginForm.password }) });
         const j = await r.json();
         if (!r.ok || !j.ok) { this.loginForm.error = j.error || '로그인 실패'; return; }
-        this.auth = { loggedIn: true, userId: j.userId, name: j.name||j.userId, role: j.role||'user', position: j.position||'', phone: j.phone||'', permissions: j.permissions||[], isTeamLeader: j.isTeamLeader||false };
+        this.auth = { loggedIn: true, userId: j.userId, name: j.name||j.userId, role: j.role||'user', position: j.position||'', phone: j.phone||'', permissions: j.permissions||[], isTeamLeader: j.isTeamLeader||false, mustChangePassword: !!j.mustChangePassword };
+        if (this.auth.mustChangePassword) {
+          setTimeout(() => this.changeMyPassword(true), 1500);
+        }
         this.quoteHeader.vendorManager = this.auth.name + (this.auth.position ? ' ' + this.auth.position : '') + (this.auth.phone ? ' ' + this.auth.phone : '');
         localStorage.setItem('login_userId', this.loginForm.userId);
         await this.loadData();
@@ -7625,6 +7635,42 @@ function app() {
       await fetch('/api/auth/logout', { method: 'POST' });
       this.auth = { loggedIn: false, userId: '', name: '', role: '', position: '', phone: '', permissions: [] };
       this.currentTab = 'quote';
+    },
+
+    async changeMyPassword(forced) {
+      // forced=true 면 관리자가 비번 리셋한 후 강제 변경 (취소 못 함)
+      const title = forced
+        ? '⚠️ 비밀번호가 초기화되어 새 비밀번호를 설정해야 합니다.'
+        : '내 비밀번호 변경';
+      const cur = prompt(title + '\n\n현재 비밀번호:');
+      if (cur === null) {
+        if (forced) { this.showToast('비밀번호를 꼭 변경해주세요', 'warning'); }
+        return;
+      }
+      const nw = prompt('새 비밀번호 (6자 이상):');
+      if (nw === null) {
+        if (forced) { this.showToast('비밀번호를 꼭 변경해주세요', 'warning'); }
+        return;
+      }
+      if (nw.length < 6) { this.showToast('새 비밀번호는 6자 이상이어야 합니다', 'error'); return; }
+      const confirm2 = prompt('새 비밀번호 한번 더 입력 (확인):');
+      if (confirm2 !== nw) { this.showToast('두 번 입력한 새 비밀번호가 다릅니다', 'error'); return; }
+      try {
+        const r = await fetch('/api/auth/change-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ currentPassword: cur, newPassword: nw })
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          this.showToast('변경 실패: ' + (j.error || ('HTTP ' + r.status)), 'error');
+          return;
+        }
+        this.showToast('✅ 비밀번호가 변경되었습니다', 'success');
+        if (this.auth) this.auth.mustChangePassword = false;
+      } catch (e) {
+        this.showToast('변경 오류: ' + e.message, 'error');
+      }
     },
 
     async loadCategories() { this.categories = await (await fetch('/api/categories')).json(); },
