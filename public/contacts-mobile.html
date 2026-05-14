@@ -375,6 +375,9 @@
     company: () => localStorage.getItem('contacts_mobile_company') || ''
   };
 
+  // URL 의 토큰 추출 (?t=...) — 토큰 없으면 페이지 접근 거부
+  const URL_TOKEN = new URLSearchParams(window.location.search).get('t') || '';
+
   let allCompanies = [];
   let activeCompanyId = '';
   let currentResults = [];
@@ -383,10 +386,21 @@
   const $ = (sel) => document.querySelector(sel);
   const $all = (sel) => Array.from(document.querySelectorAll(sel));
 
+  // API 호출 헬퍼 — 모든 호출에 자동으로 토큰 첨부
+  async function api(path) {
+    const sep = path.includes('?') ? '&' : '?';
+    return fetch(`/api/contacts/m${path}${sep}t=${encodeURIComponent(URL_TOKEN)}`);
+  }
+
   // ───────────────────────────────────────────────────────────
   // 초기화
   // ───────────────────────────────────────────────────────────
   async function init() {
+    // 토큰 검증 — URL 에 ?t= 없으면 거부
+    if (!URL_TOKEN) {
+      renderTokenError();
+      return;
+    }
     if (!STORE.map()) {
       $('#mapModal').classList.add('visible');
     }
@@ -394,9 +408,21 @@
     await loadCompanies();
   }
 
+  function renderTokenError() {
+    $('#results').innerHTML = `
+      <div class="empty">
+        <div class="empty-icon">🔒</div>
+        <div class="empty-title">접근 권한 없음</div>
+        <div class="empty-sub">단톡방에 공유된 정확한 링크를<br>다시 눌러주세요.</div>
+      </div>`;
+    $('.search-wrap').style.display = 'none';
+    $('.filter-row').style.display = 'none';
+  }
+
   async function loadCompanies() {
     try {
-      const r = await fetch('/api/contacts/companies', { credentials: 'include' });
+      const r = await api('/companies');
+      if (r.status === 403) { renderTokenError(); return; }
       if (!r.ok) return;
       const d = await r.json();
       allCompanies = Array.isArray(d) ? d : (d.companies || []);
@@ -481,21 +507,15 @@
     try {
       let list = [];
       if (q) {
-        const r = await fetch('/api/contacts/search?q=' + encodeURIComponent(q), { credentials: 'include' });
+        const r = await api('/search?q=' + encodeURIComponent(q));
+        if (r.status === 403) { renderTokenError(); return; }
         if (!r.ok) throw new Error('search ' + r.status);
         list = await r.json();
       } else {
-        const r = await fetch('/api/contacts/all', { credentials: 'include' });
+        const r = await api('/all');
+        if (r.status === 403) { renderTokenError(); return; }
         if (!r.ok) throw new Error('all ' + r.status);
-        const d = await r.json();
-        list = (Array.isArray(d) ? d : (d.contacts || [])).map(c => ({ ...c }));
-        const projects = (window._projectMap = window._projectMap || await loadProjectMap());
-        const companies = (window._companyMap = window._companyMap || await loadCompanyMap());
-        list = list.map(c => {
-          const p = projects[c.projectId];
-          const co = p ? companies[p.companyId] : null;
-          return { ...c, projectName: p ? p.name : '', companyName: co ? co.name : '' };
-        });
+        list = await r.json();
       }
       if (activeCompanyId) {
         const projects = (window._projectMap = window._projectMap || await loadProjectMap());
@@ -514,7 +534,7 @@
 
   async function loadProjectMap() {
     try {
-      const r = await fetch('/api/contacts/projects', { credentials: 'include' });
+      const r = await api('/projects');
       if (!r.ok) return {};
       const d = await r.json();
       const list = Array.isArray(d) ? d : (d.projects || []);
