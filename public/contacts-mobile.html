@@ -598,7 +598,10 @@
     const displayPhone = formatPhone(c.mobile || c.phone || '');
     const site = c.projectName || '';
     const company = c.companyName || c.company || '';
-    const mapQ = encodeURIComponent(site || company || c.name || '');
+    // 길찾기/지도: 주소가 있으면 주소 우선 (geocode 정확도 ↑), 없으면 회사명+현장명
+    const addr = (c.projectAddress || '').trim();
+    const fallback = (company && site) ? (company + ' ' + site) : (site || company || c.name || '');
+    const mapQ = encodeURIComponent(addr || fallback);
 
     return `
       <div class="card" data-id="${c.id}">

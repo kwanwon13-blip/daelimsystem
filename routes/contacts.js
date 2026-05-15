@@ -899,6 +899,7 @@ router.get('/m/all', checkMobileToken, (req, res) => {
     return {
       ...c,
       projectName: proj ? proj.name : '',
+      projectAddress: proj ? (proj.address || '') : '',
       companyName: comp ? comp.name : ''
     };
   });
@@ -940,6 +941,7 @@ router.get('/m/search', checkMobileToken, (req, res) => {
     return {
       ...c,
       projectName: proj ? proj.name : '',
+      projectAddress: proj ? (proj.address || '') : '',
       companyName: comp ? comp.name : ''
     };
   });

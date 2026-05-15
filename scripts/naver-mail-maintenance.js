@@ -16,6 +16,7 @@ function parseArgs(argv) {
     dryRun: false,
     sync: false,
     deleteOld: false,
+    dedupe: false,
     watch: false,
     once: false,
     retentionDays: Number(process.env.MAIL_RETENTION_DAYS || 45),
@@ -35,6 +36,7 @@ function parseArgs(argv) {
     if (a === '--dry-run') args.dryRun = true;
     else if (a === '--sync') args.sync = true;
     else if (a === '--delete') args.deleteOld = true;
+    else if (a === '--dedupe') args.dedupe = true;
     else if (a === '--watch') args.watch = true;
     else if (a === '--once') args.once = true;
     else if (a === '--retention-days') args.retentionDays = Number(argv[++i]);
@@ -55,8 +57,9 @@ function parseArgs(argv) {
     }
   }
 
-  if (!args.sync && !args.deleteOld) args.dryRun = true;
+  if (!args.sync && !args.deleteOld && !args.dedupe) args.dryRun = true;
   if (args.deleteOld) args.sync = true;
+  if (args.dedupe && !args.deleteOld) args.dryRun = true;
   return args;
 }
 
@@ -72,9 +75,12 @@ function printHelp() {
   node scripts/naver-mail-maintenance.js --dry-run
   node scripts/naver-mail-maintenance.js --sync
   node scripts/naver-mail-maintenance.js --sync --delete
+  node scripts/naver-mail-maintenance.js --dedupe --dry-run
+  node scripts/naver-mail-maintenance.js --dedupe --delete
   node scripts/naver-mail-maintenance.js --watch --sync
 
 Options:
+  --dedupe                Find duplicate Message-ID values per folder
   --retention-days N      Old mail cutoff. Default: 45
   --recent-days N         Recent mail sync window. Default: 14
   --backup-folders CSV    Folders to back up. Default: INBOX,Sent Messages
@@ -211,6 +217,39 @@ function parseSelectInfo(lines) {
     if (/\[READ-WRITE\]/i.test(line)) info.readWrite = true;
   }
   return info;
+}
+
+function parseFetchHeaderMap(raw) {
+  const text = raw.toString('latin1');
+  const results = new Map();
+  let cursor = 0;
+
+  while (cursor < text.length) {
+    const fetchStart = text.indexOf('* ', cursor);
+    if (fetchStart < 0) break;
+
+    const literalMatch = /\{(\d+)\}\r\n/.exec(text.slice(fetchStart));
+    if (!literalMatch) break;
+
+    const literalMarkerStart = fetchStart + literalMatch.index;
+    const literalMarkerEnd = literalMarkerStart + literalMatch[0].length;
+    const prefix = text.slice(fetchStart, literalMarkerStart);
+    const uidMatch = /\bUID\s+(\d+)/i.exec(prefix);
+    const size = Number(literalMatch[1]);
+    const literalEnd = literalMarkerEnd + size;
+
+    if (literalEnd > text.length) break;
+
+    if (uidMatch) {
+      const uid = Number(uidMatch[1]);
+      const literal = text.slice(literalMarkerEnd, literalEnd);
+      results.set(uid, Buffer.from(literal, 'latin1').toString('utf8'));
+    }
+
+    cursor = literalEnd;
+  }
+
+  return results;
 }
 
 class ImapClient {
@@ -359,9 +398,28 @@ class ImapClient {
     return literal ? literal.toString('utf8') : '';
   }
 
+  async fetchHeadersBatch(uids) {
+    if (!uids.length) return new Map();
+    const res = await this.command(`UID FETCH ${uids.join(',')} (UID BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])`);
+    if (!res.ok) throw new Error(`FETCH batch headers failed: ${res.statusLine}`);
+    return parseFetchHeaderMap(res.raw);
+  }
+
+  async fetchAllHeaders() {
+    const res = await this.command('UID FETCH 1:* (UID BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])');
+    if (!res.ok) throw new Error(`FETCH all headers failed: ${res.statusLine}`);
+    return parseFetchHeaderMap(res.raw);
+  }
+
   async deleteUid(uid) {
     const res = await this.command(`UID STORE ${uid} +FLAGS.SILENT (\\Deleted)`);
     if (!res.ok) throw new Error(`DELETE flag failed for UID ${uid}: ${res.statusLine}`);
+  }
+
+  async deleteUids(uids) {
+    if (!uids.length) return;
+    const res = await this.command(`UID STORE ${uids.join(',')} +FLAGS.SILENT (\\Deleted)`);
+    if (!res.ok) throw new Error(`DELETE flag failed for UID batch: ${res.statusLine}`);
   }
 
   async expunge() {
@@ -559,6 +617,67 @@ async function processFolder(client, args, account, folder, cleanSet, counters, 
   }
 }
 
+async function dedupeFolder(client, args, folder, counters) {
+  const selected = await client.select(folder);
+  const byMessageId = new Map();
+  let withoutMessageId = 0;
+
+  const headerMap = await client.fetchAllHeaders();
+  for (const [uid, headers] of headerMap.entries()) {
+    const messageId = messageIdFromBuffer(headers);
+    if (!messageId) {
+      withoutMessageId += 1;
+      continue;
+    }
+    if (!byMessageId.has(messageId)) byMessageId.set(messageId, []);
+    byMessageId.get(messageId).push(uid);
+  }
+
+  const duplicateSets = [];
+  let duplicateMessages = 0;
+  for (const [messageId, ids] of byMessageId.entries()) {
+    if (ids.length <= 1) continue;
+    ids.sort((a, b) => a - b);
+    const remove = ids.slice(1);
+    duplicateSets.push({ messageId, keep: ids[0], remove });
+    duplicateMessages += remove.length;
+  }
+
+  console.log(`[${folderLabel(folder)}] total=${selected.exists} uniqueMessageIds=${byMessageId.size} noMessageId=${withoutMessageId} duplicateSets=${duplicateSets.length} duplicateMessages=${duplicateMessages}`);
+  for (const set of duplicateSets.slice(0, 10)) {
+    console.log(`  duplicate keep UID ${set.keep}, remove UID(s) ${set.remove.join(', ')}`);
+  }
+
+  counters.duplicateSets += duplicateSets.length;
+  counters.duplicateMessages += duplicateMessages;
+  if (args.dryRun || duplicateMessages === 0) return;
+
+  if (!selected.readWrite || !selected.permanentFlags.includes('\\Deleted')) {
+    console.log(`  skip duplicate delete: folder is not writable or does not allow Deleted flag`);
+    return;
+  }
+
+  let deletedInFolder = 0;
+  let pendingDelete = [];
+  for (const set of duplicateSets) {
+    for (const uid of set.remove) {
+      if (counters.deleted >= args.maxDelete) break;
+      pendingDelete.push(uid);
+      counters.deleted += 1;
+      deletedInFolder += 1;
+    }
+    if (counters.deleted >= args.maxDelete) break;
+  }
+
+  if (deletedInFolder > 0) {
+    for (let i = 0; i < pendingDelete.length; i += 100) {
+      await client.deleteUids(pendingDelete.slice(i, i + 100));
+    }
+    await client.expunge();
+    console.log(`  expunged ${deletedInFolder} duplicate message(s)`);
+  }
+}
+
 async function runOnce(args) {
   const settings = loadSettings();
   let lastError = null;
@@ -582,6 +701,16 @@ async function runOnce(args) {
       console.log(`Retention: ${args.retentionDays} day(s), recent sync window: ${args.recentDays} day(s)`);
       console.log(`Archive: ${args.backupDir}`);
       if (args.scanExisting) console.log(`Existing archive scan: ${existingIndex.files} .eml file(s), ${existingIndex.messageIds.size} Message-ID(s)`);
+
+      if (args.dedupe) {
+        const dedupeCounters = { duplicateSets: 0, duplicateMessages: 0, deleted: 0 };
+        for (const folder of backupFolders) {
+          await dedupeFolder(client, args, folder, dedupeCounters);
+        }
+        console.log(`Dedupe summary: duplicateSets=${dedupeCounters.duplicateSets} duplicateMessages=${dedupeCounters.duplicateMessages} deleted=${dedupeCounters.deleted}`);
+        await client.logout();
+        return;
+      }
 
       for (const folder of backupFolders) {
         await processFolder(client, args, user, folder, cleanSet, counters, existingIndex);
