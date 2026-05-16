@@ -14,6 +14,7 @@ const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
 const { safeBody } = require('../middleware/sanitize');
 const { notify, notifyRole } = require('../utils/notify');
+const { getPolicyMinutesForDate, getAutoSyncTimesForToday } = require('../lib/work-policy');
 
 // ── 출퇴근 관리 (CAPS Bridge 연동) ───────────────────────
 // ══════════════════════════════════════════════════════════
@@ -276,10 +277,13 @@ function analyzeRecord(rec) {
   const inMin  = timeToMin(rec.inTime);
   const outMin = timeToMin(rec.outTime);
 
-  const WORK_START  = 8 * 60 + 30;   // 08:30
-  const HALF_AM_IN  = 14 * 60;        // 오전반차 출근 = 14:00
-  const HALF_PM_OUT = 11 * 60 + 30;   // 오후반차 퇴근 = 11:30
-  const OT_BASE     = 19 * 60;        // 추가근무 기준
+  // ── 그 날짜에 적용되는 근무정책 (data/근무정책.json) ──
+  // 정책 바뀌면 json 만 수정 → 코드 손댈 일 없음.
+  const _policy = getPolicyMinutesForDate(rec.date);
+  const WORK_START  = _policy.workStartMin;     // 정시 출근
+  const HALF_AM_IN  = _policy.halfAMInMin;      // 오전반차 출근
+  const HALF_PM_OUT = _policy.halfPMOutMin;     // 오후반차 퇴근
+  const OT_BASE     = _policy.overtimeStartMin; // 야근 기준
   const PREP_MIN    = 15;
 
   // ── 주말/공휴일
@@ -2216,14 +2220,10 @@ router.post('/leave/sync-from-attendance', requireAuth, async (req, res) => {
 
 // ─────────────────────────────────────────────────────────
 // 출퇴근 자동 동기화 스케줄러
-// 08:35, 11:35, 14:05, 19:05 — 출근/오후반차퇴근/오전반차출근/퇴근 시간 +5분
+// 출근+5/오후반차퇴근+5/오전반차출근+5/퇴근+5 시각에 CAPS 데이터 가져오기.
+// 시각은 그 날짜의 근무정책(data/근무정책.json)에 따라 동적으로 결정.
+// 예: 4월 = 08:35/11:35/14:05/19:05, 5월 = 08:35/12:05/13:35/17:35
 // ─────────────────────────────────────────────────────────
-const AUTO_SYNC_TIMES = [
-  { h: 8,  m: 35, label: '출근 체크' },
-  { h: 11, m: 35, label: '오후반차 퇴근 체크' },
-  { h: 14, m: 5,  label: '오전반차 출근 체크' },
-  { h: 19, m: 5,  label: '퇴근 체크' },
-];
 let _lastSyncDay = {};  // { 'HH:MM': 'YYYY-MM-DD' } 중복 실행 방지
 
 setInterval(() => {
@@ -2234,7 +2234,9 @@ setInterval(() => {
   const curH = now.getHours(), curM = now.getMinutes();
   const today = now.toISOString().slice(0, 10);
 
-  for (const t of AUTO_SYNC_TIMES) {
+  // 오늘 정책 기준으로 자동동기화 시각 4개 계산
+  const todaySyncTimes = getAutoSyncTimesForToday();
+  for (const t of todaySyncTimes) {
     const key = `${String(t.h).padStart(2,'0')}:${String(t.m).padStart(2,'0')}`;
     if (curH === t.h && curM === t.m && _lastSyncDay[key] !== today) {
       _lastSyncDay[key] = today;
