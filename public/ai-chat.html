@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css">
 <script src="https://cdn.jsdelivr.net/npm/marked@9.1.5/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; overflow: hidden; }
@@ -19,8 +20,7 @@ body { font-family: 'Inter', 'Noto Sans KR', -apple-system, "Apple SD Gothic Neo
 button { font: inherit; cursor: pointer; border: none; background: none; color: inherit; }
 input, textarea { font: inherit; }
 .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
-
-.app { display: grid; grid-template-columns: 272px 1fr; height: 100vh; overflow: hidden; }
+.app { display: grid; grid-template-columns: 272px 1fr; height: 100vh; overflow: hidden; position: relative; }
 .sidebar { background: #fff; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; overflow: hidden; }
 .sidebar-header { padding: 14px 16px; border-bottom: 1px solid #eef0f3; display: flex; align-items: center; gap: 10px; }
 .logo { width: 30px; height: 30px; background: linear-gradient(135deg,#4f6ef7,#7c5cff); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #fff; box-shadow: 0 2px 6px rgba(79,110,247,.3); }
@@ -50,13 +50,14 @@ input, textarea { font: inherit; }
 .back-btn { width: 100%; padding: 8px 12px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; color: #4b5563; font-size: 12px; font-weight: 500; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 6px; transition: background .08s, border-color .08s; }
 .back-btn:hover { background: #f3f4f6; border-color: #d1d5db; }
 .back-btn .material-symbols-outlined { font-size: 14px; }
-.main { display: flex; flex-direction: column; overflow: hidden; background: #fff; }
+.main { display: flex; flex-direction: column; overflow: hidden; background: #fff; position: relative; }
 .topbar { padding: 12px 22px; border-bottom: 1px solid #eef0f3; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; }
 .topbar-title { font-size: 14px; font-weight: 600; color: #1f2937; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topbar-actions { display: flex; gap: 8px; align-items: center; }
+.usage-pill { padding: 5px 10px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 12px; font-size: 11px; color: #9a3412; display: inline-flex; align-items: center; gap: 4px; }
+.usage-pill .material-symbols-outlined { font-size: 13px; }
 .model-pill { padding: 6px 12px; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 16px; font-size: 11px; font-weight: 600; color: #4b5563; display: inline-flex; align-items: center; gap: 6px; }
 .model-pill .dot { width: 6px; height: 6px; background: linear-gradient(135deg,#4f6ef7,#7c5cff); border-radius: 50%; }
-
 .messages { flex: 1; overflow-y: auto; padding: 24px 0 8px; }
 .messages::-webkit-scrollbar { width: 8px; }
 .messages::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
@@ -65,10 +66,8 @@ input, textarea { font: inherit; }
 .empty-state .icon .material-symbols-outlined { font-size: 32px; }
 .empty-state h2 { font-size: 22px; font-weight: 700; color: #1f2937; margin-bottom: 6px; }
 .empty-state p { font-size: 14px; color: #6b7280; max-width: 420px; line-height: 1.55; }
-
-/* Message bubbles */
 .msg { max-width: 780px; margin: 0 auto; padding: 12px 24px; display: flex; gap: 12px; }
-.msg-avatar { width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: #fff; }
+.msg-avatar { width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #fff; }
 .msg-user .msg-avatar { background: #6b7280; }
 .msg-ai .msg-avatar { background: linear-gradient(135deg,#4f6ef7,#7c5cff); }
 .msg-avatar .material-symbols-outlined { font-size: 16px; }
@@ -78,9 +77,7 @@ input, textarea { font: inherit; }
 .msg-content p { margin: 0 0 8px; }
 .msg-content p:last-child { margin-bottom: 0; }
 .msg-content h1, .msg-content h2, .msg-content h3 { margin: 14px 0 6px; font-weight: 700; line-height: 1.3; }
-.msg-content h1 { font-size: 20px; }
-.msg-content h2 { font-size: 17px; }
-.msg-content h3 { font-size: 15px; }
+.msg-content h1 { font-size: 20px; } .msg-content h2 { font-size: 17px; } .msg-content h3 { font-size: 15px; }
 .msg-content ul, .msg-content ol { margin: 0 0 8px; padding-left: 22px; }
 .msg-content li { margin: 2px 0; }
 .msg-content code { background: #f3f4f6; padding: 1px 5px; border-radius: 4px; font-family: 'JetBrains Mono', 'D2Coding', monospace; font-size: 12.5px; color: #be185d; }
@@ -94,12 +91,42 @@ input, textarea { font: inherit; }
 .msg-content hr { border: none; border-top: 1px solid #eef0f3; margin: 16px 0; }
 .msg-content .typing-cursor { display: inline-block; width: 8px; height: 14px; background: #4f6ef7; vertical-align: middle; margin-left: 2px; animation: blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
-
-.msg-error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 8px 12px; border-radius: 8px; font-size: 13px; margin-top: 6px; }
-
+.msg-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.msg-attachment { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; background: #f3f4f6; border-radius: 6px; font-size: 12px; color: #374151; }
+.msg-attachment .material-symbols-outlined { font-size: 14px; }
+.artifacts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-top: 10px; }
+.artifact-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px 12px; display: flex; gap: 10px; align-items: flex-start; transition: border-color .12s, box-shadow .12s; }
+.artifact-card:hover { border-color: #4f6ef7; box-shadow: 0 2px 8px rgba(79,110,247,.1); }
+.artifact-icon { width: 36px; height: 36px; border-radius: 8px; background: linear-gradient(135deg,#4f6ef7,#7c5cff); color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.artifact-icon .material-symbols-outlined { font-size: 20px; }
+.artifact-info { flex: 1; min-width: 0; }
+.artifact-name { font-size: 13px; font-weight: 600; color: #1f2937; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artifact-meta { font-size: 11px; color: #9ca3af; margin-top: 2px; }
+.artifact-actions { display: flex; gap: 4px; margin-top: 6px; }
+.artifact-btn { font-size: 11px; padding: 4px 8px; border-radius: 5px; background: #f3f4f6; color: #4b5563; text-decoration: none; display: inline-flex; align-items: center; gap: 3px; }
+.artifact-btn:hover { background: #e5e7eb; color: #1f2937; }
+.artifact-btn .material-symbols-outlined { font-size: 13px; }
+.artifact-img { max-width: 100%; max-height: 360px; border-radius: 8px; margin-top: 8px; border: 1px solid #e5e7eb; }
+.tool-running { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: #eff3ff; border: 1px solid #c7d2fe; border-radius: 6px; font-size: 12px; color: #4338ca; margin: 6px 0; }
+.tool-running .spinner { width: 10px; height: 10px; border: 2px solid #c7d2fe; border-top-color: #4f6ef7; border-radius: 50%; animation: spin .6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .composer-wrap { padding: 0 24px 22px; flex-shrink: 0; background: #fff; }
 .composer { max-width: 760px; margin: 0 auto; background: #fff; border: 1.5px solid #e5e7eb; border-radius: 14px; padding: 4px; transition: border-color .15s, box-shadow .15s; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
 .composer:focus-within { border-color: #4f6ef7; box-shadow: 0 2px 12px rgba(79,110,247,.12); }
+.composer.image-mode { border-color: #ec4899; box-shadow: 0 2px 12px rgba(236,72,153,.12); background: #fdf2f8; }
+.composer.image-mode .composer-input { color: #831843; }
+.attachments-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 8px 0; }
+.attachments-row:empty { display: none; }
+.att-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px 4px 4px; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 12px; color: #374151; max-width: 220px; }
+.att-chip-thumb { width: 28px; height: 28px; border-radius: 5px; flex-shrink: 0; background: #fff; overflow: hidden; display: flex; align-items: center; justify-content: center; color: #4f6ef7; }
+.att-chip-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.att-chip-thumb .material-symbols-outlined { font-size: 16px; }
+.att-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
+.att-chip-size { color: #9ca3af; font-size: 10.5px; flex-shrink: 0; }
+.att-chip-remove { width: 18px; height: 18px; border-radius: 50%; background: #e5e7eb; color: #6b7280; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
+.att-chip-remove:hover { background: #fecaca; color: #b91c1c; }
+.att-chip-remove .material-symbols-outlined { font-size: 12px; }
+.att-chip.uploading { opacity: 0.7; }
 .composer-input { width: 100%; background: transparent; border: none; color: #1f2937; padding: 12px 14px 8px; resize: none; outline: none; font-size: 14px; line-height: 1.55; max-height: 200px; min-height: 42px; overflow-y: auto; }
 .composer-input::placeholder { color: #9ca3af; }
 .composer-bottom { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px 4px 10px; }
@@ -108,19 +135,22 @@ input, textarea { font: inherit; }
 .tool-btn:hover { background: #f3f4f6; color: #4f6ef7; }
 .tool-btn:disabled { opacity: .4; cursor: not-allowed; }
 .tool-btn .material-symbols-outlined { font-size: 18px; }
+.tool-btn.active { background: #fce7f3; color: #ec4899; }
 .send-btn { height: 34px; padding: 0 14px; border-radius: 8px; background: linear-gradient(135deg,#4f6ef7,#7c5cff); color: #fff; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 4px; box-shadow: 0 2px 6px rgba(79,110,247,.25); transition: box-shadow .15s, transform .08s; }
 .send-btn:hover { box-shadow: 0 3px 10px rgba(79,110,247,.35); }
 .send-btn:active { transform: translateY(1px); }
 .send-btn:disabled { background: #e5e7eb; color: #9ca3af; box-shadow: none; cursor: not-allowed; }
 .send-btn .material-symbols-outlined { font-size: 16px; }
+.composer.image-mode .send-btn { background: linear-gradient(135deg,#ec4899,#db2777); }
 .composer-hint { max-width: 760px; margin: 8px auto 0; padding: 0 4px; font-size: 11px; color: #9ca3af; text-align: center; }
-
-.scrollto-bottom { position: absolute; bottom: 110px; left: 50%; transform: translateX(-50%); background: #fff; border: 1px solid #e5e7eb; border-radius: 50%; width: 32px; height: 32px; box-shadow: 0 2px 8px rgba(0,0,0,.08); display: none; align-items: center; justify-content: center; cursor: pointer; color: #6b7280; }
-.scrollto-bottom.visible { display: flex; }
+.drop-overlay { position: absolute; inset: 0; background: rgba(79,110,247,0.08); border: 3px dashed #4f6ef7; display: none; align-items: center; justify-content: center; pointer-events: none; z-index: 1000; }
+.drop-overlay.visible { display: flex; }
+.drop-overlay-inner { background: #fff; padding: 24px 36px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); text-align: center; color: #4f6ef7; font-weight: 600; }
+.drop-overlay-inner .material-symbols-outlined { font-size: 36px; display: block; margin-bottom: 6px; }
 </style>
 </head>
 <body>
-<div class="app">
+<div class="app" id="app">
 <aside class="sidebar">
 <div class="sidebar-header">
 <div class="logo"><span class="material-symbols-outlined">smart_toy</span></div>
@@ -138,10 +168,11 @@ input, textarea { font: inherit; }
 <a href="/" class="back-btn"><span class="material-symbols-outlined">arrow_back</span>ERP 메인으로</a>
 </div>
 </aside>
-<main class="main" style="position:relative;">
+<main class="main">
 <div class="topbar">
 <div class="topbar-title" id="topbarTitle">새 대화</div>
 <div class="topbar-actions">
+<div class="usage-pill" id="usagePill" style="display:none;"><span class="material-symbols-outlined">image</span><span id="usageLabel">이미지 0/0</span></div>
 <div class="model-pill"><span class="dot"></span><span id="modelLabel">Claude Sonnet 4</span></div>
 </div>
 </div>
@@ -149,96 +180,132 @@ input, textarea { font: inherit; }
 <div class="empty-state" id="emptyState">
 <div class="icon"><span class="material-symbols-outlined">auto_awesome</span></div>
 <h2>무엇을 도와드릴까요?</h2>
-<p>질문하거나, 파일을 첨부해 분석하거나, 엑셀·PDF 를 만들어 드릴 수 있어요. 거래처·매출·출퇴근 데이터는 자동으로 참조합니다.</p>
+<p>질문하거나, 파일을 첨부해 분석하거나, 엑셀·PDF·이미지를 만들어 드릴 수 있어요.</p>
 </div>
 </div>
 <div class="composer-wrap">
-<div class="composer">
-<textarea class="composer-input" id="composerInput" rows="1" placeholder="무엇이든 물어보세요. 파일은 드래그하거나 붙여넣으세요."></textarea>
+<div class="composer" id="composer">
+<div class="attachments-row" id="attachmentsRow"></div>
+<textarea class="composer-input" id="composerInput" rows="1" placeholder="무엇이든 물어보세요. 파일은 드래그하거나 📎로 첨부."></textarea>
 <div class="composer-bottom">
 <div class="composer-tools">
-<button class="tool-btn" title="파일 첨부 (Phase 4)" disabled><span class="material-symbols-outlined">attach_file</span></button>
-<button class="tool-btn" title="템플릿" disabled><span class="material-symbols-outlined">bookmark</span></button>
+<button class="tool-btn" id="attachBtn" title="파일 첨부"><span class="material-symbols-outlined">attach_file</span></button>
+<input type="file" id="fileInput" multiple style="display:none;" accept="image/*,.xlsx,.xls,.csv,.pdf,.txt,.md,.json,.docx">
+<button class="tool-btn" id="imageModeBtn" title="🎨 이미지 생성 모드"><span class="material-symbols-outlined">brush</span></button>
 </div>
 <button class="send-btn" id="sendBtn" disabled>전송 <span class="material-symbols-outlined">arrow_upward</span></button>
 </div>
 </div>
-<div class="composer-hint">Enter 로 전송 · Shift+Enter 줄바꿈</div>
+<div class="composer-hint" id="composerHint">Enter 로 전송 · Shift+Enter 줄바꿈 · 파일을 끌어다 놓을 수 있어요</div>
+</div>
+<div class="drop-overlay" id="dropOverlay">
+<div class="drop-overlay-inner">
+<span class="material-symbols-outlined">upload_file</span>
+파일을 놓아주세요
+</div>
 </div>
 </main>
 </div>
 
 <script>
-// ─── 상태 ──────────────────────────────────────────────
 const state = {
-  threads: [],
-  filteredThreads: [],
-  activeThreadId: null,
-  searchQuery: '',
-  messages: [],
-  streaming: false,
+  threads: [], filteredThreads: [], activeThreadId: null, searchQuery: '',
+  messages: [], streaming: false, attachments: [],
+  imageMode: false, usage: null,
 };
+const $ = (id) => document.getElementById(id);
+const input = $('composerInput'), sendBtn = $('sendBtn'), composerEl = $('composer');
+const threadListEl = $('threadList'), threadListLoading = $('threadListLoading'), threadSearchEl = $('threadSearch');
+const topbarTitleEl = $('topbarTitle'), messagesEl = $('messages'), emptyStateEl = $('emptyState');
+const attachmentsRowEl = $('attachmentsRow'), attachBtn = $('attachBtn'), fileInput = $('fileInput');
+const dropOverlay = $('dropOverlay'), imageModeBtn = $('imageModeBtn'), composerHint = $('composerHint');
+const usagePill = $('usagePill'), usageLabel = $('usageLabel');
 
-// ─── DOM 참조 ─────────────────────────────────────────
-const input = document.getElementById('composerInput');
-const sendBtn = document.getElementById('sendBtn');
-const threadListEl = document.getElementById('threadList');
-const threadListLoading = document.getElementById('threadListLoading');
-const threadSearchEl = document.getElementById('threadSearch');
-const topbarTitleEl = document.getElementById('topbarTitle');
-const messagesEl = document.getElementById('messages');
-const emptyStateEl = document.getElementById('emptyState');
-
-// ─── 마크다운 설정 ─────────────────────────────────────
+// 마크다운 + XSS 방어
 if (window.marked) {
-  marked.setOptions({
-    breaks: true,
-    gfm: true,
+  marked.setOptions({ breaks: true, gfm: true,
     highlight: (code, lang) => {
       try {
         if (lang && hljs.getLanguage(lang)) return hljs.highlight(code, { language: lang }).value;
         return hljs.highlightAuto(code).value;
       } catch (e) { return code; }
-    },
+    }
   });
 }
-
 function md(text) {
   if (!text) return '';
-  try { return marked.parse(String(text)); } catch (e) { return escapeHtml(text); }
+  try {
+    const html = marked.parse(String(text));
+    return window.DOMPurify ? DOMPurify.sanitize(html, { ADD_ATTR: ['target'] }) : html;
+  } catch (e) { return escapeHtml(text); }
 }
-
 function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
+function formatBytes(n) {
+  if (!n && n !== 0) return '';
+  if (n < 1024) return n + 'B';
+  if (n < 1024*1024) return (n/1024).toFixed(0) + 'KB';
+  return (n/1024/1024).toFixed(1) + 'MB';
+}
 
-// ─── 입력창 ────────────────────────────────────────────
 function autoResize() {
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 200) + 'px';
-  sendBtn.disabled = !input.value.trim() || state.streaming;
+  updateSendBtn();
+}
+function updateSendBtn() {
+  const hasText = !!input.value.trim();
+  const hasReadyAtt = state.attachments.some(a => !a.uploading);
+  const uploading = state.attachments.some(a => a.uploading);
+  sendBtn.disabled = state.streaming || uploading || (!hasText && !hasReadyAtt);
 }
 input.addEventListener('input', autoResize);
 input.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    if (!sendBtn.disabled) sendMessage();
-  }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!sendBtn.disabled) sendMessage(); }
 });
 sendBtn.addEventListener('click', () => { if (!sendBtn.disabled) sendMessage(); });
 
-// ─── 새 대화 ───────────────────────────────────────────
-document.getElementById('newChatBtn').addEventListener('click', async () => {
+$('newChatBtn').addEventListener('click', () => {
   if (state.streaming) return;
   state.activeThreadId = null;
-  state.messages = [];
+  state.messages = []; state.attachments = [];
+  renderAttachments();
   topbarTitleEl.textContent = '새 대화';
-  renderMessages();
+  renderMessagesFull();
   renderThreadList();
   input.focus();
 });
 
-// ─── 스레드 목록 ───────────────────────────────────────
+// 이미지 생성 모드 토글
+imageModeBtn.addEventListener('click', () => {
+  state.imageMode = !state.imageMode;
+  imageModeBtn.classList.toggle('active', state.imageMode);
+  composerEl.classList.toggle('image-mode', state.imageMode);
+  input.placeholder = state.imageMode
+    ? '만들고 싶은 이미지를 설명하세요. 예: 깔끔한 사무실 책상에 노트북과 커피'
+    : '무엇이든 물어보세요. 파일은 드래그하거나 📎로 첨부.';
+  composerHint.textContent = state.imageMode
+    ? '🎨 이미지 생성 모드 — 1장당 10~30초 소요 · 일일 한도 적용'
+    : 'Enter 로 전송 · Shift+Enter 줄바꿈 · 파일을 끌어다 놓을 수 있어요';
+  if (state.imageMode) loadUsage();
+});
+
+// 사용량 로드
+async function loadUsage() {
+  try {
+    const r = await fetch('/api/ai/usage/today', { credentials: 'include' });
+    if (!r.ok) return;
+    const data = await r.json();
+    state.usage = data;
+    if (data && data.limit !== undefined) {
+      usageLabel.textContent = `이미지 ${data.count || 0}/${data.limit}`;
+      usagePill.style.display = state.imageMode ? '' : 'none';
+    }
+  } catch (e) { /* silent */ }
+}
+
+// 스레드
 async function loadThreads() {
   try {
     const r = await fetch('/api/ai/threads?scope=mine&limit=100', { credentials: 'include' });
@@ -249,29 +316,25 @@ async function loadThreads() {
     renderThreadList();
   } catch (e) {
     console.error('스레드 로드 실패:', e);
-    threadListLoading.textContent = '불러오기 실패. 새로고침해 보세요.';
+    threadListLoading.textContent = '불러오기 실패.';
     threadListLoading.style.color = '#dc2626';
   }
 }
-
 function groupByDate(threads) {
-  const startOfDay = (d) => { const x = new Date(d); x.setHours(0,0,0,0); return x.getTime(); };
-  const today = startOfDay(new Date());
-  const yesterday = today - 86400000;
-  const sevenDaysAgo = today - 7 * 86400000;
-  const thirtyDaysAgo = today - 30 * 86400000;
-  const groups = { today: [], yesterday: [], week: [], month: [], older: [] };
+  const sod = (d) => { const x = new Date(d); x.setHours(0,0,0,0); return x.getTime(); };
+  const today = sod(new Date()), yest = today - 86400000;
+  const w = today - 7*86400000, m = today - 30*86400000;
+  const g = { today: [], yest: [], week: [], month: [], older: [] };
   for (const t of threads) {
-    const ts = startOfDay(t.updated_at || t.created_at);
-    if (ts === today) groups.today.push(t);
-    else if (ts === yesterday) groups.yesterday.push(t);
-    else if (ts > sevenDaysAgo) groups.week.push(t);
-    else if (ts > thirtyDaysAgo) groups.month.push(t);
-    else groups.older.push(t);
+    const ts = sod(t.updated_at || t.created_at);
+    if (ts === today) g.today.push(t);
+    else if (ts === yest) g.yest.push(t);
+    else if (ts > w) g.week.push(t);
+    else if (ts > m) g.month.push(t);
+    else g.older.push(t);
   }
-  return groups;
+  return g;
 }
-
 function renderThreadList() {
   const q = state.searchQuery.toLowerCase().trim();
   state.filteredThreads = q ? state.threads.filter(t => (t.title || '').toLowerCase().includes(q)) : state.threads;
@@ -280,70 +343,58 @@ function renderThreadList() {
     return;
   }
   const groups = groupByDate(state.filteredThreads);
-  const labels = { today: '오늘', yesterday: '어제', week: '지난 7일', month: '지난 30일', older: '이전' };
+  const labels = { today: '오늘', yest: '어제', week: '지난 7일', month: '지난 30일', older: '이전' };
   let html = '';
-  for (const key of ['today','yesterday','week','month','older']) {
-    const items = groups[key];
-    if (items.length === 0) continue;
+  for (const key of ['today','yest','week','month','older']) {
+    if (groups[key].length === 0) continue;
     html += '<div class="thread-group-label">' + labels[key] + '</div>';
-    for (const t of items) {
+    for (const t of groups[key]) {
       const isActive = String(state.activeThreadId) === String(t.id);
       const title = escapeHtml(t.title || '제목 없음');
-      const iconHtml = t.project_emoji
-        ? '<span style="font-size:12px;flex-shrink:0;">' + t.project_emoji + '</span>'
-        : '<span class="material-symbols-outlined">chat_bubble</span>';
-      html += '<div class="thread-item ' + (isActive ? 'active' : '') + '" data-id="' + t.id + '" title="' + title + '">' + iconHtml + '<span class="thread-item-title">' + title + '</span></div>';
+      const icon = t.project_emoji ? '<span style="font-size:12px;flex-shrink:0;">' + t.project_emoji + '</span>' : '<span class="material-symbols-outlined">chat_bubble</span>';
+      html += '<div class="thread-item ' + (isActive ? 'active' : '') + '" data-id="' + t.id + '" title="' + title + '">' + icon + '<span class="thread-item-title">' + title + '</span></div>';
     }
   }
   threadListEl.innerHTML = html;
-  threadListEl.querySelectorAll('.thread-item').forEach(el => {
-    el.addEventListener('click', () => selectThread(el.dataset.id));
-  });
+  // 이벤트 위임으로 한 번만 등록 (성능)
 }
+// 이벤트 위임 — 한 번만 등록
+threadListEl.addEventListener('click', (e) => {
+  const item = e.target.closest('.thread-item');
+  if (item && item.dataset.id) selectThread(item.dataset.id);
+});
 
 async function selectThread(threadId) {
   if (state.streaming) return;
   state.activeThreadId = threadId;
+  state.attachments = [];
+  renderAttachments();
   const t = state.threads.find(x => String(x.id) === String(threadId));
   topbarTitleEl.textContent = t ? (t.title || '제목 없음') : '새 대화';
   renderThreadList();
-  // 메시지 로드
   state.messages = [];
-  renderMessages();
-  showLoadingMessages();
+  messagesEl.innerHTML = '<div style="text-align:center;padding:40px;color:#9ca3af;font-size:13px;">불러오는 중…</div>';
   try {
     const r = await fetch('/api/ai/threads/' + encodeURIComponent(threadId), { credentials: 'include' });
     if (!r.ok) throw new Error('threads/:id ' + r.status);
     const data = await r.json();
     state.messages = (data.messages || []).map(m => ({
-      id: m.id,
-      role: m.role,
-      content: m.content || '',
-      createdAt: m.created_at,
+      id: m.id, role: m.role, content: m.content || '', createdAt: m.created_at,
+      attachments: m.attachments_parsed || [], artifacts: m.artifacts_parsed || [],
+      image_url: m.image_url || null,
     }));
-    renderMessages();
+    renderMessagesFull();
     scrollToBottom();
   } catch (e) {
     console.error('메시지 로드 실패:', e);
-    showErrorMessage('메시지 불러오기 실패: ' + e.message);
+    messagesEl.innerHTML = '<div style="text-align:center;padding:40px;color:#dc2626;font-size:13px;">메시지 불러오기 실패: ' + escapeHtml(e.message) + '</div>';
   }
 }
+threadSearchEl.addEventListener('input', (e) => { state.searchQuery = e.target.value; renderThreadList(); });
 
-function showLoadingMessages() {
-  messagesEl.innerHTML = '<div style="text-align:center;padding:40px;color:#9ca3af;font-size:13px;">불러오는 중…</div>';
-}
-
-function showErrorMessage(msg) {
-  messagesEl.innerHTML = '<div style="text-align:center;padding:40px;color:#dc2626;font-size:13px;">' + escapeHtml(msg) + '</div>';
-}
-
-threadSearchEl.addEventListener('input', (e) => {
-  state.searchQuery = e.target.value;
-  renderThreadList();
-});
-
-// ─── 메시지 렌더 ───────────────────────────────────────
-function renderMessages() {
+// ═══ 메시지 렌더 — 인크리멘탈 ═══
+function renderMessagesFull() {
+  // 전체 재구성 — 스레드 변경 시에만
   if (state.messages.length === 0) {
     messagesEl.innerHTML = '';
     messagesEl.appendChild(emptyStateEl);
@@ -351,83 +402,286 @@ function renderMessages() {
     return;
   }
   emptyStateEl.style.display = 'none';
-  let html = '';
-  for (const m of state.messages) {
-    html += renderMessageHtml(m);
-  }
-  messagesEl.innerHTML = html;
+  // documentFragment 로 한 번에 붙임 (DOM thrash 방지)
+  const frag = document.createDocumentFragment();
+  for (const m of state.messages) frag.appendChild(buildMessageEl(m));
+  messagesEl.innerHTML = '';
+  messagesEl.appendChild(frag);
 }
-
-function renderMessageHtml(m) {
+function appendMessage(m) {
+  emptyStateEl.style.display = 'none';
+  if (emptyStateEl.parentElement === messagesEl) messagesEl.removeChild(emptyStateEl);
+  messagesEl.appendChild(buildMessageEl(m));
+}
+function buildMessageEl(m) {
   const isUser = m.role === 'user';
   const isAI = m.role === 'ai' || m.role === 'assistant';
-  const cls = isUser ? 'msg msg-user' : 'msg msg-ai';
-  const avatar = isUser
-    ? '<span class="material-symbols-outlined">person</span>'
-    : '<span class="material-symbols-outlined">smart_toy</span>';
-  const name = isUser ? '나' : 'AI';
-  const contentHtml = isAI
-    ? md(m.content)
-    : '<p>' + escapeHtml(m.content).replace(/\n/g, '<br>') + '</p>';
-  const streaming = m.streaming ? '<span class="typing-cursor"></span>' : '';
-  return '<div class="' + cls + '" data-id="' + (m.id || '') + '">'
-    + '<div class="msg-avatar">' + avatar + '</div>'
-    + '<div class="msg-body">'
-    +   '<div class="msg-name">' + name + '</div>'
-    +   '<div class="msg-content">' + contentHtml + streaming + '</div>'
-    + '</div>'
-    + '</div>';
+  const wrap = document.createElement('div');
+  wrap.className = isUser ? 'msg msg-user' : 'msg msg-ai';
+  wrap.dataset.id = m.id || '';
+  wrap.innerHTML =
+    '<div class="msg-avatar"><span class="material-symbols-outlined">' + (isUser ? 'person' : 'smart_toy') + '</span></div>' +
+    '<div class="msg-body">' +
+      '<div class="msg-name">' + (isUser ? '나' : 'AI') + '</div>' +
+      '<div class="msg-content"></div>' +
+      '<div class="msg-attachments-wrap"></div>' +
+      '<div class="msg-artifacts-wrap"></div>' +
+    '</div>';
+  // 내용 채우기
+  const contentEl = wrap.querySelector('.msg-content');
+  if (isAI) {
+    contentEl.innerHTML = md(m.content) + (m.streaming ? '<span class="typing-cursor"></span>' : '');
+    if (m.image_url) {
+      const img = document.createElement('img');
+      img.className = 'artifact-img';
+      img.src = m.image_url;
+      img.alt = '생성된 이미지';
+      contentEl.appendChild(img);
+    }
+  } else {
+    contentEl.innerHTML = '<p>' + escapeHtml(m.content).replace(/\n/g, '<br>') + '</p>';
+  }
+  // 첨부 (사용자 메시지 — 보낸 파일들)
+  if (Array.isArray(m.attachments) && m.attachments.length > 0) {
+    const attWrap = wrap.querySelector('.msg-attachments-wrap');
+    attWrap.className += ' msg-attachments';
+    for (const a of m.attachments) {
+      const chip = document.createElement('span');
+      chip.className = 'msg-attachment';
+      chip.innerHTML = '<span class="material-symbols-outlined">' + attachKindIcon(a.kind) + '</span>' + escapeHtml(a.originalName || a.original_name || '파일');
+      attWrap.appendChild(chip);
+    }
+  }
+  // 아티팩트 (AI 가 생성한 파일들)
+  if (Array.isArray(m.artifacts) && m.artifacts.length > 0) {
+    const aw = wrap.querySelector('.msg-artifacts-wrap');
+    aw.className += ' artifacts-grid';
+    for (const art of m.artifacts) aw.appendChild(buildArtifactEl(art));
+  }
+  return wrap;
 }
-
+function buildArtifactEl(art) {
+  const div = document.createElement('div');
+  div.className = 'artifact-card';
+  const isImg = (art.kind === 'image') || /^image\//.test(art.mime || '');
+  const iconName = isImg ? 'image' : (art.kind === 'excel' ? 'table_chart' : (art.kind === 'pdf' ? 'picture_as_pdf' : 'description'));
+  const dlUrl = art.id ? '/api/ai/artifacts/' + art.id + '/download' : (art.url || '#');
+  const prevUrl = art.id ? '/api/ai/artifacts/' + art.id + '/preview' : null;
+  div.innerHTML =
+    '<div class="artifact-icon"><span class="material-symbols-outlined">' + iconName + '</span></div>' +
+    '<div class="artifact-info">' +
+      '<div class="artifact-name">' + escapeHtml(art.filename || art.original_name || '파일') + '</div>' +
+      '<div class="artifact-meta">' + (art.kind || '') + (art.size ? ' · ' + formatBytes(art.size) : '') + '</div>' +
+      '<div class="artifact-actions">' +
+        '<a href="' + dlUrl + '" class="artifact-btn" download><span class="material-symbols-outlined">download</span>다운로드</a>' +
+        (prevUrl ? '<a href="' + prevUrl + '" target="_blank" class="artifact-btn"><span class="material-symbols-outlined">visibility</span>미리보기</a>' : '') +
+      '</div>' +
+    '</div>';
+  return div;
+}
+function attachKindIcon(kind) {
+  if (kind === 'image') return 'image';
+  if (kind === 'excel') return 'table_chart';
+  if (kind === 'pdf') return 'picture_as_pdf';
+  if (kind === 'word') return 'description';
+  return 'attach_file';
+}
+// 스트리밍 중 마지막 AI 메시지 콘텐츠만 갱신 (성능 핵심)
+function updateLastAIContent(text, isStreaming) {
+  const last = messagesEl.lastElementChild;
+  if (!last || !last.classList.contains('msg-ai')) return;
+  const c = last.querySelector('.msg-content');
+  if (!c) return;
+  c.innerHTML = md(text) + (isStreaming ? '<span class="typing-cursor"></span>' : '');
+}
 function scrollToBottom() {
-  setTimeout(() => { messagesEl.scrollTop = messagesEl.scrollHeight; }, 10);
+  // requestAnimationFrame 사용으로 reflow 최소화
+  requestAnimationFrame(() => { messagesEl.scrollTop = messagesEl.scrollHeight; });
 }
 
-// ─── 메시지 전송 (SSE 스트리밍) ────────────────────────
+// ═══ 첨부 ═══
+function renderAttachments() {
+  if (state.attachments.length === 0) { attachmentsRowEl.innerHTML = ''; updateSendBtn(); return; }
+  let html = '';
+  for (let i = 0; i < state.attachments.length; i++) {
+    const a = state.attachments[i];
+    const name = escapeHtml(a.originalName || a.name || '파일');
+    const size = a.size ? '<span class="att-chip-size">' + formatBytes(a.size) + '</span>' : '';
+    const thumb = (a.kind === 'image' && a.id)
+      ? '<div class="att-chip-thumb"><img src="/api/ai/attachments/' + a.id + '/raw" alt=""></div>'
+      : '<div class="att-chip-thumb"><span class="material-symbols-outlined">' + attachKindIcon(a.kind) + '</span></div>';
+    const rm = a.uploading ? '' : '<span class="att-chip-remove" data-idx="' + i + '"><span class="material-symbols-outlined">close</span></span>';
+    html += '<div class="att-chip ' + (a.uploading ? 'uploading' : '') + '">' + thumb + '<span class="att-chip-name">' + name + '</span>' + size + rm + '</div>';
+  }
+  attachmentsRowEl.innerHTML = html;
+  updateSendBtn();
+}
+attachmentsRowEl.addEventListener('click', (e) => {
+  const rm = e.target.closest('.att-chip-remove');
+  if (rm) {
+    const idx = parseInt(rm.dataset.idx);
+    const a = state.attachments[idx];
+    if (a && a.id) fetch('/api/ai/attachments/' + a.id, { method: 'DELETE', credentials: 'include' }).catch(()=>{});
+    state.attachments.splice(idx, 1);
+    renderAttachments();
+  }
+});
+
+async function uploadFile(file) {
+  const ph = { id: null, originalName: file.name, name: file.name, size: file.size, mime: file.type, kind: guessKindFromFile(file), uploading: true, _tmp: 'tmp_' + Date.now() + '_' + Math.random().toString(36).slice(2,6) };
+  state.attachments.push(ph);
+  renderAttachments();
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await fetch('/api/ai/attachments', { method: 'POST', credentials: 'include', body: fd });
+    if (r.status === 401) { window.location.href = '/'; return; }
+    if (!r.ok) throw new Error('업로드 실패 ' + r.status);
+    const data = await r.json();
+    const idx = state.attachments.findIndex(a => a._tmp === ph._tmp);
+    if (idx !== -1 && data.attachment) {
+      state.attachments[idx] = {
+        id: data.attachment.id,
+        originalName: data.attachment.originalName || data.attachment.original_name || file.name,
+        name: data.attachment.originalName || file.name,
+        size: data.attachment.size || file.size,
+        mime: data.attachment.mime || file.type,
+        kind: data.attachment.kind || ph.kind,
+      };
+      renderAttachments();
+    }
+  } catch (e) {
+    console.error('업로드 실패:', e);
+    alert('파일 업로드 실패 (' + file.name + '): ' + e.message);
+    const idx = state.attachments.findIndex(a => a._tmp === ph._tmp);
+    if (idx !== -1) state.attachments.splice(idx, 1);
+    renderAttachments();
+  }
+}
+function guessKindFromFile(file) {
+  const n = (file.name || '').toLowerCase();
+  if ((file.type || '').startsWith('image/')) return 'image';
+  if (n.match(/\.(xlsx|xls|csv)$/)) return 'excel';
+  if (n.endsWith('.pdf')) return 'pdf';
+  if (n.match(/\.(docx|doc)$/)) return 'word';
+  return 'text';
+}
+attachBtn.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', (e) => {
+  Array.from(e.target.files || []).forEach(uploadFile);
+  fileInput.value = '';
+});
+
+let dragCounter = 0;
+window.addEventListener('dragenter', (e) => {
+  if (!e.dataTransfer || !e.dataTransfer.types.includes('Files')) return;
+  e.preventDefault(); dragCounter++; dropOverlay.classList.add('visible');
+});
+window.addEventListener('dragover', (e) => { if (e.dataTransfer && e.dataTransfer.types.includes('Files')) e.preventDefault(); });
+window.addEventListener('dragleave', () => { dragCounter--; if (dragCounter <= 0) { dragCounter = 0; dropOverlay.classList.remove('visible'); } });
+window.addEventListener('drop', (e) => {
+  if (!e.dataTransfer || !e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
+  e.preventDefault(); dragCounter = 0; dropOverlay.classList.remove('visible');
+  Array.from(e.dataTransfer.files).forEach(uploadFile);
+});
+input.addEventListener('paste', (e) => {
+  if (!e.clipboardData) return;
+  Array.from(e.clipboardData.items || []).forEach(item => {
+    if (item.kind === 'file') { const f = item.getAsFile(); if (f) uploadFile(f); }
+  });
+});
+
+// ═══ 전송 ═══
 async function sendMessage() {
   const text = input.value.trim();
-  if (!text || state.streaming) return;
+  const readyAtts = state.attachments.filter(a => !a.uploading && a.id);
+  if (!text && readyAtts.length === 0 && !state.imageMode) return;
+  if (state.imageMode && !text) { alert('이미지 설명을 입력해주세요.'); return; }
+  if (state.streaming) return;
 
   state.streaming = true;
-  sendBtn.disabled = true;
+  updateSendBtn();
   input.disabled = true;
 
-  // user 메시지 즉시 표시
-  state.messages.push({ role: 'user', content: text, id: 'tmp_u_' + Date.now() });
-  // AI 자리표시
-  const aiPlaceholder = { role: 'ai', content: '', streaming: true, id: 'tmp_a_' + Date.now() };
-  state.messages.push(aiPlaceholder);
-  renderMessages();
+  const userMsg = {
+    role: 'user', content: text || (state.imageMode ? '' : '(첨부파일 분석)'),
+    id: 'tmp_u_' + Date.now(),
+    attachments: readyAtts.map(a => ({ ...a })),
+  };
+  state.messages.push(userMsg);
+  appendMessage(userMsg);
+
+  const aiMsg = { role: 'ai', content: state.imageMode ? '이미지 생성 중… (10~30초 소요)' : '', streaming: true, id: 'tmp_a_' + Date.now() };
+  state.messages.push(aiMsg);
+  appendMessage(aiMsg);
   scrollToBottom();
 
   input.value = '';
   autoResize();
+  const attachmentIds = readyAtts.map(a => a.id);
+  state.attachments = [];
+  renderAttachments();
 
+  // 이미지 모드 = 별도 처리
+  if (state.imageMode) {
+    try {
+      const r = await fetch('/api/ai/chat-image', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ prompt: text, threadId: state.activeThreadId || undefined }),
+      });
+      if (r.status === 401) { window.location.href = '/'; return; }
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || ('chat-image ' + r.status));
+      aiMsg.streaming = false;
+      aiMsg.content = data.text || '이미지가 생성되었습니다.';
+      aiMsg.image_url = data.image_url || data.imageUrl || null;
+      aiMsg.artifacts = data.artifacts || [];
+      // 마지막 AI 메시지 DIV 통째로 교체
+      messagesEl.removeChild(messagesEl.lastElementChild);
+      appendMessage(aiMsg);
+      scrollToBottom();
+      if (data.threadId && !state.activeThreadId) {
+        state.activeThreadId = data.threadId;
+        await loadThreads();
+      } else { loadThreads(); }
+      loadUsage();
+      // 이미지 모드 자동 끔
+      state.imageMode = false;
+      imageModeBtn.classList.remove('active');
+      composerEl.classList.remove('image-mode');
+      composerHint.textContent = 'Enter 로 전송 · Shift+Enter 줄바꿈 · 파일을 끌어다 놓을 수 있어요';
+      usagePill.style.display = 'none';
+      input.placeholder = '무엇이든 물어보세요. 파일은 드래그하거나 📎로 첨부.';
+    } catch (e) {
+      console.error('이미지 생성 실패:', e);
+      aiMsg.streaming = false;
+      aiMsg.content = '**오류:** ' + e.message;
+      messagesEl.removeChild(messagesEl.lastElementChild);
+      appendMessage(aiMsg);
+    } finally {
+      state.streaming = false; input.disabled = false; autoResize(); input.focus();
+    }
+    return;
+  }
+
+  // 일반 텍스트 — SSE 스트리밍
   try {
     const r = await fetch('/api/ai/chat-stream', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        prompt: text,
-        threadId: state.activeThreadId || undefined,
-      }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ prompt: text || '(첨부파일 분석)', threadId: state.activeThreadId || undefined, attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined }),
     });
     if (r.status === 401) { window.location.href = '/'; return; }
     if (!r.ok) throw new Error('chat-stream ' + r.status);
-
-    // SSE 파싱
     const reader = r.body.getReader();
     const decoder = new TextDecoder();
-    let buffer = '';
-    let newThreadId = null;
-
+    let buffer = ''; let newThreadId = null;
+    // 스트리밍 throttle (16ms = 60fps) — CPU 보호
+    let lastRender = 0;
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      const events = buffer.split('\n\n');
-      buffer = events.pop();
+      const events = buffer.split('\n\n'); buffer = events.pop();
       for (const evt of events) {
         const lines = evt.split('\n');
         let eventName = '', dataStr = '';
@@ -438,50 +692,74 @@ async function sendMessage() {
         if (!dataStr) continue;
         try {
           const data = JSON.parse(dataStr);
-          if (eventName === 'start') {
-            newThreadId = data.threadId;
-          } else if (eventName === 'delta') {
-            aiPlaceholder.content += data.text || '';
-            renderMessages();
-            scrollToBottom();
+          if (eventName === 'start') newThreadId = data.threadId;
+          else if (eventName === 'delta') {
+            aiMsg.content += data.text || '';
+            const now = Date.now();
+            if (now - lastRender > 16) {  // throttle
+              updateLastAIContent(aiMsg.content, true);
+              scrollToBottom();
+              lastRender = now;
+            }
           } else if (eventName === 'done') {
-            aiPlaceholder.streaming = false;
-            aiPlaceholder.id = data.messageId || aiPlaceholder.id;
-            renderMessages();
+            aiMsg.streaming = false;
+            aiMsg.id = data.messageId || aiMsg.id;
+            updateLastAIContent(aiMsg.content, false);
           } else if (eventName === 'error') {
-            aiPlaceholder.streaming = false;
-            aiPlaceholder.content += '\n\n**오류:** ' + (data.error || '알 수 없는 오류');
-            renderMessages();
+            aiMsg.streaming = false;
+            aiMsg.content += '\n\n**오류:** ' + (data.error || '알 수 없는 오류');
+            updateLastAIContent(aiMsg.content, false);
           }
         } catch (e) { console.warn('SSE parse:', e); }
       }
     }
-
-    // 새 스레드인 경우 - active 로 잡고 사이드바 갱신
+    // 완료 후 한 번 더 보장
+    updateLastAIContent(aiMsg.content, false);
     if (newThreadId && !state.activeThreadId) {
       state.activeThreadId = newThreadId;
       await loadThreads();
       const t = state.threads.find(x => String(x.id) === String(newThreadId));
       if (t) topbarTitleEl.textContent = t.title || '제목 없음';
     } else if (state.activeThreadId) {
-      // 기존 스레드인 경우 — updated_at 갱신용으로 목록 새로고침
       loadThreads();
     }
+    // 응답에 artifact 가 있을 수도 있음 — 스레드 메시지 다시 가져와서 확인
+    if (state.activeThreadId) await refreshArtifactsForLastAI();
   } catch (e) {
     console.error('전송 실패:', e);
-    aiPlaceholder.streaming = false;
-    aiPlaceholder.content = '**오류:** ' + e.message;
-    renderMessages();
+    aiMsg.streaming = false;
+    aiMsg.content = '**오류:** ' + e.message;
+    updateLastAIContent(aiMsg.content, false);
   } finally {
-    state.streaming = false;
-    input.disabled = false;
-    autoResize();
-    input.focus();
+    state.streaming = false; input.disabled = false; autoResize(); input.focus();
   }
 }
 
-// ─── 시작 ──────────────────────────────────────────────
+// 마지막 AI 메시지에 artifact 가 있으면 카드로 표시
+async function refreshArtifactsForLastAI() {
+  try {
+    const r = await fetch('/api/ai/threads/' + encodeURIComponent(state.activeThreadId), { credentials: 'include' });
+    if (!r.ok) return;
+    const data = await r.json();
+    const msgs = data.messages || [];
+    if (msgs.length === 0) return;
+    const last = msgs[msgs.length - 1];
+    if (last.role !== 'ai') return;
+    const artifacts = last.artifacts_parsed || [];
+    if (artifacts.length === 0) return;
+    // 마지막 메시지 DIV 에 artifacts 영역 추가
+    const lastEl = messagesEl.lastElementChild;
+    if (!lastEl) return;
+    const aw = lastEl.querySelector('.msg-artifacts-wrap');
+    if (!aw) return;
+    aw.className = 'msg-artifacts-wrap artifacts-grid';
+    aw.innerHTML = '';
+    for (const art of artifacts) aw.appendChild(buildArtifactEl(art));
+  } catch (e) { /* silent */ }
+}
+
 loadThreads();
+loadUsage();
 </script>
 </body>
 </html>
