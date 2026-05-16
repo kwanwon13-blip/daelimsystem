@@ -631,6 +631,7 @@ router.get('/attendance/records', requireAuth, async (req, res) => {
   // 수동 노트 병합
   const dbData = db.출퇴근관리.load();
   const notes = dbData.attendanceNotes || {};
+  const overtimeApprovals = dbData.overtimeApprovals || {};
   const existingKeys = new Set(analyzed.map(r => `${r.employeeId}_${r.date}`));
   for (const r of analyzed) {
     const nKey = `${r.employeeId}_${r.date}`;
@@ -650,6 +651,19 @@ router.get('/attendance/records', requireAuth, async (req, res) => {
         r.outTime = notes[nKey].modifiedOutTime;
         r.timeModified = true;
       }
+    }
+    // 결재로 공식 승인된 시간외근무 마크
+    if (overtimeApprovals[nKey]) {
+      r.approvedOvertime = overtimeApprovals[nKey].minutes || 0;
+      r.approvedOvertimeLabel = minToHHMM(r.approvedOvertime);
+      r.approvedOvertimeHours = minToDecimalHours(r.approvedOvertime);
+      r.approvedOvertimeStart = overtimeApprovals[nKey].startTime;
+      r.approvedOvertimeEnd = overtimeApprovals[nKey].endTime;
+      r.approvedOvertimeReason = overtimeApprovals[nKey].reason;
+    } else {
+      r.approvedOvertime = 0;
+      r.approvedOvertimeLabel = '';
+      r.approvedOvertimeHours = 0;
     }
   }
   // CAPS에 기록이 없지만 수동 노트가 있는 날짜 → 가상 레코드 생성
@@ -950,6 +964,21 @@ router.get('/attendance/summary', requireAuth, async (req, res) => {
     });
   }
 
+  // 결재로 공식 승인된 시간외근무를 각 record 에 마크
+  const overtimeApprovals = dbData.overtimeApprovals || {};
+  for (const r of records) {
+    const nKey = `${r.employeeId}_${r.date}`;
+    if (overtimeApprovals[nKey]) {
+      r.approvedOvertime = overtimeApprovals[nKey].minutes || 0;
+      r.approvedOvertimeLabel = minToHHMM(r.approvedOvertime);
+      r.approvedOvertimeHours = minToDecimalHours(r.approvedOvertime);
+    } else {
+      r.approvedOvertime = 0;
+      r.approvedOvertimeLabel = '';
+      r.approvedOvertimeHours = 0;
+    }
+  }
+
   // 직원별 집계
   const byEmp = {};
   for (const r of records) {
@@ -966,6 +995,7 @@ router.get('/attendance/summary', requireAuth, async (req, res) => {
         lateDays: 0,
         totalLateMin: 0,
         totalOvertimeMin: 0,
+        totalApprovedOvertimeMin: 0,
         needsReviewCount: 0,
         records: [],
       };
@@ -980,6 +1010,7 @@ router.get('/attendance/summary', requireAuth, async (req, res) => {
     if (r.late) { e.lateDays++; e.totalLateMin += r.lateMinutes; }
     if (r.reviewStatus === 'needsReview') e.needsReviewCount++;
     e.totalOvertimeMin += (r.overtime || 0);
+    e.totalApprovedOvertimeMin += (r.approvedOvertime || 0);
   }
 
   _lap(`byEmp 집계 완료 (${Object.keys(byEmp).length}명)`);
@@ -1074,6 +1105,8 @@ router.get('/attendance/summary', requireAuth, async (req, res) => {
     ...e,
     totalOvertimeLabel: minToHHMM(e.totalOvertimeMin),
     totalOvertimeHours: minToDecimalHours(e.totalOvertimeMin),
+    totalApprovedOvertimeLabel: minToHHMM(e.totalApprovedOvertimeMin || 0),
+    totalApprovedOvertimeHours: minToDecimalHours(e.totalApprovedOvertimeMin || 0),
     usedLeave: e.annualDays + (e.halfAM + e.halfPM) * 0.5,
   }));
 
@@ -1410,9 +1443,19 @@ router.get('/attendance/export-excel', requireAdmin, async (req, res) => {
   const byEmp = {};
   for (const r of records) {
     const key = r.employeeId;
-    if (!byEmp[key]) byEmp[key] = { employeeId: r.employeeId, employeeName: r.employeeName, normalDays:0, halfAM:0, halfPM:0, annualDays:0, absentDays:0, lateDays:0, totalLateMin:0, totalOvertimeMin:0, records:[] };
+    if (!byEmp[key]) byEmp[key] = { employeeId: r.employeeId, employeeName: r.employeeName, normalDays:0, halfAM:0, halfPM:0, annualDays:0, absentDays:0, lateDays:0, totalLateMin:0, totalOvertimeMin:0, totalApprovedOvertimeMin:0, records:[] };
     const e = byEmp[key];
     e.records.push(r);
+    // 결재 승인 야근 마크 (records 응답과 동일 패턴)
+    const _otKey = `${r.employeeId}_${r.date}`;
+    const _ot = (dbData.overtimeApprovals || {})[_otKey];
+    if (_ot) {
+      r.approvedOvertime = _ot.minutes || 0;
+      r.approvedOvertimeStart = _ot.startTime;
+      r.approvedOvertimeEnd = _ot.endTime;
+    } else {
+      r.approvedOvertime = 0;
+    }
     if (r.leaveType === 'normal' || r.leaveType === 'noswipe') e.normalDays++;
     else if (r.leaveType === 'halfAM') e.halfAM++;
     else if (r.leaveType === 'halfPM') e.halfPM++;
@@ -1420,6 +1463,7 @@ router.get('/attendance/export-excel', requireAdmin, async (req, res) => {
     else if (r.leaveType === 'absent') e.absentDays++;
     if (r.late) { e.lateDays++; e.totalLateMin += r.lateMinutes; }
     e.totalOvertimeMin += (r.overtime || 0);
+    e.totalApprovedOvertimeMin += (r.approvedOvertime || 0);
   }
   let summary = Object.values(byEmp).map(e => ({ ...e, usedLeave: e.annualDays + (e.halfAM + e.halfPM) * 0.5 }));
   if (teamMemberNames) summary = summary.filter(e => teamMemberNames.includes(e.employeeName));
@@ -1471,17 +1515,19 @@ router.get('/attendance/export-excel', requireAdmin, async (req, res) => {
     { header:'사용연차', key:'usedLeave', width:10 },
     { header:'지각', key:'late', width:8 },
     { header:'추가근무(h)', key:'overtime', width:12 },
+    { header:'승인야근(h)', key:'approvedOvertime', width:13 },
   ];
   ws1.getRow(1).eachCell(c => { c.fill = headerFill; c.font = headerFont; c.alignment = { horizontal:'center', vertical:'middle' }; c.border = thinBorder; });
   ws1.getRow(1).height = 24;
 
   for (const emp of summary) {
-    const row = ws1.addRow({ dept: emp.department||'미배정', name: emp.employeeName, normal: emp.normalDays, satDays: emp.saturdayDays||0, halfAM: emp.halfAM||0, halfPM: emp.halfPM||0, annual: emp.annualDays||0, usedLeave: emp.usedLeave, late: emp.lateDays, overtime: +(emp.totalOvertimeMin/60).toFixed(2) });
+    const row = ws1.addRow({ dept: emp.department||'미배정', name: emp.employeeName, normal: emp.normalDays, satDays: emp.saturdayDays||0, halfAM: emp.halfAM||0, halfPM: emp.halfPM||0, annual: emp.annualDays||0, usedLeave: emp.usedLeave, late: emp.lateDays, overtime: +(emp.totalOvertimeMin/60).toFixed(2), approvedOvertime: +((emp.totalApprovedOvertimeMin||0)/60).toFixed(2) });
     row.eachCell(c => { c.font = bodyFont; c.alignment = { horizontal:'center', vertical:'middle' }; c.border = thinBorder; });
     row.getCell('name').alignment = { horizontal:'left', vertical:'middle' };
     row.getCell('dept').alignment = { horizontal:'left', vertical:'middle' };
     if (emp.lateDays > 0) row.getCell('late').font = { ...bodyFont, color:{ argb:'FFEF4444' }, bold:true };
     if (emp.totalOvertimeMin > 0) row.getCell('overtime').font = { ...bodyFont, color:{ argb:'FF6366F1' }, bold:true };
+    if ((emp.totalApprovedOvertimeMin||0) > 0) row.getCell('approvedOvertime').font = { ...bodyFont, color:{ argb:'FF15803D' }, bold:true };
     if (emp.usedLeave > 0) row.getCell('usedLeave').font = { ...bodyFont, color:{ argb:'FFF59E0B' }, bold:true };
   }
 
@@ -1497,6 +1543,8 @@ router.get('/attendance/export-excel', requireAdmin, async (req, res) => {
     { header:'퇴근시간', key:'outTime', width:10 },
     { header:'구분', key:'type', width:10 },
     { header:'지각', key:'late', width:6 },
+    { header:'자동야근', key:'overtime', width:9 },
+    { header:'승인야근', key:'approvedOvertime', width:9 },
     { header:'비고', key:'note', width:20 },
   ];
   ws2.getRow(1).eachCell(c => { c.fill = headerFill; c.font = headerFont; c.alignment = { horizontal:'center', vertical:'middle' }; c.border = thinBorder; });
@@ -1509,12 +1557,16 @@ router.get('/attendance/export-excel', requireAdmin, async (req, res) => {
       const d = new Date(r.date);
       const dayName = dayNames[d.getDay()];
       const typeLabel = r.leaveLabel || leaveLabels[r.leaveType] || r.leaveType || '';
-      const row = ws2.addRow({ dept: emp.department||'미배정', name: emp.employeeName, date: r.date, day: dayName, inTime: r.inTime||'', outTime: r.outTime||'', type: typeLabel, late: r.late?'O':'', note: r.note||'' });
+      const otHours = r.overtime ? +(r.overtime/60).toFixed(2) : '';
+      const apprOtHours = r.approvedOvertime ? +(r.approvedOvertime/60).toFixed(2) : '';
+      const row = ws2.addRow({ dept: emp.department||'미배정', name: emp.employeeName, date: r.date, day: dayName, inTime: r.inTime||'', outTime: r.outTime||'', type: typeLabel, late: r.late?'O':'', overtime: otHours, approvedOvertime: apprOtHours, note: r.note||'' });
       row.eachCell(c => { c.font = bodyFont; c.alignment = { horizontal:'center', vertical:'middle' }; c.border = thinBorder; });
       row.getCell('name').alignment = { horizontal:'left', vertical:'middle' };
       row.getCell('dept').alignment = { horizontal:'left', vertical:'middle' };
       row.getCell('note').alignment = { horizontal:'left', vertical:'middle' };
       if (r.late) row.getCell('late').font = { ...bodyFont, color:{ argb:'FFEF4444' }, bold:true };
+      if (r.overtime > 0) row.getCell('overtime').font = { ...bodyFont, color:{ argb:'FF6366F1' }, bold:true };
+      if (r.approvedOvertime > 0) row.getCell('approvedOvertime').font = { ...bodyFont, color:{ argb:'FF15803D' }, bold:true };
       if (d.getDay() === 0) row.eachCell(c => { c.font = { ...c.font, color:{ argb:'FFEF4444' } }; });
       if (d.getDay() === 6) row.eachCell(c => { c.font = { ...c.font, color:{ argb:'FF2563EB' } }; });
       if (r.leaveType === 'annual' || r.leaveType === 'halfAM' || r.leaveType === 'halfPM') {
@@ -1523,9 +1575,9 @@ router.get('/attendance/export-excel', requireAdmin, async (req, res) => {
     }
   }
 
-  // 자동필터
-  ws1.autoFilter = { from:'A1', to:`J${ws1.rowCount}` };
-  ws2.autoFilter = { from:'A1', to:`I${ws2.rowCount}` };
+  // 자동필터 (컬럼 수가 늘었으니 끝 컬럼도 확장)
+  ws1.autoFilter = { from:'A1', to:`K${ws1.rowCount}` };  // K=11개 컬럼 (승인야근 추가)
+  ws2.autoFilter = { from:'A1', to:`K${ws2.rowCount}` };  // K=11개 컬럼 (자동/승인야근 추가)
 
   const filename = encodeURIComponent(`출퇴근기록부_${y}년${m}월.xlsx`);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -2269,4 +2321,3 @@ module.exports.isKoreanHoliday = isKoreanHoliday;
 module.exports.timeToMin = timeToMin;
 module.exports.minToHHMM = minToHHMM;
 module.exports.minToDecimalHours = minToDecimalHours;
-

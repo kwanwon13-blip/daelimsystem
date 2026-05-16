@@ -414,6 +414,56 @@ router.post('/:id/process', requireAuth, (req, res) => {
     }
   }
 
+  // ── 시간외근무 승인 → 출퇴근 기록부에 "결재 승인 야근" 마크 ──
+  // 자동 계산 야근(퇴근시각 기준) 외에, 결재로 공식 인정된 야근을 별도 저장.
+  // 출퇴근 화면 / 엑셀에서 둘 다 표시.
+  if (action === 'approved' && doc.type === '시간외근무' && doc.formData) {
+    try {
+      const fd = doc.formData;
+      const [sh, sm] = String(fd.startTime || '00:00').split(':').map(Number);
+      const [eh, em] = String(fd.endTime || '00:00').split(':').map(Number);
+      const startMin = sh * 60 + sm;
+      const endMin = eh * 60 + em;
+      const minutes = Math.max(0, endMin - startMin);
+
+      const attData = db.출퇴근관리.load();
+      if (!attData.overtimeApprovals) attData.overtimeApprovals = {};
+      const key = `${doc.authorName}_${fd.date}`;
+      attData.overtimeApprovals[key] = {
+        approvalId: doc.id,
+        employeeName: doc.authorName,
+        date: fd.date,
+        startTime: fd.startTime,
+        endTime: fd.endTime,
+        minutes,
+        reason: fd.reason || '',
+        approvedAt: new Date().toISOString(),
+        approvedBy: req.user.userId,
+      };
+      db.출퇴근관리.save(attData);
+      console.log(`✅ 시간외근무 승인 → 출퇴근 반영: ${doc.authorName} ${fd.date} ${fd.startTime}~${fd.endTime} (${minutes}분)`);
+    } catch(e) {
+      console.error('시간외근무 승인 → 출퇴근 반영 실패:', e.message);
+    }
+  }
+
+  // 시간외근무 반려 시 → 인정 마크 제거
+  if (action === 'rejected' && doc.type === '시간외근무' && doc.formData) {
+    try {
+      const attData = db.출퇴근관리.load();
+      if (attData.overtimeApprovals) {
+        const key = `${doc.authorName}_${doc.formData.date}`;
+        if (attData.overtimeApprovals[key] && attData.overtimeApprovals[key].approvalId === doc.id) {
+          delete attData.overtimeApprovals[key];
+          db.출퇴근관리.save(attData);
+          console.log(`✅ 시간외근무 반려 → 출퇴근 인정 마크 제거: ${doc.authorName} ${doc.formData.date}`);
+        }
+      }
+    } catch(e) {
+      console.error('시간외근무 반려 → 출퇴근 마크 제거 실패:', e.message);
+    }
+  }
+
   // 반려 시 → 출퇴근 기록부에서 해당 결재 기록 제거
   if (action === 'rejected' && doc.type === 'leave' && doc.formData) {
     try {

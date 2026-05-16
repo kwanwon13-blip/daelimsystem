@@ -743,6 +743,7 @@
               <template x-if="emp.halfAM + emp.halfPM > 0"><span style="color:#2563eb;">반차 <span x-text="emp.halfAM + emp.halfPM"></span></span></template>
               <template x-if="emp.lateDays > 0"><span style="color:#dc2626;">지각 <span x-text="emp.lateDays"></span></span></template>
               <template x-if="emp.totalOvertimeMin > 0"><span style="color:#7c3aed;">추가근무 <span x-text="emp.totalOvertimeLabel"></span></span></template>
+              <template x-if="emp.totalApprovedOvertimeMin > 0"><span style="color:#15803d;font-weight:600;" :title="'결재로 공식 승인된 시간외근무 합계'">✓ 승인야근 <span x-text="emp.totalApprovedOvertimeLabel"></span></span></template>
               <template x-if="emp.saturdayWork && emp.saturdayDays > 0"><span style="color:#2563eb;">토요근무 <span x-text="emp.saturdayDays"></span>일</span></template>
             </div>
           </div>

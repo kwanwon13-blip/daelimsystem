@@ -5,9 +5,20 @@
  * - 각 도구는 { name, description, input_schema, execute(input, ctx) } 구조
  * - execute 는 async 함수. 결과는 JSON 직렬화 가능해야 함
  * - 파일 생성 도구는 result 에 `{ __artifact: {...} }` 를 포함 → 엔진이 artifact 저장 + URL 노출
- * - ctx: { userId, userName, threadId, req, db, salaryDb, ai }
+ * - ctx: { userId, userName, threadId, req, db, ai }
  *
  * 관리자 전용 도구는 isAdminOnly: true 로 표시 → 직원 세션에선 tools 목록에서 자동 제외
+ *
+ * ══════════════════════════════════════════════════════════════
+ * 🔒 보안 절대 규칙 — AI 도구는 급여 데이터를 절대 읽지 않는다
+ * ══════════════════════════════════════════════════════════════
+ * 사장님 지시 (2026-05): 새 도구 추가 시 다음 경로/모듈 접근 금지:
+ *   - require('../db-salary')                ← 잠금
+ *   - data/급여관리.db                          ← 잠금
+ *   - data/명세서_* / 인건비_* / payroll/*     ← 잠금
+ *   - routes/salary.js 가 노출하는 API         ← 호출 금지
+ * 새 file-read/path 도구 만들 때 isBlockedSalaryPath() 거쳐서
+ * blacklist 차단 후 진행할 것. 시스템 프롬프트에도 명시되어 있음.
  */
 const path = require('path');
 const fs = require('fs');
@@ -16,8 +27,42 @@ const ai = require('../db-ai');
 
 // DB 모듈 (동적 로드 — 순환참조 회피)
 function getDb() { return require('../db'); }
+
+/**
+ * 🔒 급여 DB 접근 차단.
+ * 과거에 ctx 에 salaryDb 를 넘기는 placeholder 가 있었으나,
+ * AI 도구가 급여 데이터를 절대 만지지 않도록 명시적으로 막아둠.
+ * 어떤 경우에도 이 함수 결과를 도구에서 사용하지 말 것.
+ */
 function getSalaryDb() {
-  try { return require('../db-salary'); } catch(e) { return null; }
+  console.warn('[ai-tools] 🔒 BLOCKED: getSalaryDb() 호출 시도 차단. AI 도구는 급여 데이터 접근 금지.');
+  return null;
+}
+
+/**
+ * 🔒 급여 관련 경로 차단 헬퍼.
+ * 새 도구가 파일 경로를 받을 때 반드시 거쳐서 차단할 것.
+ */
+const SALARY_BLOCKLIST = [
+  /급여관리\.db/i,
+  /db-salary/i,
+  /salary/i,
+  /payroll/i,
+  /명세서/i,
+  /인건비/i,
+  /연봉/i,
+  /월급/i,
+];
+function isBlockedSalaryPath(p) {
+  if (!p) return false;
+  const s = String(p);
+  return SALARY_BLOCKLIST.some(re => re.test(s));
+}
+function assertNotSalaryPath(p, where = 'unknown') {
+  if (isBlockedSalaryPath(p)) {
+    console.warn(`[ai-tools] 🔒 BLOCKED: 급여 경로 접근 시도 (${where}): ${p}`);
+    throw new Error('보안: 급여 관련 경로는 AI 도구가 접근할 수 없어요.');
+  }
 }
 
 // ══════════════════════════════════════════════════════════════

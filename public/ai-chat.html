@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0f0f0f">
+<title>AI 챗 — 대림에스엠</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* ── Reset / Base ────────────────────────────────────────── */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: 'Inter', 'Noto Sans KR', -apple-system, sans-serif;
+    background: #1a1a1a;
+    color: #ececec;
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+  input, textarea { font: inherit; }
+
+  /* ── Layout ──────────────────────────────────────────────── */
+  .app {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    height: 100vh;
+    overflow: hidden;
+  }
+  /* 모바일에서 사이드바 숨김 (햄버거 토글로 전환) */
+  @media (max-width: 768px) {
+    .app { grid-template-columns: 1fr; }
+    .sidebar { display: none; }
+    .sidebar.open { display: flex; position: fixed; top:0; left:0; width: 80%; max-width: 300px; z-index: 100; height: 100vh; }
+  }
+
+  /* ── Sidebar ─────────────────────────────────────────────── */
+  .sidebar {
+    background: #141414;
+    border-right: 1px solid #2a2a2a;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .sidebar-header {
+    padding: 12px 14px;
+    border-bottom: 1px solid #2a2a2a;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .logo {
+    width: 28px; height: 28px;
+    background: linear-gradient(135deg, #d97757 0%, #c46a4f 100%);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 13px;
+    color: #fff;
+  }
+  .brand {
+    font-size: 14px;
+    font-weight: 600;
+    color: #ececec;
+  }
+
+  .new-chat-btn {
+    margin: 12px;
+    padding: 10px 14px;
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+    color: #ececec;
+    font-size: 13px;
+    font-weight: 500;
+    display: flex; align-items: center; gap: 8px;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .new-chat-btn:hover { background: #353535; border-color: #4a4a4a; }
+  .new-chat-btn svg { width: 14px; height: 14px; }
+
+  .thread-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 8px 16px;
+  }
+  .thread-list::-webkit-scrollbar { width: 6px; }
+  .thread-list::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+
+  .thread-group-label {
+    padding: 12px 10px 4px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #777;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+  }
+  .thread-item {
+    padding: 7px 10px;
+    border-radius: 6px;
+    color: #c4c4c4;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: background 0.1s;
+    cursor: pointer;
+  }
+  .thread-item:hover { background: #232323; }
+  .thread-item.active { background: #2a2a2a; color: #fff; }
+
+  .sidebar-footer {
+    padding: 12px;
+    border-top: 1px solid #2a2a2a;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .back-btn {
+    padding: 8px 12px;
+    background: transparent;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+    color: #c4c4c4;
+    font-size: 12px;
+    text-decoration: none;
+    text-align: center;
+    display: block;
+    transition: background 0.1s;
+  }
+  .back-btn:hover { background: #2a2a2a; }
+
+  /* ── Main chat area ──────────────────────────────────────── */
+  .main {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #1a1a1a;
+  }
+  .topbar {
+    padding: 10px 18px;
+    border-bottom: 1px solid #2a2a2a;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  .topbar-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: #c4c4c4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .model-pill {
+    padding: 5px 10px;
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 16px;
+    font-size: 11px;
+    color: #c4c4c4;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .model-pill .dot {
+    width: 6px; height: 6px;
+    background: #d97757;
+    border-radius: 50%;
+  }
+
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 0;
+  }
+  .messages::-webkit-scrollbar { width: 8px; }
+  .messages::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+
+  .empty-state {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #6a6a6a;
+    text-align: center;
+    padding: 40px;
+  }
+  .empty-state h2 {
+    font-size: 24px;
+    font-weight: 600;
+    color: #c4c4c4;
+    margin-bottom: 6px;
+    letter-spacing: -0.4px;
+  }
+  .empty-state p {
+    font-size: 14px;
+    color: #888;
+    max-width: 400px;
+  }
+
+  /* 입력창 */
+  .composer {
+    padding: 0 24px 20px;
+    flex-shrink: 0;
+  }
+  .composer-inner {
+    max-width: 760px;
+    margin: 0 auto;
+    background: #262626;
+    border: 1px solid #3a3a3a;
+    border-radius: 14px;
+    padding: 4px;
+    transition: border-color 0.15s;
+  }
+  .composer-inner:focus-within { border-color: #5a5a5a; }
+
+  .composer-input {
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: #ececec;
+    padding: 12px 14px 8px;
+    resize: none;
+    outline: none;
+    font-size: 14px;
+    line-height: 1.5;
+    max-height: 200px;
+    min-height: 40px;
+    overflow-y: auto;
+  }
+  .composer-input::placeholder { color: #6a6a6a; }
+
+  .composer-bottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 8px 4px 10px;
+  }
+  .composer-tools {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+  .tool-btn {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #888;
+    transition: background 0.12s, color 0.12s;
+  }
+  .tool-btn:hover { background: #353535; color: #c4c4c4; }
+  .tool-btn svg { width: 16px; height: 16px; }
+
+  .send-btn {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    background: #d97757;
+    color: #fff;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: background 0.12s, opacity 0.15s;
+  }
+  .send-btn:hover { background: #c46a4f; }
+  .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .send-btn svg { width: 16px; height: 16px; }
+
+  .composer-hint {
+    max-width: 760px;
+    margin: 6px auto 0;
+    padding: 0 4px;
+    font-size: 11px;
+    color: #666;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ─── Sidebar ───────────────────────────────────────────── -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">A</div>
+      <div class="brand">AI 챗</div>
+    </div>
+
+    <button class="new-chat-btn" id="newChatBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M12 5v14M5 12h14"/>
+      </svg>
+      새 대화
+    </button>
+
+    <div class="thread-list" id="threadList">
+      <!-- Phase 2 에서 채움 -->
+      <div style="padding:40px 14px;color:#555;font-size:12px;text-align:center;">
+        스레드 목록은 다음 단계에서 채워집니다.
+      </div>
+    </div>
+
+    <div class="sidebar-footer">
+      <a href="/" class="back-btn">← ERP 메인</a>
+    </div>
+  </aside>
+
+  <!-- ─── Main ─────────────────────────────────────────────── -->
+  <main class="main">
+    <div class="topbar">
+      <div class="topbar-title" id="topbarTitle">새 대화</div>
+      <div class="model-pill">
+        <span class="dot"></span>
+        <span id="modelLabel">Claude Sonnet 4</span>
+      </div>
+    </div>
+
+    <div class="messages" id="messages">
+      <div class="empty-state">
+        <h2>안녕하세요 사장님</h2>
+        <p>업무에 필요한 것 무엇이든 물어보세요. 엑셀·PDF 만들기, 데이터 분석, 거래처 정리 등 도와드릴 수 있어요.</p>
+      </div>
+    </div>
+
+    <div class="composer">
+      <div class="composer-inner">
+        <textarea class="composer-input" id="composerInput" rows="1" placeholder="메시지를 입력하세요…"></textarea>
+        <div class="composer-bottom">
+          <div class="composer-tools">
+            <button class="tool-btn" title="파일 첨부 (Phase 4)" disabled>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+              </svg>
+            </button>
+          </div>
+          <button class="send-btn" id="sendBtn" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 19V5M5 12l7-7 7 7"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="composer-hint">
+        Enter 로 전송 · Shift+Enter 줄바꿈
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+  // Phase 1 — 입력창 자동 높이 + 활성화 토글 (실제 전송은 Phase 3)
+  const input = document.getElementById('composerInput');
+  const sendBtn = document.getElementById('sendBtn');
+
+  function autoResize() {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 200) + 'px';
+    sendBtn.disabled = !input.value.trim();
+  }
+  input.addEventListener('input', autoResize);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (!sendBtn.disabled) {
+        alert('Phase 3 에서 실제 전송 구현 예정. 지금은 골격만.');
+      }
+    }
+  });
+  document.getElementById('newChatBtn').addEventListener('click', () => {
+    location.reload();  // Phase 2 에서 진짜 새 스레드 생성으로 교체
+  });
+</script>
+</body>
+</html>
