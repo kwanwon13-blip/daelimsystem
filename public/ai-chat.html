@@ -596,7 +596,7 @@ input.addEventListener('paste', (e) => {
 // /chat-stream 이 503 일 때 /chat 비-스트리밍으로 fallback
 async function sendViaChatFallback(text, attachmentIds, aiMsg) {
   try {
-    aiMsg.content = '답변 생성 중… (스트리밍 미지원 — 한 번에 옴)';
+    aiMsg.content = '답변 준비 중이에요…';
     updateLastAIContent(aiMsg.content, true);
     const r = await fetch('/api/ai/chat', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
@@ -606,9 +606,14 @@ async function sendViaChatFallback(text, attachmentIds, aiMsg) {
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || ('chat ' + r.status));
     aiMsg.streaming = false;
-    aiMsg.content = data.text || data.content || '(빈 응답)';
-    aiMsg.id = data.messageId || aiMsg.id;
-    updateLastAIContent(aiMsg.content, false);
+    // /chat 응답: { ok, threadId, message: {id, content}, result, artifacts, model, ... }
+    aiMsg.content = data.result || (data.message && data.message.content) || '(빈 응답)';
+    aiMsg.id = (data.message && data.message.id) || aiMsg.id;
+    aiMsg.artifacts = data.artifacts || [];
+    // 메시지 DIV 재구성 — artifact 카드 같이 표시
+    messagesEl.removeChild(messagesEl.lastElementChild);
+    appendMessage(aiMsg);
+    scrollToBottom();
     if (data.threadId && !state.activeThreadId) {
       state.activeThreadId = data.threadId;
       await loadThreads();
@@ -617,7 +622,6 @@ async function sendViaChatFallback(text, attachmentIds, aiMsg) {
     } else if (state.activeThreadId) {
       loadThreads();
     }
-    if (state.activeThreadId) await refreshArtifactsForLastAI();
   } catch (e) {
     console.error('fallback chat 실패:', e);
     aiMsg.streaming = false;
