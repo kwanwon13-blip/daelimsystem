@@ -202,8 +202,11 @@ function renderThreadList() {
     for (const t of groups[key]) {
       const isActive = String(state.activeThreadId) === String(t.id);
       const title = escapeHtml(t.title || '제목 없음');
-      const icon = t.project_emoji ? '<span style="font-size:12px;flex-shrink:0;">' + t.project_emoji + '</span>' : '<span class="material-symbols-outlined">chat_bubble</span>';
-      html += '<div class="thread-item ' + (isActive ? 'active' : '') + '" data-id="' + t.id + '" title="' + title + '">' + icon + '<span class="thread-item-title">' + title + '</span></div>';
+      const isStreaming = state.streamingByThread && state.streamingByThread.has(String(t.id));
+      const icon = isStreaming
+        ? '<span class="material-symbols-outlined" style="color:#4f6ef7;animation:spin 1.2s linear infinite;">hourglass_top</span>'
+        : (t.project_emoji ? '<span style="font-size:12px;flex-shrink:0;">' + t.project_emoji + '</span>' : '<span class="material-symbols-outlined">chat_bubble</span>');
+      html += '<div class="thread-item ' + (isActive ? 'active' : '') + (isStreaming ? ' streaming' : '') + '" data-id="' + t.id + '" title="' + title + (isStreaming ? ' (답변 생성 중…)' : '') + '">' + icon + '<span class="thread-item-title">' + title + '</span></div>';
     }
   }
   threadListEl.innerHTML = html;
@@ -214,7 +217,7 @@ threadListEl.addEventListener('click', (e) => {
 });
 
 async function selectThread(threadId) {
-  if (state.streaming) return;
+  // streaming 중이어도 다른 스레드 보러 가는 거 허용 (백그라운드는 계속)
   state.activeThreadId = threadId;
   state.attachments = [];
   renderAttachments();
@@ -344,7 +347,9 @@ function attachKindIcon(kind) {
   if (kind === 'svg') return 'shapes';
   return 'attach_file';
 }
-function updateLastAIContent(text, isStreaming) {
+function updateLastAIContent(text, isStreaming, ownerThreadId) {
+  // ownerThreadId 가 주어졌고 현재 보고 있는 스레드와 다르면 화면 갱신 안 함 (백그라운드)
+  if (ownerThreadId !== undefined && String(ownerThreadId) !== String(state.activeThreadId)) return;
   const last = messagesEl.lastElementChild;
   if (!last || !last.classList.contains('msg-ai')) return;
   const c = last.querySelector('.msg-content');
@@ -754,22 +759,28 @@ async function sendMessage() {
         } catch (e) { console.warn('SSE parse:', e); }
       }
     }
-    updateLastAIContent(aiMsg.content, false);
-    if (newThreadId && !state.activeThreadId) {
+    updateLastAIContent(aiMsg.content, false, ownerThreadId);
+    if (newThreadId && state.activeThreadId === null) {
       state.activeThreadId = newThreadId;
       await loadThreads();
       const t = state.threads.find(x => String(x.id) === String(newThreadId));
       if (t) topbarTitleEl.textContent = t.title || '제목 없음';
-    } else if (state.activeThreadId) {
+    } else {
       loadThreads();
     }
   } catch (e) {
     console.error('전송 실패:', e);
     aiMsg.streaming = false;
     aiMsg.content = '**오류:** ' + e.message;
-       updateLastAIContent(aiMsg.content, false);
+    updateLastAIContent(aiMsg.content, false, ownerThreadId);
   } finally {
-    setStreaming(false); input.disabled = false; autoResize(); input.focus();
+    state.streamingByThread.delete(ownerThreadId);
+    state.streamingByThread.delete('new');
+    setStreaming(false);
+    input.disabled = false;
+    autoResize();
+    if (String(ownerThreadId) === String(state.activeThreadId)) input.focus();
+    renderThreadList();
   }
 }
 
@@ -1149,7 +1160,6 @@ newProjectBtn.addEventListener('click', async () => {
 // embed 모드 감지 (ERP 메인 탭 안에서 iframe 으로 띄워진 경우)
 const _isEmbedded = (window.parent !== window) || new URLSearchParams(location.search).get('embed') === '1';
 if (_isEmbedded) {
-  // iframe 안에선 "ERP 메인으로" 버튼 + 사이드바 헤더 일부 숨김
   const backBtn = document.querySelector('.back-btn');
   if (backBtn) backBtn.style.display = 'none';
   const sidebarFooter = document.querySelector('.sidebar-footer');
