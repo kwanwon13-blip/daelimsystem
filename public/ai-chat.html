@@ -9,6 +9,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/icon?family=Material+Symbols+Outlined" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css">
+<script src="https://cdn.jsdelivr.net/npm/marked@9.1.5/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; overflow: hidden; }
@@ -53,7 +56,8 @@ input, textarea { font: inherit; }
 .topbar-actions { display: flex; gap: 8px; align-items: center; }
 .model-pill { padding: 6px 12px; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 16px; font-size: 11px; font-weight: 600; color: #4b5563; display: inline-flex; align-items: center; gap: 6px; }
 .model-pill .dot { width: 6px; height: 6px; background: linear-gradient(135deg,#4f6ef7,#7c5cff); border-radius: 50%; }
-.messages { flex: 1; overflow-y: auto; padding: 24px 0; }
+
+.messages { flex: 1; overflow-y: auto; padding: 24px 0 8px; }
 .messages::-webkit-scrollbar { width: 8px; }
 .messages::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
 .empty-state { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px; }
@@ -61,7 +65,39 @@ input, textarea { font: inherit; }
 .empty-state .icon .material-symbols-outlined { font-size: 32px; }
 .empty-state h2 { font-size: 22px; font-weight: 700; color: #1f2937; margin-bottom: 6px; }
 .empty-state p { font-size: 14px; color: #6b7280; max-width: 420px; line-height: 1.55; }
-.composer-wrap { padding: 0 24px 22px; flex-shrink: 0; }
+
+/* Message bubbles */
+.msg { max-width: 780px; margin: 0 auto; padding: 12px 24px; display: flex; gap: 12px; }
+.msg-avatar { width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: #fff; }
+.msg-user .msg-avatar { background: #6b7280; }
+.msg-ai .msg-avatar { background: linear-gradient(135deg,#4f6ef7,#7c5cff); }
+.msg-avatar .material-symbols-outlined { font-size: 16px; }
+.msg-body { flex: 1; min-width: 0; padding-top: 3px; }
+.msg-name { font-size: 12px; font-weight: 600; color: #6b7280; margin-bottom: 4px; }
+.msg-content { color: #1f2937; font-size: 14px; line-height: 1.65; word-wrap: break-word; }
+.msg-content p { margin: 0 0 8px; }
+.msg-content p:last-child { margin-bottom: 0; }
+.msg-content h1, .msg-content h2, .msg-content h3 { margin: 14px 0 6px; font-weight: 700; line-height: 1.3; }
+.msg-content h1 { font-size: 20px; }
+.msg-content h2 { font-size: 17px; }
+.msg-content h3 { font-size: 15px; }
+.msg-content ul, .msg-content ol { margin: 0 0 8px; padding-left: 22px; }
+.msg-content li { margin: 2px 0; }
+.msg-content code { background: #f3f4f6; padding: 1px 5px; border-radius: 4px; font-family: 'JetBrains Mono', 'D2Coding', monospace; font-size: 12.5px; color: #be185d; }
+.msg-content pre { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px; overflow-x: auto; margin: 8px 0; }
+.msg-content pre code { background: transparent; padding: 0; color: #1f2937; font-size: 12.5px; line-height: 1.55; }
+.msg-content blockquote { border-left: 3px solid #e5e7eb; padding: 0 0 0 12px; color: #6b7280; margin: 8px 0; }
+.msg-content table { border-collapse: collapse; margin: 8px 0; font-size: 13px; }
+.msg-content th, .msg-content td { border: 1px solid #e5e7eb; padding: 6px 10px; }
+.msg-content th { background: #f9fafb; font-weight: 600; }
+.msg-content a { color: #4f6ef7; text-decoration: underline; }
+.msg-content hr { border: none; border-top: 1px solid #eef0f3; margin: 16px 0; }
+.msg-content .typing-cursor { display: inline-block; width: 8px; height: 14px; background: #4f6ef7; vertical-align: middle; margin-left: 2px; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+.msg-error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 8px 12px; border-radius: 8px; font-size: 13px; margin-top: 6px; }
+
+.composer-wrap { padding: 0 24px 22px; flex-shrink: 0; background: #fff; }
 .composer { max-width: 760px; margin: 0 auto; background: #fff; border: 1.5px solid #e5e7eb; border-radius: 14px; padding: 4px; transition: border-color .15s, box-shadow .15s; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
 .composer:focus-within { border-color: #4f6ef7; box-shadow: 0 2px 12px rgba(79,110,247,.12); }
 .composer-input { width: 100%; background: transparent; border: none; color: #1f2937; padding: 12px 14px 8px; resize: none; outline: none; font-size: 14px; line-height: 1.55; max-height: 200px; min-height: 42px; overflow-y: auto; }
@@ -78,6 +114,9 @@ input, textarea { font: inherit; }
 .send-btn:disabled { background: #e5e7eb; color: #9ca3af; box-shadow: none; cursor: not-allowed; }
 .send-btn .material-symbols-outlined { font-size: 16px; }
 .composer-hint { max-width: 760px; margin: 8px auto 0; padding: 0 4px; font-size: 11px; color: #9ca3af; text-align: center; }
+
+.scrollto-bottom { position: absolute; bottom: 110px; left: 50%; transform: translateX(-50%); background: #fff; border: 1px solid #e5e7eb; border-radius: 50%; width: 32px; height: 32px; box-shadow: 0 2px 8px rgba(0,0,0,.08); display: none; align-items: center; justify-content: center; cursor: pointer; color: #6b7280; }
+.scrollto-bottom.visible { display: flex; }
 </style>
 </head>
 <body>
@@ -99,7 +138,7 @@ input, textarea { font: inherit; }
 <a href="/" class="back-btn"><span class="material-symbols-outlined">arrow_back</span>ERP 메인으로</a>
 </div>
 </aside>
-<main class="main">
+<main class="main" style="position:relative;">
 <div class="topbar">
 <div class="topbar-title" id="topbarTitle">새 대화</div>
 <div class="topbar-actions">
@@ -107,7 +146,7 @@ input, textarea { font: inherit; }
 </div>
 </div>
 <div class="messages" id="messages">
-<div class="empty-state">
+<div class="empty-state" id="emptyState">
 <div class="icon"><span class="material-symbols-outlined">auto_awesome</span></div>
 <h2>무엇을 도와드릴까요?</h2>
 <p>질문하거나, 파일을 첨부해 분석하거나, 엑셀·PDF 를 만들어 드릴 수 있어요. 거래처·매출·출퇴근 데이터는 자동으로 참조합니다.</p>
@@ -128,49 +167,78 @@ input, textarea { font: inherit; }
 </div>
 </main>
 </div>
+
 <script>
-const state = { threads: [], filteredThreads: [], activeThreadId: null, searchQuery: '' };
+// ─── 상태 ──────────────────────────────────────────────
+const state = {
+  threads: [],
+  filteredThreads: [],
+  activeThreadId: null,
+  searchQuery: '',
+  messages: [],
+  streaming: false,
+};
+
+// ─── DOM 참조 ─────────────────────────────────────────
 const input = document.getElementById('composerInput');
 const sendBtn = document.getElementById('sendBtn');
 const threadListEl = document.getElementById('threadList');
 const threadListLoading = document.getElementById('threadListLoading');
 const threadSearchEl = document.getElementById('threadSearch');
 const topbarTitleEl = document.getElementById('topbarTitle');
+const messagesEl = document.getElementById('messages');
+const emptyStateEl = document.getElementById('emptyState');
 
+// ─── 마크다운 설정 ─────────────────────────────────────
+if (window.marked) {
+  marked.setOptions({
+    breaks: true,
+    gfm: true,
+    highlight: (code, lang) => {
+      try {
+        if (lang && hljs.getLanguage(lang)) return hljs.highlight(code, { language: lang }).value;
+        return hljs.highlightAuto(code).value;
+      } catch (e) { return code; }
+    },
+  });
+}
+
+function md(text) {
+  if (!text) return '';
+  try { return marked.parse(String(text)); } catch (e) { return escapeHtml(text); }
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+// ─── 입력창 ────────────────────────────────────────────
 function autoResize() {
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 200) + 'px';
-  sendBtn.disabled = !input.value.trim();
+  sendBtn.disabled = !input.value.trim() || state.streaming;
 }
 input.addEventListener('input', autoResize);
 input.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
-    if (!sendBtn.disabled) alert('Phase 3 에서 실제 전송 구현 예정.');
+    if (!sendBtn.disabled) sendMessage();
   }
 });
+sendBtn.addEventListener('click', () => { if (!sendBtn.disabled) sendMessage(); });
 
+// ─── 새 대화 ───────────────────────────────────────────
 document.getElementById('newChatBtn').addEventListener('click', async () => {
-  try {
-    const r = await fetch('/api/ai/threads', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ title: '새 대화' }),
-    });
-    if (r.status === 401) { window.location.href = '/'; return; }
-    if (!r.ok) throw new Error('스레드 생성 실패: ' + r.status);
-    const data = await r.json();
-    if (data.thread) {
-      state.threads.unshift(data.thread);
-      renderThreadList();
-      selectThread(data.thread.id);
-    }
-  } catch (e) {
-    console.error(e); alert('새 대화 생성 실패: ' + e.message);
-  }
+  if (state.streaming) return;
+  state.activeThreadId = null;
+  state.messages = [];
+  topbarTitleEl.textContent = '새 대화';
+  renderMessages();
+  renderThreadList();
+  input.focus();
 });
 
+// ─── 스레드 목록 ───────────────────────────────────────
 async function loadThreads() {
   try {
     const r = await fetch('/api/ai/threads?scope=mine&limit=100', { credentials: 'include' });
@@ -233,12 +301,40 @@ function renderThreadList() {
   });
 }
 
-function selectThread(threadId) {
+async function selectThread(threadId) {
+  if (state.streaming) return;
   state.activeThreadId = threadId;
   const t = state.threads.find(x => String(x.id) === String(threadId));
   topbarTitleEl.textContent = t ? (t.title || '제목 없음') : '새 대화';
   renderThreadList();
-  console.log('[ai-chat] 스레드 선택:', threadId);
+  // 메시지 로드
+  state.messages = [];
+  renderMessages();
+  showLoadingMessages();
+  try {
+    const r = await fetch('/api/ai/threads/' + encodeURIComponent(threadId), { credentials: 'include' });
+    if (!r.ok) throw new Error('threads/:id ' + r.status);
+    const data = await r.json();
+    state.messages = (data.messages || []).map(m => ({
+      id: m.id,
+      role: m.role,
+      content: m.content || '',
+      createdAt: m.created_at,
+    }));
+    renderMessages();
+    scrollToBottom();
+  } catch (e) {
+    console.error('메시지 로드 실패:', e);
+    showErrorMessage('메시지 불러오기 실패: ' + e.message);
+  }
+}
+
+function showLoadingMessages() {
+  messagesEl.innerHTML = '<div style="text-align:center;padding:40px;color:#9ca3af;font-size:13px;">불러오는 중…</div>';
+}
+
+function showErrorMessage(msg) {
+  messagesEl.innerHTML = '<div style="text-align:center;padding:40px;color:#dc2626;font-size:13px;">' + escapeHtml(msg) + '</div>';
 }
 
 threadSearchEl.addEventListener('input', (e) => {
@@ -246,10 +342,145 @@ threadSearchEl.addEventListener('input', (e) => {
   renderThreadList();
 });
 
-function escapeHtml(s) {
-  return String(s == null ? '' : s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+// ─── 메시지 렌더 ───────────────────────────────────────
+function renderMessages() {
+  if (state.messages.length === 0) {
+    messagesEl.innerHTML = '';
+    messagesEl.appendChild(emptyStateEl);
+    emptyStateEl.style.display = '';
+    return;
+  }
+  emptyStateEl.style.display = 'none';
+  let html = '';
+  for (const m of state.messages) {
+    html += renderMessageHtml(m);
+  }
+  messagesEl.innerHTML = html;
 }
 
+function renderMessageHtml(m) {
+  const isUser = m.role === 'user';
+  const isAI = m.role === 'ai' || m.role === 'assistant';
+  const cls = isUser ? 'msg msg-user' : 'msg msg-ai';
+  const avatar = isUser
+    ? '<span class="material-symbols-outlined">person</span>'
+    : '<span class="material-symbols-outlined">smart_toy</span>';
+  const name = isUser ? '나' : 'AI';
+  const contentHtml = isAI
+    ? md(m.content)
+    : '<p>' + escapeHtml(m.content).replace(/\n/g, '<br>') + '</p>';
+  const streaming = m.streaming ? '<span class="typing-cursor"></span>' : '';
+  return '<div class="' + cls + '" data-id="' + (m.id || '') + '">'
+    + '<div class="msg-avatar">' + avatar + '</div>'
+    + '<div class="msg-body">'
+    +   '<div class="msg-name">' + name + '</div>'
+    +   '<div class="msg-content">' + contentHtml + streaming + '</div>'
+    + '</div>'
+    + '</div>';
+}
+
+function scrollToBottom() {
+  setTimeout(() => { messagesEl.scrollTop = messagesEl.scrollHeight; }, 10);
+}
+
+// ─── 메시지 전송 (SSE 스트리밍) ────────────────────────
+async function sendMessage() {
+  const text = input.value.trim();
+  if (!text || state.streaming) return;
+
+  state.streaming = true;
+  sendBtn.disabled = true;
+  input.disabled = true;
+
+  // user 메시지 즉시 표시
+  state.messages.push({ role: 'user', content: text, id: 'tmp_u_' + Date.now() });
+  // AI 자리표시
+  const aiPlaceholder = { role: 'ai', content: '', streaming: true, id: 'tmp_a_' + Date.now() };
+  state.messages.push(aiPlaceholder);
+  renderMessages();
+  scrollToBottom();
+
+  input.value = '';
+  autoResize();
+
+  try {
+    const r = await fetch('/api/ai/chat-stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        prompt: text,
+        threadId: state.activeThreadId || undefined,
+      }),
+    });
+    if (r.status === 401) { window.location.href = '/'; return; }
+    if (!r.ok) throw new Error('chat-stream ' + r.status);
+
+    // SSE 파싱
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let newThreadId = null;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split('\n\n');
+      buffer = events.pop();
+      for (const evt of events) {
+        const lines = evt.split('\n');
+        let eventName = '', dataStr = '';
+        for (const line of lines) {
+          if (line.startsWith('event: ')) eventName = line.slice(7).trim();
+          else if (line.startsWith('data: ')) dataStr += line.slice(6);
+        }
+        if (!dataStr) continue;
+        try {
+          const data = JSON.parse(dataStr);
+          if (eventName === 'start') {
+            newThreadId = data.threadId;
+          } else if (eventName === 'delta') {
+            aiPlaceholder.content += data.text || '';
+            renderMessages();
+            scrollToBottom();
+          } else if (eventName === 'done') {
+            aiPlaceholder.streaming = false;
+            aiPlaceholder.id = data.messageId || aiPlaceholder.id;
+            renderMessages();
+          } else if (eventName === 'error') {
+            aiPlaceholder.streaming = false;
+            aiPlaceholder.content += '\n\n**오류:** ' + (data.error || '알 수 없는 오류');
+            renderMessages();
+          }
+        } catch (e) { console.warn('SSE parse:', e); }
+      }
+    }
+
+    // 새 스레드인 경우 - active 로 잡고 사이드바 갱신
+    if (newThreadId && !state.activeThreadId) {
+      state.activeThreadId = newThreadId;
+      await loadThreads();
+      const t = state.threads.find(x => String(x.id) === String(newThreadId));
+      if (t) topbarTitleEl.textContent = t.title || '제목 없음';
+    } else if (state.activeThreadId) {
+      // 기존 스레드인 경우 — updated_at 갱신용으로 목록 새로고침
+      loadThreads();
+    }
+  } catch (e) {
+    console.error('전송 실패:', e);
+    aiPlaceholder.streaming = false;
+    aiPlaceholder.content = '**오류:** ' + e.message;
+    renderMessages();
+  } finally {
+    state.streaming = false;
+    input.disabled = false;
+    autoResize();
+    input.focus();
+  }
+}
+
+// ─── 시작 ──────────────────────────────────────────────
 loadThreads();
 </script>
 </body>
