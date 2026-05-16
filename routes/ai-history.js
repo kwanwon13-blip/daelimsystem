@@ -1703,10 +1703,20 @@ router.post('/chat-stream', async (req, res) => {
   const startedAt = Date.now();
   let accumulated = '';
   let usage = null;
+  const upstreamAbort = new AbortController();
+  let clientClosed = false;
+  let responseFinished = false;
+  res.on('close', () => {
+    if (!responseFinished) {
+      clientClosed = true;
+      upstreamAbort.abort();
+    }
+  });
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
+      signal: upstreamAbort.signal,
       headers: {
         'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
@@ -1781,9 +1791,136 @@ router.post('/chat-stream', async (req, res) => {
       durationMs,
       usage,
     });
+    responseFinished = true;
     res.end();
   } catch (e) {
-    write('error', { error: e.message });
+    if (!clientClosed) write('error', { error: e.message });
+    responseFinished = true;
+    try { res.end(); } catch(_) {}
+  }
+});
+
+// ──────────────────────────────────────────────────────────
+// CLI 기반 스트리밍 응답 (SSE) — ANTHROPIC_API_KEY 없을 때 사용
+// Claude CLI 의 stdout 청크를 SSE delta 이벤트로 흘려보냄.
+// 도구 호출 (엑셀/PDF 만들기 등) 은 CLI 가 자동 처리 → 응답 텍스트 끝나면
+// recoverArtifactsFromText 로 artifact 추출해서 done 이벤트와 함께 반환.
+// ──────────────────────────────────────────────────────────
+router.post('/chat-stream-cli', async (req, res) => {
+  const { threadId, projectId, prompt, pageContent, attachmentIds, templateId, sourcePageId, model } = req.body || {};
+  if (!prompt || !String(prompt).trim()) return res.status(400).json({ error: 'prompt 필수' });
+
+  // 스레드 확보
+  let thread;
+  if (threadId) {
+    thread = ai.threads.get(threadId);
+    if (!thread) return res.status(404).json({ error: '스레드 없음' });
+    if (String(thread.owner_id) !== String(req.user.userId)) {
+      return res.status(403).json({ error: '다른 사람의 대화에 메시지를 보낼 수 없어요', code: 'NOT_OWNER' });
+    }
+  } else {
+    thread = ai.threads.create({
+      ownerId: req.user.userId, ownerName: req.user.name,
+      projectId: projectId ? parseInt(projectId, 10) : null,
+      title: String(prompt).trim().slice(0, 60),
+      sourcePageId
+    });
+  }
+
+  // 첨부 hydrate
+  let attachments = [];
+  if (Array.isArray(attachmentIds) && attachmentIds.length > 0) {
+    attachments = ai.attachments.hydrate(attachmentIds.map(Number));
+  }
+
+  // 첨부 파일 경로 → CLI 에 @경로 형태로 전달 (이미지는 자동 vision, 텍스트는 추출문 prompt 앞)
+  const attachmentPaths = [];
+  let attachmentBlock = '';
+  for (const a of attachments) {
+    if (!a) continue;
+    if (a.kind === 'image') {
+      const fp = path.join(ai.UPLOAD_DIR, a.stored_name);
+      if (fs.existsSync(fp)) attachmentPaths.push(fp);
+    } else if (a.text_excerpt) {
+      attachmentBlock += '[첨부: ' + a.original_name + ' (' + a.kind + ')]\n' + a.text_excerpt.slice(0, 1000000) + '\n\n';
+    }
+  }
+  let templatePrefix = '';
+  if (templateId) {
+    const tmpl = ai.templates.get(templateId);
+    if (tmpl) { templatePrefix = tmpl.prompt + '\n\n'; ai.templates.bumpUsage(tmpl.id); }
+  }
+  const pageCtx = pageContent ? '【참고: 현재 페이지】\n' + String(pageContent).slice(0, 200000) + '\n\n' : '';
+
+  // 이전 대화 컨텍스트 (간단히 앞에 붙임)
+  const prior = ai.threads.recentMessages(thread.id, 8);
+  let priorBlock = '';
+  if (prior.length > 0) {
+    priorBlock = prior.map(m => (m.role === 'user' ? 'User: ' : 'Assistant: ') + (m.content || '')).join('\n\n') + '\n\nAssistant:\n';
+  }
+
+  const fullPrompt = templatePrefix + pageCtx + attachmentBlock + priorBlock + prompt;
+
+  // 사용자 메시지 저장
+  ai.threads.addMessage(thread.id, {
+    role: 'user', kind: 'chat', content: prompt,
+    attachments: Array.isArray(attachmentIds) ? attachmentIds : [],
+  });
+
+  // SSE 헤더
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders && res.flushHeaders();
+  function write(event, data) {
+    try {
+      res.write('event: ' + event + '\n');
+      res.write('data: ' + JSON.stringify(data) + '\n\n');
+    } catch(_) {}
+  }
+  write('start', { threadId: thread.id });
+
+  const startedAt = Date.now();
+  let accumulated = '';
+  let streamPromise = null;
+  let aborted = false;
+  let responseFinished = false;
+  // 클라이언트가 끊으면 CLI 도 abort
+  res.on('close', () => {
+    if (!responseFinished && streamPromise && streamPromise.abort) {
+      aborted = true;
+      streamPromise.abort();
+    }
+  });
+
+  try {
+    const { callClaudeCliStream } = require('../lib/claude-cli');
+    streamPromise = callClaudeCliStream(fullPrompt, attachmentPaths, (chunk) => {
+      accumulated += chunk;
+      write('delta', { text: chunk });
+    }, { model: model || undefined });
+    const result = await streamPromise;
+    const durationMs = result.durationMs || (Date.now() - startedAt);
+
+    // 응답 텍스트에서 artifact 추출 (엑셀/PDF/SVG/이미지 등)
+    const aiMsg = ai.threads.addMessage(thread.id, {
+      role: 'ai', kind: 'chat', content: result.text || accumulated, status: 'ok',
+      durationMs, metadata: { backend: 'cli', model: model || null, turnCount: 1, stream: true }
+    });
+    ai.threads.autoTitleIfEmpty(thread.id);
+    let artifacts = [];
+    try {
+      artifacts = recoverArtifactsFromText(result.text || accumulated, {
+        ownerId: req.user.userId, threadId: thread.id, messageId: aiMsg.id,
+      });
+    } catch(e) { console.warn('[chat-stream-cli] artifact recover 실패:', e.message); }
+
+    write('done', { threadId: thread.id, messageId: aiMsg.id, text: result.text || accumulated, durationMs, artifacts });
+  } catch (e) {
+    if (aborted) write('error', { error: '사용자가 중단했어요' });
+    else write('error', { error: e.message });
+  } finally {
+    responseFinished = true;
     try { res.end(); } catch(_) {}
   }
 });
