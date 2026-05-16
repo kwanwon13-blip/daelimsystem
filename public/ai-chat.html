@@ -466,7 +466,9 @@ function buildArtifactEl(art) {
   const isImg = (art.kind === 'image') || /^image\//.test(art.mime || '');
   const iconName = isImg ? 'image' : (art.kind === 'excel' ? 'table_chart' : (art.kind === 'pdf' ? 'picture_as_pdf' : 'description'));
   const dlUrl = art.id ? '/api/ai/artifacts/' + art.id + '/download' : (art.url || '#');
-  const prevUrl = art.id ? '/api/ai/artifacts/' + art.id + '/preview' : null;
+  // 미리보기: 이미지/PDF 는 inline 다운로드로 새 탭, 엑셀/텍스트는 /preview JSON
+  const inlineUrl = art.id ? '/api/ai/artifacts/' + art.id + '/download?inline=1' : null;
+  const prevUrl = inlineUrl;  // 일단 inline 다운로드로 통일 (이미지·PDF는 브라우저가 렌더, 엑셀은 다운로드)
   div.innerHTML =
     '<div class="artifact-icon"><span class="material-symbols-outlined">' + iconName + '</span></div>' +
     '<div class="artifact-info">' +
@@ -591,6 +593,41 @@ input.addEventListener('paste', (e) => {
   });
 });
 
+// /chat-stream 이 503 일 때 /chat 비-스트리밍으로 fallback
+async function sendViaChatFallback(text, attachmentIds, aiMsg) {
+  try {
+    aiMsg.content = '답변 생성 중… (스트리밍 미지원 — 한 번에 옴)';
+    updateLastAIContent(aiMsg.content, true);
+    const r = await fetch('/api/ai/chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ prompt: text || '(첨부파일 분석)', threadId: state.activeThreadId || undefined, attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined }),
+    });
+    if (r.status === 401) { window.location.href = '/'; return; }
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || ('chat ' + r.status));
+    aiMsg.streaming = false;
+    aiMsg.content = data.text || data.content || '(빈 응답)';
+    aiMsg.id = data.messageId || aiMsg.id;
+    updateLastAIContent(aiMsg.content, false);
+    if (data.threadId && !state.activeThreadId) {
+      state.activeThreadId = data.threadId;
+      await loadThreads();
+      const t = state.threads.find(x => String(x.id) === String(data.threadId));
+      if (t) topbarTitleEl.textContent = t.title || '제목 없음';
+    } else if (state.activeThreadId) {
+      loadThreads();
+    }
+    if (state.activeThreadId) await refreshArtifactsForLastAI();
+  } catch (e) {
+    console.error('fallback chat 실패:', e);
+    aiMsg.streaming = false;
+    aiMsg.content = '**오류:** ' + e.message + '\n\nAPI 키 설정이 필요할 수 있어요. 서버 PC `.env` 에 `ANTHROPIC_API_KEY` 추가 후 재시작하세요.';
+    updateLastAIContent(aiMsg.content, false);
+  } finally {
+    state.streaming = false; input.disabled = false; autoResize(); input.focus();
+  }
+}
+
 // ═══ 전송 ═══
 async function sendMessage() {
   const text = input.value.trim();
@@ -664,13 +701,19 @@ async function sendMessage() {
     return;
   }
 
-  // 일반 텍스트 — SSE 스트리밍
+  // 일반 텍스트 — SSE 스트리밍 (실패 시 자동으로 /chat 비-스트리밍 fallback)
   try {
     const r = await fetch('/api/ai/chat-stream', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify({ prompt: text || '(첨부파일 분석)', threadId: state.activeThreadId || undefined, attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined }),
     });
     if (r.status === 401) { window.location.href = '/'; return; }
+    // 503 (API key 없음 등) → /chat 비-스트리밍으로 fallback
+    if (r.status === 503) {
+      console.warn('[ai-chat] /chat-stream 503 — /chat 으로 fallback');
+      await sendViaChatFallback(text, attachmentIds, aiMsg);
+      return;
+    }
     if (!r.ok) throw new Error('chat-stream ' + r.status);
     const reader = r.body.getReader();
     const decoder = new TextDecoder();
