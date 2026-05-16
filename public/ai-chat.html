@@ -3,83 +3,94 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#0f0f0f">
+<meta name="theme-color" content="#4f6ef7">
 <title>AI 챗 — 대림에스엠</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/icon?family=Material+Symbols+Outlined" rel="stylesheet">
 <style>
   /* ── Reset / Base ────────────────────────────────────────── */
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; overflow: hidden; }
   body {
-    font-family: 'Inter', 'Noto Sans KR', -apple-system, sans-serif;
-    background: #1a1a1a;
-    color: #ececec;
+    font-family: 'Inter', 'Noto Sans KR', -apple-system, "Apple SD Gothic Neo", sans-serif;
+    background: #f3f4f6;
+    color: #1f2937;
     font-size: 14px;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
   }
   button { font: inherit; cursor: pointer; border: none; background: none; color: inherit; }
   input, textarea { font: inherit; }
+  .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
 
   /* ── Layout ──────────────────────────────────────────────── */
   .app {
     display: grid;
-    grid-template-columns: 260px 1fr;
+    grid-template-columns: 272px 1fr;
     height: 100vh;
     overflow: hidden;
+    background: #f3f4f6;
   }
-  /* 모바일에서 사이드바 숨김 (햄버거 토글로 전환) */
   @media (max-width: 768px) {
     .app { grid-template-columns: 1fr; }
     .sidebar { display: none; }
-    .sidebar.open { display: flex; position: fixed; top:0; left:0; width: 80%; max-width: 300px; z-index: 100; height: 100vh; }
+    .sidebar.open { display: flex; position: fixed; top:0; left:0; width: 80%; max-width: 300px; z-index: 100; height: 100vh; box-shadow: 2px 0 18px rgba(0,0,0,0.12); }
   }
 
   /* ── Sidebar ─────────────────────────────────────────────── */
   .sidebar {
-    background: #141414;
-    border-right: 1px solid #2a2a2a;
+    background: #ffffff;
+    border-right: 1px solid #e5e7eb;
     display: flex;
     flex-direction: column;
     overflow: hidden;
   }
   .sidebar-header {
-    padding: 12px 14px;
-    border-bottom: 1px solid #2a2a2a;
+    padding: 14px 16px;
+    border-bottom: 1px solid #eef0f3;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
   }
   .logo {
-    width: 28px; height: 28px;
-    background: linear-gradient(135deg, #d97757 0%, #c46a4f 100%);
-    border-radius: 6px;
+    width: 30px; height: 30px;
+    background: linear-gradient(135deg, #4f6ef7 0%, #7c5cff 100%);
+    border-radius: 8px;
     display: flex; align-items: center; justify-content: center;
-    font-weight: 700; font-size: 13px;
     color: #fff;
+    box-shadow: 0 2px 6px rgba(79,110,247,0.3);
   }
+  .logo .material-symbols-outlined { font-size: 18px; }
   .brand {
-    font-size: 14px;
-    font-weight: 600;
-    color: #ececec;
+    font-size: 15px;
+    font-weight: 700;
+    color: #1f2937;
+    letter-spacing: -0.2px;
+  }
+  .brand-sub {
+    font-size: 10px;
+    color: #9ca3af;
+    font-weight: 500;
+    margin-top: 1px;
   }
 
   .new-chat-btn {
-    margin: 12px;
+    margin: 12px 12px 8px;
     padding: 10px 14px;
-    background: #2a2a2a;
-    border: 1px solid #3a3a3a;
-    border-radius: 8px;
-    color: #ececec;
+    background: linear-gradient(135deg, #4f6ef7 0%, #7c5cff 100%);
+    color: #fff;
+    border-radius: 10px;
     font-size: 13px;
-    font-weight: 500;
-    display: flex; align-items: center; gap: 8px;
-    transition: background 0.12s, border-color 0.12s;
+    font-weight: 600;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    box-shadow: 0 2px 8px rgba(79,110,247,0.25);
+    transition: transform 0.08s, box-shadow 0.15s;
   }
-  .new-chat-btn:hover { background: #353535; border-color: #4a4a4a; }
-  .new-chat-btn svg { width: 14px; height: 14px; }
+  .new-chat-btn:hover { box-shadow: 0 3px 12px rgba(79,110,247,0.35); }
+  .new-chat-btn:active { transform: translateY(1px); }
+  .new-chat-btn .material-symbols-outlined { font-size: 16px; }
 
   .thread-list {
     flex: 1;
@@ -87,89 +98,104 @@
     padding: 4px 8px 16px;
   }
   .thread-list::-webkit-scrollbar { width: 6px; }
-  .thread-list::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+  .thread-list::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
 
   .thread-group-label {
-    padding: 12px 10px 4px;
+    padding: 14px 10px 6px;
     font-size: 11px;
     font-weight: 600;
-    color: #777;
-    letter-spacing: 0.4px;
-    text-transform: uppercase;
+    color: #9ca3af;
+    letter-spacing: 0.3px;
   }
   .thread-item {
-    padding: 7px 10px;
-    border-radius: 6px;
-    color: #c4c4c4;
+    padding: 8px 10px;
+    border-radius: 8px;
+    color: #374151;
     font-size: 13px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    transition: background 0.1s;
+    transition: background 0.08s, color 0.08s;
     cursor: pointer;
-  }
-  .thread-item:hover { background: #232323; }
-  .thread-item.active { background: #2a2a2a; color: #fff; }
-
-  .sidebar-footer {
-    padding: 12px;
-    border-top: 1px solid #2a2a2a;
     display: flex;
-    flex-direction: column;
+    align-items: center;
     gap: 6px;
   }
+  .thread-item:hover { background: #f3f4f6; }
+  .thread-item.active { background: #eff3ff; color: #4f6ef7; font-weight: 600; }
+  .thread-item .material-symbols-outlined { font-size: 14px; color: #9ca3af; flex-shrink: 0; }
+  .thread-item.active .material-symbols-outlined { color: #4f6ef7; }
+
+  .sidebar-footer {
+    padding: 10px 12px;
+    border-top: 1px solid #eef0f3;
+    background: #fafbfc;
+  }
   .back-btn {
+    width: 100%;
     padding: 8px 12px;
-    background: transparent;
-    border: 1px solid #3a3a3a;
-    border-radius: 6px;
-    color: #c4c4c4;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    color: #4b5563;
     font-size: 12px;
+    font-weight: 500;
     text-decoration: none;
     text-align: center;
-    display: block;
-    transition: background 0.1s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: background 0.08s, border-color 0.08s;
   }
-  .back-btn:hover { background: #2a2a2a; }
+  .back-btn:hover { background: #f3f4f6; border-color: #d1d5db; }
+  .back-btn .material-symbols-outlined { font-size: 14px; }
 
   /* ── Main chat area ──────────────────────────────────────── */
   .main {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    background: #1a1a1a;
+    background: #ffffff;
   }
   .topbar {
-    padding: 10px 18px;
-    border-bottom: 1px solid #2a2a2a;
+    padding: 12px 22px;
+    border-bottom: 1px solid #eef0f3;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
     flex-shrink: 0;
+    background: #fff;
   }
   .topbar-title {
-    font-size: 13px;
-    font-weight: 500;
-    color: #c4c4c4;
+    font-size: 14px;
+    font-weight: 600;
+    color: #1f2937;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .topbar-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
   .model-pill {
-    padding: 5px 10px;
-    background: #2a2a2a;
-    border: 1px solid #3a3a3a;
+    padding: 6px 12px;
+    background: #f3f4f6;
+    border: 1px solid #e5e7eb;
     border-radius: 16px;
     font-size: 11px;
-    color: #c4c4c4;
+    font-weight: 600;
+    color: #4b5563;
     display: inline-flex;
     align-items: center;
     gap: 6px;
   }
   .model-pill .dot {
     width: 6px; height: 6px;
-    background: #d97757;
+    background: linear-gradient(135deg, #4f6ef7, #7c5cff);
     border-radius: 50%;
   }
 
@@ -177,9 +203,10 @@
     flex: 1;
     overflow-y: auto;
     padding: 24px 0;
+    background: #fff;
   }
   .messages::-webkit-scrollbar { width: 8px; }
-  .messages::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+  .messages::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
 
   .empty-state {
     height: 100%;
@@ -187,54 +214,70 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    color: #6a6a6a;
+    color: #6b7280;
     text-align: center;
     padding: 40px;
   }
+  .empty-state .icon {
+    width: 64px; height: 64px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #4f6ef7 0%, #7c5cff 100%);
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 18px;
+    box-shadow: 0 8px 24px rgba(79,110,247,0.25);
+  }
+  .empty-state .icon .material-symbols-outlined { font-size: 32px; }
   .empty-state h2 {
-    font-size: 24px;
-    font-weight: 600;
-    color: #c4c4c4;
+    font-size: 22px;
+    font-weight: 700;
+    color: #1f2937;
     margin-bottom: 6px;
     letter-spacing: -0.4px;
   }
   .empty-state p {
     font-size: 14px;
-    color: #888;
-    max-width: 400px;
+    color: #6b7280;
+    max-width: 420px;
+    line-height: 1.55;
   }
 
   /* 입력창 */
-  .composer {
-    padding: 0 24px 20px;
+  .composer-wrap {
+    padding: 0 24px 22px;
     flex-shrink: 0;
+    background: #fff;
   }
-  .composer-inner {
+  .composer {
     max-width: 760px;
     margin: 0 auto;
-    background: #262626;
-    border: 1px solid #3a3a3a;
+    background: #fff;
+    border: 1.5px solid #e5e7eb;
     border-radius: 14px;
     padding: 4px;
-    transition: border-color 0.15s;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
   }
-  .composer-inner:focus-within { border-color: #5a5a5a; }
+  .composer:focus-within {
+    border-color: #4f6ef7;
+    box-shadow: 0 2px 12px rgba(79,110,247,0.12);
+  }
 
   .composer-input {
     width: 100%;
     background: transparent;
     border: none;
-    color: #ececec;
+    color: #1f2937;
     padding: 12px 14px 8px;
     resize: none;
     outline: none;
     font-size: 14px;
-    line-height: 1.5;
+    line-height: 1.55;
     max-height: 200px;
-    min-height: 40px;
+    min-height: 42px;
     overflow-y: auto;
   }
-  .composer-input::placeholder { color: #6a6a6a; }
+  .composer-input::placeholder { color: #9ca3af; }
 
   .composer-bottom {
     display: flex;
@@ -248,33 +291,44 @@
     align-items: center;
   }
   .tool-btn {
-    width: 32px; height: 32px;
+    width: 34px; height: 34px;
     border-radius: 8px;
     display: inline-flex; align-items: center; justify-content: center;
-    color: #888;
-    transition: background 0.12s, color 0.12s;
+    color: #6b7280;
+    transition: background 0.1s, color 0.1s;
   }
-  .tool-btn:hover { background: #353535; color: #c4c4c4; }
-  .tool-btn svg { width: 16px; height: 16px; }
+  .tool-btn:hover { background: #f3f4f6; color: #4f6ef7; }
+  .tool-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .tool-btn .material-symbols-outlined { font-size: 18px; }
 
   .send-btn {
-    width: 32px; height: 32px;
+    height: 34px;
+    padding: 0 14px;
     border-radius: 8px;
-    background: #d97757;
+    background: linear-gradient(135deg, #4f6ef7 0%, #7c5cff 100%);
     color: #fff;
-    display: inline-flex; align-items: center; justify-content: center;
-    transition: background 0.12s, opacity 0.15s;
+    font-size: 12px;
+    font-weight: 600;
+    display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+    box-shadow: 0 2px 6px rgba(79,110,247,0.25);
+    transition: opacity 0.15s, box-shadow 0.15s, transform 0.08s;
   }
-  .send-btn:hover { background: #c46a4f; }
-  .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .send-btn svg { width: 16px; height: 16px; }
+  .send-btn:hover { box-shadow: 0 3px 10px rgba(79,110,247,0.35); }
+  .send-btn:active { transform: translateY(1px); }
+  .send-btn:disabled {
+    background: #e5e7eb;
+    color: #9ca3af;
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+  .send-btn .material-symbols-outlined { font-size: 16px; }
 
   .composer-hint {
     max-width: 760px;
-    margin: 6px auto 0;
+    margin: 8px auto 0;
     padding: 0 4px;
     font-size: 11px;
-    color: #666;
+    color: #9ca3af;
     text-align: center;
   }
 </style>
@@ -284,26 +338,29 @@
   <!-- ─── Sidebar ───────────────────────────────────────────── -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
-      <div class="logo">A</div>
-      <div class="brand">AI 챗</div>
+      <div class="logo"><span class="material-symbols-outlined">smart_toy</span></div>
+      <div>
+        <div class="brand">AI 챗</div>
+        <div class="brand-sub">대림에스엠 ERP</div>
+      </div>
     </div>
 
     <button class="new-chat-btn" id="newChatBtn">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-        <path d="M12 5v14M5 12h14"/>
-      </svg>
+      <span class="material-symbols-outlined">add</span>
       새 대화
     </button>
 
     <div class="thread-list" id="threadList">
-      <!-- Phase 2 에서 채움 -->
-      <div style="padding:40px 14px;color:#555;font-size:12px;text-align:center;">
-        스레드 목록은 다음 단계에서 채워집니다.
+      <div style="padding:40px 14px;color:#9ca3af;font-size:12px;text-align:center;">
+        대화 목록은 다음 단계에서 채워집니다.
       </div>
     </div>
 
     <div class="sidebar-footer">
-      <a href="/" class="back-btn">← ERP 메인</a>
+      <a href="/" class="back-btn">
+        <span class="material-symbols-outlined">arrow_back</span>
+        ERP 메인으로
+      </a>
     </div>
   </aside>
 
@@ -311,34 +368,36 @@
   <main class="main">
     <div class="topbar">
       <div class="topbar-title" id="topbarTitle">새 대화</div>
-      <div class="model-pill">
-        <span class="dot"></span>
-        <span id="modelLabel">Claude Sonnet 4</span>
+      <div class="topbar-actions">
+        <div class="model-pill">
+          <span class="dot"></span>
+          <span id="modelLabel">Claude Sonnet 4</span>
+        </div>
       </div>
     </div>
 
     <div class="messages" id="messages">
       <div class="empty-state">
-        <h2>안녕하세요 사장님</h2>
-        <p>업무에 필요한 것 무엇이든 물어보세요. 엑셀·PDF 만들기, 데이터 분석, 거래처 정리 등 도와드릴 수 있어요.</p>
+        <div class="icon"><span class="material-symbols-outlined">auto_awesome</span></div>
+        <h2>무엇을 도와드릴까요?</h2>
+        <p>질문하거나, 파일을 첨부해 분석하거나, 엑셀·PDF 를 만들어 드릴 수 있어요. 거래처·매출·출퇴근 데이터는 자동으로 참조합니다.</p>
       </div>
     </div>
 
-    <div class="composer">
-      <div class="composer-inner">
-        <textarea class="composer-input" id="composerInput" rows="1" placeholder="메시지를 입력하세요…"></textarea>
+    <div class="composer-wrap">
+      <div class="composer">
+        <textarea class="composer-input" id="composerInput" rows="1" placeholder="무엇이든 물어보세요. 파일은 드래그하거나 붙여넣으세요."></textarea>
         <div class="composer-bottom">
           <div class="composer-tools">
             <button class="tool-btn" title="파일 첨부 (Phase 4)" disabled>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-              </svg>
+              <span class="material-symbols-outlined">attach_file</span>
+            </button>
+            <button class="tool-btn" title="템플릿" disabled>
+              <span class="material-symbols-outlined">bookmark</span>
             </button>
           </div>
           <button class="send-btn" id="sendBtn" disabled>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 19V5M5 12l7-7 7 7"/>
-            </svg>
+            전송 <span class="material-symbols-outlined">arrow_upward</span>
           </button>
         </div>
       </div>
@@ -350,7 +409,7 @@
 </div>
 
 <script>
-  // Phase 1 — 입력창 자동 높이 + 활성화 토글 (실제 전송은 Phase 3)
+  // Phase 1 — 입력창 자동 높이 + 전송 버튼 활성화 토글
   const input = document.getElementById('composerInput');
   const sendBtn = document.getElementById('sendBtn');
 
@@ -369,7 +428,7 @@
     }
   });
   document.getElementById('newChatBtn').addEventListener('click', () => {
-    location.reload();  // Phase 2 에서 진짜 새 스레드 생성으로 교체
+    location.reload();
   });
 </script>
 </body>
