@@ -10,426 +10,247 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/icon?family=Material+Symbols+Outlined" rel="stylesheet">
 <style>
-  /* ── Reset / Base ────────────────────────────────────────── */
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { height: 100%; overflow: hidden; }
-  body {
-    font-family: 'Inter', 'Noto Sans KR', -apple-system, "Apple SD Gothic Neo", sans-serif;
-    background: #f3f4f6;
-    color: #1f2937;
-    font-size: 14px;
-    line-height: 1.6;
-    -webkit-font-smoothing: antialiased;
-  }
-  button { font: inherit; cursor: pointer; border: none; background: none; color: inherit; }
-  input, textarea { font: inherit; }
-  .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; overflow: hidden; }
+body { font-family: 'Inter', 'Noto Sans KR', -apple-system, "Apple SD Gothic Neo", sans-serif; background: #f3f4f6; color: #1f2937; font-size: 14px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+button { font: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+input, textarea { font: inherit; }
+.material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
 
-  /* ── Layout ──────────────────────────────────────────────── */
-  .app {
-    display: grid;
-    grid-template-columns: 272px 1fr;
-    height: 100vh;
-    overflow: hidden;
-    background: #f3f4f6;
-  }
-  @media (max-width: 768px) {
-    .app { grid-template-columns: 1fr; }
-    .sidebar { display: none; }
-    .sidebar.open { display: flex; position: fixed; top:0; left:0; width: 80%; max-width: 300px; z-index: 100; height: 100vh; box-shadow: 2px 0 18px rgba(0,0,0,0.12); }
-  }
-
-  /* ── Sidebar ─────────────────────────────────────────────── */
-  .sidebar {
-    background: #ffffff;
-    border-right: 1px solid #e5e7eb;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-  .sidebar-header {
-    padding: 14px 16px;
-    border-bottom: 1px solid #eef0f3;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .logo {
-    width: 30px; height: 30px;
-    background: linear-gradient(135deg, #4f6ef7 0%, #7c5cff 100%);
-    border-radius: 8px;
-    display: flex; align-items: center; justify-content: center;
-    color: #fff;
-    box-shadow: 0 2px 6px rgba(79,110,247,0.3);
-  }
-  .logo .material-symbols-outlined { font-size: 18px; }
-  .brand {
-    font-size: 15px;
-    font-weight: 700;
-    color: #1f2937;
-    letter-spacing: -0.2px;
-  }
-  .brand-sub {
-    font-size: 10px;
-    color: #9ca3af;
-    font-weight: 500;
-    margin-top: 1px;
-  }
-
-  .new-chat-btn {
-    margin: 12px 12px 8px;
-    padding: 10px 14px;
-    background: linear-gradient(135deg, #4f6ef7 0%, #7c5cff 100%);
-    color: #fff;
-    border-radius: 10px;
-    font-size: 13px;
-    font-weight: 600;
-    display: flex; align-items: center; justify-content: center; gap: 8px;
-    box-shadow: 0 2px 8px rgba(79,110,247,0.25);
-    transition: transform 0.08s, box-shadow 0.15s;
-  }
-  .new-chat-btn:hover { box-shadow: 0 3px 12px rgba(79,110,247,0.35); }
-  .new-chat-btn:active { transform: translateY(1px); }
-  .new-chat-btn .material-symbols-outlined { font-size: 16px; }
-
-  .thread-list {
-    flex: 1;
-    overflow-y: auto;
-    padding: 4px 8px 16px;
-  }
-  .thread-list::-webkit-scrollbar { width: 6px; }
-  .thread-list::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
-
-  .thread-group-label {
-    padding: 14px 10px 6px;
-    font-size: 11px;
-    font-weight: 600;
-    color: #9ca3af;
-    letter-spacing: 0.3px;
-  }
-  .thread-item {
-    padding: 8px 10px;
-    border-radius: 8px;
-    color: #374151;
-    font-size: 13px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    transition: background 0.08s, color 0.08s;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .thread-item:hover { background: #f3f4f6; }
-  .thread-item.active { background: #eff3ff; color: #4f6ef7; font-weight: 600; }
-  .thread-item .material-symbols-outlined { font-size: 14px; color: #9ca3af; flex-shrink: 0; }
-  .thread-item.active .material-symbols-outlined { color: #4f6ef7; }
-
-  .sidebar-footer {
-    padding: 10px 12px;
-    border-top: 1px solid #eef0f3;
-    background: #fafbfc;
-  }
-  .back-btn {
-    width: 100%;
-    padding: 8px 12px;
-    background: #fff;
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
-    color: #4b5563;
-    font-size: 12px;
-    font-weight: 500;
-    text-decoration: none;
-    text-align: center;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    transition: background 0.08s, border-color 0.08s;
-  }
-  .back-btn:hover { background: #f3f4f6; border-color: #d1d5db; }
-  .back-btn .material-symbols-outlined { font-size: 14px; }
-
-  /* ── Main chat area ──────────────────────────────────────── */
-  .main {
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    background: #ffffff;
-  }
-  .topbar {
-    padding: 12px 22px;
-    border-bottom: 1px solid #eef0f3;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    flex-shrink: 0;
-    background: #fff;
-  }
-  .topbar-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: #1f2937;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .topbar-actions {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-  .model-pill {
-    padding: 6px 12px;
-    background: #f3f4f6;
-    border: 1px solid #e5e7eb;
-    border-radius: 16px;
-    font-size: 11px;
-    font-weight: 600;
-    color: #4b5563;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .model-pill .dot {
-    width: 6px; height: 6px;
-    background: linear-gradient(135deg, #4f6ef7, #7c5cff);
-    border-radius: 50%;
-  }
-
-  .messages {
-    flex: 1;
-    overflow-y: auto;
-    padding: 24px 0;
-    background: #fff;
-  }
-  .messages::-webkit-scrollbar { width: 8px; }
-  .messages::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
-
-  .empty-state {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    color: #6b7280;
-    text-align: center;
-    padding: 40px;
-  }
-  .empty-state .icon {
-    width: 64px; height: 64px;
-    border-radius: 16px;
-    background: linear-gradient(135deg, #4f6ef7 0%, #7c5cff 100%);
-    color: #fff;
-    display: flex; align-items: center; justify-content: center;
-    margin-bottom: 18px;
-    box-shadow: 0 8px 24px rgba(79,110,247,0.25);
-  }
-  .empty-state .icon .material-symbols-outlined { font-size: 32px; }
-  .empty-state h2 {
-    font-size: 22px;
-    font-weight: 700;
-    color: #1f2937;
-    margin-bottom: 6px;
-    letter-spacing: -0.4px;
-  }
-  .empty-state p {
-    font-size: 14px;
-    color: #6b7280;
-    max-width: 420px;
-    line-height: 1.55;
-  }
-
-  /* 입력창 */
-  .composer-wrap {
-    padding: 0 24px 22px;
-    flex-shrink: 0;
-    background: #fff;
-  }
-  .composer {
-    max-width: 760px;
-    margin: 0 auto;
-    background: #fff;
-    border: 1.5px solid #e5e7eb;
-    border-radius: 14px;
-    padding: 4px;
-    transition: border-color 0.15s, box-shadow 0.15s;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-  }
-  .composer:focus-within {
-    border-color: #4f6ef7;
-    box-shadow: 0 2px 12px rgba(79,110,247,0.12);
-  }
-
-  .composer-input {
-    width: 100%;
-    background: transparent;
-    border: none;
-    color: #1f2937;
-    padding: 12px 14px 8px;
-    resize: none;
-    outline: none;
-    font-size: 14px;
-    line-height: 1.55;
-    max-height: 200px;
-    min-height: 42px;
-    overflow-y: auto;
-  }
-  .composer-input::placeholder { color: #9ca3af; }
-
-  .composer-bottom {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 4px 8px 4px 10px;
-  }
-  .composer-tools {
-    display: flex;
-    gap: 4px;
-    align-items: center;
-  }
-  .tool-btn {
-    width: 34px; height: 34px;
-    border-radius: 8px;
-    display: inline-flex; align-items: center; justify-content: center;
-    color: #6b7280;
-    transition: background 0.1s, color 0.1s;
-  }
-  .tool-btn:hover { background: #f3f4f6; color: #4f6ef7; }
-  .tool-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .tool-btn .material-symbols-outlined { font-size: 18px; }
-
-  .send-btn {
-    height: 34px;
-    padding: 0 14px;
-    border-radius: 8px;
-    background: linear-gradient(135deg, #4f6ef7 0%, #7c5cff 100%);
-    color: #fff;
-    font-size: 12px;
-    font-weight: 600;
-    display: inline-flex; align-items: center; justify-content: center; gap: 4px;
-    box-shadow: 0 2px 6px rgba(79,110,247,0.25);
-    transition: opacity 0.15s, box-shadow 0.15s, transform 0.08s;
-  }
-  .send-btn:hover { box-shadow: 0 3px 10px rgba(79,110,247,0.35); }
-  .send-btn:active { transform: translateY(1px); }
-  .send-btn:disabled {
-    background: #e5e7eb;
-    color: #9ca3af;
-    box-shadow: none;
-    cursor: not-allowed;
-  }
-  .send-btn .material-symbols-outlined { font-size: 16px; }
-
-  .composer-hint {
-    max-width: 760px;
-    margin: 8px auto 0;
-    padding: 0 4px;
-    font-size: 11px;
-    color: #9ca3af;
-    text-align: center;
-  }
+.app { display: grid; grid-template-columns: 272px 1fr; height: 100vh; overflow: hidden; }
+.sidebar { background: #fff; border-right: 1px solid #e5e7eb; display: flex; flex-direction: column; overflow: hidden; }
+.sidebar-header { padding: 14px 16px; border-bottom: 1px solid #eef0f3; display: flex; align-items: center; gap: 10px; }
+.logo { width: 30px; height: 30px; background: linear-gradient(135deg,#4f6ef7,#7c5cff); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #fff; box-shadow: 0 2px 6px rgba(79,110,247,.3); }
+.logo .material-symbols-outlined { font-size: 18px; }
+.brand { font-size: 15px; font-weight: 700; color: #1f2937; }
+.brand-sub { font-size: 10px; color: #9ca3af; margin-top: 1px; }
+.new-chat-btn { margin: 12px 12px 8px; padding: 10px 14px; background: linear-gradient(135deg,#4f6ef7,#7c5cff); color: #fff; border-radius: 10px; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 2px 8px rgba(79,110,247,.25); transition: transform .08s, box-shadow .15s; }
+.new-chat-btn:hover { box-shadow: 0 3px 12px rgba(79,110,247,.35); }
+.new-chat-btn:active { transform: translateY(1px); }
+.new-chat-btn .material-symbols-outlined { font-size: 16px; }
+.search-wrap { padding: 4px 12px 8px; }
+.search-wrap-inner { position: relative; }
+.search-input { width: 100%; padding: 8px 10px 8px 32px; background: #f3f4f6; border: 1px solid transparent; border-radius: 8px; font-size: 12px; color: #1f2937; outline: none; transition: background .1s, border-color .1s; }
+.search-input:focus { background: #fff; border-color: #4f6ef7; }
+.search-icon-inner { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); font-size: 15px; color: #9ca3af; pointer-events: none; }
+.thread-list { flex: 1; overflow-y: auto; padding: 4px 8px 16px; }
+.thread-list::-webkit-scrollbar { width: 6px; }
+.thread-list::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+.thread-group-label { padding: 14px 10px 6px; font-size: 11px; font-weight: 600; color: #9ca3af; }
+.thread-item { padding: 8px 10px; border-radius: 8px; color: #374151; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: background .08s, color .08s; }
+.thread-item:hover { background: #f3f4f6; }
+.thread-item.active { background: #eff3ff; color: #4f6ef7; font-weight: 600; }
+.thread-item .material-symbols-outlined { font-size: 14px; color: #9ca3af; flex-shrink: 0; }
+.thread-item.active .material-symbols-outlined { color: #4f6ef7; }
+.thread-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-footer { padding: 10px 12px; border-top: 1px solid #eef0f3; background: #fafbfc; }
+.back-btn { width: 100%; padding: 8px 12px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; color: #4b5563; font-size: 12px; font-weight: 500; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 6px; transition: background .08s, border-color .08s; }
+.back-btn:hover { background: #f3f4f6; border-color: #d1d5db; }
+.back-btn .material-symbols-outlined { font-size: 14px; }
+.main { display: flex; flex-direction: column; overflow: hidden; background: #fff; }
+.topbar { padding: 12px 22px; border-bottom: 1px solid #eef0f3; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; }
+.topbar-title { font-size: 14px; font-weight: 600; color: #1f2937; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar-actions { display: flex; gap: 8px; align-items: center; }
+.model-pill { padding: 6px 12px; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 16px; font-size: 11px; font-weight: 600; color: #4b5563; display: inline-flex; align-items: center; gap: 6px; }
+.model-pill .dot { width: 6px; height: 6px; background: linear-gradient(135deg,#4f6ef7,#7c5cff); border-radius: 50%; }
+.messages { flex: 1; overflow-y: auto; padding: 24px 0; }
+.messages::-webkit-scrollbar { width: 8px; }
+.messages::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+.empty-state { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px; }
+.empty-state .icon { width: 64px; height: 64px; border-radius: 16px; background: linear-gradient(135deg,#4f6ef7,#7c5cff); color: #fff; display: flex; align-items: center; justify-content: center; margin-bottom: 18px; box-shadow: 0 8px 24px rgba(79,110,247,.25); }
+.empty-state .icon .material-symbols-outlined { font-size: 32px; }
+.empty-state h2 { font-size: 22px; font-weight: 700; color: #1f2937; margin-bottom: 6px; }
+.empty-state p { font-size: 14px; color: #6b7280; max-width: 420px; line-height: 1.55; }
+.composer-wrap { padding: 0 24px 22px; flex-shrink: 0; }
+.composer { max-width: 760px; margin: 0 auto; background: #fff; border: 1.5px solid #e5e7eb; border-radius: 14px; padding: 4px; transition: border-color .15s, box-shadow .15s; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+.composer:focus-within { border-color: #4f6ef7; box-shadow: 0 2px 12px rgba(79,110,247,.12); }
+.composer-input { width: 100%; background: transparent; border: none; color: #1f2937; padding: 12px 14px 8px; resize: none; outline: none; font-size: 14px; line-height: 1.55; max-height: 200px; min-height: 42px; overflow-y: auto; }
+.composer-input::placeholder { color: #9ca3af; }
+.composer-bottom { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px 4px 10px; }
+.composer-tools { display: flex; gap: 4px; align-items: center; }
+.tool-btn { width: 34px; height: 34px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; color: #6b7280; transition: background .1s, color .1s; }
+.tool-btn:hover { background: #f3f4f6; color: #4f6ef7; }
+.tool-btn:disabled { opacity: .4; cursor: not-allowed; }
+.tool-btn .material-symbols-outlined { font-size: 18px; }
+.send-btn { height: 34px; padding: 0 14px; border-radius: 8px; background: linear-gradient(135deg,#4f6ef7,#7c5cff); color: #fff; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 4px; box-shadow: 0 2px 6px rgba(79,110,247,.25); transition: box-shadow .15s, transform .08s; }
+.send-btn:hover { box-shadow: 0 3px 10px rgba(79,110,247,.35); }
+.send-btn:active { transform: translateY(1px); }
+.send-btn:disabled { background: #e5e7eb; color: #9ca3af; box-shadow: none; cursor: not-allowed; }
+.send-btn .material-symbols-outlined { font-size: 16px; }
+.composer-hint { max-width: 760px; margin: 8px auto 0; padding: 0 4px; font-size: 11px; color: #9ca3af; text-align: center; }
 </style>
 </head>
 <body>
 <div class="app">
-  <!-- ─── Sidebar ───────────────────────────────────────────── -->
-  <aside class="sidebar" id="sidebar">
-    <div class="sidebar-header">
-      <div class="logo"><span class="material-symbols-outlined">smart_toy</span></div>
-      <div>
-        <div class="brand">AI 챗</div>
-        <div class="brand-sub">대림에스엠 ERP</div>
-      </div>
-    </div>
-
-    <button class="new-chat-btn" id="newChatBtn">
-      <span class="material-symbols-outlined">add</span>
-      새 대화
-    </button>
-
-    <div class="thread-list" id="threadList">
-      <div style="padding:40px 14px;color:#9ca3af;font-size:12px;text-align:center;">
-        대화 목록은 다음 단계에서 채워집니다.
-      </div>
-    </div>
-
-    <div class="sidebar-footer">
-      <a href="/" class="back-btn">
-        <span class="material-symbols-outlined">arrow_back</span>
-        ERP 메인으로
-      </a>
-    </div>
-  </aside>
-
-  <!-- ─── Main ─────────────────────────────────────────────── -->
-  <main class="main">
-    <div class="topbar">
-      <div class="topbar-title" id="topbarTitle">새 대화</div>
-      <div class="topbar-actions">
-        <div class="model-pill">
-          <span class="dot"></span>
-          <span id="modelLabel">Claude Sonnet 4</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="messages" id="messages">
-      <div class="empty-state">
-        <div class="icon"><span class="material-symbols-outlined">auto_awesome</span></div>
-        <h2>무엇을 도와드릴까요?</h2>
-        <p>질문하거나, 파일을 첨부해 분석하거나, 엑셀·PDF 를 만들어 드릴 수 있어요. 거래처·매출·출퇴근 데이터는 자동으로 참조합니다.</p>
-      </div>
-    </div>
-
-    <div class="composer-wrap">
-      <div class="composer">
-        <textarea class="composer-input" id="composerInput" rows="1" placeholder="무엇이든 물어보세요. 파일은 드래그하거나 붙여넣으세요."></textarea>
-        <div class="composer-bottom">
-          <div class="composer-tools">
-            <button class="tool-btn" title="파일 첨부 (Phase 4)" disabled>
-              <span class="material-symbols-outlined">attach_file</span>
-            </button>
-            <button class="tool-btn" title="템플릿" disabled>
-              <span class="material-symbols-outlined">bookmark</span>
-            </button>
-          </div>
-          <button class="send-btn" id="sendBtn" disabled>
-            전송 <span class="material-symbols-outlined">arrow_upward</span>
-          </button>
-        </div>
-      </div>
-      <div class="composer-hint">
-        Enter 로 전송 · Shift+Enter 줄바꿈
-      </div>
-    </div>
-  </main>
+<aside class="sidebar">
+<div class="sidebar-header">
+<div class="logo"><span class="material-symbols-outlined">smart_toy</span></div>
+<div><div class="brand">AI 챗</div><div class="brand-sub">대림에스엠 ERP</div></div>
 </div>
-
+<button class="new-chat-btn" id="newChatBtn"><span class="material-symbols-outlined">add</span>새 대화</button>
+<div class="search-wrap"><div class="search-wrap-inner">
+<input type="text" id="threadSearch" class="search-input" placeholder="대화 검색…">
+<span class="material-symbols-outlined search-icon-inner">search</span>
+</div></div>
+<div class="thread-list" id="threadList">
+<div id="threadListLoading" style="padding:40px 14px;color:#9ca3af;font-size:12px;text-align:center;">대화 목록을 불러오는 중…</div>
+</div>
+<div class="sidebar-footer">
+<a href="/" class="back-btn"><span class="material-symbols-outlined">arrow_back</span>ERP 메인으로</a>
+</div>
+</aside>
+<main class="main">
+<div class="topbar">
+<div class="topbar-title" id="topbarTitle">새 대화</div>
+<div class="topbar-actions">
+<div class="model-pill"><span class="dot"></span><span id="modelLabel">Claude Sonnet 4</span></div>
+</div>
+</div>
+<div class="messages" id="messages">
+<div class="empty-state">
+<div class="icon"><span class="material-symbols-outlined">auto_awesome</span></div>
+<h2>무엇을 도와드릴까요?</h2>
+<p>질문하거나, 파일을 첨부해 분석하거나, 엑셀·PDF 를 만들어 드릴 수 있어요. 거래처·매출·출퇴근 데이터는 자동으로 참조합니다.</p>
+</div>
+</div>
+<div class="composer-wrap">
+<div class="composer">
+<textarea class="composer-input" id="composerInput" rows="1" placeholder="무엇이든 물어보세요. 파일은 드래그하거나 붙여넣으세요."></textarea>
+<div class="composer-bottom">
+<div class="composer-tools">
+<button class="tool-btn" title="파일 첨부 (Phase 4)" disabled><span class="material-symbols-outlined">attach_file</span></button>
+<button class="tool-btn" title="템플릿" disabled><span class="material-symbols-outlined">bookmark</span></button>
+</div>
+<button class="send-btn" id="sendBtn" disabled>전송 <span class="material-symbols-outlined">arrow_upward</span></button>
+</div>
+</div>
+<div class="composer-hint">Enter 로 전송 · Shift+Enter 줄바꿈</div>
+</div>
+</main>
+</div>
 <script>
-  // Phase 1 — 입력창 자동 높이 + 전송 버튼 활성화 토글
-  const input = document.getElementById('composerInput');
-  const sendBtn = document.getElementById('sendBtn');
+const state = { threads: [], filteredThreads: [], activeThreadId: null, searchQuery: '' };
+const input = document.getElementById('composerInput');
+const sendBtn = document.getElementById('sendBtn');
+const threadListEl = document.getElementById('threadList');
+const threadListLoading = document.getElementById('threadListLoading');
+const threadSearchEl = document.getElementById('threadSearch');
+const topbarTitleEl = document.getElementById('topbarTitle');
 
-  function autoResize() {
-    input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight, 200) + 'px';
-    sendBtn.disabled = !input.value.trim();
+function autoResize() {
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 200) + 'px';
+  sendBtn.disabled = !input.value.trim();
+}
+input.addEventListener('input', autoResize);
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (!sendBtn.disabled) alert('Phase 3 에서 실제 전송 구현 예정.');
   }
-  input.addEventListener('input', autoResize);
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      if (!sendBtn.disabled) {
-        alert('Phase 3 에서 실제 전송 구현 예정. 지금은 골격만.');
-      }
+});
+
+document.getElementById('newChatBtn').addEventListener('click', async () => {
+  try {
+    const r = await fetch('/api/ai/threads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ title: '새 대화' }),
+    });
+    if (r.status === 401) { window.location.href = '/'; return; }
+    if (!r.ok) throw new Error('스레드 생성 실패: ' + r.status);
+    const data = await r.json();
+    if (data.thread) {
+      state.threads.unshift(data.thread);
+      renderThreadList();
+      selectThread(data.thread.id);
     }
+  } catch (e) {
+    console.error(e); alert('새 대화 생성 실패: ' + e.message);
+  }
+});
+
+async function loadThreads() {
+  try {
+    const r = await fetch('/api/ai/threads?scope=mine&limit=100', { credentials: 'include' });
+    if (r.status === 401) { window.location.href = '/'; return; }
+    if (!r.ok) throw new Error('threads ' + r.status);
+    const data = await r.json();
+    state.threads = data.threads || [];
+    renderThreadList();
+  } catch (e) {
+    console.error('스레드 로드 실패:', e);
+    threadListLoading.textContent = '불러오기 실패. 새로고침해 보세요.';
+    threadListLoading.style.color = '#dc2626';
+  }
+}
+
+function groupByDate(threads) {
+  const startOfDay = (d) => { const x = new Date(d); x.setHours(0,0,0,0); return x.getTime(); };
+  const today = startOfDay(new Date());
+  const yesterday = today - 86400000;
+  const sevenDaysAgo = today - 7 * 86400000;
+  const thirtyDaysAgo = today - 30 * 86400000;
+  const groups = { today: [], yesterday: [], week: [], month: [], older: [] };
+  for (const t of threads) {
+    const ts = startOfDay(t.updated_at || t.created_at);
+    if (ts === today) groups.today.push(t);
+    else if (ts === yesterday) groups.yesterday.push(t);
+    else if (ts > sevenDaysAgo) groups.week.push(t);
+    else if (ts > thirtyDaysAgo) groups.month.push(t);
+    else groups.older.push(t);
+  }
+  return groups;
+}
+
+function renderThreadList() {
+  const q = state.searchQuery.toLowerCase().trim();
+  state.filteredThreads = q ? state.threads.filter(t => (t.title || '').toLowerCase().includes(q)) : state.threads;
+  if (state.filteredThreads.length === 0) {
+    threadListEl.innerHTML = '<div style="padding:40px 14px;color:#9ca3af;font-size:12px;text-align:center;white-space:pre-line;">' + (q ? '검색 결과 없음' : '아직 대화가 없어요.\n위 "+ 새 대화" 버튼을 눌러 시작하세요.') + '</div>';
+    return;
+  }
+  const groups = groupByDate(state.filteredThreads);
+  const labels = { today: '오늘', yesterday: '어제', week: '지난 7일', month: '지난 30일', older: '이전' };
+  let html = '';
+  for (const key of ['today','yesterday','week','month','older']) {
+    const items = groups[key];
+    if (items.length === 0) continue;
+    html += '<div class="thread-group-label">' + labels[key] + '</div>';
+    for (const t of items) {
+      const isActive = String(state.activeThreadId) === String(t.id);
+      const title = escapeHtml(t.title || '제목 없음');
+      const iconHtml = t.project_emoji
+        ? '<span style="font-size:12px;flex-shrink:0;">' + t.project_emoji + '</span>'
+        : '<span class="material-symbols-outlined">chat_bubble</span>';
+      html += '<div class="thread-item ' + (isActive ? 'active' : '') + '" data-id="' + t.id + '" title="' + title + '">' + iconHtml + '<span class="thread-item-title">' + title + '</span></div>';
+    }
+  }
+  threadListEl.innerHTML = html;
+  threadListEl.querySelectorAll('.thread-item').forEach(el => {
+    el.addEventListener('click', () => selectThread(el.dataset.id));
   });
-  document.getElementById('newChatBtn').addEventListener('click', () => {
-    location.reload();
-  });
+}
+
+function selectThread(threadId) {
+  state.activeThreadId = threadId;
+  const t = state.threads.find(x => String(x.id) === String(threadId));
+  topbarTitleEl.textContent = t ? (t.title || '제목 없음') : '새 대화';
+  renderThreadList();
+  console.log('[ai-chat] 스레드 선택:', threadId);
+}
+
+threadSearchEl.addEventListener('input', (e) => {
+  state.searchQuery = e.target.value;
+  renderThreadList();
+});
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+loadThreads();
 </script>
 </body>
 </html>
