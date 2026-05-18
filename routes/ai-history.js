@@ -1833,15 +1833,16 @@ router.post('/chat-stream-cli', async (req, res) => {
     attachments = ai.attachments.hydrate(attachmentIds.map(Number));
   }
 
-  // 첨부 파일 경로 → CLI 에 @경로 형태로 전달 (이미지는 자동 vision, 텍스트는 추출문 prompt 앞)
+  // 첨부 파일 경로 → CLI 에 @경로 형태로 전달
+  // 이미지/엑셀/PDF/문서 모두 원본 파일 경로를 같이 넘겨야 CLI 가 직접 읽을 수 있음
   const attachmentPaths = [];
   let attachmentBlock = '';
   for (const a of attachments) {
     if (!a) continue;
-    if (a.kind === 'image') {
-      const fp = path.join(ai.UPLOAD_DIR, a.stored_name);
-      if (fs.existsSync(fp)) attachmentPaths.push(fp);
-    } else if (a.text_excerpt) {
+    const fp = path.join(ai.UPLOAD_DIR, a.stored_name);
+    if (fs.existsSync(fp)) attachmentPaths.push(fp);
+    // 텍스트 추출이 있는 첨부는 prompt 앞에도 텍스트로 박아줌 (CLI 가 못 열어도 fallback)
+    if (a.kind !== 'image' && a.text_excerpt) {
       attachmentBlock += '[첨부: ' + a.original_name + ' (' + a.kind + ')]\n' + a.text_excerpt.slice(0, 1000000) + '\n\n';
     }
   }

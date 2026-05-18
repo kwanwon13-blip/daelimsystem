@@ -605,7 +605,7 @@ async function sendViaChatFallback(text, attachmentIds, aiMsg) {
     aiMsg.content = data.result || (data.message && data.message.content) || '(빈 응답)';
     aiMsg.id = (data.message && data.message.id) || aiMsg.id;
     aiMsg.artifacts = data.artifacts || [];
-    messagesEl.removeChild(messagesEl.lastElementChild);
+    if (messagesEl.lastElementChild && messagesEl.lastElementChild.classList && messagesEl.lastElementChild.classList.contains("msg-ai")) messagesEl.removeChild(messagesEl.lastElementChild);
     appendMessage(aiMsg);
     scrollToBottom();
     if (data.threadId && !state.activeThreadId) {
@@ -670,7 +670,7 @@ async function sendMessage() {
       aiMsg.image_url = data.url || data.image_url || data.imageUrl || (data.message && (data.message.image_url || data.message.imageUrl)) || null;
       aiMsg.artifacts = data.artifacts || [];
       console.log('[ai-chat] chat-image:', { url: data.url, image_url: aiMsg.image_url });
-      messagesEl.removeChild(messagesEl.lastElementChild);
+      if (messagesEl.lastElementChild && messagesEl.lastElementChild.classList && messagesEl.lastElementChild.classList.contains("msg-ai")) messagesEl.removeChild(messagesEl.lastElementChild);
       appendMessage(aiMsg);
       scrollToBottom();
       if (data.threadId && !state.activeThreadId) {
@@ -688,7 +688,7 @@ async function sendMessage() {
       console.error('이미지 생성 실패:', e);
       aiMsg.streaming = false;
       aiMsg.content = '**오류:** ' + e.message;
-      messagesEl.removeChild(messagesEl.lastElementChild);
+      if (messagesEl.lastElementChild && messagesEl.lastElementChild.classList && messagesEl.lastElementChild.classList.contains("msg-ai")) messagesEl.removeChild(messagesEl.lastElementChild);
       appendMessage(aiMsg);
     } finally {
       setStreaming(false); input.disabled = false; autoResize(); input.focus();
@@ -745,7 +745,7 @@ async function sendMessage() {
             // CLI 스트리밍이 보내준 artifacts 가 있으면 카드 표시
             if (Array.isArray(data.artifacts) && data.artifacts.length > 0) {
               aiMsg.artifacts = data.artifacts;
-              messagesEl.removeChild(messagesEl.lastElementChild);
+              if (messagesEl.lastElementChild && messagesEl.lastElementChild.classList && messagesEl.lastElementChild.classList.contains("msg-ai")) messagesEl.removeChild(messagesEl.lastElementChild);
               appendMessage(aiMsg);
               scrollToBottom();
             } else {

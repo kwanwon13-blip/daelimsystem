@@ -6939,6 +6939,9 @@ function app() {
       statusFilter: '',              // '' | 'needsReview' | 'late'
       employees: [],
       summary: [],
+      // ── 보정 요청 모달 (직원이 본인 출퇴근 보정 신청) ──
+      fixModal: { open: false, date: '', inTime: '', outTime: '', reason: '' },
+      requests: [],  // 보정 요청 목록 (관리자: 전체, 직원: 본인 것만)
       // ── 확인/수정 모달 ──
       reviewModal: { open: false, empName: '', date: '', inTime: '', outTime: '', currentLabel: '', selectedType: 'annual', modifiedInTime: '', modifiedOutTime: '', note: '' },
       detailModal: { open: false, empName: '', date: '', inTime: '', outTime: '', originalInTime: '', originalOutTime: '', leaveLabel: '', reviewStatus: '', note: '', selectedType: 'normal', modifiedInTime: '', modifiedOutTime: '' },
@@ -10086,6 +10089,28 @@ function app() {
       } catch(e) {
         this.showToast('저장 실패: ' + e.message, 'error');
       }
+    },
+
+    // 보정 요청 모달 열기 (오늘 날짜 기본)
+    openAttFixModal() {
+      this.attendance.fixModal = {
+        open: true,
+        date: new Date().toISOString().slice(0, 10),
+        inTime: '',
+        outTime: '',
+        reason: '',
+      };
+      this.loadAttendanceRequests();
+    },
+
+    // 모달에서 [신청] 클릭
+    async submitAttFix() {
+      const f = this.attendance.fixModal;
+      if (!f.date) { this.showToast('날짜를 선택하세요', 'error'); return; }
+      if (!f.inTime && !f.outTime) { this.showToast('출근 또는 퇴근 시간 중 하나는 입력해주세요', 'error'); return; }
+      if (!f.reason || !f.reason.trim()) { this.showToast('사유를 입력해주세요', 'error'); return; }
+      await this.submitTimeRequest(f.date, f.inTime || null, f.outTime || null, f.reason.trim());
+      this.attendance.fixModal.open = false;
     },
 
     // 출퇴근 수정 요청 (일반 사용자)

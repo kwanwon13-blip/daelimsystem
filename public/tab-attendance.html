@@ -1157,3 +1157,128 @@
 </div>
 
 </div>
+
+<!-- ═════════════════════════════════════════════════════════════ -->
+<!-- 출퇴근 보정 요청 — 직원 신청 / 관리자 승인 -->
+<!-- ═════════════════════════════════════════════════════════════ -->
+<style>
+  .att-fix-card{margin:10px 0;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px 14px;}
+  .att-fix-card-title{display:flex;align-items:center;justify-content:space-between;font-size:13px;font-weight:700;color:#1f2937;margin-bottom:8px;}
+  .att-fix-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:600;}
+  .att-fix-row{display:grid;grid-template-columns:90px 1fr 1fr 120px 1fr 120px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid #f3f4f6;font-size:12px;}
+  .att-fix-row:last-child{border-bottom:none;}
+  .att-fix-empty{padding:20px;text-align:center;color:#9ca3af;font-size:12px;}
+  .att-fix-actions button{padding:4px 10px;border-radius:5px;font-size:11px;font-weight:600;margin-right:4px;border:none;cursor:pointer;}
+  .att-fix-approve{background:#dcfce7;color:#15803d;}
+  .att-fix-approve:hover{background:#bbf7d0;}
+  .att-fix-reject{background:#fee2e2;color:#991b1b;}
+  .att-fix-reject:hover{background:#fecaca;}
+  .att-fix-status-pending{color:#92400e;}
+  .att-fix-status-approved{color:#15803d;}
+  .att-fix-status-rejected{color:#991b1b;}
+  .att-request-btn{padding:6px 12px;background:#fff;border:1px solid #d1d5db;border-radius:6px;color:#4b5563;font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:4px;}
+  .att-request-btn:hover{background:#f3f4f6;border-color:#4f6ef7;color:#4f6ef7;}
+  .att-fix-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:1500;}
+  .att-fix-modal-bg.visible{display:flex;}
+  .att-fix-modal{background:#fff;border-radius:12px;padding:20px;width:440px;max-width:92vw;box-shadow:0 12px 32px rgba(0,0,0,.2);}
+  .att-fix-modal h3{font-size:15px;font-weight:700;margin-bottom:12px;color:#1f2937;}
+  .att-fix-modal label{display:block;font-size:12px;font-weight:600;color:#374151;margin:8px 0 4px;}
+  .att-fix-modal input,.att-fix-modal textarea{width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;outline:none;}
+  .att-fix-modal input:focus,.att-fix-modal textarea:focus{border-color:#4f6ef7;}
+  .att-fix-modal textarea{resize:vertical;min-height:60px;}
+  .att-fix-modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px;}
+  .att-fix-modal-actions button{padding:8px 14px;border-radius:6px;font-size:12px;font-weight:600;border:none;cursor:pointer;}
+  .att-fix-modal-cancel{background:#f3f4f6;color:#4b5563;}
+  .att-fix-modal-ok{background:linear-gradient(135deg,#4f6ef7,#7c5cff);color:#fff;}
+</style>
+
+<!-- 보정 요청 진입 버튼 (출퇴근 화면 상단에 끼워넣을 수 있도록 모든 사용자에게 노출) -->
+<div x-show="!attendance.loading" style="max-width:1200px;margin:8px auto 0;padding:0 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+  <button class="att-request-btn" @click="openAttFixModal()">
+    <span class="material-symbols-outlined" style="font-size:14px;">edit_calendar</span>
+    출퇴근 보정 신청
+  </button>
+  <span x-show="(attendance.requests || []).filter(r => r.empName === auth.name).length > 0"
+        style="font-size:11px;color:#6b7280;">
+    내 신청 <strong x-text="(attendance.requests || []).filter(r => r.empName === auth.name).length"></strong>건
+    (대기 <strong style="color:#92400e;" x-text="(attendance.requests || []).filter(r => r.empName === auth.name && r.status === 'pending').length"></strong>)
+  </span>
+</div>
+
+<!-- 관리자: 대기 중인 보정 요청 목록 -->
+<template x-if="auth.role === 'admin' || (auth.permissions || []).includes('attendance_all')">
+  <div class="att-fix-card" x-data x-init="loadAttendanceRequests()" style="max-width:1200px;margin:10px auto 0;">
+    <div class="att-fix-card-title">
+      <span>📋 출퇴근 보정 요청 — 관리자 처리</span>
+      <span class="att-fix-badge" x-show="(attendance.requests || []).filter(r => r.status === 'pending').length > 0">
+        대기 <strong x-text="(attendance.requests || []).filter(r => r.status === 'pending').length"></strong>건
+      </span>
+    </div>
+    <template x-if="(attendance.requests || []).length === 0">
+      <div class="att-fix-empty">아직 보정 요청 없음</div>
+    </template>
+    <template x-if="(attendance.requests || []).length > 0">
+      <div>
+        <div class="att-fix-row" style="font-weight:600;color:#6b7280;font-size:11px;border-bottom:2px solid #e5e7eb;padding-bottom:6px;">
+          <span>날짜</span><span>신청자</span><span>출/퇴근 시간</span><span>상태</span><span>사유</span><span>처리</span>
+        </div>
+        <template x-for="r in (attendance.requests || []).slice().sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt))" :key="r.id">
+          <div class="att-fix-row">
+            <span x-text="r.date"></span>
+            <span x-text="r.empName"></span>
+            <span style="font-family:monospace;font-size:11px;">
+              <span x-text="r.requestedInTime || '—'"></span> / <span x-text="r.requestedOutTime || '—'"></span>
+            </span>
+            <span :class="'att-fix-status-' + r.status">
+              <span x-show="r.status === 'pending'">⏳ 대기</span>
+              <span x-show="r.status === 'approved'">✅ 승인됨</span>
+              <span x-show="r.status === 'rejected'">❌ 반려</span>
+            </span>
+            <span style="color:#4b5563;font-size:11px;" x-text="r.reason || '(사유 없음)'"></span>
+            <span class="att-fix-actions">
+              <template x-if="r.status === 'pending'">
+                <span>
+                  <button class="att-fix-approve" @click="handleTimeRequest(r.id, 'approved')">승인</button>
+                  <button class="att-fix-reject" @click="handleTimeRequest(r.id, 'rejected')">반려</button>
+                </span>
+              </template>
+              <template x-if="r.status !== 'pending'">
+                <span style="font-size:10px;color:#9ca3af;" x-text="(r.reviewedBy ? r.reviewedBy + ' / ' : '') + (r.reviewedAt ? r.reviewedAt.slice(0,10) : '')"></span>
+              </template>
+            </span>
+          </div>
+        </template>
+      </div>
+    </template>
+  </div>
+</template>
+
+<!-- 보정 요청 모달 -->
+<div class="att-fix-modal-bg" :class="attendance.fixModal?.open ? 'visible' : ''" @click.self="attendance.fixModal.open = false">
+  <div class="att-fix-modal">
+    <h3>✏️ 출퇴근 보정 신청</h3>
+    <p style="font-size:11px;color:#6b7280;margin-bottom:8px;">실제 출근/퇴근 시간을 입력하면 관리자에게 승인 요청이 전송됩니다.</p>
+
+    <label>날짜</label>
+    <input type="date" x-model="attendance.fixModal.date">
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <div>
+        <label>실제 출근시간</label>
+        <input type="time" x-model="attendance.fixModal.inTime" placeholder="비우면 변경 안 됨">
+      </div>
+      <div>
+        <label>실제 퇴근시간</label>
+        <input type="time" x-model="attendance.fixModal.outTime" placeholder="비우면 변경 안 됨">
+      </div>
+    </div>
+
+    <label>사유</label>
+    <textarea x-model="attendance.fixModal.reason" placeholder="예: 퇴근 태깅 잊음, 외근으로 미타각 등"></textarea>
+
+    <div class="att-fix-modal-actions">
+      <button class="att-fix-modal-cancel" @click="attendance.fixModal.open = false">취소</button>
+      <button class="att-fix-modal-ok" @click="submitAttFix()">신청</button>
+    </div>
+  </div>
+</div>
