@@ -1775,7 +1775,7 @@
       <div class="flex items-center gap-3">
         <!-- 배포 버전 표시 (사장님이 새 코드 적용 여부 한눈에 확인) -->
         <span x-show="buildInfo.commitShort"
-              :title="'배포: ' + buildInfo.commitMsg + ' (' + buildInfo.commitDate + ')&#10;시작: ' + buildInfo.startedAt"
+              title="version"
               style="font-family:monospace;font-size:10px;color:#9ca3af;cursor:help;letter-spacing:0;"
               x-text="'v:' + buildInfo.commitShort"></span>
         <span class="text-xs font-medium px-3 py-1.5 rounded-full" style="background:#f1f3f8;color:#6b7280;" x-text="new Date().toLocaleDateString('ko-KR', {year:'numeric',month:'long',day:'numeric',weekday:'short'})"></span>
@@ -2406,8 +2406,8 @@
             </div>
           </template>
 
-          <!-- 월별 인건비 추이 그래프 (관리자용) -->
-          <template x-if="auth.role === 'admin'">
+          <!-- 월별 인건비 추이 그래프는 홈에서 사용하지 않음 -->
+          <template x-if="false">
             <div class="card" style="padding:16px 18px;">
               <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
                 <div class="flex items-center gap-2">
@@ -7457,11 +7457,6 @@ function app() {
 
         this.homeDashboard.lastLoadedAt = Date.now();
 
-        // 관리자는 월별 인건비 추이 그래프도 함께 로드
-        if (isAdmin) {
-          // Chart.js 가 로드될 때까지 잠깐 대기 후 호출
-          this.$nextTick(() => { try { this.loadCostTrend(); } catch(e) { console.warn('[costTrend] load 실패:', e); } });
-        }
       } catch (e) {
         console.warn('[home] loadHomeDashboard 실패:', e);
       } finally {
