@@ -250,6 +250,21 @@ function artifactPayload(a) {
   };
 }
 
+function replaceArtifactReferences(text, artifact) {
+  let out = String(text || '');
+  const name = artifact && (artifact.name || artifact.original_name);
+  const url = (artifact && artifact.url) || (artifact && artifact.id ? `/api/ai/artifacts/${artifact.id}/download` : '');
+  if (!name || !url) return out;
+  const esc = String(name).replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+  const link = `[file ${name}](${url})`;
+  try {
+    out = out.replace(new RegExp('`[^`\\r\\n]*' + esc + '[^`\\r\\n]*`', 'g'), link);
+    out = out.replace(new RegExp('(?:[A-Za-z]:[\\\\/][^\\r\\n`<>"]*' + esc + '|/[^\\r\\n`<>"]*' + esc + ')', 'g'), link);
+    out = out.replace(new RegExp('(?:파일|file)\\s*[:：]\\s*' + esc, 'gi'), '파일: ' + link);
+  } catch (_) {}
+  return out;
+}
+
 function isInside(parent, target) {
   const rel = path.relative(path.resolve(parent), path.resolve(target));
   return rel && !rel.startsWith('..') && !path.isAbsolute(rel);
@@ -1784,10 +1799,26 @@ router.post('/chat-stream', async (req, res) => {
 
     // 완료 — DB 에 저장
     const durationMs = Date.now() - startedAt;
+    let finalText = accumulated;
+    let artifacts = [];
     const aiMsg = ai.threads.addMessage(thread.id, {
-      role: 'ai', kind: 'chat', content: accumulated, status: 'ok',
+      role: 'ai', kind: 'chat', content: finalText, status: 'ok',
       durationMs, metadata: { backend: 'api', usage, model: modelToUse, turnCount: 1, stream: true }
     });
+    try {
+      artifacts = recoverArtifactsFromText(accumulated, {
+        ownerId: req.user.userId,
+        threadId: thread.id,
+        messageId: aiMsg.id,
+        sinceMs: startedAt,
+      });
+      for (const a of artifacts) finalText = replaceArtifactReferences(finalText, a);
+      if (finalText !== accumulated) {
+        ai.db.prepare('UPDATE ai_messages SET content=? WHERE id=?').run(finalText, aiMsg.id);
+      }
+    } catch (e) {
+      console.warn('[chat-stream] artifact recover failed:', e.message);
+    }
     ai.threads.autoTitleIfEmpty(thread.id);
     try {
       ai.apiUsage.log({
@@ -1799,9 +1830,10 @@ router.post('/chat-stream', async (req, res) => {
     write('done', {
       threadId: thread.id,
       messageId: aiMsg.id,
-      text: accumulated,
+      text: finalText,
       durationMs,
       usage,
+      artifacts,
     });
     responseFinished = true;
     res.end();
@@ -1968,8 +2000,9 @@ router.post('/chat-stream-cli', async (req, res) => {
           mime: artifactMimeFromName(h.originalName), size: h.size,
           kind: artifactKindFromName(h.originalName),
         });
-        artifacts.push(artifactPayload(art));
-        finalText = replaceFn(finalText, h.originalName, '/api/ai/artifacts/' + art.id + '/download');
+        const payload = artifactPayload(art);
+        artifacts.push(payload);
+        finalText = replaceArtifactReferences(finalText, payload);
       } catch(e) { console.warn('[chat-stream-cli] artifact 등록 실패:', e.message); }
     }
     try {
@@ -1979,7 +2012,7 @@ router.post('/chat-stream-cli', async (req, res) => {
       for (const a of extra) {
         if (artifacts.find(x => x.id === a.id)) continue;
         artifacts.push(a);
-        finalText = replaceFn(finalText, a.name, a.url || ('/api/ai/artifacts/' + a.id + '/download'));
+        finalText = replaceArtifactReferences(finalText, a);
       }
     } catch(e) {}
     if (finalText !== (result.text || accumulated)) {
