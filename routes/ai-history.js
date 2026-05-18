@@ -114,6 +114,16 @@ function mimeFromName(name) {
   }[ext] || '';
 }
 
+function contentDispositionHeader(type, filename) {
+  const safeType = type === 'inline' ? 'inline' : 'attachment';
+  const rawName = String(filename || 'download.bin');
+  const fallback = rawName
+    .replace(/[\\/\r\n"]/g, '_')
+    .replace(/[^\x20-\x7E]/g, '_')
+    .slice(0, 160) || 'download.bin';
+  return `${safeType}; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(rawName)}`;
+}
+
 const ARTIFACT_EXTS = [
   '.xlsx', '.xlsm', '.csv', '.pdf', '.svg', '.html', '.htm',
   '.md', '.txt', '.json', '.png', '.jpg', '.jpeg', '.webp',
@@ -267,6 +277,7 @@ function findRecentRootArtifacts(sinceMs) {
     appRoot,
     path.join(appRoot, 'outputs'),
     ai.OUTPUT_DIR,
+    ai.UPLOAD_DIR,
   ];
   const found = [];
   try {
@@ -344,6 +355,7 @@ function registerExistingArtifact(filePath, { ownerId, threadId, messageId = nul
   const allowedRoots = [
     path.join(appRoot, 'outputs'),
     ai.OUTPUT_DIR,
+    ai.UPLOAD_DIR,  // CLI 가 업로드 폴더에 결과를 만들 수도 있음 → 등록 허용
   ].map(p => path.resolve(p));
   const stat = fs.statSync(resolved);
   if (!stat.isFile()) return null;
@@ -1960,15 +1972,19 @@ router.post('/chat-stream-cli', async (req, res) => {
         finalText = replaceFn(finalText, h.originalName, '/api/ai/artifacts/' + art.id + '/download');
       } catch(e) { console.warn('[chat-stream-cli] artifact 등록 실패:', e.message); }
     }
-    if (finalText !== (result.text || accumulated)) {
-      try { ai.db.prepare('UPDATE ai_messages SET content=? WHERE id=?').run(finalText, aiMsg.id); } catch(_) {}
-    }
     try {
       const extra = recoverArtifactsFromText(result.text || accumulated, {
         ownerId: req.user.userId, threadId: thread.id, messageId: aiMsg.id, sinceMs: cliStartMs,
       });
-      for (const a of extra) if (!artifacts.find(x => x.id === a.id)) artifacts.push(a);
+      for (const a of extra) {
+        if (artifacts.find(x => x.id === a.id)) continue;
+        artifacts.push(a);
+        finalText = replaceFn(finalText, a.name, a.url || ('/api/ai/artifacts/' + a.id + '/download'));
+      }
     } catch(e) {}
+    if (finalText !== (result.text || accumulated)) {
+      try { ai.db.prepare('UPDATE ai_messages SET content=? WHERE id=?').run(finalText, aiMsg.id); } catch(_) {}
+    }
 
     write('done', { threadId: thread.id, messageId: aiMsg.id, text: finalText, durationMs, artifacts });
   } catch (e) {
@@ -1996,13 +2012,15 @@ router.get('/artifacts/:id/download', (req, res) => {
     if (req.query.inline === '1') {
       const mime = a.mime || mimeFromName(a.original_name) || 'application/octet-stream';
       res.setHeader('Content-Type', mime);
-      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(a.original_name)}"`);
+      res.setHeader('Content-Disposition', contentDispositionHeader('inline', a.original_name));
       if (a.kind === 'svg') {
         return res.send(stripArtifactFence(fs.readFileSync(filePath, 'utf8')));
       }
       return res.sendFile(filePath);
     }
-    res.download(filePath, a.original_name);
+    res.setHeader('Content-Type', a.mime || mimeFromName(a.original_name) || 'application/octet-stream');
+    res.setHeader('Content-Disposition', contentDispositionHeader('attachment', a.original_name));
+    return res.sendFile(filePath);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

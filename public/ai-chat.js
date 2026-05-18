@@ -12,6 +12,7 @@ const SAVED_MODEL = (_saved && MODELS.find(m => m.id === _saved)) ? _saved : DEF
 const state = {
   threads: [], filteredThreads: [], activeThreadId: null, searchQuery: '',
   messages: [], streaming: false, attachments: [],
+  streamingByThread: new Set(),
   imageMode: false, usage: null,
   modelId: SAVED_MODEL,
   apiKeyAvailable: null,
@@ -349,7 +350,8 @@ function attachKindIcon(kind) {
 }
 function updateLastAIContent(text, isStreaming, ownerThreadId) {
   // ownerThreadId 가 주어졌고 현재 보고 있는 스레드와 다르면 화면 갱신 안 함 (백그라운드)
-  if (ownerThreadId !== undefined && String(ownerThreadId) !== String(state.activeThreadId)) return;
+  const isNewThreadView = ownerThreadId === 'new' && state.activeThreadId == null;
+  if (ownerThreadId !== undefined && !isNewThreadView && String(ownerThreadId) !== String(state.activeThreadId)) return;
   const last = messagesEl.lastElementChild;
   if (!last || !last.classList.contains('msg-ai')) return;
   const c = last.querySelector('.msg-content');
@@ -632,7 +634,10 @@ async function sendMessage() {
   if (state.imageMode && !text) { alert('이미지 설명을 입력해주세요.'); return; }
   if (state.streaming) return;
 
+  const ownerThreadId = state.activeThreadId ? String(state.activeThreadId) : 'new';
   state.abortController = new AbortController(); setStreaming(true);
+  state.streamingByThread.add(ownerThreadId);
+  renderThreadList();
   updateSendBtn();
   input.disabled = true;
 
@@ -691,7 +696,10 @@ async function sendMessage() {
       if (messagesEl.lastElementChild && messagesEl.lastElementChild.classList && messagesEl.lastElementChild.classList.contains("msg-ai")) messagesEl.removeChild(messagesEl.lastElementChild);
       appendMessage(aiMsg);
     } finally {
+      state.streamingByThread.delete(ownerThreadId);
+      state.streamingByThread.delete('new');
       setStreaming(false); input.disabled = false; autoResize(); input.focus();
+      renderThreadList();
     }
     return;
   }
@@ -774,8 +782,10 @@ async function sendMessage() {
     aiMsg.content = '**오류:** ' + e.message;
     updateLastAIContent(aiMsg.content, false, ownerThreadId);
   } finally {
-    state.streamingByThread.delete(ownerThreadId);
-    state.streamingByThread.delete('new');
+    if (state.streamingByThread) {
+      state.streamingByThread.delete(ownerThreadId);
+      state.streamingByThread.delete('new');
+    }
     setStreaming(false);
     input.disabled = false;
     autoResize();
