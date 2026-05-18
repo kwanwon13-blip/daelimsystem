@@ -1895,27 +1895,81 @@ router.post('/chat-stream-cli', async (req, res) => {
 
   try {
     const { callClaudeCliStream } = require('../lib/claude-cli');
+    const cliStartMs = Date.now();
+    const harvested = [];
+    const harvestFiles = (tmpDir) => {
+      try {
+        if (!fs.existsSync(tmpDir)) return harvested;
+        const ALLOWED = ['.xlsx','.xls','.xlsm','.csv','.pdf','.docx','.doc','.png','.jpg','.jpeg','.gif','.webp','.svg','.html','.htm','.md','.txt','.json'];
+        const walk = (d) => {
+          for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+            const full = path.join(d, e.name);
+            if (e.isDirectory()) { walk(full); continue; }
+            const ext = path.extname(e.name).toLowerCase();
+            if (!ALLOWED.includes(ext)) continue;
+            try {
+              const stat = fs.statSync(full);
+              if (stat.size > 100 * 1024 * 1024) continue;
+              if (stat.mtimeMs < cliStartMs - 2000) continue;
+              const storedName = Date.now() + '_' + crypto.randomBytes(4).toString('hex') + ext;
+              const destPath = path.join(ai.OUTPUT_DIR, storedName);
+              fs.copyFileSync(full, destPath);
+              harvested.push({ originalName: e.name, storedName, size: stat.size });
+            } catch(e2) {}
+          }
+        };
+        walk(tmpDir);
+      } catch(e) { console.warn('[harvest]', e.message); }
+      return harvested;
+    };
     streamPromise = callClaudeCliStream(fullPrompt, attachmentPaths, (chunk) => {
       accumulated += chunk;
       write('delta', { text: chunk });
-    }, { model: model || undefined });
+    }, { model: model || undefined, harvestFiles });
     const result = await streamPromise;
     const durationMs = result.durationMs || (Date.now() - startedAt);
 
-    // 응답 텍스트에서 artifact 추출 (엑셀/PDF/SVG/이미지 등)
+    let finalText = result.text || accumulated;
+    const replaceFn = (text, name, url) => {
+      try {
+        const esc = name.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const re1 = new RegExp('(?:[A-Za-z]:[\\\\/][^\\s`<>"]*' + esc + '|/[^\\s`<>"]*' + esc + ')', 'g');
+        text = text.replace(re1, '[📥 ' + name + '](' + url + ')');
+        text = text.replace(new RegExp('`[^`]*' + esc + '[^`]*`', 'g'), '[📥 ' + name + '](' + url + ')');
+      } catch(_) {}
+      return text;
+    };
+
     const aiMsg = ai.threads.addMessage(thread.id, {
-      role: 'ai', kind: 'chat', content: result.text || accumulated, status: 'ok',
+      role: 'ai', kind: 'chat', content: finalText, status: 'ok',
       durationMs, metadata: { backend: 'cli', model: model || null, turnCount: 1, stream: true }
     });
     ai.threads.autoTitleIfEmpty(thread.id);
-    let artifacts = [];
-    try {
-      artifacts = recoverArtifactsFromText(result.text || accumulated, {
-        ownerId: req.user.userId, threadId: thread.id, messageId: aiMsg.id,
-      });
-    } catch(e) { console.warn('[chat-stream-cli] artifact recover 실패:', e.message); }
 
-    write('done', { threadId: thread.id, messageId: aiMsg.id, text: result.text || accumulated, durationMs, artifacts });
+    let artifacts = [];
+    for (const h of (result.harvested || harvested)) {
+      try {
+        const art = ai.artifacts.create({
+          ownerId: req.user.userId, threadId: thread.id, messageId: aiMsg.id,
+          originalName: h.originalName, storedName: h.storedName,
+          mime: artifactMimeFromName(h.originalName), size: h.size,
+          kind: artifactKindFromName(h.originalName),
+        });
+        artifacts.push(artifactPayload(art));
+        finalText = replaceFn(finalText, h.originalName, '/api/ai/artifacts/' + art.id + '/download');
+      } catch(e) { console.warn('[chat-stream-cli] artifact 등록 실패:', e.message); }
+    }
+    if (finalText !== (result.text || accumulated)) {
+      try { ai.db.prepare('UPDATE ai_messages SET content=? WHERE id=?').run(finalText, aiMsg.id); } catch(_) {}
+    }
+    try {
+      const extra = recoverArtifactsFromText(result.text || accumulated, {
+        ownerId: req.user.userId, threadId: thread.id, messageId: aiMsg.id, sinceMs: cliStartMs,
+      });
+      for (const a of extra) if (!artifacts.find(x => x.id === a.id)) artifacts.push(a);
+    } catch(e) {}
+
+    write('done', { threadId: thread.id, messageId: aiMsg.id, text: finalText, durationMs, artifacts });
   } catch (e) {
     if (aborted) write('error', { error: '사용자가 중단했어요' });
     else write('error', { error: e.message });
