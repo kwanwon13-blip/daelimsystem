@@ -494,36 +494,87 @@ function renderExcelPreview(sheets) {
     previewBody.innerHTML = '<div class="preview-loading">시트 없음</div>';
     return;
   }
-  let html = '';
-  if (sheets.length > 1) {
-    html += '<div class="preview-sheets-tabs">' + sheets.map((s, i) => '<button class="preview-sheet-tab' + (i === 0 ? ' active' : '') + '" data-sheet-idx="' + i + '">' + escapeHtml(s.name || ('Sheet ' + (i+1))) + '</button>').join('') + '</div>';
-  }
-  html += '<div id="previewSheetWrap">' + renderSheetTable(sheets[0]) + '</div>';
-  previewBody.innerHTML = html;
-  if (sheets.length > 1) {
-    previewBody.querySelectorAll('.preview-sheet-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        const idx = parseInt(tab.dataset.sheetIdx);
-        previewBody.querySelectorAll('.preview-sheet-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        document.getElementById('previewSheetWrap').innerHTML = renderSheetTable(sheets[idx]);
-      });
+  const tabs = sheets.map((s, i) =>
+    '<button class="preview-sheet-tab' + (i === 0 ? ' active' : '') + '" data-sheet-idx="' + i + '">' +
+    escapeHtml(s.name || ('Sheet ' + (i + 1))) +
+    '</button>'
+  ).join('');
+  previewBody.innerHTML =
+    '<div class="excel-preview">' +
+      '<div class="excel-toolbar">' +
+        '<span class="excel-tool-chip">XLSX</span>' +
+        '<div class="excel-namebox" id="excelNameBox">A1</div>' +
+        '<div class="excel-fx">fx</div>' +
+        '<div class="excel-formula" id="excelFormulaBar"></div>' +
+      '</div>' +
+      '<div class="excel-grid-wrap" id="previewSheetWrap">' + renderSheetTable(sheets[0]) + '</div>' +
+      '<div class="excel-sheet-tabs">' + tabs + '<span class="excel-status" id="excelStatus"></span></div>' +
+    '</div>';
+  updateExcelStatus(sheets[0]);
+  bindExcelGridSelection();
+  previewBody.querySelectorAll('.preview-sheet-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const idx = parseInt(tab.dataset.sheetIdx, 10);
+      previewBody.querySelectorAll('.preview-sheet-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('previewSheetWrap').innerHTML = renderSheetTable(sheets[idx]);
+      updateExcelStatus(sheets[idx]);
+      bindExcelGridSelection();
     });
+  });
+}
+function excelColName(index) {
+  let name = '';
+  let n = index;
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    name = String.fromCharCode(65 + rem) + name;
+    n = Math.floor((n - 1) / 26);
   }
+  return name || 'A';
 }
 function renderSheetTable(sheet) {
   const rows = sheet.rows || [];
   if (rows.length === 0) return '<div class="preview-loading">빈 시트</div>';
-  let html = '<div style="overflow:auto;max-height:calc(100vh - 120px);"><table class="preview-sheet-table">';
+  const colCount = Math.max(8, ...rows.map(row => Array.isArray(row) ? row.length : 0));
+  let html = '<table class="excel-sheet-table"><thead><tr><th class="excel-corner"></th>';
+  for (let c = 1; c <= colCount; c++) {
+    html += '<th class="excel-col-head">' + excelColName(c) + '</th>';
+  }
+  html += '</tr></thead><tbody>';
   for (let r = 0; r < rows.length; r++) {
     const row = rows[r] || [];
-    const Tag = r === 0 ? 'th' : 'td';
-    html += '<tr>';
-    for (const cell of row) html += '<' + Tag + '>' + escapeHtml(cell == null ? '' : String(cell)) + '</' + Tag + '>';
+    html += '<tr><th class="excel-row-head">' + (r + 1) + '</th>';
+    for (let c = 0; c < colCount; c++) {
+      const value = row[c] == null ? '' : String(row[c]);
+      const address = excelColName(c + 1) + (r + 1);
+      html += '<td class="excel-cell" data-address="' + address + '" title="' + escapeHtml(value) + '">' + escapeHtml(value) + '</td>';
+    }
     html += '</tr>';
   }
-  html += '</table></div>';
+  html += '</tbody></table>';
   return html;
+}
+function updateExcelStatus(sheet) {
+  const status = document.getElementById('excelStatus');
+  if (!status) return;
+  const rows = sheet && Array.isArray(sheet.rows) ? sheet.rows : [];
+  const colCount = Math.max(0, ...rows.map(row => Array.isArray(row) ? row.length : 0));
+  status.textContent = rows.length + 'R x ' + colCount + 'C';
+}
+function bindExcelGridSelection() {
+  const cells = previewBody.querySelectorAll('.excel-cell');
+  const nameBox = document.getElementById('excelNameBox');
+  const formulaBar = document.getElementById('excelFormulaBar');
+  const selectCell = (cell) => {
+    if (!cell) return;
+    cells.forEach(c => c.classList.remove('selected'));
+    cell.classList.add('selected');
+    if (nameBox) nameBox.textContent = cell.dataset.address || '';
+    if (formulaBar) formulaBar.textContent = cell.textContent || '';
+  };
+  cells.forEach(cell => cell.addEventListener('click', () => selectCell(cell)));
+  selectCell(Array.from(cells).find(cell => (cell.textContent || '').trim()) || cells[0]);
 }
 
 // 첨부
