@@ -274,7 +274,7 @@ function extractArtifactPaths(text) {
   const out = new Set();
   const raw = String(text || '');
   const extGroup = ARTIFACT_EXTS.map(e => e.slice(1).replace('.', '\\.')).join('|');
-  const winPathRe = new RegExp(`([A-Za-z]:[\\\\/][^\\r\\n<>"|?*\\\`]+?\\.(${extGroup}))(?=$|[\\s\\])}>.,;])`, 'gi');
+  const winPathRe = new RegExp(`([A-Za-z]:[\\\\/][^\\r\\n<>"|?*\\\`]+?\\.(${extGroup}))(?=$|[\\s\\\`\\])}>.,;])`, 'gi');
   for (const m of raw.matchAll(winPathRe)) out.add(String(m[1] || m[0]).trim().replace(/[),.]+$/g, ''));
 
   const nameRe = new RegExp(`(?:파일명|file name|filename)\\s*[:：]\\s*[\\\`"']?([^\\\`"'\\r\\n]+?\\.(${extGroup}))\\b`, 'gi');
