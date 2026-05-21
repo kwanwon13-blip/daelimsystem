@@ -26,8 +26,10 @@ const attachmentsRowEl = $('attachmentsRow'), attachBtn = $('attachBtn'), fileIn
 const dropOverlay = $('dropOverlay'), imageModeBtn = $('imageModeBtn'), composerHint = $('composerHint');
 const usagePill = $('usagePill'), usageLabel = $('usageLabel');
 const modelBtn = $('modelBtn'), modelMenu = $('modelMenu'), modelLabel = $('modelLabel');
+const appEl = $('app');
 const previewModalBg = $('previewModalBg'), previewBody = $('previewBody');
 const previewTitle = $('previewTitle'), previewClose = $('previewClose'), previewDownload = $('previewDownload');
+const previewResizer = $('previewResizer');
 
 // 마크다운
 if (window.marked) {
@@ -394,18 +396,43 @@ messagesEl.addEventListener('click', (e) => {
   if (!btn) return;
   openPreview(btn.dataset.previewId, btn.dataset.previewKind, btn.dataset.previewName);
 });
-previewClose.addEventListener('click', () => previewModalBg.classList.remove('visible'));
-previewModalBg.addEventListener('click', (e) => {
-  if (e.target === previewModalBg) previewModalBg.classList.remove('visible');
-});
+const savedPreviewWidth = parseInt(localStorage.getItem('ai_preview_width') || '', 10);
+if (savedPreviewWidth) document.documentElement.style.setProperty('--preview-width', savedPreviewWidth + 'px');
+function closePreview() {
+  previewModalBg.classList.remove('visible');
+  if (appEl) appEl.classList.remove('preview-open');
+}
+previewClose.addEventListener('click', closePreview);
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') previewModalBg.classList.remove('visible');
+  if (e.key === 'Escape') closePreview();
 });
+if (previewResizer) {
+  previewResizer.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    previewResizer.setPointerCapture(e.pointerId);
+    const startX = e.clientX;
+    const startWidth = previewModalBg.getBoundingClientRect().width || 560;
+    const onMove = (ev) => {
+      const max = Math.max(420, Math.min(window.innerWidth - 360, 1040));
+      const next = Math.max(360, Math.min(max, startWidth + startX - ev.clientX));
+      document.documentElement.style.setProperty('--preview-width', next + 'px');
+      localStorage.setItem('ai_preview_width', String(Math.round(next)));
+    };
+    const onUp = (ev) => {
+      previewResizer.releasePointerCapture(ev.pointerId);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  });
+}
 async function openPreview(id, kind, name) {
   previewTitle.textContent = name || '미리보기';
   previewBody.innerHTML = '<div class="preview-loading">불러오는 중…</div>';
   previewDownload.href = '/api/ai/artifacts/' + id + '/download';
   previewModalBg.classList.add('visible');
+  if (appEl) appEl.classList.add('preview-open');
   const inlineUrl = '/api/ai/artifacts/' + id + '/download?inline=1';
   if (kind === 'image' || /^image\//.test(kind || '')) {
     previewBody.innerHTML = '<img src="' + inlineUrl + '" alt="">';
@@ -457,7 +484,7 @@ function renderSandboxedHtml(content, isSvg) {
   }
   // srcdoc 으로 iframe 안에 직접 삽입 (URL 안 거침)
   previewBody.innerHTML =
-    '<div style="background:#fff;border-radius:8px;overflow:hidden;height:78vh;">' +
+    '<div style="background:#fff;border-radius:8px;overflow:hidden;height:100%;min-height:520px;">' +
     '<iframe sandbox="allow-scripts" srcdoc="' + html.replace(/"/g, '&quot;') + '" style="width:100%;height:100%;border:none;"></iframe>' +
     '</div>' +
     '<div style="font-size:11px;color:#9ca3af;margin-top:6px;text-align:center;">⚠ 격리 실행 — 이 미리보기는 ERP 데이터에 접근할 수 없어요</div>';
@@ -487,7 +514,7 @@ function renderExcelPreview(sheets) {
 function renderSheetTable(sheet) {
   const rows = sheet.rows || [];
   if (rows.length === 0) return '<div class="preview-loading">빈 시트</div>';
-  let html = '<div style="overflow:auto;max-height:70vh;"><table class="preview-sheet-table">';
+  let html = '<div style="overflow:auto;max-height:calc(100vh - 120px);"><table class="preview-sheet-table">';
   for (let r = 0; r < rows.length; r++) {
     const row = rows[r] || [];
     const Tag = r === 0 ? 'th' : 'td';
