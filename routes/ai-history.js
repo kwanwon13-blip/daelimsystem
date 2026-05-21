@@ -476,11 +476,11 @@ function collapseInlineSvgText(text) {
 
 function recoverArtifactsFromText(text, { ownerId, threadId, messageId = null, sinceMs = null }) {
   const existing = messageId ? ai.artifacts.listByMessage(messageId).map(artifactPayload) : [];
-  if (existing.length) return existing;
 
   const paths = new Set(extractArtifactPaths(text));
 
-  const created = [];
+  const created = [...existing];
+  const seenIds = new Set(existing.map(a => String(a.id)));
   for (const fp of paths) {
     try {
       const art = registerExistingArtifact(fp, {
@@ -490,7 +490,10 @@ function recoverArtifactsFromText(text, { ownerId, threadId, messageId = null, s
         sinceMs,
         allowMentionedRecentOutsideRoots: true,
       });
-      if (art) created.push(artifactPayload(art));
+      if (art && !seenIds.has(String(art.id))) {
+        seenIds.add(String(art.id));
+        created.push(artifactPayload(art));
+      }
     } catch (e) {
       console.warn('[ai/artifact-recover] failed:', fp, e.message);
     }
@@ -507,7 +510,10 @@ function recoverArtifactsFromText(text, { ownerId, threadId, messageId = null, s
         mime: 'image/svg+xml; charset=utf-8',
         kind: 'svg',
       });
-      if (art) created.push(artifactPayload(art));
+      if (art && !seenIds.has(String(art.id))) {
+        seenIds.add(String(art.id));
+        created.push(artifactPayload(art));
+      }
     } catch (e) {
       console.warn('[ai/artifact-recover] inline svg failed:', e.message);
     }
