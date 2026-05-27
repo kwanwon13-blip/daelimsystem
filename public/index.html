@@ -3386,6 +3386,7 @@
           q:'',results:[],total:0,loading:false,loadingMore:false,searched:false,
           indexStatus:{built:false,building:false,count:0,error:null},
           searchTimer:null, thumbSize:160, pollTimer:null, yearFilter:'',
+          designMasters:null, mastersLoading:false, brandFilter:'', vendorFilter:'',
           isInternal:false,
           currentPage:1, pageSize:40, hasMore:false,
           typeFilter:['image'], // 기본은 이미지 — '전체' 버튼으로 전부 보기 가능
@@ -3455,6 +3456,20 @@
             {id:'word',label:'Word',icon:'article',color:'#2563eb'}
           ],
           preview:{open:false,index:-1},
+          brandOptions(){return (this.designMasters&&Array.isArray(this.designMasters.brands))?this.designMasters.brands:[];},
+          vendorOptions(){return (this.designMasters&&Array.isArray(this.designMasters.vendors))?this.designMasters.vendors:[];},
+          async loadDesignMasters(force){
+            if(this.mastersLoading)return;
+            this.mastersLoading=true;
+            try{
+              var r=await fetch('/api/product-design/masters'+(force?'?refresh=1':''),{credentials:'include'}).then(function(res){return res.json();});
+              if(r&&r.ok)this.designMasters=r.masters||{};
+            }catch(e){
+              console.warn('[design] master load failed',e);
+            }finally{
+              this.mastersLoading=false;
+            }
+          },
           async init(){
             var s=await fetch('/api/design/status').then(function(r){return r.json();}).catch(function(){return {};});
             s.count=s.count||0; s.built=!!s.built; s.building=!!s.building; s.error=s.error||null;
@@ -3462,6 +3477,7 @@
             if(s.building){var self=this;this.pollTimer=setInterval(function(){self.init();},3000);}
             var info=await fetch('/api/session/info').then(function(r){return r.json();}).catch(function(){return {};});
             this.isInternal=!!info.isInternal;
+            this.loadDesignMasters(false);
             // 파일종류별 개수 미리 가져오기 (빈 검색 허용)
             try{
               var c=await fetch('/api/design/search?q=__countonly__').then(function(r){return r.json();});
@@ -3492,13 +3508,18 @@
             if(this.searched)this.doSearch();
           },
           buildUrl(page){
-            var url='/api/design/search?q='+encodeURIComponent(this.q)+'&pageSize='+this.pageSize+'&page='+page;
-            if(this.yearFilter)url+='&year='+this.yearFilter;
-            if(this.typeFilter.length>0)url+='&types='+encodeURIComponent(this.typeFilter.join(','));
-            return url;
+            var params=new URLSearchParams();
+            if(this.q.trim())params.set('q',this.q.trim());
+            params.set('pageSize',this.pageSize);
+            params.set('page',page);
+            if(this.yearFilter)params.set('year',this.yearFilter);
+            if(this.typeFilter.length>0)params.set('types',this.typeFilter.join(','));
+            if(this.brandFilter)params.set('brand',this.brandFilter);
+            if(this.vendorFilter)params.set('vendor',this.vendorFilter);
+            return '/api/design/search?'+params.toString();
           },
           async doSearch(){
-            if(!this.q.trim()){this.results=[];this.searched=false;this.hasMore=false;return;}
+            if(!this.q.trim()&&!this.brandFilter&&!this.vendorFilter){this.results=[];this.searched=false;this.hasMore=false;return;}
             this.loading=true;this.searched=true;this.currentPage=1;
             try{
               var r=await fetch(this.buildUrl(1)).then(function(r){return r.json();});
@@ -3638,6 +3659,36 @@
                 <option value="2021">2021</option>
                 <option value="2020">2020</option>
               </select>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px;">
+              <select x-model="brandFilter" @change="doSearch()"
+                class="rounded-xl text-sm border border-gray-200 focus:outline-none focus:border-blue-400"
+                style="padding:9px 10px;background:#f8fafc;min-width:160px;cursor:pointer;">
+                <option value="">전체 회사</option>
+                <template x-for="b in brandOptions()" :key="'design-brand-'+b.name">
+                  <option :value="b.name" x-text="b.name + ' (' + b.count + ')'"></option>
+                </template>
+              </select>
+              <select x-model="vendorFilter" @change="doSearch()"
+                class="rounded-xl text-sm border border-gray-200 focus:outline-none focus:border-blue-400"
+                style="padding:9px 10px;background:#f8fafc;min-width:160px;cursor:pointer;">
+                <option value="">전체 발주처</option>
+                <template x-for="v in vendorOptions()" :key="'design-vendor-'+v.name">
+                  <option :value="v.name" x-text="v.name + ' (' + v.count + ')'"></option>
+                </template>
+              </select>
+              <button type="button" @click="brandFilter='';vendorFilter='';doSearch()"
+                x-show="brandFilter || vendorFilter"
+                class="text-[11px] px-3 py-2 rounded-lg"
+                style="background:#fff;border:1px solid #e5e7eb;color:#64748b;">
+                필터 해제
+              </button>
+              <button type="button" @click="loadDesignMasters(true)"
+                x-show="!designMasters || !brandOptions().length"
+                class="text-[11px] px-3 py-2 rounded-lg"
+                style="background:#eef2ff;border:1px solid #c7d2fe;color:#4f46e5;">
+                회사목록 새로고침
+              </button>
             </div>
             <!-- 파일종류 필터 칩 -->
             <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center;">

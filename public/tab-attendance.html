@@ -202,7 +202,7 @@
           <button @click="attendance.viewMode='summary'"
             class="px-3 text-[10px] font-semibold transition-colors"
             :style="attendance.viewMode==='summary'?'background:#4f6ef7;color:#fff':'background:#fff;color:#6b7280'">요약</button>
-          <button @click="attendance.viewMode='calendar'"
+          <button @click="attendance.viewMode='calendar';attendance.yearView=false;if(!attendance.calDate)attCalToday();if(!attendance.summary.length)loadAttendanceSummary()"
             class="px-3 text-[10px] font-semibold transition-colors border-l border-gray-200 flex items-center gap-1"
             :style="attendance.viewMode==='calendar'?'background:#4f6ef7;color:#fff':'background:#fff;color:#6b7280'">
             <span class="material-symbols-outlined" style="font-size:12px;">calendar_month</span>달력
@@ -754,7 +754,7 @@
 
   <!-- ===== 달력 뷰 ===== -->
   <!-- 캘린더 뷰 — 일/주/월 sub-toggle -->
-  <template x-if="!attendance.loading && attendance.viewMode==='calendar' && attendance.summary.length > 0">
+  <template x-if="!attendance.loading && attendance.viewMode==='calendar'">
     <div class="fade-in">
 
     <!-- ===== 일/주/월 sub-toggle + 이동 헤더 ===== -->
