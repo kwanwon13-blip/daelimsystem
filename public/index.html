@@ -6928,9 +6928,12 @@ function app() {
       bridgeOk: false, bridgeConnected: false, bridgeError: '',
       loading: false,
       _cache: {},  // 브라우저 메모리 캐시: { 'YYYY-MM_empId': data }
-      viewMode: 'summary',           // 'summary' | 'grid'
+      viewMode: 'summary',           // 'summary' | 'calendar' | 'multi'
       year: new Date().getFullYear(),
       month: new Date().getMonth() + 1,
+      // 달력 뷰 — 일/주/월 모드 (calendar 뷰모드 안에서)
+      calView: 'month',              // 'day' | 'week' | 'month'
+      calDate: (()=>{ const n=new Date(); return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0'); })(),
       get yearOptions() {
         const y = new Date().getFullYear();
         return [y, y-1, y-2];
@@ -7057,6 +7060,204 @@ function app() {
       }
       while (cells.length % 7 !== 0) cells.push(null);
       return cells;
+    },
+
+    // ── 출퇴근 달력 일/주/월 뷰 ─────────────────────────────
+    setAttCalView(mode) {
+      this.attendance.calView = mode;
+      // 모드 전환 시 기준 동기화
+      if (mode === 'month') {
+        // calDate 가리키는 달로 year/month 정렬
+        const d = this._parseDate(this.attendance.calDate);
+        if (d.getFullYear() !== this.attendance.year || (d.getMonth()+1) !== this.attendance.month) {
+          this.attendance.year = d.getFullYear();
+          this.attendance.month = d.getMonth() + 1;
+          this.loadAttendanceSummary();
+        }
+      } else {
+        // day/week 모드 — calDate가 비어있으면 오늘로
+        if (!this.attendance.calDate) this.attendance.calDate = this._fmtDate(new Date());
+      }
+    },
+    attCalPrev() {
+      const mode = this.attendance.calView;
+      if (mode === 'month') {
+        if (this.attendance.month === 1) {
+          this.attendance.month = 12;
+          this.attendance.year--;
+        } else {
+          this.attendance.month--;
+        }
+        // calDate도 같이 동기화 (해당 월 1일)
+        this.attendance.calDate = this.attendance.year + '-' + String(this.attendance.month).padStart(2,'0') + '-01';
+        this.loadAttendanceSummary();
+      } else {
+        const d = this._parseDate(this.attendance.calDate);
+        d.setDate(d.getDate() + (mode === 'week' ? -7 : -1));
+        this.attendance.calDate = this._fmtDate(d);
+        // 월이 바뀌면 데이터 재로드
+        if (d.getFullYear() !== this.attendance.year || (d.getMonth()+1) !== this.attendance.month) {
+          this.attendance.year = d.getFullYear();
+          this.attendance.month = d.getMonth() + 1;
+          this.loadAttendanceSummary();
+        }
+      }
+    },
+    attCalNext() {
+      const mode = this.attendance.calView;
+      if (mode === 'month') {
+        if (this.attendance.month === 12) {
+          this.attendance.month = 1;
+          this.attendance.year++;
+        } else {
+          this.attendance.month++;
+        }
+        this.attendance.calDate = this.attendance.year + '-' + String(this.attendance.month).padStart(2,'0') + '-01';
+        this.loadAttendanceSummary();
+      } else {
+        const d = this._parseDate(this.attendance.calDate);
+        d.setDate(d.getDate() + (mode === 'week' ? 7 : 1));
+        this.attendance.calDate = this._fmtDate(d);
+        if (d.getFullYear() !== this.attendance.year || (d.getMonth()+1) !== this.attendance.month) {
+          this.attendance.year = d.getFullYear();
+          this.attendance.month = d.getMonth() + 1;
+          this.loadAttendanceSummary();
+        }
+      }
+    },
+    attCalToday() {
+      const now = new Date();
+      this.attendance.calDate = this._fmtDate(now);
+      if (now.getFullYear() !== this.attendance.year || (now.getMonth()+1) !== this.attendance.month) {
+        this.attendance.year = now.getFullYear();
+        this.attendance.month = now.getMonth() + 1;
+        this.loadAttendanceSummary();
+      }
+    },
+    attCalHeader() {
+      const mode = this.attendance.calView;
+      if (mode === 'month') {
+        return this.attendance.year + '년 ' + this.attendance.month + '월';
+      }
+      if (mode === 'week') {
+        const cells = this.attCalWeekCells();
+        if (!cells.length) return '';
+        const s = cells[0], e = cells[6];
+        if (s.month === e.month) return s.month + '월 ' + s.day + '일 ~ ' + e.day + '일';
+        return s.month + '월 ' + s.day + '일 ~ ' + e.month + '월 ' + e.day + '일';
+      }
+      // day
+      if (!this.attendance.calDate) return '';
+      const d = this._parseDate(this.attendance.calDate);
+      const dows = ['일','월','화','수','목','금','토'];
+      return (d.getMonth()+1) + '월 ' + d.getDate() + '일 (' + dows[d.getDay()] + ')';
+    },
+    // 출퇴근 calendar 데이터에서 특정 날짜 records 가져오기 (필터 적용 후)
+    attCalRecordsForDate(dateStr) {
+      const all = this.calendarLeaveData[dateStr] || [];
+      const f = this.attendance.filterDept || '';
+      const empId = this.attendance.filterEmpId || '';
+      // 부서/직원 필터
+      let recs = all.slice();
+      if (f) recs = recs.filter(r => r.dept === f);
+      if (empId) {
+        // employees 배열에서 id→name 매핑
+        const emp = (this.attendance.employees || []).find(e => e.id === empId);
+        if (emp) recs = recs.filter(r => r.name === emp.name);
+      }
+      return recs;
+    },
+    // 주 뷰 cells (일~토 7개)
+    attCalWeekCells() {
+      const base = this._parseDate(this.attendance.calDate || this._fmtDate(new Date()));
+      const sunday = new Date(base);
+      sunday.setDate(base.getDate() - base.getDay());
+      const today = new Date();
+      const todayStr = this._fmtDate(today);
+      const cells = [];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(sunday);
+        d.setDate(sunday.getDate() + i);
+        const dateStr = this._fmtDate(d);
+        const isHoliday = !!(this.holidays && this.holidays[dateStr]);
+        cells.push({
+          date: dateStr,
+          day: d.getDate(),
+          month: d.getMonth() + 1,
+          dow: d.getDay(),
+          isToday: dateStr === todayStr,
+          isHoliday,
+          holidayName: isHoliday ? this.holidays[dateStr] : null,
+          records: this.attCalRecordsForDate(dateStr)
+        });
+      }
+      return cells;
+    },
+    // 일 뷰 records
+    attCalDayRecords() {
+      const date = this.attendance.calDate;
+      if (!date) return [];
+      return this.attCalRecordsForDate(date);
+    },
+    attCalDayInfo() {
+      if (!this.attendance.calDate) return '';
+      const d = this._parseDate(this.attendance.calDate);
+      const today = new Date();
+      const todayStr = this._fmtDate(today);
+      if (this.attendance.calDate === todayStr) return '오늘';
+      const diff = Math.round((d.getTime() - new Date(todayStr).getTime()) / 86400000);
+      if (diff > 0) return diff + '일 후';
+      return Math.abs(diff) + '일 전';
+    },
+    // 출퇴근 chip 스타일 — 연차/반차
+    attCalChipStyle(item) {
+      const t = item.leaveType;
+      if (t === 'annual') return 'background:#fed7aa;color:#7c2d12;';
+      if (t === 'halfAM' || t === 'halfPM') return 'background:#bbf7d0;color:#14532d;';
+      return 'background:#fde68a;color:#78350f;';
+    },
+    attCalChipLabel(item) {
+      const t = item.leaveType;
+      if (t === 'annual') return '연차';
+      if (t === 'halfAM') return '오전반차';
+      if (t === 'halfPM') return '오후반차';
+      return item.leaveLabel || '휴가';
+    },
+    // 모드별 통계
+    attCalStats() {
+      const stats = { total: 0, annual: 0, half: 0 };
+      let records = [];
+      const mode = this.attendance.calView;
+      if (mode === 'day') {
+        records = this.attCalDayRecords();
+      } else if (mode === 'week') {
+        records = this.attCalWeekCells().flatMap(c => c.records);
+      } else {
+        // month
+        const y = this.attendance.year;
+        const mm = String(this.attendance.month).padStart(2,'0');
+        const data = this.calendarLeaveData;
+        for (const date of Object.keys(data)) {
+          if (date.substring(0,7) !== y + '-' + mm) continue;
+          for (const r of data[date]) {
+            records.push(r);
+          }
+        }
+        // 부서/직원 필터 적용
+        const f = this.attendance.filterDept || '';
+        const empId = this.attendance.filterEmpId || '';
+        if (f) records = records.filter(r => r.dept === f);
+        if (empId) {
+          const emp = (this.attendance.employees || []).find(e => e.id === empId);
+          if (emp) records = records.filter(r => r.name === emp.name);
+        }
+      }
+      for (const r of records) {
+        stats.total++;
+        if (r.leaveType === 'annual') stats.annual++;
+        else if (r.leaveType === 'halfAM' || r.leaveType === 'halfPM') stats.half++;
+      }
+      return stats;
     },
     get computedTotalStats() {
       const list = this.filteredSummary || [];

@@ -44,24 +44,22 @@
       <!-- 회사명 필터 -->
       <div style="display:flex; gap:8px; margin-bottom:8px; align-items:center; flex-wrap:wrap;">
         <span style="font-size:11px; color:#6b7280; font-weight:600;">🏢 회사 필터</span>
-        <select x-model="filterBrand" @change="doSearch()" style="padding:6px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:12px; min-width:120px; background:#fff;">
-          <option value="">전체 건설사</option>
-          <template x-if="masters && masters.brands">
-            <template x-for="b in masters.brands" :key="b.name">
-              <option :value="b.name" x-text="b.name + ' (' + b.count + ')'"></option>
-            </template>
+        <select x-model="filterBrand" @change="doSearch()" style="padding:6px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:12px; min-width:140px; background:#fff;">
+          <option value="" x-text="'전체 건설사' + (masters && masters.brands ? ' ('+masters.brands.length+')' : '')"></option>
+          <template x-for="b in brandOptions()" :key="'b-'+b.name">
+            <option :value="b.name" x-text="b.name + ' (' + b.count + ')'"></option>
           </template>
         </select>
-        <select x-model="filterVendor" @change="doSearch()" style="padding:6px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:12px; min-width:120px; background:#fff;">
+        <select x-model="filterVendor" @change="doSearch()" style="padding:6px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:12px; min-width:140px; background:#fff;">
           <option value="">전체 발주처</option>
-          <template x-if="masters && masters.vendors">
-            <template x-for="v in masters.vendors" :key="v.name">
-              <option :value="v.name" x-text="v.name + ' (' + v.count + ')'"></option>
-            </template>
+          <template x-for="v in vendorOptions()" :key="'v-'+v.name">
+            <option :value="v.name" x-text="v.name + ' (' + v.count + ')'"></option>
           </template>
         </select>
         <button type="button" x-show="filterBrand || filterVendor" @click="filterBrand=''; filterVendor=''; doSearch()"
           style="padding:5px 10px; background:#f3f4f6; border:1px solid #e5e7eb; border-radius:6px; font-size:11px; color:#6b7280; cursor:pointer;">필터 해제</button>
+        <button type="button" x-show="!masters || !(masters.brands && masters.brands.length)" @click="loadMasters(true)"
+          style="padding:5px 10px; background:#fef3c7; border:1px solid #fde68a; border-radius:6px; font-size:11px; color:#92400e; cursor:pointer;" title="회사 목록을 다시 불러옵니다">🔄 회사목록 새로고침</button>
         <span x-show="searchResults.length>0" style="margin-left:auto; font-size:11px; color:#9ca3af;" x-text="searchResults.length + '건'"></span>
       </div>
       <template x-if="searchResults.length > 0">
@@ -184,8 +182,21 @@ function productDesignApp() {
       try {
         const r = await fetch('/api/product-design/masters' + (force ? '?refresh=1' : ''), { credentials: 'include' });
         const j = await r.json();
-        if (j.ok) this.masters = j.masters;
-      } catch(e) { console.error('마스터 로드 실패', e); }
+        if (j.ok) {
+          this.masters = j.masters;
+          console.log('[시안] 마스터 로드 완료:', { brands: (j.masters?.brands||[]).length, vendors: (j.masters?.vendors||[]).length });
+        } else {
+          console.warn('[시안] 마스터 로드 실패:', j);
+        }
+      } catch(e) { console.error('[시안] 마스터 로드 오류:', e); }
+    },
+    brandOptions() {
+      if (!this.masters || !Array.isArray(this.masters.brands)) return [];
+      return this.masters.brands;
+    },
+    vendorOptions() {
+      if (!this.masters || !Array.isArray(this.masters.vendors)) return [];
+      return this.masters.vendors;
     },
 
     async doSearch() {

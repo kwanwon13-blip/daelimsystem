@@ -753,8 +753,107 @@
   </template>
 
   <!-- ===== 달력 뷰 ===== -->
+  <!-- 캘린더 뷰 — 일/주/월 sub-toggle -->
   <template x-if="!attendance.loading && attendance.viewMode==='calendar' && attendance.summary.length > 0">
-    <div class="fade-in" style="overflow-x:auto;">
+    <div class="fade-in">
+
+    <!-- ===== 일/주/월 sub-toggle + 이동 헤더 ===== -->
+    <div style="background:#fff;border:1px solid #e2e6ee;border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;flex-wrap:wrap;align-items:center;gap:10px;">
+      <!-- 일/주/월 -->
+      <div style="display:flex;background:#f3f4f6;border-radius:8px;padding:2px;gap:2px;">
+        <button type="button" @click="setAttCalView('day')"
+          :style="'border:none;cursor:pointer;padding:5px 14px;border-radius:6px;font-size:11px;font-weight:600;'+(attendance.calView==='day'?'background:#4f6ef7;color:#fff;':'background:transparent;color:#6b7280;')">일</button>
+        <button type="button" @click="setAttCalView('week')"
+          :style="'border:none;cursor:pointer;padding:5px 14px;border-radius:6px;font-size:11px;font-weight:600;'+(attendance.calView==='week'?'background:#4f6ef7;color:#fff;':'background:transparent;color:#6b7280;')">주</button>
+        <button type="button" @click="setAttCalView('month')"
+          :style="'border:none;cursor:pointer;padding:5px 14px;border-radius:6px;font-size:11px;font-weight:600;'+(attendance.calView==='month'?'background:#4f6ef7;color:#fff;':'background:transparent;color:#6b7280;')">월</button>
+      </div>
+      <!-- ‹ 헤더 › 오늘 -->
+      <div style="display:flex;align-items:center;gap:4px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:3px 6px;">
+        <button type="button" @click="attCalPrev()" style="background:none;border:none;cursor:pointer;color:#6b7280;font-size:18px;line-height:1;padding:2px 8px;">‹</button>
+        <span style="font-size:12px;font-weight:700;color:#374151;min-width:140px;text-align:center;" x-text="attCalHeader()"></span>
+        <button type="button" @click="attCalNext()" style="background:none;border:none;cursor:pointer;color:#6b7280;font-size:18px;line-height:1;padding:2px 8px;">›</button>
+        <button type="button" @click="attCalToday()" style="background:#f3f4f6;border:1px solid #e5e7eb;border-radius:5px;padding:2px 8px;margin-left:4px;font-size:10px;color:#6b7280;cursor:pointer;">오늘</button>
+      </div>
+      <!-- 통계 -->
+      <div style="margin-left:auto;font-size:11px;color:#6b7280;display:flex;gap:12px;align-items:center;">
+        <span><strong style="color:#374151;font-size:13px;" x-text="attCalStats().total"></strong> 명</span>
+        <span>연차 <strong style="color:#b45309;" x-text="attCalStats().annual"></strong></span>
+        <span>반차 <strong style="color:#16a34a;" x-text="attCalStats().half"></strong></span>
+      </div>
+    </div>
+
+    <!-- ===== 일 뷰 ===== -->
+    <template x-if="attendance.calView==='day'">
+      <div style="background:#fff;border:1px solid #e2e6ee;border-radius:12px;padding:18px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;border-bottom:1px solid #f3f4f6;padding-bottom:12px;">
+          <div>
+            <div style="font-size:18px;font-weight:800;color:#1e293b;" x-text="attCalHeader()"></div>
+            <div style="font-size:11px;color:#9ca3af;margin-top:2px;" x-text="attCalDayInfo()"></div>
+          </div>
+          <div style="font-size:11px;color:#6b7280;">
+            연차/반차 <strong style="color:#4f6ef7;font-size:14px;" x-text="attCalDayRecords().length"></strong>명
+          </div>
+        </div>
+        <template x-if="attCalDayRecords().length===0">
+          <div style="text-align:center;padding:60px 20px;color:#9ca3af;">
+            <div style="font-size:36px;margin-bottom:8px;">📅</div>
+            <div style="font-size:13px;">이 날 연차/반차 쓴 직원이 없습니다</div>
+          </div>
+        </template>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;">
+          <template x-for="(r,ri) in attCalDayRecords()" :key="'d-'+ri">
+            <div :style="'padding:10px 14px;border-radius:8px;border:1px solid transparent;'+attCalChipStyle(r)">
+              <div style="display:flex;align-items:center;justify-content:space-between;">
+                <div style="font-size:13px;font-weight:700;" x-text="r.name"></div>
+                <div style="font-size:10px;font-weight:600;opacity:.85;" x-text="attCalChipLabel(r)"></div>
+              </div>
+              <div style="font-size:10px;opacity:.75;margin-top:3px;" x-text="r.dept||''"></div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </template>
+
+    <!-- ===== 주 뷰 ===== -->
+    <template x-if="attendance.calView==='week'">
+      <div style="background:#fff;border:1px solid #e2e6ee;border-radius:12px;overflow:hidden;">
+        <!-- 요일 헤더 -->
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);background:#f9fafb;border-bottom:1px solid #e2e6ee;">
+          <template x-for="cell in attCalWeekCells()" :key="'wh-'+cell.date">
+            <div :style="'padding:10px 6px;text-align:center;border-right:1px solid #e5e7eb;'+(cell.isToday?'background:#fef3c7;':'')+(cell.isHoliday?'background:#fce7f3;':'')">
+              <div :style="'font-size:10px;font-weight:600;'+(cell.dow===0?'color:#ef4444;':(cell.dow===6?'color:#3b82f6;':'color:#6b7280;'))" x-text="['일','월','화','수','목','금','토'][cell.dow]"></div>
+              <div :style="'font-size:15px;font-weight:700;margin-top:2px;'+(cell.dow===0?'color:#ef4444;':(cell.dow===6?'color:#3b82f6;':'color:#1e293b;'))" x-text="cell.month + '/' + cell.day"></div>
+              <template x-if="cell.holidayName">
+                <div style="font-size:9px;color:#be185d;font-weight:600;margin-top:2px;" x-text="cell.holidayName"></div>
+              </template>
+            </div>
+          </template>
+        </div>
+        <!-- 내용 셀 -->
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);">
+          <template x-for="cell in attCalWeekCells()" :key="'wb-'+cell.date">
+            <div :style="'min-height:280px;border-right:1px solid #f3f4f6;padding:6px 8px;'+(cell.isToday?'background:#fffbeb;':(cell.isHoliday?'background:#fdf2f8;':''))">
+              <template x-if="cell.records.length===0">
+                <div style="color:#d1d5db;font-size:10px;text-align:center;padding-top:30px;">—</div>
+              </template>
+              <div style="display:flex;flex-direction:column;gap:3px;">
+                <template x-for="(r,ri) in cell.records" :key="'wr-'+cell.date+'-'+ri">
+                  <div :style="'font-size:11px;padding:5px 8px;border-radius:5px;font-weight:600;'+attCalChipStyle(r)">
+                    <div x-text="r.name"></div>
+                    <div style="font-size:9px;font-weight:400;opacity:.85;margin-top:1px;" x-text="attCalChipLabel(r)"></div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </template>
+
+    <!-- ===== 월 뷰 (기존 디자인) ===== -->
+    <template x-if="attendance.calView==='month'">
+    <div style="overflow-x:auto;">
     <div style="min-width:980px;background:#fff;border-radius:16px;border:1px solid #e2e6ee;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08);">
 
       <!-- ── 헤더 ── -->
@@ -905,6 +1004,10 @@
       </div>
 
     </div>
+    </div>
+    </template>
+    <!-- ===== 월 뷰 끝 ===== -->
+
     </div>
   </template>
 
