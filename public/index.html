@@ -3386,33 +3386,7 @@
           q:'',results:[],total:0,loading:false,loadingMore:false,searched:false,
           indexStatus:{built:false,building:false,count:0,error:null},
           searchTimer:null, thumbSize:160, pollTimer:null, yearFilter:'',
-          brandFilter:'', vendorFilter:'',
-          constructionBrands:[
-            {name:'디엘이앤씨',aliases:['DL이앤씨','DL E&C','DLEC','대림산업']},
-            {name:'디엘건설',aliases:['DL건설','대림건설','삼호']},
-            {name:'현대산업개발',aliases:['HDC현대산업개발','HDC','현산']},
-            {name:'포스코이앤씨',aliases:['포스코건설','POSCO E&C','POSCOENC']},
-            {name:'현대건설',aliases:['HYUNDAI E&C','현대엔지니어링']},
-            {name:'삼성물산',aliases:['삼성물산건설부문','래미안']},
-            {name:'GS건설',aliases:['지에스건설','자이']},
-            {name:'대우건설',aliases:['푸르지오']},
-            {name:'롯데건설',aliases:['롯데캐슬']},
-            {name:'SK에코플랜트',aliases:['SK건설','에스케이에코플랜트']},
-            {name:'한화건설',aliases:['한화 건설부문','포레나']},
-            {name:'코오롱글로벌',aliases:['코오롱건설']},
-            {name:'금호건설',aliases:['금호산업']},
-            {name:'쌍용건설',aliases:[]},
-            {name:'계룡건설',aliases:['계룡건설산업']},
-            {name:'호반건설',aliases:['호반산업']},
-            {name:'태영건설',aliases:[]},
-            {name:'동부건설',aliases:[]},
-            {name:'두산건설',aliases:[]},
-            {name:'KCC건설',aliases:['케이씨씨건설']},
-            {name:'한신공영',aliases:[]},
-            {name:'서희건설',aliases:[]},
-            {name:'우미건설',aliases:[]},
-            {name:'반도건설',aliases:[]}
-          ],
+          designMasters:null, mastersLoading:false, brandFilter:'', vendorFilter:'',
           isInternal:false,
           currentPage:1, pageSize:40, hasMore:false,
           typeFilter:['image'], // 기본은 이미지 — '전체' 버튼으로 전부 보기 가능
@@ -3482,8 +3456,19 @@
             {id:'word',label:'Word',icon:'article',color:'#2563eb'}
           ],
           preview:{open:false,index:-1},
-          brandOptions(){return this.constructionBrands;},
-          brandValue(b){return [b.name].concat(b.aliases||[]).join('|');},
+          brandOptions(){return (this.designMasters&&Array.isArray(this.designMasters.brands))?this.designMasters.brands:[];},
+          async loadDesignMasters(force){
+            if(this.mastersLoading)return;
+            this.mastersLoading=true;
+            try{
+              var r=await fetch('/api/product-design/masters'+(force?'?refresh=1':''),{credentials:'include'}).then(function(res){return res.json();});
+              if(r&&r.ok)this.designMasters=r.masters||{};
+            }catch(e){
+              console.warn('[design] master load failed',e);
+            }finally{
+              this.mastersLoading=false;
+            }
+          },
           async init(){
             var s=await fetch('/api/design/status').then(function(r){return r.json();}).catch(function(){return {};});
             s.count=s.count||0; s.built=!!s.built; s.building=!!s.building; s.error=s.error||null;
@@ -3491,6 +3476,7 @@
             if(s.building){var self=this;this.pollTimer=setInterval(function(){self.init();},3000);}
             var info=await fetch('/api/session/info').then(function(r){return r.json();}).catch(function(){return {};});
             this.isInternal=!!info.isInternal;
+            this.loadDesignMasters(false);
             // 파일종류별 개수 미리 가져오기 (빈 검색 허용)
             try{
               var c=await fetch('/api/design/search?q=__countonly__').then(function(r){return r.json();});
@@ -3679,7 +3665,7 @@
                 style="padding:9px 10px;background:#f8fafc;min-width:160px;cursor:pointer;">
                 <option value="">전체 건설사</option>
                 <template x-for="b in brandOptions()" :key="'design-brand-'+b.name">
-                  <option :value="brandValue(b)" x-text="b.name"></option>
+                  <option :value="b.name" x-text="b.name + ' (' + b.count + ')'"></option>
                 </template>
               </select>
               <button type="button" @click="brandFilter='';vendorFilter='';doSearch()"
@@ -3687,6 +3673,12 @@
                 class="text-[11px] px-3 py-2 rounded-lg"
                 style="background:#fff;border:1px solid #e5e7eb;color:#64748b;">
                 필터 해제
+              </button>
+              <button type="button" @click="loadDesignMasters(true)"
+                x-show="!designMasters || !brandOptions().length"
+                class="text-[11px] px-3 py-2 rounded-lg"
+                style="background:#eef2ff;border:1px solid #c7d2fe;color:#4f46e5;">
+                폴더목록 새로고침
               </button>
             </div>
             <!-- 파일종류 필터 칩 -->

@@ -56,6 +56,12 @@ function isCacheValid() {
   return mastersCache && (Date.now() - mastersCachedAt) < MASTER_TTL_MS;
 }
 
+function isConstructionBrandName(name) {
+  const n = String(name || '').trim();
+  if (!n || n.length < 2) return false;
+  return /(건설|이앤씨|이엔씨|E&C|ENC|산업개발|토건|공영|종합건설|디앤아이|현대엔지니어링)/i.test(n);
+}
+
 /** designIndex 전체에서 마스터 추출 */
 function buildMasters() {
   const items = designModule.getDesignIndex();
@@ -107,7 +113,7 @@ function buildMasters() {
   const result = {
     builtAt: new Date().toISOString(),
     indexedCount: items.length,
-    brands: rank(brand, 5),
+    brands: rank(brand, 1).filter(b => isConstructionBrandName(b.name)),
     vendors: rank(vendor, 5),
     sites: rank(site, 3).slice(0, 200),
     brandSites: Object.fromEntries(
