@@ -7241,6 +7241,42 @@ function app() {
       if (!date) return [];
       return this.attCalRecordsForDate(date);
     },
+    attCalMonthGroups(dateStr) {
+      const records = this.attCalRecordsForDate(dateStr);
+      const deptOrder = {};
+      (this.attendance.departments || []).forEach((d, i) => { deptOrder[d] = i; });
+      const typeOrder = { annual: 1, halfAM: 2, halfPM: 3 };
+      const map = new Map();
+      for (const r of records) {
+        const dept = r.dept || '기타';
+        const type = r.leaveType || 'other';
+        const key = dept + '|' + type;
+        if (!map.has(key)) {
+          map.set(key, {
+            dept,
+            leaveType: type,
+            label: this.attCalChipLabel(r),
+            count: 0,
+            names: []
+          });
+        }
+        const g = map.get(key);
+        g.count++;
+        if (r.name) g.names.push(r.name);
+      }
+      return Array.from(map.values()).map(g => ({
+        ...g,
+        name: g.dept + ' ' + g.count + '명'
+      })).sort((a, b) => {
+        const da = deptOrder[a.dept] ?? 999;
+        const db = deptOrder[b.dept] ?? 999;
+        if (da !== db) return da - db;
+        return (typeOrder[a.leaveType] || 9) - (typeOrder[b.leaveType] || 9);
+      });
+    },
+    attCalMonthGroupTitle(group) {
+      return group.dept + ' ' + group.label + ' ' + group.count + '명: ' + group.names.join(', ');
+    },
     attCalDayInfo() {
       if (!this.attendance.calDate) return '';
       const d = this._parseDate(this.attendance.calDate);

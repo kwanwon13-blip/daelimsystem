@@ -61,6 +61,15 @@ function isConstructionBrandName(name) {
   if (!n || n.length < 2) return false;
   return /(건설|이앤씨|이엔씨|E&C|ENC|산업개발|토건|공영|종합건설|디앤아이|현대엔지니어링)/i.test(n);
 }
+function normalizeMastersPayload(masters) {
+  if (!masters || typeof masters !== 'object') return masters;
+  return {
+    ...masters,
+    brands: Array.isArray(masters.brands)
+      ? masters.brands.filter(b => isConstructionBrandName(b.name))
+      : []
+  };
+}
 
 /** designIndex 전체에서 마스터 추출 */
 function buildMasters() {
@@ -144,7 +153,7 @@ function getMasters(forceRebuild = false) {
     try {
       const stat = fs.statSync(MASTER_CACHE_FILE);
       if (Date.now() - stat.mtimeMs < MASTER_TTL_MS) {
-        mastersCache = JSON.parse(fs.readFileSync(MASTER_CACHE_FILE, 'utf-8'));
+        mastersCache = normalizeMastersPayload(JSON.parse(fs.readFileSync(MASTER_CACHE_FILE, 'utf-8')));
         mastersCachedAt = stat.mtimeMs;
         return mastersCache;
       }

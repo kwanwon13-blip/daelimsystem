@@ -949,9 +949,9 @@
 
             <!-- 이벤트 칩 목록 -->
             <div x-show="cell !== null" style="padding:2px 8px 10px;display:flex;flex-direction:column;gap:4px;flex:1;min-height:0;overflow:visible;">
-              <template x-for="(item,ii) in (calendarLeaveData[cell?.date]||[])" :key="'ev_'+ci+'_'+ii">
+              <template x-for="(item,ii) in attCalMonthGroups(cell?.date)" :key="'ev_'+ci+'_'+ii">
                 <div style="display:flex;align-items:center;gap:5px;padding:4px 7px;border-radius:7px;cursor:default;min-width:0;min-height:25px;box-sizing:border-box;"
-                  :title="item.name + ' ' + (item.leaveType==='annual'?'연차':item.leaveType==='halfAM'?'오전반차':'오후반차')"
+                  :title="attCalMonthGroupTitle(item)"
                   :style="item.leaveType==='annual'
                     ? 'background:'+(calendarDeptColors[item.dept]?.bg||'#f1f5f9')+';border:1px solid '+(calendarDeptColors[item.dept]?.border||'#e2e8f0')+';'
                     : 'background:#fff;border:1.5px dashed '+(calendarDeptColors[item.dept]?.border||'#cbd5e1')+';'">

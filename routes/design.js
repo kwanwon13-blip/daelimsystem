@@ -69,6 +69,8 @@ const SKIP_DIRS = new Set([
   'system volume information', 'recycler', '$recycle.bin', 'recovery',
   'windows', 'program files', 'program files (x86)', 'programdata',
   'node_modules', '.git', '__pycache__', 'appdata',
+  'price-list-app', 'price-app-list', 'sessions', 'claude',
+  'npki', 'acs_backup', 'acserver_5.02_200225_2', 'adt', 'lostark',
   '송지현 대리'
 ]);
 
