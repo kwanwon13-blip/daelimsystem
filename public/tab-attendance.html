@@ -897,9 +897,9 @@
       </div>
 
       <!-- ── 날짜 그리드 ── -->
-      <div style="display:grid;grid-template-columns:repeat(7,1fr);grid-auto-rows:minmax(140px,calc((100vh - 320px)/6));">
+      <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-auto-rows:minmax(188px,auto);">
         <template x-for="(cell, ci) in calendarCells" :key="'cal_'+ci">
-          <div style="border-right:1px solid #edf0f7;border-bottom:1px solid #edf0f7;display:flex;flex-direction:column;overflow:hidden;transition:background .15s;"
+          <div style="border-right:1px solid #edf0f7;border-bottom:1px solid #edf0f7;display:flex;flex-direction:column;overflow:visible;transition:background .15s;min-width:0;"
             :style="cell===null
               ? 'background:#f8fafc;'
               : cell.isToday
@@ -914,7 +914,7 @@
 
             <!-- 날짜 번호 영역 -->
             <div x-show="cell !== null"
-              style="padding:10px 11px 6px;display:flex;align-items:center;justify-content:space-between;">
+              style="padding:9px 10px 5px;display:flex;align-items:flex-start;justify-content:space-between;gap:6px;min-width:0;">
               <!-- 오늘: 원형 뱃지 -->
               <template x-if="cell?.isToday">
                 <div style="display:flex;align-items:center;gap:7px;">
@@ -935,7 +935,7 @@
                     x-text="cell?.day"></span>
                   <!-- 공휴일 이름 -->
                   <template x-if="cell?.isHoliday">
-                    <span style="font-size:9px;font-weight:700;color:#ec4899;background:#fce7f3;padding:1px 5px;border-radius:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:70px;"
+                    <span style="font-size:9px;font-weight:700;color:#ec4899;background:#fce7f3;padding:1px 5px;border-radius:4px;white-space:normal;line-height:1.2;max-width:112px;"
                       x-text="cell?.holidayName"></span>
                   </template>
                 </div>
@@ -948,22 +948,23 @@
             </div>
 
             <!-- 이벤트 칩 목록 -->
-            <div x-show="cell !== null" style="padding:2px 8px 9px;display:flex;flex-direction:column;gap:4px;flex:1;">
+            <div x-show="cell !== null" style="padding:2px 8px 10px;display:flex;flex-direction:column;gap:4px;flex:1;min-height:0;overflow:visible;">
               <template x-for="(item,ii) in (calendarLeaveData[cell?.date]||[])" :key="'ev_'+ci+'_'+ii">
-                <div style="display:flex;align-items:center;gap:6px;padding:5px 9px;border-radius:8px;cursor:default;"
+                <div style="display:flex;align-items:center;gap:5px;padding:4px 7px;border-radius:7px;cursor:default;min-width:0;min-height:25px;box-sizing:border-box;"
+                  :title="item.name + ' ' + (item.leaveType==='annual'?'연차':item.leaveType==='halfAM'?'오전반차':'오후반차')"
                   :style="item.leaveType==='annual'
                     ? 'background:'+(calendarDeptColors[item.dept]?.bg||'#f1f5f9')+';border:1px solid '+(calendarDeptColors[item.dept]?.border||'#e2e8f0')+';'
                     : 'background:#fff;border:1.5px dashed '+(calendarDeptColors[item.dept]?.border||'#cbd5e1')+';'">
                   <!-- 아바타 -->
-                  <span style="width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0;"
+                  <span style="width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex-shrink:0;"
                     :style="'background:'+(calendarDeptColors[item.dept]?.text||'#94a3b8')+';color:#fff;'"
                     x-text="(item.name||'?')[0]"></span>
                   <!-- 이름 -->
-                  <span style="font-size:12px;font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                  <span style="font-size:11px;font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;"
                     :style="'color:'+(calendarDeptColors[item.dept]?.text||'#334155')"
                     x-text="item.name"></span>
                   <!-- 유형 뱃지 -->
-                  <span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:6px;flex-shrink:0;"
+                  <span style="font-size:10px;font-weight:700;padding:2px 5px;border-radius:6px;flex-shrink:0;"
                     :style="item.leaveType==='annual'
                       ? 'background:'+(calendarDeptColors[item.dept]?.text||'#64748b')+';color:#fff;'
                       : 'background:#fef3c7;color:#b45309;'"
