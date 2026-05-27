@@ -175,12 +175,43 @@ router.get('/design/search', requireAuth, (req, res) => {
     if (item.fileType && typeCounts[item.fileType] !== undefined) typeCounts[item.fileType]++;
   }
 
-  if (!q || q === '__countonly__') return res.json({ items: [], total: 0, typeCounts, status: designIndexStatus });
+  // 회사명 필터: brand (건설사), vendor (발주처) — 공백을 제거하고 소문자 매칭
+  const brandFilter = ((req.query.brand || '').toLowerCase().replace(/\s+/g, '') || null);
+  const vendorFilter = ((req.query.vendor || '').toLowerCase().replace(/\s+/g, '') || null);
+
+  if (!q || q === '__countonly__') {
+    // 필터만 있고 검색어 없을 때 — 회사명 필터로만 검색 허용
+    if (brandFilter || vendorFilter) {
+      let baseMatches = designIndex.slice();
+      if (brandFilter) baseMatches = baseMatches.filter(item => item.searchText.replace(/\s+/g, '').includes(brandFilter));
+      if (vendorFilter) baseMatches = baseMatches.filter(item => item.searchText.replace(/\s+/g, '').includes(vendorFilter));
+      if (typeFilter && typeFilter.size > 0) baseMatches = baseMatches.filter(item => typeFilter.has(item.fileType));
+      baseMatches.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+      const pageSize = Math.min(200, parseInt(req.query.pageSize) || 40);
+      const page = Math.max(1, parseInt(req.query.page) || 1);
+      const start = (page - 1) * pageSize;
+      const results = baseMatches.slice(start, start + pageSize).map(item => ({
+        path: item.path, rel: item.rel, parts: item.parts, name: item.name, aiPath: item.aiPath,
+        fileType: item.fileType, ext: item.ext,
+        netPath: toNetworkPath(item.aiPath || item.path),
+        netFolder: toNetworkPath(path.dirname(item.aiPath || item.path))
+      }));
+      return res.json({ items: results, total: baseMatches.length, page, pageSize, typeCounts, status: designIndexStatus });
+    }
+    return res.json({ items: [], total: 0, typeCounts, status: designIndexStatus });
+  }
   const keywords = q.split(/\s+/).filter(Boolean);
   const first = keywords[0];
   const rest = keywords.slice(1);
   let matches = designIndex.filter(item => item.searchText.includes(first));
   if (rest.length > 0) matches = matches.filter(item => rest.every(kw => item.searchText.includes(kw)));
+  // 회사명 필터 (건설사/발주처) — 공백 제거 비교 (검색어와 별개 AND)
+  if (brandFilter) {
+    matches = matches.filter(item => item.searchText.replace(/\s+/g, '').includes(brandFilter));
+  }
+  if (vendorFilter) {
+    matches = matches.filter(item => item.searchText.replace(/\s+/g, '').includes(vendorFilter));
+  }
   // 파일종류 필터
   if (typeFilter && typeFilter.size > 0) {
     matches = matches.filter(item => typeFilter.has(item.fileType));

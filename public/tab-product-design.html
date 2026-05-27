@@ -41,6 +41,29 @@
     <!-- 시안 검색 모드 -->
     <div x-show="mode==='search'">
       <input type="text" x-model="searchQ" @input.debounce.300ms="doSearch()" placeholder="시안 검색 (예: 두산 성수장미)" style="width:100%; padding:10px; border:1px solid #d1d5db; border-radius:8px; margin-bottom:8px;" />
+      <!-- 회사명 필터 -->
+      <div style="display:flex; gap:8px; margin-bottom:8px; align-items:center; flex-wrap:wrap;">
+        <span style="font-size:11px; color:#6b7280; font-weight:600;">🏢 회사 필터</span>
+        <select x-model="filterBrand" @change="doSearch()" style="padding:6px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:12px; min-width:120px; background:#fff;">
+          <option value="">전체 건설사</option>
+          <template x-if="masters && masters.brands">
+            <template x-for="b in masters.brands" :key="b.name">
+              <option :value="b.name" x-text="b.name + ' (' + b.count + ')'"></option>
+            </template>
+          </template>
+        </select>
+        <select x-model="filterVendor" @change="doSearch()" style="padding:6px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:12px; min-width:120px; background:#fff;">
+          <option value="">전체 발주처</option>
+          <template x-if="masters && masters.vendors">
+            <template x-for="v in masters.vendors" :key="v.name">
+              <option :value="v.name" x-text="v.name + ' (' + v.count + ')'"></option>
+            </template>
+          </template>
+        </select>
+        <button type="button" x-show="filterBrand || filterVendor" @click="filterBrand=''; filterVendor=''; doSearch()"
+          style="padding:5px 10px; background:#f3f4f6; border:1px solid #e5e7eb; border-radius:6px; font-size:11px; color:#6b7280; cursor:pointer;">필터 해제</button>
+        <span x-show="searchResults.length>0" style="margin-left:auto; font-size:11px; color:#9ca3af;" x-text="searchResults.length + '건'"></span>
+      </div>
       <template x-if="searchResults.length > 0">
         <div class="pd-search-result">
           <template x-for="r in searchResults" :key="r.path">
@@ -51,6 +74,8 @@
           </template>
         </div>
       </template>
+      <div x-show="(searchQ.length>=2 || filterBrand || filterVendor) && searchResults.length===0"
+        style="padding:14px; text-align:center; color:#9ca3af; font-size:12px;">검색 결과 없음</div>
     </div>
 
     <!-- 파일경로 직접 입력 모드 -->
@@ -147,6 +172,9 @@ function productDesignApp() {
     manualQty: '',
     masters: null,
     copyMsg: '',
+    // 회사명 필터
+    filterBrand: '',
+    filterVendor: '',
 
     init() {
       this.loadMasters();
@@ -161,9 +189,17 @@ function productDesignApp() {
     },
 
     async doSearch() {
-      if (!this.searchQ || this.searchQ.length < 2) { this.searchResults = []; return; }
+      const hasFilter = !!(this.filterBrand || this.filterVendor);
+      const hasQuery = this.searchQ && this.searchQ.length >= 2;
+      // 검색어도 없고 필터도 없으면 결과 비우기
+      if (!hasFilter && !hasQuery) { this.searchResults = []; return; }
       try {
-        const r = await fetch('/api/design/search?q=' + encodeURIComponent(this.searchQ) + '&pageSize=20', { credentials: 'include' });
+        const params = new URLSearchParams();
+        if (hasQuery) params.set('q', this.searchQ);
+        if (this.filterBrand) params.set('brand', this.filterBrand);
+        if (this.filterVendor) params.set('vendor', this.filterVendor);
+        params.set('pageSize', '20');
+        const r = await fetch('/api/design/search?' + params.toString(), { credentials: 'include' });
         const j = await r.json();
         this.searchResults = j.items || [];
       } catch(e) { console.error(e); }

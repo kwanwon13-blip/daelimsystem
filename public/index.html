@@ -4022,6 +4022,7 @@
         <div class="ml-auto flex gap-1">
           <button class="leave-sub-btn" :class="attendance.leaveSubTab==='summary'?'active':''" @click="attendance.leaveSubTab='summary'">현황</button>
           <button class="leave-sub-btn" :class="attendance.leaveSubTab==='records'?'active':''" @click="attendance.leaveSubTab='records'; loadLeaveRecordsList()">사용내역</button>
+          <button class="leave-sub-btn" :class="attendance.leaveSubTab==='calendar'?'active':''" @click="openLeaveCalendar()">📅 달력</button>
           <button class="leave-sub-btn" :class="attendance.leaveSubTab==='adjustments'?'active':''" @click="attendance.leaveSubTab='adjustments'; loadAdjustments()" x-show="auth.role==='admin'">추가/공제</button>
           <button x-show="auth.role==='admin'" class="leave-sub-btn" :class="attendance.leaveSubTab==='compare'?'active':''" @click="attendance.leaveSubTab='compare'; if(!attendance.leaveSummary.length) loadLeaveSummary();" style="background:linear-gradient(135deg,#eff6ff,#e0e7ff);border-color:#c7d2fe;color:#4f46e5;" :style="attendance.leaveSubTab==='compare'?'background:#4f46e5;color:#fff;border-color:#4f46e5;':''">📊 비교</button>
         </div>
@@ -4193,6 +4194,161 @@
           </table>
         </div>
         <div x-show="filteredLeaveRecords().length===0" style="text-align:center;padding:30px;color:#9ca3af;font-size:12px;">사용 내역이 없습니다</div>
+      </div>
+    </div>
+  </template>
+
+  <!-- ===== 서브탭: 달력 (일/주/월 뷰) ===== -->
+  <template x-if="!attendance.leaveLoading && attendance.leaveSubTab==='calendar'">
+    <div class="leave-card">
+      <div style="padding:10px 14px;">
+        <!-- 헤더: 모드 토글 + 이동 + 필터 + 범례 -->
+        <div class="flex flex-wrap items-center gap-3 mb-3 leave-no-print">
+          <!-- 모드 토글 (일/주/월) -->
+          <div style="display:flex;background:#f3f4f6;border-radius:8px;padding:2px;gap:2px;">
+            <button type="button" @click="setCalendarMode('day')"
+              :style="'border:none;cursor:pointer;padding:5px 12px;border-radius:6px;font-size:11px;font-weight:600;'+(attendance.calendarMode==='day'?'background:#d97706;color:#fff;':'background:transparent;color:#6b7280;')">일</button>
+            <button type="button" @click="setCalendarMode('week')"
+              :style="'border:none;cursor:pointer;padding:5px 12px;border-radius:6px;font-size:11px;font-weight:600;'+(attendance.calendarMode==='week'?'background:#d97706;color:#fff;':'background:transparent;color:#6b7280;')">주</button>
+            <button type="button" @click="setCalendarMode('month')"
+              :style="'border:none;cursor:pointer;padding:5px 12px;border-radius:6px;font-size:11px;font-weight:600;'+(attendance.calendarMode==='month'?'background:#d97706;color:#fff;':'background:transparent;color:#6b7280;')">월</button>
+          </div>
+          <!-- 이동 -->
+          <div style="display:flex;align-items:center;gap:4px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:3px 6px;">
+            <button type="button" @click="leaveCalendarPrev()" style="background:none;border:none;cursor:pointer;color:#6b7280;font-size:18px;line-height:1;padding:2px 8px;">‹</button>
+            <span style="font-size:12px;font-weight:700;color:#374151;min-width:140px;text-align:center;" x-text="leaveCalendarHeader()"></span>
+            <button type="button" @click="leaveCalendarNext()" style="background:none;border:none;cursor:pointer;color:#6b7280;font-size:18px;line-height:1;padding:2px 8px;">›</button>
+            <button type="button" @click="leaveCalendarToday()" style="background:#f3f4f6;border:1px solid #e5e7eb;border-radius:5px;padding:2px 8px;margin-left:4px;font-size:10px;color:#6b7280;cursor:pointer;">오늘</button>
+          </div>
+          <!-- 직원 필터 -->
+          <select x-model="attendance.calendarFilter.name" class="input-base" style="width:120px;font-size:10px;padding:4px 8px;">
+            <option value="">전체 직원</option>
+            <template x-for="emp in attendance.leaveSummary"><option :value="emp.name" x-text="emp.name"></option></template>
+          </select>
+          <!-- 부서 필터 -->
+          <select x-model="attendance.calendarFilter.dept" class="input-base" style="width:120px;font-size:10px;padding:4px 8px;">
+            <option value="">전체 부서</option>
+            <template x-for="d in [...new Set(attendance.leaveSummary.map(e=>e.department).filter(Boolean))]"><option :value="d" x-text="d"></option></template>
+          </select>
+          <!-- 범례 -->
+          <div class="ml-auto" style="display:flex;gap:8px;font-size:10px;color:#6b7280;align-items:center;">
+            <span style="display:inline-flex;align-items:center;gap:3px;"><span style="display:inline-block;width:10px;height:10px;background:#fed7aa;border-radius:3px;"></span>연차</span>
+            <span style="display:inline-flex;align-items:center;gap:3px;"><span style="display:inline-block;width:10px;height:10px;background:#bbf7d0;border-radius:3px;"></span>반차</span>
+            <span style="display:inline-flex;align-items:center;gap:3px;"><span style="display:inline-block;width:10px;height:10px;background:#bfdbfe;border-radius:3px;"></span>경조</span>
+            <span style="display:inline-flex;align-items:center;gap:3px;"><span style="display:inline-block;width:10px;height:10px;background:#e5e7eb;border-radius:3px;"></span>예비군</span>
+          </div>
+        </div>
+
+        <!-- ===== 월 뷰 ===== -->
+        <template x-if="attendance.calendarMode==='month'">
+          <div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;background:#fff;">
+            <!-- 요일 헤더 -->
+            <div style="display:grid;grid-template-columns:repeat(7,1fr);background:#f9fafb;border-bottom:1px solid #e5e7eb;">
+              <template x-for="(dow,di) in ['일','월','화','수','목','금','토']">
+                <div :style="(di===0?'color:#ef4444;':(di===6?'color:#3b82f6;':'color:#374151;'))+';padding:6px 0;text-align:center;font-size:11px;font-weight:700;border-right:1px solid #e5e7eb;'" x-text="dow"></div>
+              </template>
+            </div>
+            <!-- 날짜 셀 -->
+            <div style="display:grid;grid-template-columns:repeat(7,1fr);">
+              <template x-for="(cell,ci) in leaveCalendarCells()" :key="cell.key">
+                <div :style="'min-height:96px;border-right:1px solid #f3f4f6;border-bottom:1px solid #f3f4f6;padding:4px 5px;'+(cell.outOfMonth?'background:#fafafa;':'')+(cell.isToday?'background:#fef3c7;':'')">
+                  <div :style="'font-size:10px;font-weight:600;margin-bottom:3px;'+(cell.outOfMonth?'color:#d1d5db;':(cell.dow===0?'color:#ef4444;':(cell.dow===6?'color:#3b82f6;':'color:#374151;')))">
+                    <span x-text="cell.day||''"></span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:2px;">
+                    <template x-for="r in cell.records" :key="r.id">
+                      <div @click="openCalendarRecord(r)"
+                        :title="r.employeeName+' · '+r.leaveType+(r.reason?' · '+r.reason:'')"
+                        :style="'font-size:9.5px;padding:2px 5px;border-radius:4px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;'+leaveCalendarChipStyle(r)">
+                        <span x-text="r.employeeName"></span>
+                        <span x-show="r.leaveType==='오전반차'||r.leaveType==='오후반차'" style="font-weight:400;opacity:.8;" x-text="' '+(r.leaveType==='오전반차'?'오전':'오후')"></span>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+
+        <!-- ===== 주 뷰 ===== -->
+        <template x-if="attendance.calendarMode==='week'">
+          <div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;background:#fff;">
+            <!-- 요일 헤더 (날짜 포함) -->
+            <div style="display:grid;grid-template-columns:repeat(7,1fr);background:#f9fafb;border-bottom:1px solid #e5e7eb;">
+              <template x-for="cell in leaveCalendarWeekCells()" :key="cell.date">
+                <div :style="'padding:8px 4px;text-align:center;border-right:1px solid #e5e7eb;'+(cell.isToday?'background:#fef3c7;':'')">
+                  <div :style="'font-size:10px;font-weight:600;'+(cell.dow===0?'color:#ef4444;':(cell.dow===6?'color:#3b82f6;':'color:#6b7280;'))" x-text="['일','월','화','수','목','금','토'][cell.dow]"></div>
+                  <div :style="'font-size:14px;font-weight:700;margin-top:2px;'+(cell.dow===0?'color:#ef4444;':(cell.dow===6?'color:#3b82f6;':'color:#1e293b;'))" x-text="cell.month + '/' + cell.day"></div>
+                </div>
+              </template>
+            </div>
+            <!-- 내용 셀 -->
+            <div style="display:grid;grid-template-columns:repeat(7,1fr);">
+              <template x-for="cell in leaveCalendarWeekCells()" :key="cell.date+'-body'">
+                <div :style="'min-height:260px;border-right:1px solid #f3f4f6;padding:6px 8px;'+(cell.isToday?'background:#fffbeb;':'')">
+                  <template x-if="cell.records.length===0">
+                    <div style="color:#d1d5db;font-size:10px;text-align:center;padding-top:20px;">—</div>
+                  </template>
+                  <div style="display:flex;flex-direction:column;gap:3px;">
+                    <template x-for="r in cell.records" :key="r.id">
+                      <div @click="openCalendarRecord(r)"
+                        :title="(r.reason||'')"
+                        :style="'font-size:11px;padding:4px 8px;border-radius:5px;cursor:pointer;font-weight:600;'+leaveCalendarChipStyle(r)">
+                        <div x-text="r.employeeName"></div>
+                        <div style="font-size:9px;font-weight:400;opacity:.8;margin-top:1px;" x-text="r.leaveType"></div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+
+        <!-- ===== 일 뷰 ===== -->
+        <template x-if="attendance.calendarMode==='day'">
+          <div style="border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:18px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;border-bottom:1px solid #f3f4f6;padding-bottom:12px;">
+              <div>
+                <div style="font-size:18px;font-weight:800;color:#1e293b;" x-text="leaveCalendarDayLabel()"></div>
+                <div style="font-size:11px;color:#9ca3af;margin-top:2px;" x-text="leaveCalendarDayInfo()"></div>
+              </div>
+              <div style="font-size:11px;color:#6b7280;">
+                연차 사용자 <strong style="color:#d97706;font-size:14px;" x-text="leaveCalendarDayRecords().length"></strong>명
+              </div>
+            </div>
+            <template x-if="leaveCalendarDayRecords().length===0">
+              <div style="text-align:center;padding:60px 20px;color:#9ca3af;">
+                <div style="font-size:36px;margin-bottom:8px;">📅</div>
+                <div style="font-size:13px;">이 날 연차 쓴 직원이 없습니다</div>
+              </div>
+            </template>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;">
+              <template x-for="r in leaveCalendarDayRecords()" :key="r.id">
+                <div @click="openCalendarRecord(r)"
+                  :style="'padding:10px 14px;border-radius:8px;cursor:pointer;border:1px solid transparent;'+leaveCalendarChipStyle(r)">
+                  <div style="display:flex;align-items:center;justify-content:space-between;">
+                    <div style="font-size:13px;font-weight:700;" x-text="r.employeeName"></div>
+                    <div style="font-size:10px;font-weight:600;opacity:.85;" x-text="r.leaveType"></div>
+                  </div>
+                  <div style="font-size:10px;opacity:.75;margin-top:3px;" x-text="r._dept||''"></div>
+                  <div x-show="r.reason" style="font-size:10px;opacity:.85;margin-top:4px;font-weight:400;" x-text="r.reason"></div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+
+        <!-- 통계 (모드별) -->
+        <div style="margin-top:10px;padding:8px 12px;background:#f9fafb;border-radius:6px;font-size:11px;color:#6b7280;display:flex;gap:14px;flex-wrap:wrap;">
+          <span x-text="attendance.calendarMode==='day' ? '이 날' : (attendance.calendarMode==='week' ? '이 주' : '이 달')"></span>
+          <span><strong style="color:#374151;" x-text="leaveCalendarStats().total"></strong> 건</span>
+          <span>연차 <strong style="color:#b45309;" x-text="leaveCalendarStats().annual"></strong></span>
+          <span>반차 <strong style="color:#16a34a;" x-text="leaveCalendarStats().half"></strong></span>
+          <span>경조 <strong style="color:#2563eb;" x-text="leaveCalendarStats().family"></strong></span>
+          <span>예비군 <strong style="color:#6b7280;" x-text="leaveCalendarStats().reserve"></strong></span>
+        </div>
       </div>
     </div>
   </template>
@@ -6947,7 +7103,13 @@ function app() {
       detailModal: { open: false, empName: '', date: '', inTime: '', outTime: '', originalInTime: '', originalOutTime: '', leaveLabel: '', reviewStatus: '', note: '', selectedType: 'normal', modifiedInTime: '', modifiedOutTime: '' },
       // ── 연차 관리 ──
       leaveView: false,          // true면 연차현황 표시, false면 출퇴근 기록
-      leaveSubTab: 'summary',    // summary | records | adjustments | compare
+      leaveSubTab: 'summary',    // summary | records | calendar | adjustments | compare
+      // 달력 뷰 상태
+      calendarMode: 'month',     // day | week | month
+      calendarYear: new Date().getFullYear(),
+      calendarMonth: new Date().getMonth() + 1,
+      calendarDate: (() => { const n=new Date(); return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0'); })(),
+      calendarFilter: { name: '', dept: '' },
       leaveSummary: [],          // 연차 현황 요약 (직원별)
       leaveYear: String(new Date().getFullYear()),
       leaveLoading: false,
@@ -10252,7 +10414,8 @@ function app() {
       for (const emp of this.attendance.leaveSummary) {
         empMap[emp.name] = emp.department || '';
         for (const rec of (emp.records || [])) {
-          allRecords.push({ ...rec, _dept: emp.department || '' });
+          // employeeName이 없으면 emp.name으로 보강 (달력 뷰에서 안전)
+          allRecords.push({ ...rec, employeeName: rec.employeeName || emp.name, _dept: emp.department || '' });
         }
       }
       // 날짜 내림차순 정렬
@@ -10529,6 +10692,326 @@ function app() {
         cur.setDate(cur.getDate() + 1);
       }
       return count;
+    },
+
+    // ── 연차 사용내역 달력 뷰 (서브탭: calendar) ──
+    openLeaveCalendar() {
+      // 서브탭 열 때 현재 leaveYear / 현재 월로 초기화
+      const lyr = Number(this.attendance.leaveYear) || new Date().getFullYear();
+      this.attendance.leaveSubTab = 'calendar';
+      this.attendance.calendarYear = lyr;
+      // 보고 있는 연도가 올해면 이번 달, 아니면 1월부터
+      const now = new Date();
+      this.attendance.calendarMonth = (lyr === now.getFullYear()) ? (now.getMonth() + 1) : 1;
+      this.attendance.calendarDate = this._fmtDate(now);
+      this.loadLeaveRecordsList();
+    },
+    _fmtDate(d) {
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    },
+    _parseDate(s) {
+      const [y, m, d] = (s || '').split('-').map(Number);
+      return new Date(y, (m || 1) - 1, d || 1);
+    },
+    setCalendarMode(mode) {
+      this.attendance.calendarMode = mode;
+      // 모드 전환 시 기준 동기화: month <-> day/week 사이 일관성 유지
+      if (mode === 'day' || mode === 'week') {
+        // calendarDate가 없으면 현재 month의 1일로
+        if (!this.attendance.calendarDate) {
+          this.attendance.calendarDate = this.attendance.calendarYear + '-' + String(this.attendance.calendarMonth).padStart(2, '0') + '-01';
+        }
+        // 보고 있는 달과 다른 달이면 그 달 1일로 (또는 오늘이 그 달이면 오늘)
+        const d = this._parseDate(this.attendance.calendarDate);
+        if (d.getFullYear() !== this.attendance.calendarYear || (d.getMonth() + 1) !== this.attendance.calendarMonth) {
+          const now = new Date();
+          if (now.getFullYear() === this.attendance.calendarYear && (now.getMonth() + 1) === this.attendance.calendarMonth) {
+            this.attendance.calendarDate = this._fmtDate(now);
+          } else {
+            this.attendance.calendarDate = this.attendance.calendarYear + '-' + String(this.attendance.calendarMonth).padStart(2, '0') + '-01';
+          }
+        }
+      } else {
+        // month 모드로 전환 시 calendarDate가 가리키는 달로 정렬
+        if (this.attendance.calendarDate) {
+          const d = this._parseDate(this.attendance.calendarDate);
+          this.attendance.calendarYear = d.getFullYear();
+          this.attendance.calendarMonth = d.getMonth() + 1;
+          this._syncLeaveYearForCalendar();
+        }
+      }
+    },
+    async _syncLeaveYearForCalendar() {
+      // calendarYear가 leaveYear와 다르면 leaveYear 갱신하고 records 재로드
+      const targetYear = String(this.attendance.calendarYear);
+      if (this.attendance.leaveYear !== targetYear) {
+        this.attendance.leaveYear = targetYear;
+        await this.loadLeaveSummary();
+        this.loadLeaveRecordsList();
+      }
+    },
+    leaveCalendarHeader() {
+      const mode = this.attendance.calendarMode;
+      if (mode === 'month') {
+        return this.attendance.calendarYear + '년 ' + this.attendance.calendarMonth + '월';
+      }
+      if (mode === 'week') {
+        const cells = this.leaveCalendarWeekCells();
+        if (!cells.length) return '';
+        const s = cells[0], e = cells[6];
+        // 같은 달이면 5월 24일~30일, 다른 달이면 5월 30일~6월 5일
+        if (s.month === e.month) return s.month + '월 ' + s.day + '일 ~ ' + e.day + '일';
+        return s.month + '월 ' + s.day + '일 ~ ' + e.month + '월 ' + e.day + '일';
+      }
+      // day
+      if (!this.attendance.calendarDate) return '';
+      const d = this._parseDate(this.attendance.calendarDate);
+      const dows = ['일','월','화','수','목','금','토'];
+      return (d.getMonth()+1) + '월 ' + d.getDate() + '일 (' + dows[d.getDay()] + ')';
+    },
+    leaveCalendarPrev() {
+      const mode = this.attendance.calendarMode;
+      if (mode === 'month') {
+        if (this.attendance.calendarMonth === 1) {
+          this.attendance.calendarMonth = 12;
+          this.attendance.calendarYear--;
+          this._syncLeaveYearForCalendar();
+        } else {
+          this.attendance.calendarMonth--;
+        }
+      } else {
+        // day/week — 기준일 ±1일/±7일
+        const d = this._parseDate(this.attendance.calendarDate);
+        d.setDate(d.getDate() + (mode === 'week' ? -7 : -1));
+        this.attendance.calendarDate = this._fmtDate(d);
+        // 년도가 바뀌면 records 재로드
+        if (d.getFullYear() !== this.attendance.calendarYear) {
+          this.attendance.calendarYear = d.getFullYear();
+          this.attendance.calendarMonth = d.getMonth() + 1;
+          this._syncLeaveYearForCalendar();
+        } else {
+          this.attendance.calendarMonth = d.getMonth() + 1;
+        }
+      }
+    },
+    leaveCalendarNext() {
+      const mode = this.attendance.calendarMode;
+      if (mode === 'month') {
+        if (this.attendance.calendarMonth === 12) {
+          this.attendance.calendarMonth = 1;
+          this.attendance.calendarYear++;
+          this._syncLeaveYearForCalendar();
+        } else {
+          this.attendance.calendarMonth++;
+        }
+      } else {
+        const d = this._parseDate(this.attendance.calendarDate);
+        d.setDate(d.getDate() + (mode === 'week' ? 7 : 1));
+        this.attendance.calendarDate = this._fmtDate(d);
+        if (d.getFullYear() !== this.attendance.calendarYear) {
+          this.attendance.calendarYear = d.getFullYear();
+          this.attendance.calendarMonth = d.getMonth() + 1;
+          this._syncLeaveYearForCalendar();
+        } else {
+          this.attendance.calendarMonth = d.getMonth() + 1;
+        }
+      }
+    },
+    leaveCalendarToday() {
+      const now = new Date();
+      this.attendance.calendarYear = now.getFullYear();
+      this.attendance.calendarMonth = now.getMonth() + 1;
+      this.attendance.calendarDate = this._fmtDate(now);
+      this._syncLeaveYearForCalendar();
+    },
+    // 주 뷰 cells (일~토 7개)
+    leaveCalendarWeekCells() {
+      const base = this._parseDate(this.attendance.calendarDate || this._fmtDate(new Date()));
+      // base가 속한 주의 일요일 찾기
+      const sunday = new Date(base);
+      sunday.setDate(base.getDate() - base.getDay());
+      const today = new Date();
+      const todayStr = this._fmtDate(today);
+      const deptMap = this._leaveDeptMap();
+      const f = this.attendance.calendarFilter;
+      const allRecords = this.attendance.leaveRecordsList || [];
+
+      const cells = [];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(sunday);
+        d.setDate(sunday.getDate() + i);
+        const dateStr = this._fmtDate(d);
+        let recs = allRecords.filter(r => r.date === dateStr);
+        if (f.name) recs = recs.filter(r => r.employeeName === f.name);
+        if (f.dept) recs = recs.filter(r => deptMap[r.employeeName] === f.dept);
+        recs.sort((a,b)=>(a.employeeName||'').localeCompare(b.employeeName||''));
+        cells.push({
+          date: dateStr,
+          day: d.getDate(),
+          month: d.getMonth() + 1,
+          dow: d.getDay(),
+          isToday: dateStr === todayStr,
+          records: recs
+        });
+      }
+      return cells;
+    },
+    // 일 뷰 records
+    leaveCalendarDayRecords() {
+      const date = this.attendance.calendarDate;
+      if (!date) return [];
+      const deptMap = this._leaveDeptMap();
+      const f = this.attendance.calendarFilter;
+      let recs = (this.attendance.leaveRecordsList || []).filter(r => r.date === date);
+      if (f.name) recs = recs.filter(r => r.employeeName === f.name);
+      if (f.dept) recs = recs.filter(r => deptMap[r.employeeName] === f.dept);
+      // 부서 채워주기
+      recs = recs.map(r => ({ ...r, _dept: r._dept || deptMap[r.employeeName] || '' }));
+      recs.sort((a,b)=>(a.employeeName||'').localeCompare(b.employeeName||''));
+      return recs;
+    },
+    leaveCalendarDayLabel() {
+      if (!this.attendance.calendarDate) return '';
+      const d = this._parseDate(this.attendance.calendarDate);
+      const dows = ['일','월','화','수','목','금','토'];
+      return d.getFullYear() + '년 ' + (d.getMonth()+1) + '월 ' + d.getDate() + '일 (' + dows[d.getDay()] + ')';
+    },
+    leaveCalendarDayInfo() {
+      if (!this.attendance.calendarDate) return '';
+      const d = this._parseDate(this.attendance.calendarDate);
+      const today = new Date();
+      const todayStr = this._fmtDate(today);
+      if (this.attendance.calendarDate === todayStr) return '오늘';
+      const diff = Math.round((d.getTime() - new Date(todayStr).getTime()) / 86400000);
+      if (diff > 0) return diff + '일 후';
+      return Math.abs(diff) + '일 전';
+    },
+    // 모드별 통계 (월/주/일)
+    leaveCalendarStats() {
+      const stats = { total: 0, annual: 0, half: 0, family: 0, reserve: 0 };
+      let records = [];
+      const mode = this.attendance.calendarMode;
+      if (mode === 'day') {
+        records = this.leaveCalendarDayRecords();
+      } else if (mode === 'week') {
+        const cells = this.leaveCalendarWeekCells();
+        records = cells.flatMap(c => c.records);
+      } else {
+        // month
+        const year = this.attendance.calendarYear;
+        const mm = String(this.attendance.calendarMonth).padStart(2, '0');
+        const deptMap = this._leaveDeptMap();
+        const f = this.attendance.calendarFilter;
+        for (const r of (this.attendance.leaveRecordsList || [])) {
+          if (!r.date || r.date.substring(0, 7) !== year + '-' + mm) continue;
+          if (f.name && r.employeeName !== f.name) continue;
+          if (f.dept && deptMap[r.employeeName] !== f.dept) continue;
+          records.push(r);
+        }
+      }
+      for (const r of records) {
+        stats.total++;
+        const t = r.leaveType || '';
+        if (t === '연차') stats.annual++;
+        else if (t.includes('반차')) stats.half++;
+        else if (t === '경조휴가' || t === '경조') stats.family++;
+        else if (t === '예비군') stats.reserve++;
+      }
+      return stats;
+    },
+    // 부서 매핑 (employeeName -> department)
+    _leaveDeptMap() {
+      const map = {};
+      for (const emp of (this.attendance.leaveSummary || [])) {
+        map[emp.name] = emp.department || '';
+      }
+      return map;
+    },
+    leaveCalendarCells() {
+      const year = this.attendance.calendarYear;
+      const month = this.attendance.calendarMonth; // 1-12
+      const mm = String(month).padStart(2, '0');
+      const firstDow = new Date(year, month - 1, 1).getDay();
+      const daysInMonth = new Date(year, month, 0).getDate();
+      const today = new Date();
+      const todayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+
+      // 그 달의 records를 날짜별로 그룹화 (필터 적용)
+      const deptMap = this._leaveDeptMap();
+      const f = this.attendance.calendarFilter;
+      const allRecords = this.attendance.leaveRecordsList || [];
+      const byDate = {};
+      for (const r of allRecords) {
+        if (!r.date) continue;
+        if (r.date.substring(0, 7) !== year + '-' + mm) continue;
+        if (f.name && r.employeeName !== f.name) continue;
+        if (f.dept && deptMap[r.employeeName] !== f.dept) continue;
+        if (!byDate[r.date]) byDate[r.date] = [];
+        byDate[r.date].push(r);
+      }
+      // 같은 날짜 안에서 이름 정렬
+      Object.keys(byDate).forEach(k => byDate[k].sort((a, b) => (a.employeeName || '').localeCompare(b.employeeName || '')));
+
+      // 이전 달 빈 칸 + 이번 달 + 다음 달 빈 칸 (6주 = 42칸 안 채우고 필요한 만큼만)
+      const cells = [];
+      for (let i = 0; i < firstDow; i++) {
+        cells.push({ key: 'pre' + i, day: '', date: '', outOfMonth: true, dow: i, records: [] });
+      }
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = year + '-' + mm + '-' + String(d).padStart(2, '0');
+        const dow = new Date(year, month - 1, d).getDay();
+        cells.push({
+          key: dateStr,
+          day: d,
+          date: dateStr,
+          dow,
+          outOfMonth: false,
+          isToday: dateStr === todayStr,
+          records: byDate[dateStr] || []
+        });
+      }
+      // 줄 맞춤 — 6주(42칸)까지 채우기
+      const total = cells.length;
+      const targetRows = Math.ceil(total / 7);
+      const targetCells = targetRows * 7;
+      for (let i = total, k = 0; i < targetCells; i++, k++) {
+        cells.push({ key: 'post' + k, day: '', date: '', outOfMonth: true, dow: (i % 7), records: [] });
+      }
+      return cells;
+    },
+    leaveCalendarChipStyle(r) {
+      const t = r.leaveType || '';
+      // 색상: 연차=주황, 반차=초록, 경조=파랑, 예비군=회색
+      if (t === '연차') return 'background:#fed7aa;color:#7c2d12;';
+      if (t.includes('반차')) return 'background:#bbf7d0;color:#14532d;';
+      if (t === '경조휴가' || t === '경조') return 'background:#bfdbfe;color:#1e3a8a;';
+      if (t === '예비군') return 'background:#e5e7eb;color:#374151;';
+      // 기타
+      return 'background:#fde68a;color:#78350f;';
+    },
+    leaveCalendarMonthStats() {
+      const year = this.attendance.calendarYear;
+      const mm = String(this.attendance.calendarMonth).padStart(2, '0');
+      const deptMap = this._leaveDeptMap();
+      const f = this.attendance.calendarFilter;
+      const stats = { total: 0, annual: 0, half: 0, family: 0, reserve: 0 };
+      for (const r of (this.attendance.leaveRecordsList || [])) {
+        if (!r.date || r.date.substring(0, 7) !== year + '-' + mm) continue;
+        if (f.name && r.employeeName !== f.name) continue;
+        if (f.dept && deptMap[r.employeeName] !== f.dept) continue;
+        stats.total++;
+        const t = r.leaveType || '';
+        if (t === '연차') stats.annual++;
+        else if (t.includes('반차')) stats.half++;
+        else if (t === '경조휴가' || t === '경조') stats.family++;
+        else if (t === '예비군') stats.reserve++;
+      }
+      return stats;
+    },
+    openCalendarRecord(rec) {
+      // 칩 클릭: 해당 직원 상세 모달 열기
+      const emp = (this.attendance.leaveSummary || []).find(e => e.name === rec.employeeName);
+      if (emp) this.openLeaveDetail(emp);
     },
 
     async loadAttendanceDetail() {
