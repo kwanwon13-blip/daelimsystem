@@ -14,6 +14,7 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { requireAuth } = require('../middleware/auth');
 const agent = require('../lib/agent-runtime');
 const ai = require('../db-ai');
@@ -22,6 +23,89 @@ let openaiClient = null;
 try { openaiClient = require('../lib/openai-client'); } catch(_) {}
 
 router.use(requireAuth);
+
+function mimeFromName(name) {
+  const ext = path.extname(String(name || '')).toLowerCase();
+  return {
+    '.svg': 'image/svg+xml; charset=utf-8',
+    '.html': 'text/html; charset=utf-8',
+    '.htm': 'text/html; charset=utf-8',
+    '.txt': 'text/plain; charset=utf-8',
+    '.md': 'text/markdown; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.csv': 'text/csv; charset=utf-8',
+    '.pdf': 'application/pdf',
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    '.xlsm': 'application/vnd.ms-excel.sheet.macroEnabled.12',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    '.zip': 'application/zip',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.webp': 'image/webp',
+    '.gif': 'image/gif',
+  }[ext] || 'application/octet-stream';
+}
+
+function artifactKindFromName(name) {
+  const ext = path.extname(String(name || '')).toLowerCase();
+  if (['.xlsx', '.xls', '.xlsm', '.csv'].includes(ext)) return 'excel';
+  if (ext === '.pdf') return 'pdf';
+  if (ext === '.svg') return 'svg';
+  if (['.html', '.htm'].includes(ext)) return 'html';
+  if (ext === '.md') return 'markdown';
+  if (['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(ext)) return 'image';
+  if (ext === '.docx') return 'word';
+  if (ext === '.pptx') return 'presentation';
+  if (ext === '.json') return 'json';
+  if (ext === '.txt') return 'text';
+  return 'file';
+}
+
+function artifactPayload(a) {
+  return {
+    id: a.id,
+    name: a.original_name,
+    filename: a.original_name,
+    size: a.size,
+    kind: a.kind,
+    url: `/api/ai/artifacts/${a.id}/download`,
+    previewUrl: `/api/ai/artifacts/${a.id}/download?inline=1`,
+  };
+}
+
+function persistAgentFiles({ userId, threadId, sessionId, files }) {
+  const out = [];
+  const seen = new Set();
+  for (const f of files || []) {
+    if (!f || !f.relPath || seen.has(f.relPath)) continue;
+    seen.add(f.relPath);
+    const src = agent.resolveSessionFile(userId, sessionId, f.relPath);
+    if (!src) continue;
+    try {
+      const ext = path.extname(f.name || src).toLowerCase() || '.bin';
+      const storedName = Date.now() + '_' + crypto.randomBytes(4).toString('hex') + ext;
+      const dest = path.join(ai.OUTPUT_DIR, storedName);
+      fs.copyFileSync(src, dest);
+      const stat = fs.statSync(dest);
+      const art = ai.artifacts.create({
+        ownerId: userId,
+        threadId,
+        messageId: null,
+        originalName: f.name || path.basename(src),
+        storedName,
+        mime: mimeFromName(f.name || src),
+        size: stat.size,
+        kind: artifactKindFromName(f.name || src),
+      });
+      out.push(artifactPayload(art));
+    } catch (e) {
+      console.warn('[ai-agent] artifact persist failed:', f.relPath, e.message);
+    }
+  }
+  return out;
+}
 
 // ── 슬롯 상태 ──
 router.get('/stats', (req, res) => {
@@ -142,10 +226,19 @@ router.post('/run', async (req, res) => {
     if (thread && ai.threads && ai.threads.addMessage) {
       try {
         const status = lastError ? 'error' : 'ok';
+        const finalFiles = lastDone?.files || collectedFiles || [];
+        const createdArtifacts = status === 'ok'
+          ? persistAgentFiles({
+              userId: req.user.userId,
+              threadId: thread.id,
+              sessionId: lastDone?.sessionId || '',
+              files: finalFiles,
+            })
+          : [];
         const summary = lastError
-          ? ('❌ ' + (lastError.message || '에러'))
-          : `✓ Agent 완료 (${(lastDone?.files || collectedFiles).length}개 파일, ${Math.round((lastDone?.durationMs||0)/1000)}초)`;
-        const files = (lastDone?.files || collectedFiles || []).map(f => ({
+          ? ('Agent error: ' + (lastError.message || 'unknown error'))
+          : `Agent 작업 완료 (${createdArtifacts.length || finalFiles.length}개 파일, ${Math.round((lastDone?.durationMs||0)/1000)}초)`;
+        const files = finalFiles.map(f => ({
           name: f.name,
           relPath: f.relPath,
           size: f.size,
@@ -163,11 +256,15 @@ router.post('/run', async (req, res) => {
           metadata: {
             sessionId: lastDone?.sessionId,
             files,
-            outputTail: (collectedOutput || '').slice(-2000),  // 마지막 2KB 만 저장
+            artifacts: createdArtifacts,
+            outputTail: (collectedOutput || '').slice(-2000),
           },
         });
+        for (const a of createdArtifacts) {
+          try { ai.artifacts.setMessageId(a.id, aiMsg.id); } catch(e) {}
+        }
         try { ai.threads.autoTitleIfEmpty && ai.threads.autoTitleIfEmpty(thread.id); } catch(_) {}
-        send('saved', { threadId: thread.id, messageId: aiMsg?.id });
+        send('saved', { threadId: thread.id, messageId: aiMsg?.id, text: summary, artifacts: createdArtifacts });
       } catch (e) {
         console.warn('[ai-agent] DB 저장 실패:', e.message);
       }

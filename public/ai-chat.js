@@ -58,6 +58,21 @@ function formatBytes(n) {
   if (n < 1024*1024) return (n/1024).toFixed(0) + 'KB';
   return (n/1024/1024).toFixed(1) + 'MB';
 }
+function shouldUseAgentMode(text, attachmentIds) {
+  if (state.imageMode) return false;
+  const s = String(text || '').toLowerCase();
+  const hasAttachment = Array.isArray(attachmentIds) && attachmentIds.length > 0;
+  const fileWords = /(파일|엑셀|xlsx|xls|csv|pdf|ppt|pptx|docx|html|svg|zip|다운로드|저장|생성|만들|작성|정리|분리|나눠|변환|보고서|양식|서식)/i;
+  const workWords = /(만들어|만들어줘|생성해|작성해|정리해|분리해|나눠줘|변환해|저장해|다운로드|파일로|엑셀로|pdf로|보고서로|표로)/i;
+  return fileWords.test(s) && (workWords.test(s) || hasAttachment);
+}
+function renderAiMessage(aiMsg) {
+  if (messagesEl.lastElementChild && messagesEl.lastElementChild.classList && messagesEl.lastElementChild.classList.contains('msg-ai')) {
+    messagesEl.removeChild(messagesEl.lastElementChild);
+  }
+  appendMessage(aiMsg);
+  scrollToBottom();
+}
 
 // 입력창
 function autoResize() {
@@ -704,6 +719,78 @@ async function sendViaChatFallback(text, attachmentIds, aiMsg) {
   }
 }
 
+async function sendViaAgent(text, attachmentIds, aiMsg) {
+  aiMsg.content = '작업 모드로 실행 중입니다. 파일을 만들거나 정리하는 요청이라 서버 작업공간에서 처리합니다.\n\n';
+  updateLastAIContent(aiMsg.content, true);
+  const r = await fetch('/api/ai/agent/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    signal: state.abortController.signal,
+    body: JSON.stringify({
+      task: text || '(첨부 파일을 분석해서 결과 파일을 만들어주세요)',
+      threadId: state.activeThreadId || undefined,
+      attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
+      sessionConsent: true,
+    }),
+  });
+  if (r.status === 401) { window.location.href = '/'; return true; }
+  if (!r.ok) {
+    const data = await r.json().catch(() => ({}));
+    throw new Error(data.error || ('agent ' + r.status));
+  }
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let newThreadId = null;
+  let seenFiles = [];
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split('\n\n'); buffer = events.pop();
+    for (const evt of events) {
+      const lines = evt.split('\n');
+      let eventName = '', dataStr = '';
+      for (const line of lines) {
+        if (line.startsWith('event: ')) eventName = line.slice(7).trim();
+        else if (line.startsWith('data: ')) dataStr += line.slice(6);
+      }
+      if (!dataStr) continue;
+      const data = JSON.parse(dataStr);
+      if (eventName === 'started') {
+        newThreadId = data.threadId || newThreadId;
+        aiMsg.content = '작업을 시작했습니다.\n\n';
+        updateLastAIContent(aiMsg.content, true);
+      } else if (eventName === 'file') {
+        if (data && data.name) seenFiles.push(data.name);
+        aiMsg.content = '작업 중입니다.\n\n생성 감지: ' + seenFiles.slice(-5).join(', ');
+        updateLastAIContent(aiMsg.content, true);
+      } else if (eventName === 'done') {
+        const n = Array.isArray(data.files) ? data.files.length : seenFiles.length;
+        aiMsg.content = `작업 마무리 중입니다. 생성 파일 ${n}개를 등록하고 있습니다.`;
+        updateLastAIContent(aiMsg.content, true);
+      } else if (eventName === 'saved') {
+        aiMsg.streaming = false;
+        aiMsg.id = data.messageId || aiMsg.id;
+        aiMsg.content = data.text || aiMsg.content || '작업 완료';
+        aiMsg.artifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
+        renderAiMessage(aiMsg);
+      } else if (eventName === 'error') {
+        aiMsg.streaming = false;
+        aiMsg.content += '\n\n**오류:** ' + (data.error || data.message || '작업 실패');
+        updateLastAIContent(aiMsg.content, false);
+      }
+    }
+  }
+  if (newThreadId && state.activeThreadId === null) state.activeThreadId = newThreadId;
+  aiMsg.streaming = false;
+  if (!Array.isArray(aiMsg.artifacts)) aiMsg.artifacts = [];
+  updateLastAIContent(aiMsg.content, false);
+  await loadThreads();
+  return true;
+}
+
 // 전송
 async function sendMessage() {
   const text = input.value.trim();
@@ -777,6 +864,28 @@ async function sendMessage() {
       state.streamingByThread.delete(ownerThreadId);
       state.streamingByThread.delete('new');
       setStreaming(false); input.disabled = false; autoResize(); input.focus();
+      renderThreadList();
+    }
+    return;
+  }
+
+  if (shouldUseAgentMode(text, attachmentIds)) {
+    try {
+      await sendViaAgent(text, attachmentIds, aiMsg);
+    } catch (e) {
+      console.error('agent 작업 실패:', e);
+      aiMsg.streaming = false;
+      aiMsg.content = '**오류:** ' + e.message;
+      updateLastAIContent(aiMsg.content, false, ownerThreadId);
+    } finally {
+      if (state.streamingByThread) {
+        state.streamingByThread.delete(ownerThreadId);
+        state.streamingByThread.delete('new');
+      }
+      setStreaming(false);
+      input.disabled = false;
+      autoResize();
+      if (String(ownerThreadId) === String(state.activeThreadId) || ownerThreadId === 'new') input.focus();
       renderThreadList();
     }
     return;
