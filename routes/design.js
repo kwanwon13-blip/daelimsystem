@@ -196,14 +196,23 @@ router.get('/design/search', requireAuth, (req, res) => {
   const vendorTerms = makeFilterTerms(req.query.vendor);
   const hasBrandFilter = brandTerms.length > 0;
   const hasVendorFilter = vendorTerms.length > 0;
+  const yearFilter = parseInt(req.query.year);
+  const hasYearFilter = yearFilter && yearFilter >= 2000 && yearFilter <= 2100;
+  const applyYearFilter = (items) => {
+    if (!hasYearFilter) return items;
+    const yearStart = new Date(yearFilter, 0, 1).getTime();
+    const yearEnd = new Date(yearFilter + 1, 0, 1).getTime();
+    return items.filter(item => item.mtime >= yearStart && item.mtime < yearEnd);
+  };
 
   if (!q || q === '__countonly__') {
-    // 필터만 있고 검색어 없을 때 — 회사명 필터로만 검색 허용
-    if (hasBrandFilter || hasVendorFilter) {
+    // 필터만 있고 검색어 없을 때도 목록 검색 허용
+    if (hasBrandFilter || hasVendorFilter || hasYearFilter || (typeFilter && typeFilter.size > 0)) {
       let baseMatches = designIndex.slice();
       if (hasBrandFilter) baseMatches = baseMatches.filter(item => matchesAnyDesignTerm(item, brandTerms));
       if (hasVendorFilter) baseMatches = baseMatches.filter(item => matchesAnyDesignTerm(item, vendorTerms));
       if (typeFilter && typeFilter.size > 0) baseMatches = baseMatches.filter(item => typeFilter.has(item.fileType));
+      baseMatches = applyYearFilter(baseMatches);
       baseMatches.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
       const pageSize = Math.min(200, parseInt(req.query.pageSize) || 40);
       const page = Math.max(1, parseInt(req.query.page) || 1);
@@ -235,12 +244,7 @@ router.get('/design/search', requireAuth, (req, res) => {
     matches = matches.filter(item => typeFilter.has(item.fileType));
   }
   // 년도 필터
-  const yearFilter = parseInt(req.query.year);
-  if (yearFilter && yearFilter >= 2000 && yearFilter <= 2100) {
-    const yearStart = new Date(yearFilter, 0, 1).getTime();
-    const yearEnd = new Date(yearFilter + 1, 0, 1).getTime();
-    matches = matches.filter(item => item.mtime >= yearStart && item.mtime < yearEnd);
-  }
+  matches = applyYearFilter(matches);
   // 최신 수정일 순으로 정렬
   matches.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
   const total = matches.length;

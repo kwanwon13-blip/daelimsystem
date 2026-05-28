@@ -3518,7 +3518,7 @@
             return '/api/design/search?'+params.toString();
           },
           async doSearch(){
-            if(!this.q.trim()&&!this.brandFilter&&!this.vendorFilter){this.results=[];this.searched=false;this.hasMore=false;return;}
+            if(!this.q.trim()&&!this.yearFilter&&!this.brandFilter&&!this.vendorFilter&&this.typeFilter.length===0){this.results=[];this.searched=false;this.hasMore=false;return;}
             this.loading=true;this.searched=true;this.currentPage=1;
             try{
               var r=await fetch(this.buildUrl(1)).then(function(r){return r.json();});
@@ -3639,37 +3639,38 @@
                   x-text="indexStatus.building ? '인덱싱 중...' : '재인덱싱'"></button>
               </div>
             </div>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <div style="position:relative;flex:1;">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <div style="position:relative;flex:1 1 360px;min-width:260px;">
                 <span class="material-symbols-outlined" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:18px;color:#94a3b8;pointer-events:none;">search</span>
                 <input x-model="q" @input="onInput()" @keydown.enter="doSearch()"
                   placeholder="띄어쓰기로 AND 검색  예) 현수막 750g 2024"
                 class="w-full rounded-xl text-sm border border-gray-200 focus:outline-none focus:border-blue-400"
                 style="padding:12px 16px 12px 40px;background:#f8fafc;">
               </div>
-              <select x-model="yearFilter" @change="doSearch()" class="rounded-xl text-sm border border-gray-200 focus:outline-none focus:border-blue-400"
-                style="padding:12px 10px;background:#f8fafc;min-width:90px;cursor:pointer;">
-                <option value="">전체연도</option>
-                <option value="2026">2026</option>
-                <option value="2025">2025</option>
-                <option value="2024">2024</option>
-                <option value="2023">2023</option>
-                <option value="2022">2022</option>
-                <option value="2021">2021</option>
-                <option value="2020">2020</option>
-              </select>
-            </div>
-            <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px;">
-              <select x-model="brandFilter" @change="doSearch()"
-                class="rounded-xl text-sm border border-gray-200 focus:outline-none focus:border-blue-400"
-                style="padding:9px 10px;background:#f8fafc;min-width:160px;cursor:pointer;">
-                <option value="">전체 건설사</option>
-                <template x-for="b in brandOptions()" :key="'design-brand-'+b.name">
-                  <option :value="b.name" x-text="b.name + ' (' + b.count + ')'"></option>
-                </template>
-              </select>
-              <button type="button" @click="brandFilter='';vendorFilter='';doSearch()"
-                x-show="brandFilter || vendorFilter"
+              <div style="display:flex;align-items:center;gap:6px;padding:4px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:14px;flex-wrap:wrap;">
+                <span style="font-size:11px;font-weight:700;color:#64748b;padding-left:6px;">필터</span>
+                <select x-model="yearFilter" @change="doSearch()" class="rounded-lg text-sm border border-gray-200 focus:outline-none focus:border-blue-400"
+                  style="padding:8px 9px;background:#fff;width:96px;cursor:pointer;">
+                  <option value="">전체연도</option>
+                  <option value="2026">2026</option>
+                  <option value="2025">2025</option>
+                  <option value="2024">2024</option>
+                  <option value="2023">2023</option>
+                  <option value="2022">2022</option>
+                  <option value="2021">2021</option>
+                  <option value="2020">2020</option>
+                </select>
+                <select x-model="brandFilter" @change="doSearch()"
+                  class="rounded-lg text-sm border border-gray-200 focus:outline-none focus:border-blue-400"
+                  style="padding:8px 9px;background:#fff;width:220px;max-width:42vw;cursor:pointer;">
+                  <option value="">전체 건설사</option>
+                  <template x-for="b in brandOptions()" :key="'design-brand-'+b.name">
+                    <option :value="b.name" x-text="b.name + ' (' + b.count + ')'"></option>
+                  </template>
+                </select>
+              </div>
+              <button type="button" @click="yearFilter='';brandFilter='';vendorFilter='';doSearch()"
+                x-show="yearFilter || brandFilter || vendorFilter"
                 class="text-[11px] px-3 py-2 rounded-lg"
                 style="background:#fff;border:1px solid #e5e7eb;color:#64748b;">
                 필터 해제
