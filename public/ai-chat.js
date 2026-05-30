@@ -1,10 +1,10 @@
 // ─── AI 챗 클라이언트 로직 ──────────────────────────────────
 const MODELS = [
-  { id: 'claude-opus-4-7', label: 'Claude Opus 4.7', desc: '가장 강력 · 복잡한 분석 · 추론' },
-  { id: 'claude-sonnet-4-7', label: 'Claude Sonnet 4.7', desc: '빠르고 똑똑함 · 일반 업무' },
+  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', desc: '빠르고 똑똑함 · 일반 대화 (기본)' },
+  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8', desc: '가장 강력 · 복잡한 분석 · 추론' },
   { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', desc: '가장 빠름 · 간단 질문' },
 ];
-const DEFAULT_MODEL_ID = MODELS[0].id; // Opus 4.7 기본
+const DEFAULT_MODEL_ID = MODELS[0].id; // Sonnet 4.6 기본 (클로드챗처럼 빠릿하게)
 // 이전 버전 모델 ID 가 저장돼 있으면 (오래된 ID) 무시하고 새 기본값으로
 const _saved = localStorage.getItem('ai_chat_model_v2');
 const SAVED_MODEL = (_saved && MODELS.find(m => m.id === _saved)) ? _saved : DEFAULT_MODEL_ID;
@@ -307,6 +307,7 @@ function buildMessageEl(m) {
   const contentEl = wrap.querySelector('.msg-content');
   if (isAI) {
     contentEl.innerHTML = md(m.content) + (m.streaming ? '<span class="typing-cursor"></span>' : '');
+    if (!m.streaming) enhanceCodeBlocks(contentEl);
     if (m.image_url) {
       const img = document.createElement('img');
       img.className = 'artifact-img';
@@ -365,6 +366,39 @@ function attachKindIcon(kind) {
   if (kind === 'svg') return 'shapes';
   return 'attach_file';
 }
+// 코드블록에 복사 버튼 + 하이라이트 클래스 (클로드챗 스타일). 여러 번 호출돼도 안전.
+function ensureChatStyles() {
+  if (document.getElementById('aiChatExtraStyles')) return;
+  const s = document.createElement('style');
+  s.id = 'aiChatExtraStyles';
+  s.textContent = '.code-wrap{position:relative;margin:8px 0}.code-wrap pre{margin:0}.code-copy-btn{position:absolute;top:6px;right:6px;display:inline-flex;align-items:center;gap:3px;padding:3px 8px;font-size:11px;font-weight:600;color:#6b7280;background:#fff;border:1px solid #e5e7eb;border-radius:6px;opacity:0;transition:opacity .12s,background .12s;cursor:pointer}.code-wrap:hover .code-copy-btn{opacity:1}.code-copy-btn:hover{background:#f3f4f6;color:#1f2937}.code-copy-btn.copied{color:#10b981;border-color:#a7f3d0}.code-copy-btn .material-symbols-outlined{font-size:13px}';
+  document.head.appendChild(s);
+}
+function enhanceCodeBlocks(container) {
+  if (!container) return;
+  ensureChatStyles();
+  container.querySelectorAll('pre code').forEach(c => c.classList.add('hljs'));
+  container.querySelectorAll('pre').forEach(pre => {
+    if (pre.parentElement && pre.parentElement.classList.contains('code-wrap')) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'code-wrap';
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(pre);
+    const btn = document.createElement('button');
+    btn.className = 'code-copy-btn';
+    btn.innerHTML = '<span class="material-symbols-outlined">content_copy</span>복사';
+    btn.addEventListener('click', async () => {
+      try {
+        const code = pre.querySelector('code');
+        await navigator.clipboard.writeText(code ? code.innerText : pre.innerText);
+        btn.classList.add('copied');
+        btn.innerHTML = '<span class="material-symbols-outlined">check</span>복사됨';
+        setTimeout(() => { btn.classList.remove('copied'); btn.innerHTML = '<span class="material-symbols-outlined">content_copy</span>복사'; }, 1200);
+      } catch (e) {}
+    });
+    wrap.appendChild(btn);
+  });
+}
 function updateLastAIContent(text, isStreaming, ownerThreadId) {
   // ownerThreadId 가 주어졌고 현재 보고 있는 스레드와 다르면 화면 갱신 안 함 (백그라운드)
   const isNewThreadView = ownerThreadId === 'new' && state.activeThreadId == null;
@@ -374,6 +408,7 @@ function updateLastAIContent(text, isStreaming, ownerThreadId) {
   const c = last.querySelector('.msg-content');
   if (!c) return;
   c.innerHTML = md(text) + (isStreaming ? '<span class="typing-cursor"></span>' : '');
+  if (!isStreaming) enhanceCodeBlocks(c);
 }
 // 사용자가 스크롤을 위로 올렸으면 자동 스크롤 안 함
 state.atBottom = true;
@@ -926,6 +961,9 @@ async function sendMessage() {
         try {
           const data = JSON.parse(dataStr);
           if (eventName === 'start') newThreadId = data.threadId;
+          else if (eventName === 'thinking') {
+            if (!aiMsg.content) updateLastAIContent('_생각하는 중…_', true, ownerThreadId);
+          }
           else if (eventName === 'delta') {
             aiMsg.content += data.text || '';
             const now = Date.now();

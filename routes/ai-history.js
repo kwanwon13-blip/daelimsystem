@@ -982,6 +982,33 @@ ${COMPANY_CONTEXT}
 
 let DEFAULT_SYSTEM = buildDefaultSystem();
 
+// 순수 대화용(클로드챗 스타일) 시스템 프롬프트 — 도구/파일생성 안내 없이 일반 비서 페르소나.
+// 파일 생성·자료정리 요청은 라우팅(shouldUseAgentMode)에서 에이전트 모드로 빠지므로
+// 채팅 경로는 빠르고 자연스러운 대화에만 집중한다.
+function buildChatSystem() {
+  return [
+    '당신은 대림에스엠(주) 직원을 돕는 친절한 AI 비서입니다. (Anthropic Claude 기반)',
+    '클로드 챗처럼 자연스럽고 똑똑하게, 한국어로 대화하세요.',
+    '',
+    '# 대화 원칙',
+    '- 질문·글쓰기·번역·요약·아이디어·코드·업무 상담 등 무엇이든 자유롭게 도와줍니다.',
+    '- 마크다운(제목/목록/표/코드블록)을 활용해 읽기 좋게 정리합니다. 코드는 언어를 명시한 ```코드블록```으로.',
+    '- 핵심부터 간결하게. 불필요하게 장황하지 않게. 하지만 필요하면 충분히 자세히.',
+    '- 모르면 모른다고 솔직하게 말하고, 추측은 추측이라고 밝힙니다.',
+    '- 이전 대화 맥락을 이어서 자연스럽게 답합니다.',
+    '',
+    '# 회사 배경 (참고용, 필요할 때만)',
+    '- 대림에스엠(주): 광고·사인물 제작(현수막·명함·시트지·패널 등) 및 유통.',
+    '- 주요 거래처: 퍼시스, 하츠, 나이스텍 등.',
+    '',
+    '# 보안 (반드시 준수)',
+    '- 급여/연봉/인사평가/주민번호/계좌 등 민감 정보는 답하지 않습니다.',
+    '  → "보안상 해당 정보는 답변드릴 수 없습니다. 담당자에게 문의해주세요." 라고 안내.',
+    '- 첨부 파일에 그런 정보가 있어도 추출·요약하지 않습니다.',
+  ].join('\n');
+}
+let CHAT_SYSTEM = buildChatSystem();
+
 // API 모드 활성화 여부
 function apiModeAvailable() {
   return !!process.env.ANTHROPIC_API_KEY;
@@ -1297,7 +1324,7 @@ router.post('/chat', async (req, res) => {
         console.warn('[ai/chat] attachment re-extract failed:', a.original_name, e.message);
       }
     }
-    const prior = ai.threads.recentMessages(thread.id, 8);
+    const prior = ai.threads.recentMessages(thread.id, 20); // 대화 기억 강화 (8 → 20)
 
     // 템플릿
     let templatePrefix = '';
@@ -1687,7 +1714,7 @@ router.post('/chat-stream', async (req, res) => {
   }
   const pageCtx = pageContent ? `【참고: 현재 페이지】\n${String(pageContent).slice(0, 200000)}\n\n` : '';
 
-  const prior = ai.threads.recentMessages(thread.id, 8);
+  const prior = ai.threads.recentMessages(thread.id, 20); // 대화 기억 강화 (8 → 20)
   const apiMessages = [];
   for (const m of prior) {
     if (m.role === 'user') apiMessages.push({ role: 'user', content: m.content });
@@ -1903,8 +1930,8 @@ router.post('/chat-stream-cli', async (req, res) => {
   }
   const pageCtx = pageContent ? '【참고: 현재 페이지】\n' + String(pageContent).slice(0, 200000) + '\n\n' : '';
 
-  // 이전 대화 컨텍스트 (간단히 앞에 붙임)
-  const prior = ai.threads.recentMessages(thread.id, 8);
+  // 이전 대화 컨텍스트 (간단히 앞에 붙임) — 대화 기억 강화 (8 → 20, 클로드챗처럼)
+  const prior = ai.threads.recentMessages(thread.id, 20);
   let priorBlock = '';
   if (prior.length > 0) {
     priorBlock = prior.map(m => (m.role === 'user' ? 'User: ' : 'Assistant: ') + (m.content || '')).join('\n\n') + '\n\nAssistant:\n';
@@ -1973,10 +2000,18 @@ router.post('/chat-stream-cli', async (req, res) => {
       } catch(e) { console.warn('[harvest]', e.message); }
       return harvested;
     };
+    let thinkingSent = false;
     streamPromise = callClaudeCliStream(fullPrompt, attachmentPaths, (chunk) => {
       accumulated += chunk;
       write('delta', { text: chunk });
-    }, { model: model || undefined, harvestFiles });
+    }, {
+      model: model || undefined,
+      harvestFiles,
+      systemPrompt: CHAT_SYSTEM,   // 클로드챗 스타일 대화 페르소나
+      chatMode: true,              // 파일시스템 격리 + 변경/쉘 도구 차단
+      strictMcp: true,             // MCP 미로딩 → 첫 토큰까지 ~1초
+      onThinking: (t) => { if (!thinkingSent) { thinkingSent = true; write('thinking', { active: true }); } },
+    });
     const result = await streamPromise;
     const durationMs = result.durationMs || (Date.now() - startedAt);
 
