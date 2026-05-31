@@ -188,6 +188,16 @@ if (ready) {
     CREATE INDEX IF NOT EXISTS idx_ai_skill_req_owner ON ai_skill_requests(requester_id, created_at DESC);
   `);
 
+  // ── 마이그레이션: ai_projects.knowledge (프로젝트 지식베이스) ──
+  // CREATE TABLE 은 기존 테이블에 새 컬럼을 안 더하므로 ALTER 로 추가 (이미 있으면 건너뜀)
+  try {
+    const cols = db.prepare("PRAGMA table_info(ai_projects)").all();
+    if (!cols.some(c => c.name === 'knowledge')) {
+      db.exec("ALTER TABLE ai_projects ADD COLUMN knowledge TEXT DEFAULT ''");
+      console.log('[db-ai] ai_projects.knowledge 컬럼 추가됨 (프로젝트 지식베이스)');
+    }
+  } catch (e) { console.warn('[db-ai] knowledge 마이그레이션 실패:', e.message); }
+
   // 기본 "(미분류)" 가상 프로젝트는 project_id=NULL 로 표현 → 레코드 불필요
 }
 
@@ -325,7 +335,7 @@ const projects = {
     const now = nowIso();
     const fields = [];
     const values = [];
-    const allowed = ['name', 'emoji', 'description', 'share_mode', 'pinned', 'archived'];
+    const allowed = ['name', 'emoji', 'description', 'share_mode', 'pinned', 'archived', 'knowledge'];
     for (const k of allowed) {
       if (patch[k] !== undefined) { fields.push(`${k}=?`); values.push(patch[k]); }
     }

@@ -638,6 +638,7 @@ router.put('/projects/:id', (req, res) => {
     if (b.name !== undefined) patch.name = String(b.name).trim().slice(0, 60);
     if (b.emoji !== undefined) patch.emoji = b.emoji;
     if (b.description !== undefined) patch.description = b.description;
+    if (b.knowledge !== undefined) patch.knowledge = String(b.knowledge).slice(0, 100000);  // 프로젝트 지식베이스
     const shareMode = b.share_mode || b.shareMode;
     const memberIds = b.member_ids || b.members;
     const valid = ['private', 'team', 'company', 'invited'];

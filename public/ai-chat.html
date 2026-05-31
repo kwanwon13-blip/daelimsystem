@@ -137,6 +137,11 @@ input,textarea{font:inherit}
 .project-item.active{background:#eff3ff;color:#4f6ef7;font-weight:600}
 .project-item-emoji{font-size:13px;flex-shrink:0}
 .project-item-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.proj-kb-btn{border:none;background:transparent;cursor:pointer;color:#9ca3af;padding:0 2px;display:inline-flex;align-items:center;opacity:0;transition:opacity .1s,color .1s;flex-shrink:0}
+.proj-kb-btn .material-symbols-outlined{font-size:15px}
+.project-item:hover .proj-kb-btn{opacity:.6}
+.proj-kb-btn:hover{opacity:1 !important;color:#4f6ef7}
+.proj-kb-btn.has-kb{opacity:.9;color:#4f6ef7}
 .project-item-count{font-size:10px;color:#9ca3af;font-weight:400}
 .project-item.active .project-item-count{color:#4f6ef7}
 .new-project-btn{padding:6px 10px;border-radius:6px;color:#6b7280;font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;background:transparent;border:1px dashed #e5e7eb;width:100%}

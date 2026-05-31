@@ -1565,13 +1565,25 @@ function renderProjects() {
     const emoji = p.emoji || '📁';
     const name = escapeHtml(p.name || '이름 없음');
     const cnt = p.thread_count ? '<span class="project-item-count">' + p.thread_count + '</span>' : '';
+    const hasKb = (p.knowledge && p.knowledge.trim()) ? ' has-kb' : '';
+    // 📋 지식 편집 버튼 (claude.ai Projects 처럼 — 여기 적은 내용이 그 프로젝트 모든 대화에 주입)
+    const kbBtn = '<button class="proj-kb-btn' + hasKb + '" data-kb="' + p.id + '" title="프로젝트 지식 편집">' +
+      '<span class="material-symbols-outlined">menu_book</span></button>';
     html += '<div class="project-item' + (isActive ? ' active' : '') + '" data-pid="' + p.id + '" title="' + name + '">' +
       '<span class="project-item-emoji">' + emoji + '</span>' +
-      '<span class="project-item-name">' + name + '</span>' + cnt + '</div>';
+      '<span class="project-item-name">' + name + '</span>' + cnt + kbBtn + '</div>';
   }
   projectListEl.innerHTML = html;
 }
 projectListEl.addEventListener('click', (e) => {
+  // 지식 편집 버튼이면 모달 열고 끝 (대화 필터링으로 안 넘어감)
+  const kbBtn = e.target.closest('.proj-kb-btn');
+  if (kbBtn) {
+    e.stopPropagation();
+    const p = state.projects.find(x => String(x.id) === String(kbBtn.dataset.kb));
+    if (p) openKnowledgeModal(p);
+    return;
+  }
   const item = e.target.closest('.project-item');
   if (!item) return;
   const pid = item.dataset.pid;
@@ -1579,6 +1591,52 @@ projectListEl.addEventListener('click', (e) => {
   renderProjects();
   loadThreadsByProject();
 });
+
+// 프로젝트 지식 편집 모달 — 여기 적은 내용이 그 프로젝트의 모든 대화에 자동 참고됨
+function openKnowledgeModal(project) {
+  if (!document.getElementById('kbModalStyles')) {
+    const s = document.createElement('style'); s.id = 'kbModalStyles';
+    s.textContent = '.kb-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:2000}'
+      + '.kb-modal{background:#fff;border-radius:14px;padding:20px;width:560px;max-width:92vw;box-shadow:0 12px 40px rgba(0,0,0,.25)}'
+      + '.kb-modal h3{font-size:15px;font-weight:700;margin:0 0 4px;color:#1f2937}'
+      + '.kb-modal .kb-sub{font-size:12px;color:#9ca3af;margin:0 0 12px;line-height:1.5}'
+      + '.kb-modal textarea{width:100%;height:240px;padding:11px 13px;border:1px solid #d1d5db;border-radius:9px;font-size:13px;line-height:1.6;font-family:inherit;color:#1f2937;outline:none;resize:vertical;box-sizing:border-box}'
+      + '.kb-modal textarea:focus{border-color:#4f6ef7}'
+      + '.kb-modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}'
+      + '.kb-modal-actions button{padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none}'
+      + '.kb-cancel{background:#f3f4f6;color:#4b5563}.kb-save{background:linear-gradient(135deg,#4f6ef7,#7c5cff);color:#fff}';
+    document.head.appendChild(s);
+  }
+  const bg = document.createElement('div');
+  bg.className = 'kb-modal-bg';
+  bg.innerHTML =
+    '<div class="kb-modal">' +
+      '<h3>' + (project.emoji || '📁') + ' ' + escapeHtml(project.name || '프로젝트') + ' — 지식</h3>' +
+      '<p class="kb-sub">여기 적은 내용은 이 프로젝트의 <b>모든 대화</b>에 자동으로 참고됩니다.<br>(회사 규칙·용어·단가 기준·자주 쓰는 정보 등)</p>' +
+      '<textarea class="kb-input" placeholder="예) 우리 거래처는 퍼시스/하츠/나이스텍. 견적 단가는 항상 부가세 별도로 표기한다. ..."></textarea>' +
+      '<div class="kb-modal-actions"><button class="kb-cancel">취소</button><button class="kb-save">저장</button></div>' +
+    '</div>';
+  document.body.appendChild(bg);
+  const ta = bg.querySelector('.kb-input');
+  ta.value = project.knowledge || '';
+  setTimeout(() => ta.focus(), 50);
+  const close = () => { try { document.body.removeChild(bg); } catch(_){} };
+  bg.addEventListener('click', (ev) => { if (ev.target === bg) close(); });
+  bg.querySelector('.kb-cancel').addEventListener('click', close);
+  bg.querySelector('.kb-save').addEventListener('click', async () => {
+    const knowledge = ta.value;
+    try {
+      const r = await fetch('/api/ai/projects/' + project.id, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ knowledge }),
+      });
+      if (!r.ok) throw new Error('저장 실패 ' + r.status);
+      project.knowledge = knowledge;   // 로컬 캐시 갱신 → 아이콘 강조 반영
+      renderProjects();
+      close();
+    } catch (e) { alert('지식 저장 실패: ' + e.message); }
+  });
+}
 
 async function loadThreadsByProject() {
   try {
