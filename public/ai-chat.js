@@ -1362,11 +1362,10 @@ function editMessage(msg, msgEl) {
   contentEl.appendChild(wrap);
   const ta = wrap.querySelector('textarea');
   ta.focus();
+  try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch(_) {}
   ta.style.height = Math.max(80, ta.scrollHeight) + 'px';
-  wrap.querySelector('.msg-edit-cancel').addEventListener('click', () => {
-    contentEl.innerHTML = '<p>' + escapeHtml(oldContent).replace(/\n/g, '<br>') + '</p>';
-  });
-  wrap.querySelector('.msg-edit-save').addEventListener('click', () => {
+  const restore = () => { contentEl.innerHTML = '<p>' + escapeHtml(oldContent).replace(/\n/g, '<br>') + '</p>'; };
+  const doSave = () => {
     const newText = ta.value.trim();
     if (!newText) return;
     const idx = state.messages.findIndex(m => String(m.id) === String(msg.id));
@@ -1376,7 +1375,14 @@ function editMessage(msg, msgEl) {
     input.value = newText;
     autoResize();
     sendMessage();
+  };
+  ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.max(80, ta.scrollHeight) + 'px'; });
+  ta.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSave(); }   // Enter 저장 (claude.ai 동일)
+    else if (e.key === 'Escape') { e.preventDefault(); restore(); }            // Esc 취소
   });
+  wrap.querySelector('.msg-edit-cancel').addEventListener('click', restore);
+  wrap.querySelector('.msg-edit-save').addEventListener('click', doSave);
 }
 
 function regenerateMessage(aiMsg) {
