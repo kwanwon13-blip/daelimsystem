@@ -1140,6 +1140,8 @@ async function sendMessage() {
             // 서버 메시지 ID 저장 (중단 버튼·재연결 키). 새 대화면 실제 threadId 로도 복원 등록.
             if (data.messageId) aiMsg.serverMsgId = data.messageId;
             if (newThreadId && ownerThreadId === 'new') state.liveByThread[String(newThreadId)] = aiMsg;
+            // ★ threadId 가 생기는 즉시 저장 → 생성 중 F5 해도 이 대화로 복원 (새 대화의 핵심)
+            if (newThreadId) { try { localStorage.setItem('aiTab:lastThreadId', String(newThreadId)); } catch(_) {} }
           }
           else if (eventName === 'snapshot') {
             // attach 재연결 첫 프레임(전체 대입). 직접 스트림 경로에선 보통 안 오지만 방어적으로.
