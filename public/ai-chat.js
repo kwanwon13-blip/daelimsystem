@@ -482,6 +482,20 @@ function enhanceCodeBlocks(container) {
       } catch (e) {}
     });
     wrap.appendChild(btn);
+
+    // HTML/SVG 코드블록이면 "미리보기" 버튼 추가 → 우측 샌드박스 패널에서 실행 (claude.ai 아티팩트처럼)
+    const codeEl = pre.querySelector('code');
+    const codeText = codeEl ? codeEl.innerText : pre.innerText;
+    const lang = codeEl ? (codeEl.className.match(/language-(\w+)/) || [])[1] : '';
+    const isSvg = lang === 'svg' || /^\s*<svg[\s>]/i.test(codeText);
+    const isHtml = lang === 'html' || lang === 'xml' || /<!doctype html|<html[\s>]|<body[\s>]|<div[\s>][\s\S]*<\/div>/i.test(codeText);
+    if ((isSvg || isHtml) && codeText.trim().length > 12) {
+      const prevBtn = document.createElement('button');
+      prevBtn.className = 'code-copy-btn code-preview-btn';
+      prevBtn.innerHTML = '<span class="material-symbols-outlined">play_arrow</span>미리보기';
+      prevBtn.addEventListener('click', () => openLivePreview(codeText, isSvg, isSvg ? 'SVG 미리보기' : 'HTML 미리보기'));
+      wrap.appendChild(prevBtn);
+    }
   });
 }
 // 생각 과정(thinking) 접이식 박스 — claude.ai 스타일. 생성 중엔 펼침, 완료 후 자동 접힘.
@@ -610,6 +624,7 @@ if (previewResizer) {
 async function openPreview(id, kind, name) {
   previewTitle.textContent = name || '미리보기';
   previewBody.innerHTML = '<div class="preview-loading">불러오는 중…</div>';
+  if (previewDownload) previewDownload.style.display = '';  // 라이브 미리보기가 숨겼을 수 있어 복구
   previewDownload.href = '/api/ai/artifacts/' + id + '/download';
   previewModalBg.classList.add('visible');
   if (appEl) appEl.classList.add('preview-open');
@@ -653,6 +668,17 @@ async function openPreview(id, kind, name) {
 
 // 안전한 sandbox iframe 으로 HTML/SVG 콘텐츠 실행
 // sandbox="allow-scripts" 만 — same-origin 없으니 부모 DOM·쿠키·ERP API 접근 불가
+// 코드블록의 HTML/SVG 를 우측 패널에서 즉시 실행 (서버 아티팩트 없이 인라인 콘텐츠로)
+function openLivePreview(content, isSvg, name) {
+  previewTitle.textContent = name || '미리보기';
+  previewBody.innerHTML = '<div class="preview-loading">실행 중…</div>';
+  if (previewDownload) previewDownload.style.display = 'none';  // 인라인 미리보기는 다운로드 없음
+  previewModalBg.classList.add('visible');
+  if (appEl) appEl.classList.add('preview-open');
+  try { renderSandboxedHtml(content, isSvg); } catch (e) {
+    previewBody.innerHTML = '<div class="preview-loading" style="color:#dc2626;">미리보기 실패: ' + escapeHtml(e.message) + '</div>';
+  }
+}
 function renderSandboxedHtml(content, isSvg) {
   let html = String(content);
   if (isSvg) {
