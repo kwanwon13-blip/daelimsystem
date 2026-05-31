@@ -1675,6 +1675,7 @@ if (_isEmbedded) {
   document.body.style.background = '#fff';
 }
 
-loadThreads();
+// 초기화: 스레드 목록 로드 후 → 마지막 보던 대화 자동 복원 (F5/탭이동 복원)
+loadThreads().then(restoreLastThread);
 loadProjects();
 detectApiMode();
