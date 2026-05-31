@@ -304,10 +304,13 @@ function attachToGeneration(aiMsg, ownerThreadId) {
   es.addEventListener('delta', (ev) => {
     try { const d = JSON.parse(ev.data); aiMsg.content += d.text || ''; if (viewing()) updateLastAIContent(aiMsg.content, true, ownerThreadId); } catch(_){}
   });
-  es.addEventListener('thinking', () => { if (!aiMsg.content && viewing()) updateLastAIContent('_생각하는 중…_', true, ownerThreadId); });
+  es.addEventListener('thinking', (ev) => {
+    try { const d = JSON.parse(ev.data); if (typeof d.text === 'string') aiMsg.thinking = (aiMsg.thinking || '') + d.text; aiMsg.thinkingActive = true; } catch(_){}
+    if (viewing()) updateLastAIContent(aiMsg.content, true, ownerThreadId);
+  });
   es.addEventListener('done', (ev) => {
     try { const d = JSON.parse(ev.data); if (d.text) aiMsg.content = d.text; if (Array.isArray(d.artifacts)) aiMsg.artifacts = d.artifacts; } catch(_){}
-    aiMsg.streaming = false; aiMsg.status = 'ok';
+    aiMsg.streaming = false; aiMsg.status = 'ok'; aiMsg.thinkingActive = false;
     if (viewing()) { updateLastAIContent(aiMsg.content, false, ownerThreadId); renderMessagesFull(); }
     try { es.close(); } catch(_){} state.attachES = null;
     loadThreads();
@@ -362,12 +365,14 @@ function buildMessageEl(m) {
     '<div class="msg-avatar"><span class="material-symbols-outlined">' + (isUser ? 'person' : 'smart_toy') + '</span></div>' +
     '<div class="msg-body">' +
       '<div class="msg-name">' + (isUser ? '나' : 'AI') + (m.createdAt ? '<span class="msg-time">' + escapeHtml(formatRelativeTime(m.createdAt)) + '</span>' : '') + '</div>' +
+      '<div class="msg-thinking-wrap"></div>' +
       '<div class="msg-content"></div>' +
       '<div class="msg-attachments-wrap"></div>' +
       '<div class="msg-artifacts-wrap"></div>' +
     '</div>' + actionsHtml;
   const contentEl = wrap.querySelector('.msg-content');
   if (isAI) {
+    renderThinkingBox(wrap.querySelector('.msg-thinking-wrap'), m);
     contentEl.innerHTML = md(m.content) + (m.streaming ? '<span class="typing-cursor"></span>' : '');
     if (!m.streaming) enhanceCodeBlocks(contentEl);
     if (m.image_url) {
@@ -479,12 +484,57 @@ function enhanceCodeBlocks(container) {
     wrap.appendChild(btn);
   });
 }
+// 생각 과정(thinking) 접이식 박스 — claude.ai 스타일. 생성 중엔 펼침, 완료 후 자동 접힘.
+function ensureThinkingStyles() {
+  if (document.getElementById('aiThinkingStyles')) return;
+  const s = document.createElement('style');
+  s.id = 'aiThinkingStyles';
+  s.textContent = '.msg-thinking{margin:0 0 8px;border:1px solid #e5e7eb;border-radius:10px;background:#fafafa;overflow:hidden}'
+    + '.msg-thinking-head{display:flex;align-items:center;gap:6px;padding:7px 11px;cursor:pointer;font-size:12px;font-weight:600;color:#6b7280;user-select:none}'
+    + '.msg-thinking-head:hover{background:#f3f4f6}'
+    + '.msg-thinking-head .material-symbols-outlined{font-size:15px}'
+    + '.msg-thinking-head .chev{margin-left:auto;transition:transform .15s}'
+    + '.msg-thinking.collapsed .chev{transform:rotate(-90deg)}'
+    + '.msg-thinking-body{padding:2px 12px 11px;font-size:12.5px;line-height:1.6;color:#9ca3af;white-space:pre-wrap;word-break:break-word;max-height:300px;overflow-y:auto}'
+    + '.msg-thinking.collapsed .msg-thinking-body{display:none}'
+    + '.msg-thinking-spin{animation:spin 1.2s linear infinite}';
+  document.head.appendChild(s);
+}
+function renderThinkingBox(wrap, m) {
+  if (!wrap) return;
+  const txt = (m.thinking || '').trim();
+  if (!txt) { wrap.innerHTML = ''; return; }
+  ensureThinkingStyles();
+  const active = !!m.thinkingActive && !!m.streaming;
+  // 생성 중엔 펼침, 끝나면 접힘. 사용자가 수동 토글한 상태(m._thinkOpen)가 있으면 우선.
+  const open = (m._thinkOpen !== undefined) ? m._thinkOpen : active;
+  const icon = active ? 'progress_activity' : 'lightbulb';
+  const label = active ? '생각하는 중…' : '생각 과정';
+  wrap.innerHTML =
+    '<div class="msg-thinking' + (open ? '' : ' collapsed') + '">' +
+      '<div class="msg-thinking-head">' +
+        '<span class="material-symbols-outlined' + (active ? ' msg-thinking-spin' : '') + '">' + icon + '</span>' +
+        '<span>' + label + '</span>' +
+        '<span class="material-symbols-outlined chev">expand_more</span>' +
+      '</div>' +
+      '<div class="msg-thinking-body"></div>' +
+    '</div>';
+  wrap.querySelector('.msg-thinking-body').textContent = txt;
+  const box = wrap.querySelector('.msg-thinking');
+  wrap.querySelector('.msg-thinking-head').addEventListener('click', () => {
+    box.classList.toggle('collapsed');
+    m._thinkOpen = !box.classList.contains('collapsed');
+  });
+}
 function updateLastAIContent(text, isStreaming, ownerThreadId) {
   // ownerThreadId 가 주어졌고 현재 보고 있는 스레드와 다르면 화면 갱신 안 함 (백그라운드)
   const isNewThreadView = ownerThreadId === 'new' && state.activeThreadId == null;
   if (ownerThreadId !== undefined && !isNewThreadView && String(ownerThreadId) !== String(state.activeThreadId)) return;
   const last = messagesEl.lastElementChild;
   if (!last || !last.classList.contains('msg-ai')) return;
+  // 생각 박스 갱신 (마지막 ai 메시지 객체를 state.messages 에서 찾아 thinking 반영)
+  const tw = last.querySelector('.msg-thinking-wrap');
+  if (tw) { const lm = state.messages[state.messages.length - 1]; if (lm) renderThinkingBox(tw, lm); }
   const c = last.querySelector('.msg-content');
   if (!c) return;
   c.innerHTML = md(text) + (isStreaming ? '<span class="typing-cursor"></span>' : '');
@@ -1060,13 +1110,18 @@ async function sendMessage() {
             scrollToBottom();
           }
           else if (eventName === 'thinking') {
-            if (!aiMsg.content) updateLastAIContent('_생각하는 중…_', true, ownerThreadId);
+            // 생각 과정 누적 → 접이식 박스 (claude.ai 스타일). 텍스트가 오면 모으고, active만 오면 표시 시작.
+            if (typeof data.text === 'string') aiMsg.thinking = (aiMsg.thinking || '') + data.text;
+            aiMsg.thinkingActive = true;
+            const now = Date.now();
+            if (now - lastRender > 50) { updateLastAIContent(aiMsg.content, true, ownerThreadId); lastRender = now; }
           }
           else if (eventName === 'delta') {
+            aiMsg.thinkingActive = false;  // 본문 시작 = 생각 끝
             aiMsg.content += data.text || '';
             const now = Date.now();
             if (now - lastRender > 16) {
-              updateLastAIContent(aiMsg.content, true);
+              updateLastAIContent(aiMsg.content, true, ownerThreadId);
               scrollToBottom();
               lastRender = now;
             }

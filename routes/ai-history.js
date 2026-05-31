@@ -2035,7 +2035,7 @@ router.post('/chat-stream-cli', async (req, res) => {
       chatMode: true,              // 파일시스템 격리 + 변경/쉘 도구 차단
       strictMcp: true,             // MCP 미로딩 → 첫 토큰까지 ~1초
       timeout: AI_CLI_TIMEOUT_MS,  // 3분(lib 기본) → 10분: 긴 답변·복잡한 질문이 중간에 끊기지 않게
-      onThinking: (t) => { if (!thinkingSent) { thinkingSent = true; reg.publish(aiMsg.id, 'thinking', { active: true }); } },
+      onThinking: (t) => { thinkingSent = true; reg.publish(aiMsg.id, 'thinking', { active: true, text: t || '' }); },
     });
     genRec.abort = streamPromise.abort;   // stop API 가 호출할 중단 함수 연결
     const result = await streamPromise;
