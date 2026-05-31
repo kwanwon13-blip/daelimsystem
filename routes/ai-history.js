@@ -1931,6 +1931,17 @@ router.post('/chat-stream-cli', async (req, res) => {
   }
   const pageCtx = pageContent ? '【참고: 현재 페이지】\n' + String(pageContent).slice(0, 200000) + '\n\n' : '';
 
+  // 프로젝트 지식베이스: 이 스레드가 속한 프로젝트에 등록된 지식을 모든 대화에 자동 주입 (claude.ai Projects 처럼)
+  let knowledgeBlock = '';
+  try {
+    if (thread.project_id) {
+      const proj = ai.projects.get(thread.project_id);
+      if (proj && proj.knowledge && proj.knowledge.trim()) {
+        knowledgeBlock = '【프로젝트 지식: ' + (proj.name || '') + '】\n' + proj.knowledge.trim().slice(0, 100000) + '\n\n';
+      }
+    }
+  } catch (e) { console.warn('[chat-stream-cli] 프로젝트 지식 주입 실패:', e.message); }
+
   // 이전 대화 컨텍스트 (간단히 앞에 붙임) — 대화 기억 강화 (8 → 20, 클로드챗처럼)
   const prior = ai.threads.recentMessages(thread.id, 20);
   let priorBlock = '';
@@ -1938,7 +1949,7 @@ router.post('/chat-stream-cli', async (req, res) => {
     priorBlock = prior.map(m => (m.role === 'user' ? 'User: ' : 'Assistant: ') + (m.content || '')).join('\n\n') + '\n\nAssistant:\n';
   }
 
-  const fullPrompt = templatePrefix + pageCtx + attachmentBlock + priorBlock + prompt;
+  const fullPrompt = knowledgeBlock + templatePrefix + pageCtx + attachmentBlock + priorBlock + prompt;
 
   // 사용자 메시지 저장
   ai.threads.addMessage(thread.id, {
