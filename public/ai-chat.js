@@ -106,6 +106,7 @@ sendBtn.addEventListener('click', () => { if (!sendBtn.disabled) sendMessage(); 
 $('newChatBtn').addEventListener('click', () => {
   if (state.streaming) return;
   state.activeThreadId = null;
+  try { localStorage.removeItem('aiTab:lastThreadId'); } catch(_) {}  // 새 대화 → F5 시 빈 화면
   state.messages = []; state.attachments = [];
   renderAttachments();
   topbarTitleEl.textContent = '새 대화';
@@ -199,6 +200,16 @@ async function loadThreads() {
     threadListLoading.style.color = '#dc2626';
   }
 }
+
+// 페이지 로드/새로고침 시 마지막으로 보던 대화를 자동으로 다시 연다.
+// = "새로고침하면 대화 내역이 날아간다" 해결. 생성 중이던 답변은 selectThread→attachToGeneration 이 서버에서 이어받음.
+async function restoreLastThread() {
+  let lastId = null;
+  try { lastId = localStorage.getItem('aiTab:lastThreadId'); } catch(_) {}
+  if (!lastId) return;
+  if (!state.threads.some(t => String(t.id) === String(lastId))) return;  // 삭제된 대화면 무시
+  await selectThread(lastId);
+}
 function groupByDate(threads) {
   const sod = (d) => { const x = new Date(d); x.setHours(0,0,0,0); return x.getTime(); };
   const today = sod(new Date()), yest = today - 86400000;
@@ -249,6 +260,7 @@ async function selectThread(threadId) {
   // 이전 스레드의 attach 재연결은 닫기 (새 스레드 화면을 오염시키지 않게)
   if (state.attachES) { try { state.attachES.close(); } catch(_){} state.attachES = null; }
   state.activeThreadId = threadId;
+  try { localStorage.setItem('aiTab:lastThreadId', String(threadId)); } catch(_) {}  // F5/탭이동 후 복원용
   state.attachments = [];
   renderAttachments();
   const t = state.threads.find(x => String(x.id) === String(threadId));
