@@ -376,6 +376,7 @@ input,textarea{font:inherit}
 </div>
 </div>
 
-<script src="/ai-chat.js"></script>
+<!-- 캐시 무력화: 배포 때마다 새 ai-chat.js 를 강제로 받음 (옛 JS 캐시로 F5 복원이 깨지던 문제 방지) -->
+<script>document.write('<scr'+'ipt src="/ai-chat.js?v=' + Date.now() + '"></scr'+'ipt>');</script>
 </body>
 </html>

@@ -556,8 +556,9 @@ function updateLastAIContent(text, isStreaming, ownerThreadId) {
   // ownerThreadId 가 주어졌고 현재 보고 있는 스레드와 다르면 화면 갱신 안 함 (백그라운드)
   const isNewThreadView = ownerThreadId === 'new' && state.activeThreadId == null;
   if (ownerThreadId !== undefined && !isNewThreadView && String(ownerThreadId) !== String(state.activeThreadId)) return;
+  if (!messagesEl) return;
   const last = messagesEl.lastElementChild;
-  if (!last || !last.classList.contains('msg-ai')) return;
+  if (!last || !last.classList || !last.classList.contains('msg-ai')) return;
   // 생각 박스 갱신 (마지막 ai 메시지 객체를 state.messages 에서 찾아 thinking 반영)
   const tw = last.querySelector('.msg-thinking-wrap');
   if (tw) { const lm = state.messages[state.messages.length - 1]; if (lm) renderThinkingBox(tw, lm); }
