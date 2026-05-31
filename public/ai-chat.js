@@ -13,6 +13,9 @@ const state = {
   threads: [], filteredThreads: [], activeThreadId: null, searchQuery: '',
   messages: [], streaming: false, attachments: [],
   streamingByThread: new Set(),
+  liveByThread: {},   // threadId(또는 'new') → 생성 중인 ai 메시지 객체 (스레드 전환 후에도 답변 유지)
+  attachES: null,     // 진행 중 생성 재연결용 EventSource (새로고침/다른PC 복원)
+  userStopped: false, // 사용자가 중단 버튼을 눌렀는지 (abort 오류를 조용히 처리)
   imageMode: false, usage: null,
   modelId: SAVED_MODEL,
   apiKeyAvailable: null,
@@ -62,9 +65,16 @@ function shouldUseAgentMode(text, attachmentIds) {
   if (state.imageMode) return false;
   const s = String(text || '').toLowerCase();
   const hasAttachment = Array.isArray(attachmentIds) && attachmentIds.length > 0;
+  // ① 명확한 업무 문서/마감 키워드 — 단독으로도 에이전트 행 (파일 생성이 거의 확실)
+  //    퍼시스/하츠/나이스텍 거래명세서·마감·정산 작업이 채팅으로 새서 막히던 문제 방지
+  const docWords = /(거래명세서|명세서|마감|정산|원장|견적서|청구서|발주서|세금계산서|매입매출|판매현황|단가표|퍼시스|fursys|하츠|haatz|나이스텍|nicetech)/i;
+  if (docWords.test(s)) return true;
+  // ② 첨부 파일이 있으면 가공 작업일 확률이 높음 → 에이전트
+  if (hasAttachment) return true;
+  // ③ 일반 파일 키워드 + 행위 동사 조합
   const fileWords = /(파일|엑셀|xlsx|xls|csv|pdf|ppt|pptx|docx|html|svg|zip|다운로드|저장|생성|만들|작성|정리|분리|나눠|변환|보고서|양식|서식)/i;
   const workWords = /(만들어|만들어줘|생성해|작성해|정리해|분리해|나눠줘|변환해|저장해|다운로드|파일로|엑셀로|pdf로|보고서로|표로)/i;
-  return fileWords.test(s) && (workWords.test(s) || hasAttachment);
+  return fileWords.test(s) && workWords.test(s);
 }
 function renderAiMessage(aiMsg) {
   if (messagesEl.lastElementChild && messagesEl.lastElementChild.classList && messagesEl.lastElementChild.classList.contains('msg-ai')) {
@@ -236,6 +246,8 @@ threadListEl.addEventListener('click', (e) => {
 
 async function selectThread(threadId) {
   // streaming 중이어도 다른 스레드 보러 가는 거 허용 (백그라운드는 계속)
+  // 이전 스레드의 attach 재연결은 닫기 (새 스레드 화면을 오염시키지 않게)
+  if (state.attachES) { try { state.attachES.close(); } catch(_){} state.attachES = null; }
   state.activeThreadId = threadId;
   state.attachments = [];
   renderAttachments();
@@ -250,16 +262,66 @@ async function selectThread(threadId) {
     const data = await r.json();
     state.messages = (data.messages || []).map(m => ({
       id: m.id, role: m.role, content: m.content || '', createdAt: m.created_at,
+      status: m.status,
       attachments: m.attachments_parsed || [], artifacts: m.artifacts_parsed || [],
       image_url: m.image_url || null,
     }));
+    // ★ 생성 중(status='generating') 답변이 있으면 서버에 재연결해서 이어받기
+    //   = 새로고침/다른PC/창닫고복귀 복원의 핵심
+    const genMsg = state.messages.find(m => (m.role === 'ai' || m.role === 'assistant') && m.status === 'generating');
+    if (genMsg) { genMsg.streaming = true; genMsg.serverMsgId = genMsg.id; }
+    else {
+      // 생성 중 메시지가 없을 때만: 같은 탭 메모리 복원(아직 DB 반영 전 케이스)
+      const live = state.liveByThread[String(threadId)];
+      if (live && live.streaming && !state.messages.includes(live)) {
+        const last = state.messages[state.messages.length - 1];
+        const lastIsAssistant = last && (last.role === 'ai' || last.role === 'assistant');
+        if (!lastIsAssistant) state.messages.push(live);
+      }
+    }
     renderMessagesFull();
     scrollToBottom();
+    if (genMsg) attachToGeneration(genMsg, String(threadId));
   } catch (e) {
     console.error('메시지 로드 실패:', e);
     messagesEl.innerHTML = '<div style="text-align:center;padding:40px;color:#dc2626;font-size:13px;">메시지 불러오기 실패: ' + escapeHtml(e.message) + '</div>';
   }
 }
+// 진행 중 생성에 재연결 (EventSource) — 새로고침/다른PC/창닫고복귀 시 답변 이어받기.
+// snapshot(여태 전체 대입) → delta(증분 누적) → done/error 로 마무리.
+function attachToGeneration(aiMsg, ownerThreadId) {
+  if (state.attachES) { try { state.attachES.close(); } catch(_){} state.attachES = null; }
+  const mid = aiMsg.serverMsgId || aiMsg.id;
+  if (!mid) return;
+  let es;
+  try { es = new EventSource('/api/ai/chat-stream-cli/attach?messageId=' + encodeURIComponent(mid)); }
+  catch (e) { return; }
+  state.attachES = es;
+  const viewing = () => String(state.activeThreadId) === String(ownerThreadId);
+  es.addEventListener('snapshot', (ev) => {
+    try { const d = JSON.parse(ev.data); aiMsg.content = d.text || ''; if (viewing()) { updateLastAIContent(aiMsg.content, true, ownerThreadId); scrollToBottom(); } } catch(_){}
+  });
+  es.addEventListener('delta', (ev) => {
+    try { const d = JSON.parse(ev.data); aiMsg.content += d.text || ''; if (viewing()) updateLastAIContent(aiMsg.content, true, ownerThreadId); } catch(_){}
+  });
+  es.addEventListener('thinking', () => { if (!aiMsg.content && viewing()) updateLastAIContent('_생각하는 중…_', true, ownerThreadId); });
+  es.addEventListener('done', (ev) => {
+    try { const d = JSON.parse(ev.data); if (d.text) aiMsg.content = d.text; if (Array.isArray(d.artifacts)) aiMsg.artifacts = d.artifacts; } catch(_){}
+    aiMsg.streaming = false; aiMsg.status = 'ok';
+    if (viewing()) { updateLastAIContent(aiMsg.content, false, ownerThreadId); renderMessagesFull(); }
+    try { es.close(); } catch(_){} state.attachES = null;
+    loadThreads();
+  });
+  es.addEventListener('error', (ev) => {
+    // 서버가 보낸 event:error(데이터 있음) vs 연결 끊김(데이터 없음) 구분
+    let serverErr = false;
+    try { if (ev && ev.data) { const d = JSON.parse(ev.data); aiMsg.content = (d.text || aiMsg.content || '') + '\n\n**오류:** ' + (d.error || '오류'); aiMsg.streaming = false; aiMsg.status = 'error'; if (viewing()) updateLastAIContent(aiMsg.content, false, ownerThreadId); serverErr = true; } } catch(_){}
+    // 어느 경우든 자동 재연결 폭주 방지: 닫는다. (필요하면 사용자가 대화 다시 열어 재attach)
+    try { es.close(); } catch(_){} state.attachES = null;
+    if (!serverErr) loadThreads();  // 연결 끊김이면 최신 상태 다시 로드
+  });
+}
+
 threadSearchEl.addEventListener('input', (e) => { state.searchQuery = e.target.value; renderThreadList(); });
 
 // 메시지 렌더
@@ -322,10 +384,28 @@ function buildMessageEl(m) {
     const aw = wrap.querySelector('.msg-attachments-wrap');
     aw.className += ' msg-attachments';
     for (const a of m.attachments) {
-      const chip = document.createElement('span');
-      chip.className = 'msg-attachment';
-      chip.innerHTML = '<span class="material-symbols-outlined">' + attachKindIcon(a.kind) + '</span>' + escapeHtml(a.originalName || a.original_name || '파일');
-      aw.appendChild(chip);
+      const aid = a.id;
+      const name = a.originalName || a.original_name || '파일';
+      // 이미지는 클로드 웹처럼 말풍선 안 썸네일로 (클릭 시 원본 새 탭)
+      if (a.kind === 'image' && aid) {
+        const thumb = document.createElement('a');
+        thumb.className = 'msg-attachment-img';
+        thumb.href = '/api/ai/attachments/' + aid + '/raw';
+        thumb.target = '_blank';
+        thumb.rel = 'noopener noreferrer';
+        thumb.title = name;
+        const img = document.createElement('img');
+        img.src = '/api/ai/attachments/' + aid + '/raw';
+        img.alt = name;
+        img.loading = 'lazy';
+        thumb.appendChild(img);
+        aw.appendChild(thumb);
+      } else {
+        const chip = document.createElement('span');
+        chip.className = 'msg-attachment';
+        chip.innerHTML = '<span class="material-symbols-outlined">' + attachKindIcon(a.kind) + '</span>' + escapeHtml(name);
+        aw.appendChild(chip);
+      }
     }
   }
   if (Array.isArray(m.artifacts) && m.artifacts.length > 0) {
@@ -851,6 +931,7 @@ async function sendMessage() {
 
   const aiMsg = { role: 'ai', content: state.imageMode ? '이미지 생성 중… (10~30초 소요)' : '', streaming: true, id: 'tmp_a_' + Date.now() };
   state.messages.push(aiMsg);
+  state.liveByThread[ownerThreadId] = aiMsg;   // 생성 중 답변 등록 (다른 대화 갔다 와도 복원)
   appendMessage(aiMsg);
   scrollToBottom();
 
@@ -898,6 +979,8 @@ async function sendMessage() {
     } finally {
       state.streamingByThread.delete(ownerThreadId);
       state.streamingByThread.delete('new');
+      delete state.liveByThread[ownerThreadId];
+      if (state.activeThreadId) delete state.liveByThread[String(state.activeThreadId)];
       setStreaming(false); input.disabled = false; autoResize(); input.focus();
       renderThreadList();
     }
@@ -917,6 +1000,8 @@ async function sendMessage() {
         state.streamingByThread.delete(ownerThreadId);
         state.streamingByThread.delete('new');
       }
+      delete state.liveByThread[ownerThreadId];
+      if (state.activeThreadId) delete state.liveByThread[String(state.activeThreadId)];
       setStreaming(false);
       input.disabled = false;
       autoResize();
@@ -928,6 +1013,8 @@ async function sendMessage() {
 
   // 환경에 따라 endpoint 선택: API key 있으면 /chat-stream, 없으면 /chat-stream-cli (CLI 스트리밍)
   const streamEndpoint = state.apiKeyAvailable === false ? '/api/ai/chat-stream-cli' : '/api/ai/chat-stream';
+  // ★ newThreadId 는 try/catch/finally 전부에서 참조되므로 try 밖에서 선언 (블록 스코프 ReferenceError 방지)
+  let newThreadId = null;
   try {
     const r = await fetch(streamEndpoint, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
@@ -943,7 +1030,7 @@ async function sendMessage() {
     if (!r.ok) throw new Error('chat-stream ' + r.status);
     const reader = r.body.getReader();
     const decoder = new TextDecoder();
-    let buffer = ''; let newThreadId = null;
+    let buffer = '';
     let lastRender = 0;
     while (true) {
       const { value, done } = await reader.read();
@@ -960,7 +1047,18 @@ async function sendMessage() {
         if (!dataStr) continue;
         try {
           const data = JSON.parse(dataStr);
-          if (eventName === 'start') newThreadId = data.threadId;
+          if (eventName === 'start') {
+            newThreadId = data.threadId;
+            // 서버 메시지 ID 저장 (중단 버튼·재연결 키). 새 대화면 실제 threadId 로도 복원 등록.
+            if (data.messageId) aiMsg.serverMsgId = data.messageId;
+            if (newThreadId && ownerThreadId === 'new') state.liveByThread[String(newThreadId)] = aiMsg;
+          }
+          else if (eventName === 'snapshot') {
+            // attach 재연결 첫 프레임(전체 대입). 직접 스트림 경로에선 보통 안 오지만 방어적으로.
+            aiMsg.content = data.text || '';
+            updateLastAIContent(aiMsg.content, true, ownerThreadId);
+            scrollToBottom();
+          }
           else if (eventName === 'thinking') {
             if (!aiMsg.content) updateLastAIContent('_생각하는 중…_', true, ownerThreadId);
           }
@@ -986,7 +1084,12 @@ async function sendMessage() {
             }
           } else if (eventName === 'error') {
             aiMsg.streaming = false;
-            aiMsg.content += '\n\n**오류:** ' + (data.error || '알 수 없는 오류');
+            // 사용자 중단(interrupted)은 오류가 아니라 조용한 정지로 표시
+            if (data.interrupted || state.userStopped) {
+              if (!/중단됨/.test(aiMsg.content)) aiMsg.content += '\n\n_⏹ 중단됨_';
+            } else {
+              aiMsg.content += '\n\n**오류:** ' + (data.error || '알 수 없는 오류');
+            }
             updateLastAIContent(aiMsg.content, false);
           }
         } catch (e) { console.warn('SSE parse:', e); }
@@ -1002,15 +1105,25 @@ async function sendMessage() {
       loadThreads();
     }
   } catch (e) {
-    console.error('전송 실패:', e);
     aiMsg.streaming = false;
-    aiMsg.content = '**오류:** ' + e.message;
-    updateLastAIContent(aiMsg.content, false, ownerThreadId);
+    // 사용자 중단(AbortError)이면 오류 아닌 '중단됨' 으로 표시
+    if (state.userStopped || (e && e.name === 'AbortError') || /aborted/i.test(e && e.message || '')) {
+      if (!/중단됨/.test(aiMsg.content)) aiMsg.content = (aiMsg.content || '') + '\n\n_⏹ 중단됨_';
+      updateLastAIContent(aiMsg.content, false, ownerThreadId);
+    } else {
+      console.error('전송 실패:', e);
+      aiMsg.content = (aiMsg.content || '') + '\n\n**오류:** ' + e.message;
+      updateLastAIContent(aiMsg.content, false, ownerThreadId);
+    }
   } finally {
+    state.userStopped = false;
     if (state.streamingByThread) {
       state.streamingByThread.delete(ownerThreadId);
       state.streamingByThread.delete('new');
     }
+    // 생성 끝 → 라이브 버퍼 정리 (이후엔 서버 저장본으로 복원됨)
+    delete state.liveByThread[ownerThreadId];
+    if (newThreadId) delete state.liveByThread[String(newThreadId)];
     setStreaming(false);
     input.disabled = false;
     autoResize();
@@ -1032,8 +1145,23 @@ threadListEl.addEventListener('click', (e) => {
 // 중단 버튼
 const stopBtn = document.getElementById('stopBtn');
 state.abortController = null;
-stopBtn.addEventListener('click', () => {
+stopBtn.addEventListener('click', async () => {
+  // 서버에서 끝까지 생성 중이므로(연결 끊김≠취소), 반드시 서버 stop API 로 중단해야 함.
+  state.userStopped = true;   // 이후 abort 로 인한 catch 를 '오류' 아닌 '중단'으로 처리
+  let sid = null;
+  const live = (state.activeThreadId && state.liveByThread[String(state.activeThreadId)]) || state.liveByThread['new'];
+  if (live && live.serverMsgId) sid = live.serverMsgId;
+  if (!sid) { const m = state.messages.find(x => x.streaming && (x.serverMsgId || x.id)); if (m) sid = m.serverMsgId || m.id; }
+  if (sid) {
+    try {
+      await fetch('/api/ai/chat-stream-cli/stop', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ messageId: sid }),
+      });
+    } catch (_) {}
+  }
   if (state.abortController) { state.abortController.abort(); console.log('[ai-chat] 사용자 중단'); }
+  if (state.attachES) { try { state.attachES.close(); } catch(_){} state.attachES = null; }
 });
 function setStreaming(on) {
   state.streaming = on;

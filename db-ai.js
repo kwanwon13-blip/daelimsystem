@@ -513,6 +513,40 @@ const threads = {
     if (!first || !first.content) return;
     const title = first.content.replace(/\s+/g, ' ').trim().slice(0, 60);
     if (title) db.prepare('UPDATE ai_threads SET title=? WHERE id=?').run(title, threadId);
+  },
+
+  // ── 스트리밍 생성: 부분 저장 / 최종 확정 / 기동 정리 ──
+  // 생성 중 누적 텍스트를 주기적으로 저장 (새로고침·다른PC 복원용).
+  // status: 'generating' 진행 중, 'ok' 완료, 'interrupted' 중단, 'error' 실패
+  updateMessageContent(messageId, content, status) {
+    if (!ready) return;
+    if (status) {
+      db.prepare('UPDATE ai_messages SET content=?, status=? WHERE id=?').run(content || '', status, messageId);
+    } else {
+      db.prepare('UPDATE ai_messages SET content=? WHERE id=?').run(content || '', messageId);
+    }
+  },
+
+  // 생성 완료 시 한 번에 확정 (content + status + metadata merge + duration + error)
+  finalizeMessage(messageId, { content, status, metadata, durationMs, error } = {}) {
+    if (!ready) return null;
+    const cur = db.prepare('SELECT metadata FROM ai_messages WHERE id=?').get(messageId);
+    let meta = {};
+    try { meta = cur && cur.metadata ? JSON.parse(cur.metadata) : {}; } catch (_) {}
+    if (metadata) meta = Object.assign(meta, metadata);
+    db.prepare(`
+      UPDATE ai_messages SET content=?, status=?, metadata=?, duration_ms=?, error=? WHERE id=?
+    `).run(content || '', status || 'ok', JSON.stringify(meta),
+           durationMs != null ? durationMs : null, error || null, messageId);
+    return db.prepare('SELECT * FROM ai_messages WHERE id=?').get(messageId);
+  },
+
+  // 서버 기동 시 1회: 비정상 종료로 'generating' 에 남은 메시지를 'interrupted' 로 정리
+  markStaleGenerating() {
+    if (!ready) return 0;
+    try {
+      return db.prepare(`UPDATE ai_messages SET status='interrupted' WHERE status='generating'`).run().changes;
+    } catch (_) { return 0; }
   }
 };
 
@@ -792,6 +826,14 @@ const skillRequests = {
     return this.get(id);
   },
 };
+
+// 서버 기동 시 1회: 직전 비정상 종료로 'generating' 상태에 남은 메시지를 'interrupted' 로 정리
+if (ready) {
+  try {
+    const n = threads.markStaleGenerating();
+    if (n > 0) console.log(`[db-ai] 미완료 생성 메시지 ${n}건을 interrupted 로 정리했습니다.`);
+  } catch (e) { console.warn('[db-ai] markStaleGenerating 실패:', e.message); }
+}
 
 module.exports = {
   get ready() { return ready; },

@@ -43,6 +43,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { requireAuth } = require('../middleware/auth');
 const ai = require('../db-ai');
+const reg = require('../lib/generation-registry');   // 진행 중 생성 레지스트리 (안 끊기는 경험)
 
 let multer;
 try { multer = require('multer'); } catch(e) { multer = null; }
@@ -1945,6 +1946,14 @@ router.post('/chat-stream-cli', async (req, res) => {
     attachments: Array.isArray(attachmentIds) ? attachmentIds : [],
   });
 
+  // ★ AI 답변 placeholder 를 먼저 INSERT (status='generating')
+  //   → 생성 도중에도 DB 에 남아 새로고침/다른PC/창닫기 어디서든 복원 가능
+  let accumulated = '';
+  const aiMsg = ai.threads.addMessage(thread.id, {
+    role: 'ai', kind: 'chat', content: '', status: 'generating',
+    metadata: { backend: 'cli', model: model || null, turnCount: 1, stream: true }
+  });
+
   // SSE 헤더
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -1956,19 +1965,27 @@ router.post('/chat-stream-cli', async (req, res) => {
       res.write('data: ' + JSON.stringify(data) + '\n\n');
     } catch(_) {}
   }
-  write('start', { threadId: thread.id });
+
+  // 생성 레지스트리 등록 — 생성은 클라이언트 연결과 분리되어 서버가 끝까지 책임진다.
+  const genRec = reg.start(aiMsg.id, {
+    threadId: thread.id,
+    ownerId: req.user.userId,
+    abort: null,                       // streamPromise 생성 후 연결
+    getAccumulated: () => accumulated,
+  });
+  // 이 직접 요청도 자기 생성을 "구독" → 송신 경로를 attach 와 일원화
+  const unsub = reg.subscribe(aiMsg.id, (event, data) => write(event, data));
+
+  write('start', { threadId: thread.id, messageId: aiMsg.id });
 
   const startedAt = Date.now();
-  let accumulated = '';
   let streamPromise = null;
-  let aborted = false;
   let responseFinished = false;
-  // 클라이언트가 끊으면 CLI 도 abort
+  // ★ 연결 끊김(새로고침/창닫기) ≠ 생성 취소. 구독만 해제하고 생성은 계속.
+  //   생성 취소는 오직 POST /chat-stream-cli/stop 만 수행.
   res.on('close', () => {
-    if (!responseFinished && streamPromise && streamPromise.abort) {
-      aborted = true;
-      streamPromise.abort();
-    }
+    responseFinished = true;
+    unsub();
   });
 
   try {
@@ -2001,36 +2018,30 @@ router.post('/chat-stream-cli', async (req, res) => {
       return harvested;
     };
     let thinkingSent = false;
+    let lastSave = 0;
     streamPromise = callClaudeCliStream(fullPrompt, attachmentPaths, (chunk) => {
       accumulated += chunk;
-      write('delta', { text: chunk });
+      reg.publish(aiMsg.id, 'delta', { text: chunk });   // 구독자(직접 요청 + attach) 모두에게
+      // 700ms 마다 부분 저장 → 새로고침/다른PC 복원의 핵심
+      const now = Date.now();
+      if (now - lastSave > 700) {
+        lastSave = now;
+        try { ai.threads.updateMessageContent(aiMsg.id, accumulated, 'generating'); } catch(_) {}
+      }
     }, {
       model: model || undefined,
       harvestFiles,
       systemPrompt: CHAT_SYSTEM,   // 클로드챗 스타일 대화 페르소나
       chatMode: true,              // 파일시스템 격리 + 변경/쉘 도구 차단
       strictMcp: true,             // MCP 미로딩 → 첫 토큰까지 ~1초
-      onThinking: (t) => { if (!thinkingSent) { thinkingSent = true; write('thinking', { active: true }); } },
+      timeout: AI_CLI_TIMEOUT_MS,  // 3분(lib 기본) → 10분: 긴 답변·복잡한 질문이 중간에 끊기지 않게
+      onThinking: (t) => { if (!thinkingSent) { thinkingSent = true; reg.publish(aiMsg.id, 'thinking', { active: true }); } },
     });
+    genRec.abort = streamPromise.abort;   // stop API 가 호출할 중단 함수 연결
     const result = await streamPromise;
     const durationMs = result.durationMs || (Date.now() - startedAt);
 
     let finalText = result.text || accumulated;
-    const replaceFn = (text, name, url) => {
-      try {
-        const esc = name.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
-        const re1 = new RegExp('(?:[A-Za-z]:[\\\\/][^\\s`<>"]*' + esc + '|/[^\\s`<>"]*' + esc + ')', 'g');
-        text = text.replace(re1, '[📥 ' + name + '](' + url + ')');
-        text = text.replace(new RegExp('`[^`]*' + esc + '[^`]*`', 'g'), '[📥 ' + name + '](' + url + ')');
-      } catch(_) {}
-      return text;
-    };
-
-    const aiMsg = ai.threads.addMessage(thread.id, {
-      role: 'ai', kind: 'chat', content: finalText, status: 'ok',
-      durationMs, metadata: { backend: 'cli', model: model || null, turnCount: 1, stream: true }
-    });
-    ai.threads.autoTitleIfEmpty(thread.id);
 
     let artifacts = [];
     for (const h of (result.harvested || harvested)) {
@@ -2056,18 +2067,103 @@ router.post('/chat-stream-cli', async (req, res) => {
         finalText = replaceArtifactReferences(finalText, a);
       }
     } catch(e) {}
-    if (finalText !== (result.text || accumulated)) {
-      try { ai.db.prepare('UPDATE ai_messages SET content=? WHERE id=?').run(finalText, aiMsg.id); } catch(_) {}
-    }
 
-    write('done', { threadId: thread.id, messageId: aiMsg.id, text: finalText, durationMs, artifacts });
+    // ★ placeholder 를 최종 확정 (content + status='ok' + artifacts 를 metadata 에 저장)
+    //   → 새로고침 후 /threads/:id 의 artifacts_parsed 경로로 카드까지 복원됨
+    ai.threads.finalizeMessage(aiMsg.id, {
+      content: finalText, status: 'ok',
+      metadata: { artifacts, usage: result.usage, costUsd: result.costUsd },
+      durationMs,
+    });
+    ai.threads.autoTitleIfEmpty(thread.id);
+
+    reg.finish(aiMsg.id, 'ok', { threadId: thread.id, messageId: aiMsg.id, text: finalText, durationMs, artifacts });
   } catch (e) {
-    if (aborted) write('error', { error: '사용자가 중단했어요' });
-    else write('error', { error: e.message });
+    // 중단(stop) vs 진짜 오류 구분. 어느 쪽이든 여태 생성된 텍스트는 보존.
+    const recNow = reg.get(aiMsg.id);
+    const interrupted = (recNow && recNow.status === 'interrupted') || /aborted/i.test(e.message || '');
+    const status = interrupted ? 'interrupted' : 'error';
+    try {
+      ai.threads.finalizeMessage(aiMsg.id, {
+        content: accumulated, status,
+        error: interrupted ? null : e.message,
+        durationMs: Date.now() - startedAt,
+      });
+      ai.threads.autoTitleIfEmpty(thread.id);
+    } catch(_) {}
+    reg.finish(aiMsg.id, status, interrupted
+      ? { messageId: aiMsg.id, text: accumulated, error: '사용자가 중단했어요', interrupted: true }
+      : { messageId: aiMsg.id, text: accumulated, error: e.message });
   } finally {
     responseFinished = true;
+    try { unsub(); } catch(_) {}
     try { res.end(); } catch(_) {}
   }
+});
+
+// ──────────────────────────────────────────────────────────
+// 진행 중 생성에 재연결 (새로고침/다른PC/창닫고 복귀 시 답변 이어받기)
+// GET /chat-stream-cli/attach?messageId=  (EventSource, 쿠키 자동 전송)
+// ──────────────────────────────────────────────────────────
+router.get('/chat-stream-cli/attach', (req, res) => {
+  const messageId = parseInt(req.query.messageId, 10);
+  if (!messageId) return res.status(400).json({ error: 'messageId 필수' });
+  const row = ai.db.prepare('SELECT * FROM ai_messages WHERE id=?').get(messageId);
+  if (!row) return res.status(404).json({ error: '메시지 없음' });
+  const t = ai.threads.get(row.thread_id);
+  if (!t || (String(t.owner_id) !== String(req.user.userId) && !isAdmin(req))) {
+    return res.status(403).json({ error: '권한 없음' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders && res.flushHeaders();
+  function write(event, data) {
+    try {
+      res.write('event: ' + event + '\n');
+      res.write('data: ' + JSON.stringify(data) + '\n\n');
+    } catch(_) {}
+  }
+
+  const rec = reg.get(messageId);
+
+  // 이미 끝났거나 레지스트리에서 사라짐 → DB 스냅샷 한 번에
+  if (!rec || rec.status !== 'generating') {
+    const fresh = ai.db.prepare('SELECT * FROM ai_messages WHERE id=?').get(messageId);
+    write('start', { threadId: row.thread_id, messageId });
+    write('snapshot', { text: (fresh && fresh.content) || '', status: (fresh && fresh.status) || 'ok' });
+    if (fresh && fresh.status === 'error') write('error', { messageId, text: fresh.content || '', error: fresh.error || '오류' });
+    else write('done', { threadId: row.thread_id, messageId, text: (fresh && fresh.content) || '' });
+    return res.end();
+  }
+
+  // 진행 중 → 여태 누적분 snapshot 후 이후 delta 구독
+  write('start', { threadId: row.thread_id, messageId });
+  write('snapshot', { text: rec.getAccumulated(), status: 'generating' });
+  const unsubA = reg.subscribe(messageId, (event, data) => {
+    write(event, data);
+    if (event === 'done' || event === 'error') { try { res.end(); } catch(_) {} }
+  });
+  res.on('close', () => { try { unsubA(); } catch(_) {} });  // 재연결 끊김도 abort 아님
+});
+
+// ──────────────────────────────────────────────────────────
+// 생성 중단 (명시적 stop 버튼 전용)
+// POST /chat-stream-cli/stop { messageId }
+//   연결 끊김(close)은 아무것도 안 죽임 — 오직 이 API 만 child 를 종료.
+// ──────────────────────────────────────────────────────────
+router.post('/chat-stream-cli/stop', (req, res) => {
+  const messageId = parseInt(req.body && req.body.messageId, 10);
+  if (!messageId) return res.status(400).json({ error: 'messageId 필수' });
+  const row = ai.db.prepare('SELECT thread_id FROM ai_messages WHERE id=?').get(messageId);
+  if (!row) return res.status(404).json({ error: '메시지 없음' });
+  const t = ai.threads.get(row.thread_id);
+  if (!t || (String(t.owner_id) !== String(req.user.userId) && !isAdmin(req))) {
+    return res.status(403).json({ error: '권한 없음' });
+  }
+  const ok = reg.abort(messageId);
+  res.json({ ok });   // 이후 라우터 catch/finalize 가 status='interrupted' 로 마무리
 });
 
 // ──────────────────────────────────────────────────────────
