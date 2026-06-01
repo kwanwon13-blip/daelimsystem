@@ -7,7 +7,7 @@
   - 시트 1개(안전). 잡자재 구분 없음. 전 품목 포함(매출할인만 제외)
   - 거래처(파일) 분리 = 판매현황 '프로젝트명' 컬럼. 비어있으면 비고 주소로 판별
       비고에 '코닝' → 한국코닝(주) / 그 외 빈칸 → 삼성SDI(기본)
-  - E4 거래처명은 회사 고정값(예: '나이스텍㈜ 아산시탕정면')을 템플릿에서 그대로 둠 → 덮지 않음
+  - E4 거래처명은 생성 파일의 거래처명으로 덮어씀
   - 부가세 행 = '부가세별도' 텍스트(수식 아님). 공급가액 G열만 사용
 
 사용:
@@ -181,11 +181,12 @@ def main():
         wbt=load_workbook(tmp)
         sheet = '안전' if '안전' in wbt.sheetnames else wbt.sheetnames[0]
         ws_s=wbt[sheet]
-        # A4 기간만 갱신, E4 거래처는 템플릿 고정값 유지(나이스텍 본사 주소)
+        # A4 기간과 E4 거래처를 현재 생성 파일 기준으로 갱신
         m2=re.search(r'(\d{4}/\d{2}/\d{2})\s*~\s*(\d{4}/\d{2}/\d{2})', header)
         if m2:
             d1=datetime.strptime(m2.group(1),'%Y/%m/%d'); d2=datetime.strptime(m2.group(2),'%Y/%m/%d')
             ws_s['A4']=f'기  간: {d1.strftime("%Y-%m-%d")}부터 {d2.strftime("%Y-%m-%d")}까지'
+        ws_s['E4']=f'거래처: {vendor}'
         fill_sheet(ws_s, rows)
         wbt.save(tmp)
         # 파일명: 거래처명에서 안전한 이름
