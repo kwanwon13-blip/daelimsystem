@@ -263,7 +263,9 @@ router.post('/run', async (req, res) => {
           : [];
         const summary = lastError
           ? ('Agent error: ' + (lastError.message || 'unknown error'))
-          : `Agent 작업 완료 (${createdArtifacts.length || finalFiles.length}개 파일, ${Math.round((lastDone?.durationMs||0)/1000)}초)`;
+          : (lastDone?.templateSaved?.length
+              ? `템플릿 저장 완료 (${lastDone.templateSaved.join(', ')})`
+              : `Agent 작업 완료 (${createdArtifacts.length || finalFiles.length}개 파일, ${Math.round((lastDone?.durationMs||0)/1000)}초)`);
         const files = finalFiles.map(f => ({
           name: f.name,
           relPath: f.relPath,
@@ -283,6 +285,7 @@ router.post('/run', async (req, res) => {
             sessionId: lastDone?.sessionId,
             files,
             artifacts: createdArtifacts,
+            templateSaved: lastDone?.templateSaved || [],
             outputTail: (collectedOutput || '').slice(-2000),
           },
         })
@@ -296,6 +299,7 @@ router.post('/run', async (req, res) => {
                 sessionId: lastDone?.sessionId,
                 files,
                 artifacts: createdArtifacts,
+                templateSaved: lastDone?.templateSaved || [],
                 outputTail: (collectedOutput || '').slice(-2000),
               },
             });
