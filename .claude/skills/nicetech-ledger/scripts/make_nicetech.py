@@ -165,6 +165,9 @@ def main():
     print('─'*60); print('판매현황:', raw); print('출력:', outdir)
     print('거래처 수:', len(vendors), '|', ', '.join(f'{k}({len(v)})' for k,v in vendors.items()))
     if warnings: print('⚠️', len(warnings),'건 검산오차:', *warnings[:5], sep='\n  ')
+    if not vendors:
+        print('❌ 판매현황에서 처리할 나이스텍 거래처/품목 데이터를 찾지 못했습니다.')
+        sys.exit(5)
 
     made=[]
     for vendor, rows in vendors.items():
@@ -192,6 +195,9 @@ def main():
         try: os.unlink(tmp)
         except OSError: pass
         made.append(fn); print(f'  → {fn} ({len(rows)}건)')
+    if not made:
+        print('❌ 생성된 나이스텍 마감 파일이 없습니다. 전월 나이스텍 마감내역서 템플릿을 함께 첨부하세요.')
+        sys.exit(6)
     print(f'완료: {len(made)}개')
 
 if __name__=='__main__':

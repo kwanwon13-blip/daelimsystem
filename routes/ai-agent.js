@@ -165,7 +165,7 @@ router.post('/run', async (req, res) => {
     if (thread && ai.threads.addMessage) {
       const um = ai.threads.addMessage(thread.id, {
         role: 'user', kind: 'agent', content: String(task).trim(),
-        attachmentIds: Array.isArray(attachmentIds) ? attachmentIds : [],
+        attachments: Array.isArray(attachmentIds) ? attachmentIds : [],
       });
       userMsgId = um?.id;
       aiMsgRec = ai.threads.addMessage(thread.id, {

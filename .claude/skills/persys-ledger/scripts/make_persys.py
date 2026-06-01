@@ -202,6 +202,9 @@ def main():
 
     print('기간:', period_text)
     print('현장 수:', len(projects))
+    if not projects:
+        print('❌ 판매현황에서 처리할 퍼시스 현장/품목 데이터를 찾지 못했습니다.')
+        sys.exit(5)
 
     made = []
     for proj, data in projects.items():
@@ -225,6 +228,9 @@ def main():
         made.append(filename)
         print(f'  → {filename}  (안전 {len(s_data)} / 잡자재 {len(m_data)})')
 
+    if not made:
+        print('❌ 생성된 퍼시스 마감 파일이 없습니다.')
+        sys.exit(6)
     print(f'완료: {len(made)}개 파일 생성')
 
 if __name__ == '__main__':
