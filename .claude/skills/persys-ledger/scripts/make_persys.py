@@ -68,7 +68,7 @@ def find_summary_rows(ws):
 def fill_sheet(ws, new_data, data_start=13):
     supply_row, vat_row, total_row = find_summary_rows(ws)
     if supply_row is None:
-        raise RuntimeError("템플릿에서 '공급금액' 합계 행을 찾지 못함 — 올바른 퍼시스 템플릿이 아닙니다")
+        raise RuntimeError("템플릿에서 '공급금액' 합계 행을 찾지 못함 - 올바른 퍼시스 템플릿이 아닙니다")
     available = supply_row - data_start
     needed    = len(new_data)
 
@@ -147,12 +147,12 @@ def main():
 
     raw = args.raw
     if not os.path.isfile(raw):
-        print('❌ 판매현황 파일 없음:', raw); sys.exit(1)
+        print('[ERROR] 판매현황 파일 없음:', raw); sys.exit(1)
     outdir = args.outdir or os.path.dirname(os.path.abspath(raw))
     os.makedirs(outdir, exist_ok=True)
     template = args.template or find_template(outdir, os.path.dirname(os.path.abspath(raw)))
     if not template:
-        print('❌ 템플릿(전월 퍼시스-*.xlsx)을 못 찾음. --template 로 지정하거나 같은 폴더에 전월 파일을 두세요.'); sys.exit(2)
+        print('[ERROR] 템플릿(전월 퍼시스-*.xlsx)을 못 찾음. --template 로 지정하거나 같은 폴더에 전월 파일을 두세요.'); sys.exit(2)
 
     print('─'*60)
     print('판매현황 :', raw)
@@ -162,7 +162,7 @@ def main():
 
     wb_raw = load_workbook(raw)
     if '판매현황' not in wb_raw.sheetnames:
-        print("❌ '판매현황' 시트가 없습니다. 시트:", wb_raw.sheetnames); sys.exit(3)
+        print("[ERROR] '판매현황' 시트가 없습니다. 시트:", wb_raw.sheetnames); sys.exit(3)
     ws_raw = wb_raw['판매현황']
 
     projects = {}
@@ -184,10 +184,10 @@ def main():
         projects[proj][cat].append((parse_date(row[0]), row[4], row[5], qty, unit_price, supply_amt))
 
     if warnings:
-        print(f'⚠️ 데이터 이상 {len(warnings)}건:')
+        print(f'[WARN] 데이터 이상 {len(warnings)}건:')
         for w in warnings: print('  ', w)
     else:
-        print('✅ 단가/공급가액 검증 통과')
+        print('[OK] 단가/공급가액 검증 통과')
 
     header = ws_raw.cell(row=1, column=1).value or ''
     m = re.search(r'(\d{4}/\d{2}/\d{2})\s*~\s*(\d{4}/\d{2}/\d{2})', header)
@@ -203,7 +203,7 @@ def main():
     print('기간:', period_text)
     print('현장 수:', len(projects))
     if not projects:
-        print('❌ 판매현황에서 처리할 퍼시스 현장/품목 데이터를 찾지 못했습니다.')
+        print('[ERROR] 판매현황에서 처리할 퍼시스 현장/품목 데이터를 찾지 못했습니다.')
         sys.exit(5)
 
     made = []
@@ -216,7 +216,7 @@ def main():
         except OSError: pass
         wb = load_workbook(tmp)
         if '안전' not in wb.sheetnames or '잡자재' not in wb.sheetnames:
-            print("❌ 템플릿에 '안전'/'잡자재' 시트가 없습니다:", wb.sheetnames); sys.exit(4)
+            print("[ERROR] 템플릿에 '안전'/'잡자재' 시트가 없습니다:", wb.sheetnames); sys.exit(4)
         ws_s = wb['안전']; ws_s['A4'] = period_text; ws_s['E4'] = f'거래처:{proj}'
         fill_sheet(ws_s, s_data)
         fill_sheet(wb['잡자재'], m_data)
@@ -226,10 +226,10 @@ def main():
         try: os.unlink(tmp)
         except OSError: pass
         made.append(filename)
-        print(f'  → {filename}  (안전 {len(s_data)} / 잡자재 {len(m_data)})')
+        print(f'  -> {filename}  (안전 {len(s_data)} / 잡자재 {len(m_data)})')
 
     if not made:
-        print('❌ 생성된 퍼시스 마감 파일이 없습니다.')
+        print('[ERROR] 생성된 퍼시스 마감 파일이 없습니다.')
         sys.exit(6)
     print(f'완료: {len(made)}개 파일 생성')
 

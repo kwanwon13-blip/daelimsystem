@@ -55,7 +55,7 @@ def find_summary_rows(ws):
 def fill_sheet(ws, rows, data_start=13):
     supply_row, vat_row, total_row = find_summary_rows(ws)
     if supply_row is None:
-        raise RuntimeError("템플릿에서 '공급금액' 합계 행을 못 찾음 — 올바른 마감내역서 템플릿이 아님")
+        raise RuntimeError("템플릿에서 '공급금액' 합계 행을 못 찾음 - 올바른 마감내역서 템플릿이 아님")
     available = supply_row - data_start
     needed = len(rows)
     if needed > available:
@@ -134,13 +134,13 @@ def main():
     args=ap.parse_args()
 
     raw=args.raw
-    if not os.path.isfile(raw): print('❌ 판매현황 없음:', raw); sys.exit(1)
+    if not os.path.isfile(raw): print('[ERROR] 판매현황 없음:', raw); sys.exit(1)
     rawdir=os.path.dirname(os.path.abspath(raw))
     outdir=args.outdir or rawdir
     os.makedirs(outdir, exist_ok=True)
 
     wb=load_workbook(raw)
-    if '판매현황' not in wb.sheetnames: print("❌ '판매현황' 시트 없음:", wb.sheetnames); sys.exit(3)
+    if '판매현황' not in wb.sheetnames: print("[ERROR] '판매현황' 시트 없음:", wb.sheetnames); sys.exit(3)
     ws=wb['판매현황']
 
     # 헤더에서 월 추출
@@ -164,16 +164,16 @@ def main():
 
     print('─'*60); print('판매현황:', raw); print('출력:', outdir)
     print('거래처 수:', len(vendors), '|', ', '.join(f'{k}({len(v)})' for k,v in vendors.items()))
-    if warnings: print('⚠️', len(warnings),'건 검산오차:', *warnings[:5], sep='\n  ')
+    if warnings: print('[WARN]', len(warnings),'건 검산오차:', *warnings[:5], sep='\n  ')
     if not vendors:
-        print('❌ 판매현황에서 처리할 나이스텍 거래처/품목 데이터를 찾지 못했습니다.')
+        print('[ERROR] 판매현황에서 처리할 나이스텍 거래처/품목 데이터를 찾지 못했습니다.')
         sys.exit(5)
 
     made=[]
     for vendor, rows in vendors.items():
         tpl=pick_template(args.template, vendor, outdir, rawdir)
         if not tpl:
-            print(f'❌ [{vendor}] 템플릿 없음 — 전월 나이스텍 마감내역서 필요'); continue
+            print(f'[ERROR] [{vendor}] 템플릿 없음 - 전월 나이스텍 마감내역서 필요'); continue
         tmp_fd,tmp=tempfile.mkstemp(suffix='.xlsx', dir=os.environ.get('TEMP', tempfile.gettempdir()))
         os.close(tmp_fd); shutil.copy(tpl, tmp)
         try: os.chmod(tmp,0o644)
@@ -194,9 +194,9 @@ def main():
         save_to_folder(tmp, outdir, fn)
         try: os.unlink(tmp)
         except OSError: pass
-        made.append(fn); print(f'  → {fn} ({len(rows)}건)')
+        made.append(fn); print(f'  -> {fn} ({len(rows)}건)')
     if not made:
-        print('❌ 생성된 나이스텍 마감 파일이 없습니다. 전월 나이스텍 마감내역서 템플릿을 함께 첨부하세요.')
+        print('[ERROR] 생성된 나이스텍 마감 파일이 없습니다. 전월 나이스텍 마감내역서 템플릿을 함께 첨부하세요.')
         sys.exit(6)
     print(f'완료: {len(made)}개')
 

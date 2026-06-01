@@ -106,11 +106,11 @@ def main():
     ap.add_argument('--outdir', default='')
     args=ap.parse_args()
     raw=args.raw
-    if not os.path.isfile(raw): print('❌ 판매현황 없음:', raw); sys.exit(1)
+    if not os.path.isfile(raw): print('[ERROR] 판매현황 없음:', raw); sys.exit(1)
     rawdir=os.path.dirname(os.path.abspath(raw)); outdir=args.outdir or rawdir
     os.makedirs(outdir, exist_ok=True)
     wb=load_workbook(raw)
-    if '판매현황' not in wb.sheetnames: print("❌ '판매현황' 시트 없음:", wb.sheetnames); sys.exit(3)
+    if '판매현황' not in wb.sheetnames: print("[ERROR] '판매현황' 시트 없음:", wb.sheetnames); sys.exit(3)
     ws=wb['판매현황']
     header=ws.cell(1,1).value or ''
     m=re.search(r'(\d{4})/(\d{2})/\d{2}\s*~', header)
@@ -134,13 +134,13 @@ def main():
 
     print('─'*60); print('판매현황:', raw); print('출력:', outdir)
     print('현장 수:', len(sites), '|', ', '.join(f'{k}({len(v)})' for k,v in sites.items()))
-    if warnings: print('⚠️', len(warnings),'건 검산오차')
+    if warnings: print('[WARN]', len(warnings),'건 검산오차')
     if not sites:
-        print('❌ 판매현황에서 처리할 하츠 현장/품목 데이터를 찾지 못했습니다.')
+        print('[ERROR] 판매현황에서 처리할 하츠 현장/품목 데이터를 찾지 못했습니다.')
         sys.exit(5)
 
     tpl=pick_template(args.template, outdir, rawdir)
-    if not tpl: print('❌ 하츠 템플릿 없음 — 전월 하츠 마감내역서 필요'); sys.exit(2)
+    if not tpl: print('[ERROR] 하츠 템플릿 없음 - 전월 하츠 마감내역서 필요'); sys.exit(2)
 
     made=[]
     for site, rows in sites.items():
@@ -160,9 +160,9 @@ def main():
         save_to_folder(tmp, outdir, fn)
         try: os.unlink(tmp)
         except OSError: pass
-        made.append(fn); print(f'  → {fn} ({len(rows)}건)')
+        made.append(fn); print(f'  -> {fn} ({len(rows)}건)')
     if not made:
-        print('❌ 생성된 하츠 마감 파일이 없습니다.')
+        print('[ERROR] 생성된 하츠 마감 파일이 없습니다.')
         sys.exit(6)
     print(f'완료: {len(made)}개')
 
