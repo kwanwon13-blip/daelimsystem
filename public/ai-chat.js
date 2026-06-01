@@ -781,22 +781,89 @@ function excelColName(index) {
   }
   return name || 'A';
 }
+function excelColIndex(name) {
+  let n = 0;
+  const s = String(name || '').toUpperCase();
+  for (let i = 0; i < s.length; i++) n = n * 26 + (s.charCodeAt(i) - 64);
+  return n;
+}
+function parseExcelAddress(addr) {
+  const m = String(addr || '').match(/^([A-Z]+)(\d+)$/i);
+  if (!m) return null;
+  return { col: excelColIndex(m[1]), row: parseInt(m[2], 10) };
+}
+function buildExcelMergeMaps(merges) {
+  const anchors = {};
+  const skip = {};
+  for (const range of (Array.isArray(merges) ? merges : [])) {
+    const parts = String(range || '').split(':');
+    if (parts.length !== 2) continue;
+    const a = parseExcelAddress(parts[0]);
+    const b = parseExcelAddress(parts[1]);
+    if (!a || !b) continue;
+    const r1 = Math.min(a.row, b.row), r2 = Math.max(a.row, b.row);
+    const c1 = Math.min(a.col, b.col), c2 = Math.max(a.col, b.col);
+    anchors[r1 + ':' + c1] = { rowspan: r2 - r1 + 1, colspan: c2 - c1 + 1 };
+    for (let r = r1; r <= r2; r++) {
+      for (let c = c1; c <= c2; c++) {
+        if (r !== r1 || c !== c1) skip[r + ':' + c] = true;
+      }
+    }
+  }
+  return { anchors, skip };
+}
+function excelPreviewCellStyle(style) {
+  const s = style || {};
+  const css = [];
+  if (s.bold) css.push('font-weight:700');
+  if (s.italic) css.push('font-style:italic');
+  if (s.fontSize) css.push('font-size:' + Math.max(8, Math.min(28, parseFloat(s.fontSize) || 12)) + 'px');
+  if (s.color) css.push('color:' + s.color);
+  if (s.bg) css.push('background:' + s.bg);
+  if (s.align) css.push('text-align:' + ({ center:'center', right:'right', left:'left' }[s.align] || s.align));
+  if (s.valign) css.push('vertical-align:' + ({ middle:'middle', top:'top', bottom:'bottom' }[s.valign] || s.valign));
+  if (s.wrap) css.push('white-space:normal');
+  if (s.border) css.push('border-right-color:#9ca3af;border-bottom-color:#9ca3af');
+  return css.join(';');
+}
 function renderSheetTable(sheet) {
   const rows = sheet.rows || [];
   if (rows.length === 0) return '<div class="preview-loading">빈 시트</div>';
-  const colCount = Math.max(8, ...rows.map(row => Array.isArray(row) ? row.length : 0));
-  let html = '<table class="excel-sheet-table"><thead><tr><th class="excel-corner"></th>';
+  const styled = rows[0] && rows[0].cells;
+  const colCount = Math.max(8, ...rows.map(row => styled ? ((row.cells || []).length) : (Array.isArray(row) ? row.length : 0)));
+  const mergeMaps = buildExcelMergeMaps(sheet.merges || []);
+  let html = '<table class="excel-sheet-table">';
+  if (Array.isArray(sheet.cols) && sheet.cols.length) {
+    html += '<colgroup><col style="width:44px">';
+    for (let c = 1; c <= colCount; c++) {
+      const width = sheet.cols[c - 1] && sheet.cols[c - 1].width;
+      html += '<col style="width:' + Math.max(48, Math.min(360, parseInt(width || 118, 10))) + 'px">';
+    }
+    html += '</colgroup>';
+  }
+  html += '<thead><tr><th class="excel-corner"></th>';
   for (let c = 1; c <= colCount; c++) {
     html += '<th class="excel-col-head">' + excelColName(c) + '</th>';
   }
   html += '</tr></thead><tbody>';
   for (let r = 0; r < rows.length; r++) {
-    const row = rows[r] || [];
-    html += '<tr><th class="excel-row-head">' + (r + 1) + '</th>';
+    const rowObj = rows[r] || [];
+    const rowNumber = styled ? (rowObj.number || (r + 1)) : (r + 1);
+    const cells = styled ? (rowObj.cells || []) : rowObj;
+    const rowStyle = styled && rowObj.height ? ' style="height:' + Math.max(18, Math.min(120, parseFloat(rowObj.height) || 26)) + 'px"' : '';
+    html += '<tr' + rowStyle + '><th class="excel-row-head">' + rowNumber + '</th>';
     for (let c = 0; c < colCount; c++) {
-      const value = row[c] == null ? '' : String(row[c]);
-      const address = excelColName(c + 1) + (r + 1);
-      html += '<td class="excel-cell" data-address="' + address + '" title="' + escapeHtml(value) + '">' + escapeHtml(value) + '</td>';
+      const colNumber = c + 1;
+      if (mergeMaps.skip[rowNumber + ':' + colNumber]) continue;
+      const cell = cells[c] || {};
+      const rawValue = styled ? (cell.v == null ? '' : String(cell.v)) : (cell == null ? '' : String(cell));
+      const formula = styled && cell.f ? String(cell.f) : '';
+      const value = formula || rawValue;
+      const address = excelColName(colNumber) + rowNumber;
+      const merge = mergeMaps.anchors[rowNumber + ':' + colNumber] || {};
+      const span = (merge.colspan ? ' colspan="' + merge.colspan + '"' : '') + (merge.rowspan ? ' rowspan="' + merge.rowspan + '"' : '');
+      const style = styled ? excelPreviewCellStyle(cell.style) : '';
+      html += '<td class="excel-cell" data-address="' + address + '" data-formula="' + escapeHtml(formula) + '" title="' + escapeHtml(value) + '"' + span + (style ? ' style="' + escapeHtml(style) + '"' : '') + '>' + escapeHtml(rawValue || formula) + '</td>';
     }
     html += '</tr>';
   }
@@ -819,7 +886,7 @@ function bindExcelGridSelection() {
     cells.forEach(c => c.classList.remove('selected'));
     cell.classList.add('selected');
     if (nameBox) nameBox.textContent = cell.dataset.address || '';
-    if (formulaBar) formulaBar.textContent = cell.textContent || '';
+    if (formulaBar) formulaBar.textContent = cell.dataset.formula || cell.textContent || '';
   };
   cells.forEach(cell => cell.addEventListener('click', () => selectCell(cell)));
   selectCell(Array.from(cells).find(cell => (cell.textContent || '').trim()) || cells[0]);

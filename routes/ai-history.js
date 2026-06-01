@@ -2422,7 +2422,7 @@ router.get('/artifacts/:id/preview', async (req, res) => {
         }
         const sheets = [];
         wb.eachSheet((sheet) => {
-          sheets.push({ name: sheet.name, rows: sheetToRows(sheet, 200, 60) });
+          sheets.push(sheetToPreview(sheet, 200, 60));
         });
         return res.json({ ok: true, kind: a.kind, sheets });
       } catch (e) {
@@ -2891,6 +2891,66 @@ function sheetToRows(sheet, limitRows = 300, limitCols = 60) {
     if (vals.some(v => v !== '')) rows.push(vals);
   });
   return rows;
+}
+
+function excelArgbToCss(argb) {
+  const s = String(argb || '').replace(/^#/, '');
+  if (/^[0-9a-f]{8}$/i.test(s)) return `#${s.slice(2)}`;
+  if (/^[0-9a-f]{6}$/i.test(s)) return `#${s}`;
+  return '';
+}
+
+function excelCellStyleForPreview(cell) {
+  const style = {};
+  const font = cell.font || {};
+  const fill = cell.fill || {};
+  const alignment = cell.alignment || {};
+  if (font.bold) style.bold = true;
+  if (font.italic) style.italic = true;
+  if (font.size) style.fontSize = Math.max(8, Math.min(28, Number(font.size)));
+  const fontColor = excelArgbToCss(font.color && (font.color.argb || font.color.rgb));
+  if (fontColor) style.color = fontColor;
+  const bgColor = excelArgbToCss(fill.fgColor && (fill.fgColor.argb || fill.fgColor.rgb));
+  if (bgColor && bgColor.toLowerCase() !== '#000000') style.bg = bgColor;
+  if (alignment.horizontal) style.align = alignment.horizontal;
+  if (alignment.vertical) style.valign = alignment.vertical;
+  if (alignment.wrapText) style.wrap = true;
+  if (cell.border && Object.keys(cell.border).length) style.border = true;
+  return style;
+}
+
+function sheetToPreview(sheet, limitRows = 200, limitCols = 60) {
+  const maxRow = Math.min(limitRows, sheet.rowCount || sheet.actualRowCount || 0);
+  const maxCol = Math.min(limitCols, sheet.columnCount || 0);
+  const cols = [];
+  for (let c = 1; c <= Math.max(1, maxCol); c++) {
+    const width = sheet.getColumn(c).width;
+    cols.push({ width: width ? Math.max(48, Math.min(360, Math.round(width * 7))) : 118 });
+  }
+  const rows = [];
+  for (let r = 1; r <= Math.max(1, maxRow); r++) {
+    const row = sheet.getRow(r);
+    const cells = [];
+    let hasContent = false;
+    for (let c = 1; c <= Math.max(1, maxCol); c++) {
+      const cell = row.getCell(c);
+      const value = excelCellToText(cell);
+      const formula = cell.formula ? `=${cell.formula}` : '';
+      if (value || formula) hasContent = true;
+      cells.push({
+        v: value,
+        f: formula,
+        style: excelCellStyleForPreview(cell),
+      });
+    }
+    if (hasContent || r <= 5) rows.push({ number: r, height: row.height || null, cells });
+  }
+  return {
+    name: sheet.name,
+    rows,
+    cols,
+    merges: (sheet.model && Array.isArray(sheet.model.merges)) ? sheet.model.merges.slice(0, 500) : [],
+  };
 }
 
 function workbookToText(wb) {
