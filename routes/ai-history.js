@@ -1748,6 +1748,18 @@ router.post('/chat-stream', async (req, res) => {
     attachments: Array.isArray(attachmentIds) ? attachmentIds : [],
   });
 
+  const modelToUse = model || DEFAULT_MODEL;
+  const startedAt = Date.now();
+  let accumulated = '';
+  let usage = null;
+  const upstreamAbort = new AbortController();
+
+  // Persist a placeholder before streaming so refresh/tab changes can restore the answer in progress.
+  const aiMsg = ai.threads.addMessage(thread.id, {
+    role: 'ai', kind: 'chat', content: '', status: 'generating',
+    metadata: { backend: 'api', model: modelToUse, turnCount: 1, stream: true }
+  });
+
   // SSE 헤더 세팅
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -1755,24 +1767,26 @@ router.post('/chat-stream', async (req, res) => {
   res.flushHeaders && res.flushHeaders();
 
   const write = (event, data) => {
-    res.write(`event: ${event}\n`);
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
+    try {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    } catch (_) {}
   };
 
-  write('start', { threadId: thread.id });
+  const genRec = reg.start(aiMsg.id, {
+    threadId: thread.id,
+    ownerId: req.user.userId,
+    abort: () => upstreamAbort.abort(),
+    getAccumulated: () => accumulated,
+  });
+  const unsub = reg.subscribe(aiMsg.id, (event, data) => write(event, data));
 
-  const modelToUse = model || DEFAULT_MODEL;
-  const startedAt = Date.now();
-  let accumulated = '';
-  let usage = null;
-  const upstreamAbort = new AbortController();
-  let clientClosed = false;
+  write('start', { threadId: thread.id, messageId: aiMsg.id });
+
   let responseFinished = false;
   res.on('close', () => {
-    if (!responseFinished) {
-      clientClosed = true;
-      upstreamAbort.abort();
-    }
+    responseFinished = true;
+    try { unsub(); } catch (_) {}
   });
 
   try {
@@ -1795,8 +1809,17 @@ router.post('/chat-stream', async (req, res) => {
 
     if (!response.ok) {
       const errText = await response.text();
-      write('error', { error: `Claude API ${response.status}: ${errText.slice(0, 300)}` });
-      res.end();
+      const errorMessage = `Claude API ${response.status}: ${errText.slice(0, 300)}`;
+      ai.threads.finalizeMessage(aiMsg.id, {
+        content: accumulated,
+        status: 'error',
+        error: errorMessage,
+        durationMs: Date.now() - startedAt,
+      });
+      reg.finish(aiMsg.id, 'error', { threadId: thread.id, messageId: aiMsg.id, text: accumulated, error: errorMessage });
+      responseFinished = true;
+      try { unsub(); } catch (_) {}
+      try { res.end(); } catch (_) {}
       return;
     }
 
@@ -1804,6 +1827,7 @@ router.post('/chat-stream', async (req, res) => {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let lastSave = 0;
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
@@ -1822,7 +1846,12 @@ router.post('/chat-stream', async (req, res) => {
           const data = JSON.parse(dataStr);
           if (data.type === 'content_block_delta' && data.delta?.type === 'text_delta') {
             accumulated += data.delta.text;
-            write('delta', { text: data.delta.text });
+            reg.publish(aiMsg.id, 'delta', { text: data.delta.text });
+            const now = Date.now();
+            if (now - lastSave > 700) {
+              lastSave = now;
+              try { ai.threads.updateMessageContent(aiMsg.id, accumulated, 'generating'); } catch (_) {}
+            }
           } else if (data.type === 'message_delta') {
             if (data.usage) usage = data.usage;
           } else if (data.type === 'message_start' && data.message?.usage) {
@@ -1836,10 +1865,6 @@ router.post('/chat-stream', async (req, res) => {
     const durationMs = Date.now() - startedAt;
     let finalText = accumulated;
     let artifacts = [];
-    const aiMsg = ai.threads.addMessage(thread.id, {
-      role: 'ai', kind: 'chat', content: finalText, status: 'ok',
-      durationMs, metadata: { backend: 'api', usage, model: modelToUse, turnCount: 1, stream: true }
-    });
     try {
       artifacts = recoverArtifactsFromText(accumulated, {
         ownerId: req.user.userId,
@@ -1848,12 +1873,15 @@ router.post('/chat-stream', async (req, res) => {
         sinceMs: startedAt,
       });
       for (const a of artifacts) finalText = replaceArtifactReferences(finalText, a);
-      if (finalText !== accumulated) {
-        ai.db.prepare('UPDATE ai_messages SET content=? WHERE id=?').run(finalText, aiMsg.id);
-      }
     } catch (e) {
       console.warn('[chat-stream] artifact recover failed:', e.message);
     }
+    ai.threads.finalizeMessage(aiMsg.id, {
+      content: finalText,
+      status: 'ok',
+      metadata: { backend: 'api', usage, model: modelToUse, turnCount: 1, stream: true, artifacts },
+      durationMs,
+    });
     ai.threads.autoTitleIfEmpty(thread.id);
     try {
       ai.apiUsage.log({
@@ -1862,7 +1890,7 @@ router.post('/chat-stream', async (req, res) => {
       });
     } catch(e) {}
 
-    write('done', {
+    reg.finish(aiMsg.id, 'ok', {
       threadId: thread.id,
       messageId: aiMsg.id,
       text: finalText,
@@ -1871,10 +1899,25 @@ router.post('/chat-stream', async (req, res) => {
       artifacts,
     });
     responseFinished = true;
-    res.end();
+    try { unsub(); } catch (_) {}
+    try { res.end(); } catch (_) {}
   } catch (e) {
-    if (!clientClosed) write('error', { error: e.message });
+    const interrupted = upstreamAbort.signal.aborted || /aborted/i.test(e.message || '');
+    const status = interrupted ? 'interrupted' : 'error';
+    try {
+      ai.threads.finalizeMessage(aiMsg.id, {
+        content: accumulated,
+        status,
+        error: interrupted ? null : e.message,
+        durationMs: Date.now() - startedAt,
+      });
+      ai.threads.autoTitleIfEmpty(thread.id);
+    } catch (_) {}
+    reg.finish(aiMsg.id, status, interrupted
+      ? { threadId: thread.id, messageId: aiMsg.id, text: accumulated, interrupted: true }
+      : { threadId: thread.id, messageId: aiMsg.id, text: accumulated, error: e.message });
     responseFinished = true;
+    try { unsub(); } catch (_) {}
     try { res.end(); } catch(_) {}
   }
 });

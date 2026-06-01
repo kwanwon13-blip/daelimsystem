@@ -18,6 +18,7 @@ const crypto = require('crypto');
 const { requireAuth } = require('../middleware/auth');
 const agent = require('../lib/agent-runtime');
 const ai = require('../db-ai');
+const reg = require('../lib/generation-registry');
 
 let openaiClient = null;
 try { openaiClient = require('../lib/openai-client'); } catch(_) {}
@@ -145,6 +146,7 @@ router.post('/run', async (req, res) => {
   // ── 스레드 확보 + 사용자 메시지 DB 저장 ──
   let thread = null;
   let userMsgId = null;
+  let aiMsgRec = null;
   try {
     if (threadId && ai && ai.threads) {
       thread = ai.threads.get(threadId);
@@ -166,6 +168,13 @@ router.post('/run', async (req, res) => {
         attachmentIds: Array.isArray(attachmentIds) ? attachmentIds : [],
       });
       userMsgId = um?.id;
+      aiMsgRec = ai.threads.addMessage(thread.id, {
+        role: 'ai',
+        kind: 'agent',
+        content: '작업을 시작했습니다.',
+        status: 'generating',
+        metadata: { backend: 'agent', stream: true },
+      });
     }
   } catch (e) {
     console.warn('[ai-agent] thread 준비 실패 (무시하고 진행):', e.message);
@@ -190,20 +199,24 @@ router.post('/run', async (req, res) => {
     try { res.write(':keepalive\n\n'); } catch (e) {}
   }, 30000);
 
-  // 클라이언트 연결 끊김 감지 → 작업 취소
+  // Browser disconnects should not cancel the server-side job.
   const ctrl = new AbortController();
+  let lastDone = null;
+  let lastError = null;
+  let collectedOutput = '';
+  let collectedFiles = [];
+  const agentReg = aiMsgRec ? reg.start(aiMsgRec.id, {
+    threadId: thread?.id,
+    ownerId: req.user.userId,
+    abort: () => ctrl.abort(),
+    getAccumulated: () => collectedOutput || aiMsgRec.content || '',
+  }) : null;
   req.on('close', () => {
-    ctrl.abort();
     clearInterval(ping);
   });
 
   try {
     // 텍스트 메시지는 일일 한도 없음 (이미지 생성에만 제한 적용)
-
-    let lastDone = null;
-    let lastError = null;
-    let collectedOutput = '';
-    let collectedFiles = [];
     for await (const evt of agent.runAgent({
       userId: req.user.userId,
       task: String(task).trim(),
@@ -212,12 +225,25 @@ router.post('/run', async (req, res) => {
     })) {
       // thread 정보를 첫 'started' 에 끼워서 클라이언트에 알려주기
       if (evt.type === 'started' && thread) {
-        send('started', { ...evt.data, threadId: thread.id, userMsgId });
+        send('started', { ...evt.data, threadId: thread.id, userMsgId, messageId: aiMsgRec?.id });
       } else {
         send(evt.type, evt.data);
       }
-      if (evt.type === 'output') collectedOutput += evt.data?.text || '';
-      if (evt.type === 'file') collectedFiles.push(evt.data);
+      if (evt.type === 'output') {
+        collectedOutput += evt.data?.text || '';
+        if (agentReg && aiMsgRec) {
+          reg.publish(aiMsgRec.id, 'delta', { text: evt.data?.text || '' });
+          try { ai.threads.updateMessageContent(aiMsgRec.id, collectedOutput || '작업 중입니다.', 'generating'); } catch (_) {}
+        }
+      }
+      if (evt.type === 'file') {
+        collectedFiles.push(evt.data);
+        if (agentReg && aiMsgRec) {
+          const fileText = `\n\n생성 감지: ${evt.data?.name || 'file'}`;
+          reg.publish(aiMsgRec.id, 'delta', { text: fileText });
+          try { ai.threads.updateMessageContent(aiMsgRec.id, (collectedOutput || '작업 중입니다.') + fileText, 'generating'); } catch (_) {}
+        }
+      }
       if (evt.type === 'done') lastDone = evt.data;
       if (evt.type === 'error') lastError = evt.data;
     }
@@ -247,8 +273,8 @@ router.post('/run', async (req, res) => {
                + '/' + encodeURIComponent(lastDone?.sessionId || '')
                + '/' + encodeURIComponent(f.relPath || ''),
         }));
-        const aiMsg = ai.threads.addMessage(thread.id, {
-          role: 'ai', kind: 'agent',
+        const finalMsg = aiMsgRec
+          ? ai.threads.finalizeMessage(aiMsgRec.id, {
           content: summary,
           status,
           error: lastError ? lastError.message : null,
@@ -259,12 +285,32 @@ router.post('/run', async (req, res) => {
             artifacts: createdArtifacts,
             outputTail: (collectedOutput || '').slice(-2000),
           },
-        });
+        })
+          : ai.threads.addMessage(thread.id, {
+              role: 'ai', kind: 'agent',
+              content: summary,
+              status,
+              error: lastError ? lastError.message : null,
+              durationMs: lastDone?.durationMs || 0,
+              metadata: {
+                sessionId: lastDone?.sessionId,
+                files,
+                artifacts: createdArtifacts,
+                outputTail: (collectedOutput || '').slice(-2000),
+              },
+            });
         for (const a of createdArtifacts) {
-          try { ai.artifacts.setMessageId(a.id, aiMsg.id); } catch(e) {}
+          try { ai.artifacts.setMessageId(a.id, finalMsg.id); } catch(e) {}
         }
         try { ai.threads.autoTitleIfEmpty && ai.threads.autoTitleIfEmpty(thread.id); } catch(_) {}
-        send('saved', { threadId: thread.id, messageId: aiMsg?.id, text: summary, artifacts: createdArtifacts });
+        if (agentReg && finalMsg) reg.finish(finalMsg.id, status, {
+          threadId: thread.id,
+          messageId: finalMsg.id,
+          text: summary,
+          artifacts: createdArtifacts,
+          error: lastError ? lastError.message : null,
+        });
+        send('saved', { threadId: thread.id, messageId: finalMsg?.id, text: summary, artifacts: createdArtifacts });
       } catch (e) {
         console.warn('[ai-agent] DB 저장 실패:', e.message);
       }
