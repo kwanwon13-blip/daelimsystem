@@ -26,7 +26,7 @@ try { openaiClient = require('../lib/openai-client'); } catch(_) {}
 function requireAuthOrControlSecret(req, res, next) {
   const ctrlSecret = req.headers['x-control-secret'];
   const expected = process.env.CONTROL_DAEMON_SECRET;
-  if (ctrlSecret && expected && ctrlSecret === expected) {
+  if (ctrlSecret && expected && String(ctrlSecret).trim() === String(expected).trim()) {
     let name = req.headers['x-control-user-name'] || 'CONTROL AI';
     try { name = decodeURIComponent(name); } catch (_) {}
     req.user = {

@@ -64,7 +64,7 @@ const AI_CLI_TIMEOUT_MS = parseInt(process.env.AI_CLI_TIMEOUT_MS || String(10 * 
 function requireAuthOrControlSecret(req, res, next) {
   const ctrlSecret = req.headers['x-control-secret'];
   const expected = process.env.CONTROL_DAEMON_SECRET;
-  if (ctrlSecret && expected && ctrlSecret === expected) {
+  if (ctrlSecret && expected && String(ctrlSecret).trim() === String(expected).trim()) {
     let name = req.headers['x-control-user-name'] || 'CONTROL AI';
     try { name = decodeURIComponent(name); } catch (_) {}
     req.user = {
@@ -88,6 +88,20 @@ function createAbortError(message = 'request aborted') {
 function throwIfAborted(signal) {
   if (signal && signal.aborted) throw createAbortError();
 }
+
+router.get('/control-auth-check', (req, res) => {
+  const ctrlSecret = req.headers['x-control-secret'];
+  const expected = process.env.CONTROL_DAEMON_SECRET;
+  res.json({
+    ok: true,
+    hasHeader: !!ctrlSecret,
+    headerLength: String(ctrlSecret || '').length,
+    expectedPresent: !!expected,
+    expectedLength: String(expected || '').length,
+    match: !!(ctrlSecret && expected && String(ctrlSecret).trim() === String(expected).trim()),
+    controlHeaders: Object.keys(req.headers || {}).filter(k => k.includes('control')),
+  });
+});
 
 // ──────────────────────────────────────────────────────────
 // 모든 라우트 인증 필수
