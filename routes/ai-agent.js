@@ -252,7 +252,7 @@ router.post('/run', async (req, res) => {
     if (thread && ai.threads && ai.threads.addMessage) {
       try {
         const status = lastError ? 'error' : 'ok';
-        const finalFiles = lastDone?.files || collectedFiles || [];
+        const finalFiles = collectedFiles.length ? collectedFiles : (lastDone?.files || []);
         const createdArtifacts = status === 'ok'
           ? persistAgentFiles({
               userId: req.user.userId,
