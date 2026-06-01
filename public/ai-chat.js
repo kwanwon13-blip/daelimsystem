@@ -95,7 +95,7 @@ function shouldUseAgentMode(text, attachmentIds) {
   const hasAttachment = Array.isArray(attachmentIds) && attachmentIds.length > 0;
   // ① 명확한 업무 문서/마감 키워드 — 단독으로도 에이전트 행 (파일 생성이 거의 확실)
   //    퍼시스/하츠/나이스텍 거래명세서·마감·정산 작업이 채팅으로 새서 막히던 문제 방지
-  const docWords = /(거래명세서|명세서|마감|정산|원장|견적서|청구서|발주서|세금계산서|매입매출|판매현황|단가표|퍼시스|fursys|하츠|haatz|나이스텍|nicetech)/i;
+  const docWords = /(거래명세서|명세서|마감|정산|원장|견적서|청구서|발주서|세금계산서|매입매출|판매현황|단가표|퍼시스|fursys|하츠|haatz|나이스텍|nicetech|한신공영|요진건설|홍지이앤씨|삼진비티|선두종합기술|익스테리어앤|한국지오텍|금광스틸)/i;
   if (docWords.test(s)) return true;
   // ② 첨부 파일이 있으면 가공 작업일 확률이 높음 → 에이전트
   if (hasAttachment) return true;
