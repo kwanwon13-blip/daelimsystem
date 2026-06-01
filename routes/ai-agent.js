@@ -136,7 +136,13 @@ router.post('/run', async (req, res) => {
       for (const a of hydrated) {
         if (!a || String(a.owner_id) !== String(req.user.userId)) continue;
         const fp = path.join(ai.UPLOAD_DIR, a.stored_name);
-        if (fs.existsSync(fp)) attachmentPaths.push(fp);
+        if (fs.existsSync(fp)) {
+          attachmentPaths.push({
+            path: fp,
+            originalName: a.original_name || a.originalName || path.basename(fp),
+            name: a.original_name || a.originalName || path.basename(fp),
+          });
+        }
       }
     } catch (e) {
       console.warn('[ai-agent] 첨부 hydrate 실패:', e.message);
