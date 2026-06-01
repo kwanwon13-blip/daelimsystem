@@ -23,7 +23,25 @@ const reg = require('../lib/generation-registry');
 let openaiClient = null;
 try { openaiClient = require('../lib/openai-client'); } catch(_) {}
 
-router.use(requireAuth);
+function requireAuthOrControlSecret(req, res, next) {
+  const ctrlSecret = req.headers['x-control-secret'];
+  const expected = process.env.CONTROL_DAEMON_SECRET;
+  if (ctrlSecret && expected && ctrlSecret === expected) {
+    let name = req.headers['x-control-user-name'] || 'CONTROL AI';
+    try { name = decodeURIComponent(name); } catch (_) {}
+    req.user = {
+      userId: String(req.headers['x-control-user-id'] || 'control-ai'),
+      name,
+      role: String(req.headers['x-control-user-role'] || 'admin'),
+      permissions: [],
+    };
+    req.sessionToken = 'control-secret-ai';
+    return next();
+  }
+  return requireAuth(req, res, next);
+}
+
+router.use(requireAuthOrControlSecret);
 
 function mimeFromName(name) {
   const ext = path.extname(String(name || '')).toLowerCase();

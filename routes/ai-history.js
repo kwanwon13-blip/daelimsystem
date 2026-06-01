@@ -61,6 +61,24 @@ const DAILY_REQUEST_LIMIT_EMPLOYEE = parseInt(process.env.AI_DAILY_LIMIT_EMPLOYE
 const DAILY_REQUEST_LIMIT_ADMIN = parseInt(process.env.AI_DAILY_LIMIT_ADMIN || '500', 10);
 const AI_CLI_TIMEOUT_MS = parseInt(process.env.AI_CLI_TIMEOUT_MS || String(10 * 60 * 1000), 10);
 
+function requireAuthOrControlSecret(req, res, next) {
+  const ctrlSecret = req.headers['x-control-secret'];
+  const expected = process.env.CONTROL_DAEMON_SECRET;
+  if (ctrlSecret && expected && ctrlSecret === expected) {
+    let name = req.headers['x-control-user-name'] || 'CONTROL AI';
+    try { name = decodeURIComponent(name); } catch (_) {}
+    req.user = {
+      userId: String(req.headers['x-control-user-id'] || 'control-ai'),
+      name,
+      role: String(req.headers['x-control-user-role'] || 'admin'),
+      permissions: [],
+    };
+    req.sessionToken = 'control-secret-ai';
+    return next();
+  }
+  return requireAuth(req, res, next);
+}
+
 function createAbortError(message = 'request aborted') {
   const err = new Error(message);
   err.name = 'AbortError';
@@ -74,7 +92,7 @@ function throwIfAborted(signal) {
 // ──────────────────────────────────────────────────────────
 // 모든 라우트 인증 필수
 // ──────────────────────────────────────────────────────────
-router.use(requireAuth);
+router.use(requireAuthOrControlSecret);
 
 // 헬스체크 — DB 초기화 여부 + API 모드 활성화 여부
 router.get('/health', (req, res) => {
