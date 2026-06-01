@@ -61,6 +61,34 @@ function formatBytes(n) {
   if (n < 1024*1024) return (n/1024).toFixed(0) + 'KB';
   return (n/1024/1024).toFixed(1) + 'MB';
 }
+async function copyTextToClipboard(text) {
+  const value = String(text == null ? '' : text);
+  const api = typeof navigator !== 'undefined' ? navigator.clipboard : null;
+  if (api && typeof api.writeText === 'function') {
+    try {
+      await api.writeText(value);
+      return true;
+    } catch (_) {
+      // Fall through for HTTP/intranet, iframe, focus, or permission failures.
+    }
+  }
+  const ta = document.createElement('textarea');
+  ta.value = value;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  ta.style.top = '0';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  try {
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    return document.execCommand && document.execCommand('copy');
+  } finally {
+    document.body.removeChild(ta);
+  }
+}
 function shouldUseAgentMode(text, attachmentIds) {
   if (state.imageMode) return false;
   const s = String(text || '').toLowerCase();
@@ -487,7 +515,8 @@ function enhanceCodeBlocks(container) {
     btn.addEventListener('click', async () => {
       try {
         const code = pre.querySelector('code');
-        await navigator.clipboard.writeText(code ? code.innerText : pre.innerText);
+        const ok = await copyTextToClipboard(code ? code.innerText : pre.innerText);
+        if (!ok) throw new Error('clipboard unavailable');
         btn.classList.add('copied');
         btn.innerHTML = '<span class="material-symbols-outlined">check</span>복사됨';
         setTimeout(() => { btn.classList.remove('copied'); btn.innerHTML = '<span class="material-symbols-outlined">content_copy</span>복사'; }, 1200);
@@ -1377,14 +1406,15 @@ messagesEl.addEventListener('click', (e) => {
 
 async function copyMessage(msg, btn) {
   try {
-    await navigator.clipboard.writeText(msg.content || '');
+    const ok = await copyTextToClipboard(msg.content || '');
+    if (!ok) throw new Error('clipboard unavailable');
     btn.classList.add('copied');
     btn.querySelector('.material-symbols-outlined').textContent = 'check';
     setTimeout(() => {
       btn.classList.remove('copied');
       btn.querySelector('.material-symbols-outlined').textContent = 'content_copy';
     }, 1200);
-  } catch (e) { alert('복사 실패: ' + e.message); }
+  } catch (e) { alert('복사 실패: 브라우저가 클립보드 접근을 허용하지 않았습니다.'); }
 }
 
 function editMessage(msg, msgEl) {

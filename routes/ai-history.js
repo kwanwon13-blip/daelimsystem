@@ -199,6 +199,35 @@ function listInstalledSkills() {
   return out.sort((a, b) => a.slug.localeCompare(b.slug));
 }
 
+function safeSkillDir(slug) {
+  const clean = String(slug || '').trim().replace(/^@skill[:\s]*/i, '');
+  if (!clean) return null;
+  const root = path.resolve(SKILLS_DIR);
+  const resolved = path.resolve(root, clean);
+  const rel = path.relative(root, resolved);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  return resolved;
+}
+
+function skillExists(slug) {
+  const dir = safeSkillDir(slug);
+  return !!(dir && fs.existsSync(path.join(dir, 'SKILL.md')));
+}
+
+function detectExplicitSkillSlug(text) {
+  const s = String(text || '');
+  const direct = s.match(/(?:@skill|skill|스킬)\s*[:=]?\s*([a-z0-9][a-z0-9._/-]{1,80})/i);
+  if (direct && skillExists(direct[1])) return direct[1].replace(/[\\/]+/g, '/');
+  const lower = s.toLowerCase();
+  for (const skill of listInstalledSkills()) {
+    const slugLower = skill.slug.toLowerCase();
+    const nameLower = String(skill.name || '').toLowerCase();
+    if (lower.includes(slugLower)) return skill.slug;
+    if (nameLower && nameLower.length >= 2 && lower.includes(nameLower)) return skill.slug;
+  }
+  return '';
+}
+
 function persistSkillToGit(skillMdPath, slug) {
   try {
     const { execFileSync } = require('child_process');
@@ -1019,16 +1048,25 @@ function apiModeAvailable() {
 const FILE_REQUEST_KEYWORDS = /(엑셀|excel|xlsx|스프레드시트|표로\s*정리|표로\s*만들|PDF|pdf|보고서|보고서로|SVG|svg|HTML|html|마크다운|markdown|md\s*파일|JSON|json|CSV|csv)/i;
 const BUSINESS_CLEANUP_KEYWORDS = /(퍼시스|fursys|하츠|haatz|나이스텍|nicetech|거래명세|거래내역|청구|마감|정산|원장|대장|집계|분류|분리|정리|매입|매출|발주)/i;
 
+function requestTextWithAttachments(prompt, attachments = []) {
+  return [
+    String(prompt || ''),
+    ...(attachments || []).map(a => `${a.original || ''} ${a.original_name || ''} ${a.name || ''}`),
+  ].join(' ');
+}
+
 function isBusinessCleanupRequest(prompt, attachments = []) {
-  const text = String(prompt || '');
+  const text = requestTextWithAttachments(prompt, attachments);
   if (!BUSINESS_CLEANUP_KEYWORDS.test(text)) return false;
   return Array.isArray(attachments) && attachments.length > 0
     ? true
     : /(퍼시스|fursys|하츠|haatz|나이스텍|nicetech).*(정리|마감|청구|집계|분리|대장|원장)|((정리|마감|청구|집계|분리|대장|원장).*(퍼시스|fursys|하츠|haatz|나이스텍|nicetech))/i.test(text);
 }
 
-function detectLedgerSkillSlug(prompt) {
-  const text = String(prompt || '');
+function detectLedgerSkillSlug(prompt, attachments = []) {
+  const text = requestTextWithAttachments(prompt, attachments);
+  const explicit = detectExplicitSkillSlug(text);
+  if (explicit) return explicit;
   if (/퍼시스|fursys|persys/i.test(text)) return 'persys-ledger';
   if (/하츠|haatz/i.test(text)) return 'haatz-ledger';
   if (/나이스텍|nicetech/i.test(text)) return 'nicetech-ledger';
@@ -1038,7 +1076,8 @@ function detectLedgerSkillSlug(prompt) {
 function loadSkillInstructionBlock(slug) {
   if (!slug) return '';
   try {
-    const skillDir = path.join(__dirname, '..', '.claude', 'skills', slug);
+    const skillDir = safeSkillDir(slug);
+    if (!skillDir) return '';
     const skillPath = path.join(skillDir, 'SKILL.md');
     if (!fs.existsSync(skillPath)) return '';
     const raw = fs.readFileSync(skillPath, 'utf8').replace(/^---\n[\s\S]*?\n---\s*/, '').trim();
@@ -1403,7 +1442,8 @@ router.post('/chat', async (req, res) => {
         }
       }
     }
-    const skillInstructionHint = loadSkillInstructionBlock(detectLedgerSkillSlug(prompt));
+    const detectedSkillSlug = detectLedgerSkillSlug(prompt, attachments);
+    const skillInstructionHint = loadSkillInstructionBlock(detectedSkillSlug);
     const autoWorkflowHint = buildAutoWorkflowHint(prompt, attachments);
     const currentText = templatePrefix + pageContext + attachmentBlock + skillInstructionHint + autoWorkflowHint + prompt;
     const imageBlocks = getImageBlocksForApi();
@@ -1485,7 +1525,7 @@ router.post('/chat', async (req, res) => {
         for (turnCount = 0; turnCount < MAX_TOOL_TURNS; turnCount++) {
           throwIfAborted(requestAbort.signal);
           const toolChoice = (turnCount === 0 && promptForceFile)
-            ? (detectLedgerSkillSlug(prompt) ? { type: 'tool', name: 'create_excel' } : { type: 'any' })
+            ? (detectedSkillSlug ? { type: 'tool', name: 'create_excel' } : { type: 'any' })
             : undefined;
           const r = await callClaudeApi(loopMessages, {
             system: DEFAULT_SYSTEM,
@@ -1723,7 +1763,10 @@ router.post('/chat-stream', async (req, res) => {
     else if (m.role === 'ai' && m.status === 'ok' && m.content) apiMessages.push({ role: 'assistant', content: m.content });
   }
   // 이미지 첨부가 있으면 multimodal 콘텐츠 배열로 전송
-  const currentText = templatePrefix + pageCtx + attachmentBlock + prompt;
+  const detectedSkillSlug = detectLedgerSkillSlug(prompt, attachments);
+  const skillInstructionHint = loadSkillInstructionBlock(detectedSkillSlug);
+  const autoWorkflowHint = buildAutoWorkflowHint(prompt, attachments);
+  const currentText = templatePrefix + pageCtx + attachmentBlock + skillInstructionHint + autoWorkflowHint + prompt;
   const imageBlocks = [];
   for (const a of imageAttachmentsS) {
     const fp = path.join(ai.UPLOAD_DIR, a.stored_name);
@@ -1993,7 +2036,10 @@ router.post('/chat-stream-cli', async (req, res) => {
     priorBlock = prior.map(m => (m.role === 'user' ? 'User: ' : 'Assistant: ') + (m.content || '')).join('\n\n') + '\n\nAssistant:\n';
   }
 
-  const fullPrompt = knowledgeBlock + templatePrefix + pageCtx + attachmentBlock + priorBlock + prompt;
+  const detectedSkillSlug = detectLedgerSkillSlug(prompt, attachments);
+  const skillInstructionHint = loadSkillInstructionBlock(detectedSkillSlug);
+  const autoWorkflowHint = buildAutoWorkflowHint(prompt, attachments);
+  const fullPrompt = knowledgeBlock + templatePrefix + pageCtx + attachmentBlock + skillInstructionHint + autoWorkflowHint + priorBlock + prompt;
 
   // 사용자 메시지 저장
   ai.threads.addMessage(thread.id, {
