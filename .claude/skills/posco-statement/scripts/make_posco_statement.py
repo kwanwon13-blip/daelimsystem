@@ -10,7 +10,10 @@ import json
 import math
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import unicodedata
 from collections import defaultdict
 from dataclasses import dataclass
@@ -22,14 +25,18 @@ from typing import Any
 from openpyxl import load_workbook
 from openpyxl.cell import MergedCell
 
-from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import ParagraphStyle
-from reportlab.lib.units import mm
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+try:
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    REPORTLAB_AVAILABLE = True
+except ModuleNotFoundError:
+    REPORTLAB_AVAILABLE = False
 
 
 CODE_RE = re.compile(r"(?<![A-Z0-9])A\s*0*(\d{1,7})(?:\s*\*\s*(-?\d+(?:\.\d+)?))?", re.I)
@@ -403,7 +410,71 @@ def paragraph(text: Any, style: ParagraphStyle) -> Paragraph:
     return Paragraph(escaped, style)
 
 
+def pdf_payload(groups: list[tuple[str, list[StatementLine]]], warnings: list[str]) -> dict[str, Any]:
+    out_groups = []
+    for group_key, lines in groups:
+        first = lines[0]
+        supply = sum((line.amount for line in lines), Decimal("0"))
+        tax = (supply * Decimal("0.1")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        total = supply + tax
+        out_groups.append({
+            "key": group_key,
+            "project": first.project,
+            "issueDate": datetime.now().strftime("%Y-%m-%d"),
+            "supplyText": money(supply),
+            "taxText": money(tax),
+            "totalText": money(total),
+            "lines": [{
+                "month": str(line.date.month) if line.date else "",
+                "day": str(line.date.day) if line.date else "",
+                "buyerCode": line.buyer_code,
+                "item": line.item,
+                "unitPrice": money(line.unit_price),
+                "unit": line.unit,
+                "qty": qty_text(line.qty),
+                "amount": money(line.amount),
+                "note": line.note,
+            } for line in lines],
+        })
+    return {"groups": out_groups, "warnings": warnings}
+
+
+def draw_statement_pdf_node(output_path: str, groups: list[tuple[str, list[StatementLine]]], warnings: list[str]) -> None:
+    node = os.environ.get("NODE_EXE") or shutil.which("node")
+    if not node:
+        raise RuntimeError("PDF 생성을 위해 reportlab 또는 Node.js가 필요합니다. 서버에 node 또는 reportlab을 확인해주세요.")
+    script = os.path.join(os.path.dirname(__file__), "render_posco_pdf.js")
+    if not os.path.exists(script):
+        raise RuntimeError(f"PDF 렌더러를 찾지 못했습니다: {script}")
+    fd, payload_path = tempfile.mkstemp(suffix=".json")
+    os.close(fd)
+    try:
+        output_abs = os.path.abspath(output_path)
+        with open(payload_path, "w", encoding="utf-8") as f:
+            json.dump(pdf_payload(groups, warnings), f, ensure_ascii=False)
+        result = subprocess.run(
+            [node, script, payload_path, output_abs],
+            cwd=os.path.dirname(script),
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            tail = (result.stderr or result.stdout or "").strip()
+            raise RuntimeError(f"Node PDF 렌더링 실패: {tail}")
+    finally:
+        try:
+            os.remove(payload_path)
+        except OSError:
+            pass
+
+
 def draw_statement_pdf(output_path: str, groups: list[tuple[str, list[StatementLine]]], warnings: list[str]) -> None:
+    if os.environ.get("POSCO_FORCE_NODE_PDF") == "1" or not REPORTLAB_AVAILABLE:
+        return draw_statement_pdf_node(output_path, groups, warnings)
+
     font, bold_font = register_fonts()
     styles = {
         "title": ParagraphStyle("title", fontName=bold_font, fontSize=20, leading=24, alignment=TA_CENTER),
