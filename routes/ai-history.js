@@ -228,6 +228,79 @@ function detectExplicitSkillSlug(text) {
   return '';
 }
 
+const SKILL_STOPWORDS = new Set([
+  'skill', 'skills', 'ledger', 'auto', 'download', 'upload', 'api', 'app',
+  '스킬', '사용', '요청', '작업', '자동', '적용', '파일', '첨부', '생성', '처리',
+  '정리', '엑셀', '형식', '기준', '대림에스엠', '합니다', '하세요',
+]);
+
+function normalizeSkillText(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}@._/-]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function skillTokens(text) {
+  return normalizeSkillText(text)
+    .split(' ')
+    .map(t => t.trim())
+    .filter(t => t.length >= 2 && !SKILL_STOPWORDS.has(t));
+}
+
+function quotedSkillPhrases(text) {
+  const out = [];
+  const raw = String(text || '');
+  const re = /["“”']([^"“”']{2,60})["“”']/g;
+  let m;
+  while ((m = re.exec(raw))) out.push(normalizeSkillText(m[1]));
+  return out.filter(Boolean);
+}
+
+function scoreSkillForText(skill, text) {
+  const hay = normalizeSkillText(text);
+  if (!hay) return 0;
+  const slug = normalizeSkillText(skill.slug);
+  const name = normalizeSkillText(skill.name);
+  const desc = String(skill.description || '');
+  let score = 0;
+
+  if (slug && hay.includes(slug)) score += 90;
+  if (name && name !== slug && hay.includes(name)) score += 80;
+
+  const slugParts = slug.split(/[\/._-]+/).filter(t => t.length >= 3 && !SKILL_STOPWORDS.has(t));
+  for (const part of slugParts) {
+    if (hay.includes(part)) score += 22;
+  }
+
+  for (const phrase of quotedSkillPhrases(desc)) {
+    if (phrase && hay.includes(phrase)) score += 55;
+  }
+
+  const tokenSet = new Set(skillTokens(`${skill.name} ${skill.slug} ${desc}`));
+  let tokenHits = 0;
+  let strongTokenHits = 0;
+  for (const token of tokenSet) {
+    if (!hay.includes(token)) continue;
+    tokenHits++;
+    if (token.length >= 4 || /^[a-z0-9]{3,}$/i.test(token)) strongTokenHits++;
+  }
+  score += Math.min((tokenHits * 5) + (strongTokenHits * 13), 45);
+
+  // Generic words alone should not wake a skill. Require a meaningful anchor.
+  const hasAnchor = score >= 40 || strongTokenHits > 0 || slugParts.some(part => hay.includes(part));
+  return hasAnchor ? score : 0;
+}
+
+function detectAutoSkillSlug(text) {
+  const ranked = listInstalledSkills()
+    .map(skill => ({ skill, score: scoreSkillForText(skill, text) }))
+    .filter(x => x.score >= 20)
+    .sort((a, b) => b.score - a.score);
+  return ranked[0] ? ranked[0].skill.slug : '';
+}
+
 function persistSkillToGit(skillMdPath, slug) {
   try {
     const { execFileSync } = require('child_process');
@@ -1070,6 +1143,8 @@ function detectLedgerSkillSlug(prompt, attachments = []) {
   if (/퍼시스|fursys|persys/i.test(text)) return 'persys-ledger';
   if (/하츠|haatz/i.test(text)) return 'haatz-ledger';
   if (/나이스텍|nicetech/i.test(text)) return 'nicetech-ledger';
+  const auto = detectAutoSkillSlug(text);
+  if (auto) return auto;
   return '';
 }
 
