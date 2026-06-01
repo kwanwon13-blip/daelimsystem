@@ -89,20 +89,6 @@ function throwIfAborted(signal) {
   if (signal && signal.aborted) throw createAbortError();
 }
 
-router.get('/control-auth-check', (req, res) => {
-  const ctrlSecret = req.headers['x-control-secret'];
-  const expected = process.env.CONTROL_DAEMON_SECRET;
-  res.json({
-    ok: true,
-    hasHeader: !!ctrlSecret,
-    headerLength: String(ctrlSecret || '').length,
-    expectedPresent: !!expected,
-    expectedLength: String(expected || '').length,
-    match: !!(ctrlSecret && expected && String(ctrlSecret).trim() === String(expected).trim()),
-    controlHeaders: Object.keys(req.headers || {}).filter(k => k.includes('control')),
-  });
-});
-
 // ──────────────────────────────────────────────────────────
 // 모든 라우트 인증 필수
 // ──────────────────────────────────────────────────────────
