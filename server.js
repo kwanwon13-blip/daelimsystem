@@ -358,6 +358,12 @@ app.use('/api/master', require('./routes/master'));
 // /api/contacts/m/* (무인증 모바일 라우트) 가 그들에게 가로채여 401 떨어지지 않음.
 app.use('/api/contacts', require('./routes/contacts'));
 
+// AI routes must be mounted before broad /api routers that install requireAuth
+// middleware globally, otherwise internal control-secret verification never reaches them.
+app.use('/api/ai/agent', require('./routes/ai-agent'));
+app.use('/api/ai/ocr', require('./routes/ai-ocr'));
+app.use('/api/ai', require('./routes/ai-history'));
+
 // ── 업체별 단가 (routes/vendorPrices.js) ──
 app.use('/api', require('./routes/vendorPrices'));
 
@@ -436,16 +442,6 @@ app.use('/api/gps-attendance', require('./routes/gps-attendance'));
 
 // ── 워크스페이스 (routes/workspace.js) ──
 app.use('/api/workspace', require('./routes/workspace'));
-
-// ── AI 히스토리/프로젝트/템플릿/첨부 (routes/ai-history.js) ──
-app.use('/api/ai', require('./routes/ai-history'));
-
-// ── AI Agent — Claude CLI 풀 코워크 모드 + OpenAI 이미지 (routes/ai-agent.js) ──
-// /api/ai/agent/run (SSE), /api/ai/agent/file/..., /api/ai/agent/image
-app.use('/api/ai/agent', require('./routes/ai-agent'));
-
-// ── AI OCR — Claude Vision 이미지 텍스트 추출 (routes/ai-ocr.js) ──
-app.use('/api/ai/ocr', require('./routes/ai-ocr'));
 
 // ── 이카운트 매입 자동화 (routes/ecount-purchase.js) ──
 // 매입명세서 PDF/이미지 → OCR → 매칭 → 학습 → 이카운트 자동등록
