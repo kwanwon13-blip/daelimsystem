@@ -180,6 +180,7 @@ const SKILLS_DIR = path.join(__dirname, '..', '.claude', 'skills');
 const EXCEL_RENDER_CACHE_DIR = path.join(__dirname, '..', 'data', 'ai-render-cache', 'excel');
 const EXCEL_RENDER_TIMEOUT_MS = parseInt(process.env.AI_EXCEL_RENDER_TIMEOUT_MS || '90000', 10);
 let cachedSofficePath = undefined;
+let cachedPowerShellPath = undefined;
 
 function uniqueStrings(values) {
   const seen = new Set();
@@ -221,6 +222,36 @@ function resolveSofficePath() {
   }
   cachedSofficePath = '';
   return cachedSofficePath;
+}
+
+function resolvePowerShellPath() {
+  if (cachedPowerShellPath !== undefined) return cachedPowerShellPath;
+  const systemRoot = process.env.SystemRoot || 'C:\\Windows';
+  const candidates = uniqueStrings([
+    process.env.POWERSHELL_EXE,
+    path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+    'powershell.exe',
+  ]);
+  for (const cmd of candidates) {
+    try {
+      if (path.isAbsolute(cmd) && !fs.existsSync(cmd)) continue;
+      const r = spawnSync(cmd, ['-NoProfile', '-Command', '$PSVersionTable.PSVersion.ToString()'], {
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 5000,
+      });
+      if (r.status === 0) {
+        cachedPowerShellPath = cmd;
+        return cachedPowerShellPath;
+      }
+    } catch (_) {}
+  }
+  cachedPowerShellPath = '';
+  return cachedPowerShellPath;
+}
+
+function psQuote(value) {
+  return `'${String(value || '').replace(/'/g, "''")}'`;
 }
 
 function latestPdfInDir(dir) {
@@ -266,41 +297,87 @@ function runChild(command, args, options = {}) {
   });
 }
 
+async function renderExcelWithComPdf(filePath, outDir) {
+  if (process.platform !== 'win32') return null;
+  const powershell = resolvePowerShellPath();
+  if (!powershell) return null;
+  const pdfPath = path.join(outDir, 'excel-com-preview.pdf');
+  const script = [
+    '$ErrorActionPreference = "Stop"',
+    `$src = ${psQuote(filePath)}`,
+    `$out = ${psQuote(pdfPath)}`,
+    '$excel = $null',
+    '$wb = $null',
+    'try {',
+    '  $excel = New-Object -ComObject Excel.Application',
+    '  $excel.Visible = $false',
+    '  $excel.DisplayAlerts = $false',
+    '  $wb = $excel.Workbooks.Open($src, 3, $true)',
+    '  $wb.ExportAsFixedFormat(0, $out)',
+    '} finally {',
+    '  if ($wb -ne $null) { $wb.Close($false) | Out-Null }',
+    '  if ($excel -ne $null) { $excel.Quit() | Out-Null }',
+    '  [GC]::Collect()',
+    '  [GC]::WaitForPendingFinalizers()',
+    '}',
+  ].join('; ');
+  await runChild(powershell, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], { cwd: outDir });
+  if (!fs.existsSync(pdfPath)) throw new Error('Excel COM preview render did not create a PDF');
+  return pdfPath;
+}
+
 async function renderExcelArtifactPdf(artifact, filePath) {
   const ext = path.extname(artifact.original_name || artifact.stored_name || filePath).toLowerCase();
   if (!['.xlsx', '.xlsm'].includes(ext)) return null;
-  const soffice = resolveSofficePath();
-  if (!soffice) return null;
 
   const stat = fs.statSync(filePath);
   const key = `${artifact.id}_${stat.size}_${Math.round(stat.mtimeMs)}`;
   const outDir = path.join(EXCEL_RENDER_CACHE_DIR, key);
   const existing = latestPdfInDir(outDir);
-  if (existing) return { path: existing, cached: true, engine: 'libreoffice' };
-
-  fs.mkdirSync(outDir, { recursive: true });
-  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'price-list-lo-'));
-  try {
-    await runChild(soffice, [
-      '--headless',
-      '--nologo',
-      '--nodefault',
-      '--nofirststartwizard',
-      '--norestore',
-      `-env:UserInstallation=${pathToFileURL(profileDir).href}`,
-      '--convert-to',
-      'pdf:calc_pdf_Export',
-      '--outdir',
-      outDir,
-      filePath,
-    ], { cwd: outDir });
-  } finally {
-    try { fs.rmSync(profileDir, { recursive: true, force: true }); } catch (_) {}
+  if (existing) {
+    const engine = path.basename(existing).toLowerCase() === 'excel-com-preview.pdf' ? 'excel-com' : 'libreoffice';
+    return { path: existing, cached: true, engine };
   }
 
-  const rendered = latestPdfInDir(outDir);
-  if (!rendered) throw new Error('Excel preview render did not create a PDF');
-  return { path: rendered, cached: false, engine: 'libreoffice' };
+  fs.mkdirSync(outDir, { recursive: true });
+  const errors = [];
+
+  const soffice = resolveSofficePath();
+  if (soffice) {
+    const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'price-list-lo-'));
+    try {
+      await runChild(soffice, [
+        '--headless',
+        '--nologo',
+        '--nodefault',
+        '--nofirststartwizard',
+        '--norestore',
+        `-env:UserInstallation=${pathToFileURL(profileDir).href}`,
+        '--convert-to',
+        'pdf:calc_pdf_Export',
+        '--outdir',
+        outDir,
+        filePath,
+      ], { cwd: outDir });
+      const rendered = latestPdfInDir(outDir);
+      if (rendered) return { path: rendered, cached: false, engine: 'libreoffice' };
+      errors.push(new Error('LibreOffice preview render did not create a PDF'));
+    } catch (e) {
+      errors.push(e);
+    } finally {
+      try { fs.rmSync(profileDir, { recursive: true, force: true }); } catch (_) {}
+    }
+  }
+
+  try {
+    const excelComPdf = await renderExcelWithComPdf(filePath, outDir);
+    if (excelComPdf) return { path: excelComPdf, cached: false, engine: 'excel-com' };
+  } catch (e) {
+    errors.push(e);
+  }
+
+  if (errors.length) throw errors[0];
+  return null;
 }
 
 function excelRenderPayload(artifact, render) {
