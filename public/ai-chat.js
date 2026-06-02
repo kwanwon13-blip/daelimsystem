@@ -596,6 +596,41 @@ function updateLastAIContent(text, isStreaming, ownerThreadId) {
   c.innerHTML = md(text) + (isStreaming ? '<span class="typing-cursor"></span>' : '');
   if (!isStreaming) enhanceCodeBlocks(c);
 }
+function findMessageElement(message) {
+  if (!messagesEl || !message) return null;
+  const ids = [message.id, message._clientId, message.serverMsgId]
+    .filter(v => v !== undefined && v !== null && String(v) !== '')
+    .map(v => String(v));
+  if (!ids.length) return null;
+  for (const el of messagesEl.querySelectorAll('.msg')) {
+    if (ids.includes(String(el.dataset.id || ''))) return el;
+  }
+  return null;
+}
+function refreshMessageElement(message, options = {}) {
+  if (!messagesEl || !message) return;
+  const el = findMessageElement(message);
+  const next = buildMessageEl(message);
+  if (el) el.replaceWith(next);
+  else messagesEl.appendChild(next);
+  if (options.scroll !== false) scrollToBottom();
+}
+function updateAIMessageContent(message, text, isStreaming, ownerThreadId) {
+  if (!message) return;
+  message.content = text;
+  message.streaming = !!isStreaming;
+  const isNewThreadView = ownerThreadId === 'new' && state.activeThreadId == null;
+  if (ownerThreadId !== undefined && !isNewThreadView && String(ownerThreadId) !== String(state.activeThreadId)) return;
+  const el = findMessageElement(message);
+  if (!el) return;
+  const tw = el.querySelector('.msg-thinking-wrap');
+  if (tw) renderThinkingBox(tw, message);
+  const c = el.querySelector('.msg-content');
+  if (!c) return;
+  c.innerHTML = md(text) + (isStreaming ? '<span class="typing-cursor"></span>' : '');
+  if (!isStreaming) enhanceCodeBlocks(c);
+  scrollToBottom();
+}
 // 사용자가 스크롤을 위로 올렸으면 자동 스크롤 안 함
 state.atBottom = true;
 messagesEl.addEventListener('scroll', () => {
@@ -1040,9 +1075,10 @@ async function sendViaChatFallback(text, attachmentIds, aiMsg) {
   }
 }
 
-async function sendViaAgent(text, attachmentIds, aiMsg, ownerThreadId) {
+async function sendViaAgent(text, attachmentIds, aiMsg, ownerThreadId, signal) {
   let agentLog = '';
   let seenFiles = [];
+  let progressThreadId = ownerThreadId;
   const renderAgentProgress = (phase) => {
     const parts = [phase || '작업 모드로 실행 중입니다.'];
     const log = agentLog.trim();
@@ -1051,14 +1087,14 @@ async function sendViaAgent(text, attachmentIds, aiMsg, ownerThreadId) {
       parts.push('생성 감지:\n' + seenFiles.slice(-8).map(name => '- ' + name).join('\n'));
     }
     aiMsg.content = parts.join('\n\n');
-    updateLastAIContent(aiMsg.content, true);
+    updateAIMessageContent(aiMsg, aiMsg.content, true, progressThreadId);
   };
   renderAgentProgress('작업 모드로 실행 중입니다. 이 요청도 현재 대화에 저장됩니다.');
   const r = await fetch('/api/ai/agent/run', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    signal: state.abortController.signal,
+    signal,
     body: JSON.stringify({
       task: text || '(첨부 파일을 분석해서 결과 파일을 만들어주세요)',
       threadId: state.activeThreadId || undefined,
@@ -1091,9 +1127,15 @@ async function sendViaAgent(text, attachmentIds, aiMsg, ownerThreadId) {
       const data = JSON.parse(dataStr);
       if (eventName === 'started') {
         newThreadId = data.threadId || newThreadId;
-        if (data.messageId) aiMsg.id = data.messageId;
+        if (data.messageId) {
+          aiMsg.serverMsgId = data.messageId;
+          aiMsg.id = data.messageId;
+          const el = findMessageElement(aiMsg);
+          if (el) el.dataset.id = String(data.messageId);
+        }
         if (newThreadId) {
           const newKey = String(newThreadId);
+          progressThreadId = newKey;
           if (!state.activeThreadId) state.activeThreadId = newThreadId;
           state.liveByThread[newKey] = aiMsg;
           if (state.streamingByThread) state.streamingByThread.add(newKey);
@@ -1121,18 +1163,18 @@ async function sendViaAgent(text, attachmentIds, aiMsg, ownerThreadId) {
         aiMsg.id = data.messageId || aiMsg.id;
         aiMsg.content = data.text || aiMsg.content || '작업 완료';
         aiMsg.artifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
-        renderAiMessage(aiMsg);
+        refreshMessageElement(aiMsg);
       } else if (eventName === 'error') {
         aiMsg.streaming = false;
         aiMsg.content += '\n\n**오류:** ' + (data.error || data.message || '작업 실패');
-        updateLastAIContent(aiMsg.content, false);
+        updateAIMessageContent(aiMsg, aiMsg.content, false, progressThreadId);
       }
     }
   }
   if (newThreadId && state.activeThreadId === null) state.activeThreadId = newThreadId;
   aiMsg.streaming = false;
   if (!Array.isArray(aiMsg.artifacts)) aiMsg.artifacts = [];
-  updateLastAIContent(aiMsg.content, false);
+  updateAIMessageContent(aiMsg, aiMsg.content, false, progressThreadId);
   await loadThreads();
   return true;
 }
@@ -1161,6 +1203,7 @@ async function sendMessage() {
   appendMessage(userMsg);
 
   const aiMsg = { role: 'ai', content: state.imageMode ? '이미지 생성 중… (10~30초 소요)' : '', streaming: true, id: 'tmp_a_' + Date.now() };
+  aiMsg._clientId = aiMsg.id;
   state.messages.push(aiMsg);
   state.liveByThread[ownerThreadId] = aiMsg;   // 생성 중 답변 등록 (다른 대화 갔다 와도 복원)
   appendMessage(aiMsg);
@@ -1219,26 +1262,31 @@ async function sendMessage() {
   }
 
   if (shouldUseAgentMode(text, attachmentIds)) {
-    try {
-      await sendViaAgent(text, attachmentIds, aiMsg, ownerThreadId);
-    } catch (e) {
-      console.error('agent 작업 실패:', e);
-      aiMsg.streaming = false;
-      aiMsg.content = '**오류:** ' + e.message;
-      updateLastAIContent(aiMsg.content, false, ownerThreadId);
-    } finally {
-      if (state.streamingByThread) {
-        state.streamingByThread.delete(ownerThreadId);
-        state.streamingByThread.delete('new');
-      }
-      delete state.liveByThread[ownerThreadId];
-      if (state.activeThreadId) delete state.liveByThread[String(state.activeThreadId)];
-      setStreaming(false);
-      input.disabled = false;
-      autoResize();
-      if (String(ownerThreadId) === String(state.activeThreadId) || ownerThreadId === 'new') input.focus();
-      renderThreadList();
-    }
+    const agentAbortController = state.abortController || new AbortController();
+    setStreaming(false);
+    input.disabled = false;
+    autoResize();
+    input.focus();
+    renderThreadList();
+    sendViaAgent(text, attachmentIds, aiMsg, ownerThreadId, agentAbortController.signal)
+      .catch((e) => {
+        console.error('agent 작업 실패:', e);
+        aiMsg.streaming = false;
+        aiMsg.content = '**오류:** ' + e.message;
+        updateAIMessageContent(aiMsg, aiMsg.content, false, ownerThreadId);
+      })
+      .finally(() => {
+        if (state.streamingByThread) {
+          state.streamingByThread.delete(ownerThreadId);
+          state.streamingByThread.delete('new');
+        }
+        if (state.liveByThread[ownerThreadId] === aiMsg) delete state.liveByThread[ownerThreadId];
+        if (state.activeThreadId && state.liveByThread[String(state.activeThreadId)] === aiMsg) {
+          delete state.liveByThread[String(state.activeThreadId)];
+        }
+        renderThreadList();
+        loadThreads();
+      });
     return;
   }
 
