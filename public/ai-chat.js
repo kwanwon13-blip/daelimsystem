@@ -879,7 +879,16 @@ function excelPreviewCellStyle(style) {
   if (s.align) css.push('text-align:' + ({ center:'center', right:'right', left:'left' }[s.align] || s.align));
   if (s.valign) css.push('vertical-align:' + ({ middle:'middle', top:'top', bottom:'bottom' }[s.valign] || s.valign));
   if (s.wrap) css.push('white-space:normal');
-  if (s.border) css.push('border-right-color:#9ca3af;border-bottom-color:#9ca3af');
+  if (s.border) {
+    if (typeof s.border === 'object') {
+      if (s.border.top) css.push('border-top:1px solid ' + s.border.top);
+      if (s.border.right) css.push('border-right:1px solid ' + s.border.right);
+      if (s.border.bottom) css.push('border-bottom:1px solid ' + s.border.bottom);
+      if (s.border.left) css.push('border-left:1px solid ' + s.border.left);
+    } else {
+      css.push('border-right-color:#9ca3af;border-bottom-color:#9ca3af');
+    }
+  }
   return css.join(';');
 }
 function renderSheetTable(sheet) {

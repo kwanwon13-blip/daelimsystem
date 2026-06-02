@@ -3182,6 +3182,50 @@ function excelArgbToCss(argb) {
   return '';
 }
 
+const EXCEL_INDEXED_COLORS = {
+  0: '#000000', 1: '#ffffff', 2: '#ff0000', 3: '#00ff00', 4: '#0000ff', 5: '#ffff00', 6: '#ff00ff', 7: '#00ffff',
+  8: '#000000', 9: '#ffffff', 10: '#ff0000', 11: '#00ff00', 12: '#0000ff', 13: '#ffff00', 14: '#ff00ff', 15: '#00ffff',
+  16: '#800000', 17: '#008000', 18: '#000080', 19: '#808000', 20: '#800080', 21: '#008080', 22: '#c0c0c0', 23: '#808080',
+  24: '#9999ff', 25: '#993366', 26: '#ffffcc', 27: '#ccffff', 28: '#660066', 29: '#ff8080', 30: '#0066cc', 31: '#ccccff',
+  32: '#000080', 33: '#ff00ff', 34: '#ffff00', 35: '#00ffff', 36: '#800080', 37: '#800000', 38: '#008080', 39: '#0000ff',
+  40: '#00ccff', 41: '#ccffff', 42: '#ccffcc', 43: '#ffff99', 44: '#99ccff', 45: '#ff99cc', 46: '#cc99ff', 47: '#ffcc99',
+  48: '#3366ff', 49: '#33cccc', 50: '#99cc00', 51: '#ffcc00', 52: '#ff9900', 53: '#ff6600', 54: '#666699', 55: '#969696',
+  56: '#003366', 57: '#339966', 58: '#003300', 59: '#333300', 60: '#993300', 61: '#993366', 62: '#333399', 63: '#333333',
+  64: '#000000', 65: '#ffffff',
+};
+const EXCEL_THEME_COLORS = [
+  '#ffffff', '#000000', '#eeece1', '#1f497d', '#4f81bd',
+  '#c0504d', '#9bbb59', '#8064a2', '#4bacc6', '#f79646',
+  '#0000ff', '#800080',
+];
+
+function clampColorChannel(n) {
+  return Math.max(0, Math.min(255, Math.round(n)));
+}
+
+function applyExcelTint(hex, tint) {
+  if (!hex || typeof tint !== 'number' || !isFinite(tint) || tint === 0) return hex;
+  const m = String(hex).match(/^#?([0-9a-f]{6})$/i);
+  if (!m) return hex;
+  const raw = m[1];
+  const rgb = [0, 2, 4].map(i => parseInt(raw.slice(i, i + 2), 16));
+  const out = rgb.map(ch => tint < 0 ? ch * (1 + tint) : ch + (255 - ch) * tint);
+  return '#' + out.map(ch => clampColorChannel(ch).toString(16).padStart(2, '0')).join('');
+}
+
+function excelColorToCss(color) {
+  if (!color) return '';
+  let css = excelArgbToCss(color.argb || color.rgb);
+  if (!css && color.indexed !== undefined && EXCEL_INDEXED_COLORS[color.indexed]) css = EXCEL_INDEXED_COLORS[color.indexed];
+  if (!css && color.theme !== undefined && EXCEL_THEME_COLORS[color.theme]) css = EXCEL_THEME_COLORS[color.theme];
+  if (css && color.tint !== undefined) css = applyExcelTint(css, Number(color.tint));
+  return css || '';
+}
+
+function excelBorderColor(border) {
+  return excelColorToCss(border && border.color) || '#111827';
+}
+
 function excelCellStyleForPreview(cell) {
   const style = {};
   const font = cell.font || {};
@@ -3190,14 +3234,21 @@ function excelCellStyleForPreview(cell) {
   if (font.bold) style.bold = true;
   if (font.italic) style.italic = true;
   if (font.size) style.fontSize = Math.max(8, Math.min(28, Number(font.size)));
-  const fontColor = excelArgbToCss(font.color && (font.color.argb || font.color.rgb));
+  const fontColor = excelColorToCss(font.color);
   if (fontColor) style.color = fontColor;
-  const bgColor = excelArgbToCss(fill.fgColor && (fill.fgColor.argb || fill.fgColor.rgb));
+  const bgColor = excelColorToCss(fill.fgColor) || excelColorToCss(fill.bgColor);
   if (bgColor && bgColor.toLowerCase() !== '#000000') style.bg = bgColor;
   if (alignment.horizontal) style.align = alignment.horizontal;
   if (alignment.vertical) style.valign = alignment.vertical;
   if (alignment.wrapText) style.wrap = true;
-  if (cell.border && Object.keys(cell.border).length) style.border = true;
+  if (cell.border && Object.keys(cell.border).length) {
+    style.border = {
+      top: cell.border.top ? excelBorderColor(cell.border.top) : '',
+      right: cell.border.right ? excelBorderColor(cell.border.right) : '',
+      bottom: cell.border.bottom ? excelBorderColor(cell.border.bottom) : '',
+      left: cell.border.left ? excelBorderColor(cell.border.left) : '',
+    };
+  }
   return style;
 }
 
