@@ -634,6 +634,14 @@ messagesEl.addEventListener('click', (e) => {
 });
 const savedPreviewWidth = parseInt(localStorage.getItem('ai_preview_width') || '', 10);
 if (savedPreviewWidth) document.documentElement.style.setProperty('--preview-width', savedPreviewWidth + 'px');
+function ensurePreviewWidth(minWidth) {
+  if (!previewModalBg || window.innerWidth <= 768) return;
+  const current = previewModalBg.getBoundingClientRect().width || parseInt(localStorage.getItem('ai_preview_width') || '560', 10) || 560;
+  const max = Math.max(420, Math.min(window.innerWidth - 360, 1040));
+  const next = Math.max(current, Math.min(max, minWidth));
+  document.documentElement.style.setProperty('--preview-width', next + 'px');
+  localStorage.setItem('ai_preview_width', String(Math.round(next)));
+}
 function closePreview() {
   previewModalBg.classList.remove('visible');
   if (appEl) appEl.classList.remove('preview-open');
@@ -665,11 +673,13 @@ if (previewResizer) {
 }
 async function openPreview(id, kind, name) {
   previewTitle.textContent = name || '미리보기';
+  previewBody.classList.remove('excel-render-body');
   previewBody.innerHTML = '<div class="preview-loading">불러오는 중…</div>';
   if (previewDownload) previewDownload.style.display = '';  // 라이브 미리보기가 숨겼을 수 있어 복구
   previewDownload.href = '/api/ai/artifacts/' + id + '/download';
   previewModalBg.classList.add('visible');
   if (appEl) appEl.classList.add('preview-open');
+  if (kind === 'excel') ensurePreviewWidth(920);
   const inlineUrl = '/api/ai/artifacts/' + id + '/download?inline=1';
   if (kind === 'image' || /^image\//.test(kind || '')) {
     previewBody.innerHTML = '<img src="' + inlineUrl + '" alt="">';
@@ -683,7 +693,9 @@ async function openPreview(id, kind, name) {
     const r = await fetch('/api/ai/artifacts/' + id + '/preview', { credentials: 'include' });
     if (!r.ok) throw new Error('preview ' + r.status);
     const data = await r.json();
-    if (data.kind === 'excel' || (Array.isArray(data.sheets) && data.sheets.length)) {
+    if (data.render && data.render.url) {
+      renderExcelRenderedPreview(data.render);
+    } else if (data.kind === 'excel' || (Array.isArray(data.sheets) && data.sheets.length)) {
       renderExcelPreview(data.sheets);
     } else if (data.kind === 'svg' && data.content) {
       // SVG: 인터랙티브 가능. sandbox iframe 으로 격리 실행 (script 허용, same-origin 차단)
@@ -708,11 +720,20 @@ async function openPreview(id, kind, name) {
   }
 }
 
+function renderExcelRenderedPreview(render) {
+  previewBody.classList.add('excel-render-body');
+  previewBody.innerHTML =
+    '<div class="excel-render-preview">' +
+      '<iframe class="excel-render-frame" src="' + escapeHtml(render.url) + '"></iframe>' +
+    '</div>';
+}
+
 // 안전한 sandbox iframe 으로 HTML/SVG 콘텐츠 실행
 // sandbox="allow-scripts" 만 — same-origin 없으니 부모 DOM·쿠키·ERP API 접근 불가
 // 코드블록의 HTML/SVG 를 우측 패널에서 즉시 실행 (서버 아티팩트 없이 인라인 콘텐츠로)
 function openLivePreview(content, isSvg, name) {
   previewTitle.textContent = name || '미리보기';
+  previewBody.classList.remove('excel-render-body');
   previewBody.innerHTML = '<div class="preview-loading">실행 중…</div>';
   if (previewDownload) previewDownload.style.display = 'none';  // 인라인 미리보기는 다운로드 없음
   previewModalBg.classList.add('visible');

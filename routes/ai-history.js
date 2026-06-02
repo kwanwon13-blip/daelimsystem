@@ -40,7 +40,10 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const crypto = require('crypto');
+const { spawn, spawnSync } = require('child_process');
+const { pathToFileURL } = require('url');
 const { requireAuth } = require('../middleware/auth');
 const ai = require('../db-ai');
 const reg = require('../lib/generation-registry');   // 진행 중 생성 레지스트리 (안 끊기는 경험)
@@ -143,6 +146,18 @@ function contentDispositionHeader(type, filename) {
   return `${safeType}; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(rawName)}`;
 }
 
+function canAccessArtifact(req, artifact) {
+  return !!artifact && (String(artifact.owner_id) === String(req.user.userId) || req.user.role === 'admin');
+}
+
+function setArtifactHeaders(res, artifact, disposition) {
+  const mime = artifact.mime || mimeFromName(artifact.original_name) || 'application/octet-stream';
+  res.setHeader('Content-Type', mime);
+  res.setHeader('Content-Disposition', contentDispositionHeader(disposition, artifact.original_name));
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+}
+
 const ARTIFACT_EXTS = [
   '.xlsx', '.xlsm', '.csv', '.pdf', '.svg', '.html', '.htm',
   '.md', '.txt', '.json', '.png', '.jpg', '.jpeg', '.webp',
@@ -162,6 +177,140 @@ function artifactKindFromName(name) {
 }
 
 const SKILLS_DIR = path.join(__dirname, '..', '.claude', 'skills');
+const EXCEL_RENDER_CACHE_DIR = path.join(__dirname, '..', 'data', 'ai-render-cache', 'excel');
+const EXCEL_RENDER_TIMEOUT_MS = parseInt(process.env.AI_EXCEL_RENDER_TIMEOUT_MS || '90000', 10);
+let cachedSofficePath = undefined;
+
+function uniqueStrings(values) {
+  const seen = new Set();
+  const out = [];
+  for (const value of values) {
+    const s = String(value || '').trim();
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+function resolveSofficePath() {
+  if (cachedSofficePath !== undefined) return cachedSofficePath;
+  const candidates = uniqueStrings([
+    process.env.LIBREOFFICE_EXE,
+    process.env.SOFFICE_EXE,
+    'C:\\Program Files\\LibreOffice\\program\\soffice.exe',
+    'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe',
+    'soffice.exe',
+    'soffice',
+    'libreoffice',
+  ]);
+  for (const cmd of candidates) {
+    try {
+      if (path.isAbsolute(cmd) && !fs.existsSync(cmd)) continue;
+      const r = spawnSync(cmd, ['--version'], {
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 5000,
+      });
+      const output = `${r.stdout || ''}\n${r.stderr || ''}`;
+      if (r.status === 0 || /libreoffice/i.test(output)) {
+        cachedSofficePath = cmd;
+        return cachedSofficePath;
+      }
+    } catch (_) {}
+  }
+  cachedSofficePath = '';
+  return cachedSofficePath;
+}
+
+function latestPdfInDir(dir) {
+  if (!fs.existsSync(dir)) return '';
+  const files = fs.readdirSync(dir)
+    .filter(name => path.extname(name).toLowerCase() === '.pdf')
+    .map(name => path.join(dir, name))
+    .filter(p => {
+      try { return fs.statSync(p).isFile(); } catch (_) { return false; }
+    })
+    .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+  return files[0] || '';
+}
+
+function runChild(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      windowsHide: true,
+      ...options,
+    });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const finish = (err, result) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (err) reject(err);
+      else resolve(result);
+    };
+    const timer = setTimeout(() => {
+      try { child.kill(); } catch (_) {}
+      finish(new Error('Excel preview render timed out'));
+    }, EXCEL_RENDER_TIMEOUT_MS);
+    child.stdout && child.stdout.on('data', d => { stdout += d.toString(); });
+    child.stderr && child.stderr.on('data', d => { stderr += d.toString(); });
+    child.on('error', finish);
+    child.on('close', code => {
+      if (code === 0) return finish(null, { stdout, stderr });
+      const msg = (stderr || stdout || '').trim();
+      finish(new Error(`Excel preview render failed${msg ? `: ${msg.slice(0, 500)}` : ''}`));
+    });
+  });
+}
+
+async function renderExcelArtifactPdf(artifact, filePath) {
+  const ext = path.extname(artifact.original_name || artifact.stored_name || filePath).toLowerCase();
+  if (!['.xlsx', '.xlsm'].includes(ext)) return null;
+  const soffice = resolveSofficePath();
+  if (!soffice) return null;
+
+  const stat = fs.statSync(filePath);
+  const key = `${artifact.id}_${stat.size}_${Math.round(stat.mtimeMs)}`;
+  const outDir = path.join(EXCEL_RENDER_CACHE_DIR, key);
+  const existing = latestPdfInDir(outDir);
+  if (existing) return { path: existing, cached: true, engine: 'libreoffice' };
+
+  fs.mkdirSync(outDir, { recursive: true });
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'price-list-lo-'));
+  try {
+    await runChild(soffice, [
+      '--headless',
+      '--nologo',
+      '--nodefault',
+      '--nofirststartwizard',
+      '--norestore',
+      `-env:UserInstallation=${pathToFileURL(profileDir).href}`,
+      '--convert-to',
+      'pdf:calc_pdf_Export',
+      '--outdir',
+      outDir,
+      filePath,
+    ], { cwd: outDir });
+  } finally {
+    try { fs.rmSync(profileDir, { recursive: true, force: true }); } catch (_) {}
+  }
+
+  const rendered = latestPdfInDir(outDir);
+  if (!rendered) throw new Error('Excel preview render did not create a PDF');
+  return { path: rendered, cached: false, engine: 'libreoffice' };
+}
+
+function excelRenderPayload(artifact, render) {
+  return {
+    type: 'pdf',
+    engine: render.engine || 'libreoffice',
+    cached: !!render.cached,
+    url: `/api/ai/artifacts/${artifact.id}/render?format=pdf`,
+  };
+}
 
 function sanitizeSkillSlug(input) {
   let s = String(input || '')
@@ -2368,23 +2517,51 @@ router.get('/artifacts/:id/download', (req, res) => {
     const a = ai.artifacts.get(parseInt(req.params.id, 10));
     if (!a) return res.status(404).json({ error: '파일 없음' });
     // 소유자 또는 관리자만 다운로드 가능
-    if (String(a.owner_id) !== String(req.user.userId) && req.user.role !== 'admin') {
+    if (!canAccessArtifact(req, a)) {
       return res.status(403).json({ error: '권한 없음' });
     }
     const filePath = path.join(ai.OUTPUT_DIR, a.stored_name);
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: '파일 삭제됨' });
     if (req.query.inline === '1') {
-      const mime = a.mime || mimeFromName(a.original_name) || 'application/octet-stream';
-      res.setHeader('Content-Type', mime);
-      res.setHeader('Content-Disposition', contentDispositionHeader('inline', a.original_name));
+      setArtifactHeaders(res, a, 'inline');
       if (a.kind === 'svg') {
         return res.send(stripArtifactFence(fs.readFileSync(filePath, 'utf8')));
       }
       return res.sendFile(filePath);
     }
-    res.setHeader('Content-Type', a.mime || mimeFromName(a.original_name) || 'application/octet-stream');
-    res.setHeader('Content-Disposition', contentDispositionHeader('attachment', a.original_name));
+    setArtifactHeaders(res, a, 'attachment');
     return res.sendFile(filePath);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.get('/artifacts/:id/render', async (req, res) => {
+  try {
+    const a = ai.artifacts.get(parseInt(req.params.id, 10));
+    if (!a) return res.status(404).json({ error: 'file not found' });
+    if (!canAccessArtifact(req, a)) return res.status(403).json({ error: 'forbidden' });
+    if (a.kind !== 'excel') return res.status(400).json({ error: 'render preview supports excel artifacts only' });
+    const filePath = path.join(ai.OUTPUT_DIR, a.stored_name);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'file missing' });
+
+    const rendered = await renderExcelArtifactPdf(a, filePath);
+    if (!rendered || !rendered.path) {
+      return res.status(501).json({
+        error: 'LibreOffice is not configured on this server',
+        code: 'EXCEL_RENDER_UNAVAILABLE',
+      });
+    }
+
+    const baseName = path.basename(
+      a.original_name || a.stored_name || 'preview.xlsx',
+      path.extname(a.original_name || a.stored_name || '.xlsx')
+    );
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', contentDispositionHeader('inline', `${baseName}.pdf`));
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    return res.sendFile(rendered.path);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -2394,7 +2571,7 @@ router.get('/artifacts/:id/preview', async (req, res) => {
   try {
     const a = ai.artifacts.get(parseInt(req.params.id, 10));
     if (!a) return res.status(404).json({ error: 'file not found' });
-    if (String(a.owner_id) !== String(req.user.userId) && req.user.role !== 'admin') {
+    if (!canAccessArtifact(req, a)) {
       return res.status(403).json({ error: 'forbidden' });
     }
     const filePath = path.join(ai.OUTPUT_DIR, a.stored_name);
@@ -2411,6 +2588,17 @@ router.get('/artifacts/:id/preview', async (req, res) => {
 
     if (a.kind === 'excel') {
       const ext = path.extname(a.original_name || a.stored_name).toLowerCase();
+      let renderWarning = '';
+      if (ext !== '.csv') {
+        try {
+          const rendered = await renderExcelArtifactPdf(a, filePath);
+          if (rendered && rendered.path) {
+            return res.json({ ok: true, kind: a.kind, render: excelRenderPayload(a, rendered) });
+          }
+        } catch (e) {
+          renderWarning = e.message || String(e);
+        }
+      }
       try {
         const ExcelJS = require('exceljs');
         const wb = new ExcelJS.Workbook();
@@ -2424,12 +2612,12 @@ router.get('/artifacts/:id/preview', async (req, res) => {
         wb.eachSheet((sheet) => {
           sheets.push(sheetToPreview(sheet, 200, 60));
         });
-        return res.json({ ok: true, kind: a.kind, sheets });
+        return res.json({ ok: true, kind: a.kind, sheets, renderWarning: renderWarning || undefined });
       } catch (e) {
         if (ext === '.xlsx' || ext === '.xlsm') {
           const sheets = await extractXlsxZipSheets(filePath, 200, 60);
           if (sheets.length) {
-            return res.json({ ok: true, kind: a.kind, sheets, parser: 'xlsx-zip-fallback', warning: e.message });
+            return res.json({ ok: true, kind: a.kind, sheets, parser: 'xlsx-zip-fallback', warning: e.message, renderWarning: renderWarning || undefined });
           }
         }
         throw e;
