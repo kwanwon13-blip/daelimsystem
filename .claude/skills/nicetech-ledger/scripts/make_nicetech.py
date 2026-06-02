@@ -106,25 +106,85 @@ def save_to_folder(tmp, folder, fn):
     try: os.rename(nfd, nfc)
     except OSError: pass
 
+def app_root():
+    p = os.path.abspath(__file__)
+    for _ in range(8):
+        p = os.path.dirname(p)
+        if os.path.exists(os.path.join(p, 'server.js')):
+            return p
+    return ''
+
+def template_score(path, vendor=''):
+    """Prefer real previous closing templates over generated/simple scratch files."""
+    name = unicodedata.normalize('NFC', os.path.basename(path))
+    if name.startswith('~$') or not name.lower().endswith('.xlsx'):
+        return -1
+    score = 0
+    normalized_name = re.sub(r'[^가-힣a-z0-9]', '', name.lower())
+    if '나이스텍' in name or 'nicetech' in name.lower():
+        score += 40
+    if '마감내역서' in name or 'template' in name.lower():
+        score += 12
+    vendor_text = re.sub(r'\(주\)|㈜|주식회사|\s+', '', str(vendor).lower())
+    vendor_text = vendor_text.replace('한국', '')
+    vendor_key = re.sub(r'[^가-힣a-z0-9]', '', vendor_text)
+    vendor_tokens = [vendor_key]
+    vendor_tokens += [t for t in re.split(r'[^가-힣a-z0-9]+', vendor_text) if len(t) >= 2]
+    for token in {t for t in vendor_tokens if len(t) >= 2}:
+        if token in normalized_name:
+            score += 35
+    try:
+        size = os.path.getsize(path)
+        score += min(size // 10000, 20)
+        wb = load_workbook(path, read_only=True, data_only=False)
+        if '판매현황' in wb.sheetnames:
+            return -1
+        sample = []
+        for ws in wb.worksheets[:2]:
+            for row in ws.iter_rows(max_row=min(ws.max_row, 14), max_col=min(ws.max_column, 8), values_only=True):
+                sample.append(' '.join(str(x or '') for x in row))
+        text = ' '.join(sample)
+        if '거래  명  세  서' in text or '거래 명세서' in text:
+            score += 35
+        if '사업자등록번호' in text or '공급받는자' in text:
+            score += 20
+        if '일자' in text and '품목' in text and '공급가액' in text:
+            score += 15
+    except Exception:
+        return -1
+    return score
+
+def template_search_dirs(template_arg, outdir, rawdir):
+    dirs = []
+    if template_arg and os.path.isdir(template_arg):
+        dirs.append(template_arg)
+    dirs.append(rawdir)
+    root = app_root()
+    if root:
+        dirs.append(os.path.join(root, 'data', 'ai-skill-templates', 'nicetech-ledger'))
+        dirs.append(os.path.join(root, 'learning-data', '_무관_나이스텍'))
+    seen, out = set(), []
+    for d in dirs:
+        if d and os.path.isdir(d):
+            key = os.path.abspath(d).lower()
+            if key not in seen:
+                seen.add(key)
+                out.append(d)
+    return out
+
 def pick_template(template_arg, vendor, outdir, rawdir):
     """거래처명이 파일명에 들어간 템플릿 우선, 없으면 최신 마감내역서 1개를 공용 틀로."""
     if template_arg and os.path.isfile(template_arg):
-        return template_arg
+        return template_arg if template_score(template_arg, vendor) >= 0 else ''
     pools=[]
-    for d in [template_arg if template_arg and os.path.isdir(template_arg) else None, outdir, rawdir]:
-        if d and os.path.isdir(d):
-            for f in os.listdir(d):
-                nf=unicodedata.normalize('NFC', f)
-                if nf.endswith('.xlsx') and '마감내역서' in nf and '나이스텍' in nf and not f.startswith('~$'):
-                    pools.append(os.path.join(d,f))
+    for d in template_search_dirs(template_arg, outdir, rawdir):
+        for f in os.listdir(d):
+            full = os.path.join(d,f)
+            if os.path.isfile(full) and template_score(full, vendor) >= 0:
+                pools.append(full)
     if not pools: return ''
     # 거래처 키워드 매칭 (삼성/SDI, 코닝 등)
-    key = re.sub(r'[^가-힣A-Za-z0-9]', '', vendor).lower()
-    for p in pools:
-        nf=unicodedata.normalize('NFC', os.path.basename(p)).lower()
-        if key and key[:3] and key[:3] in re.sub(r'[^가-힣a-z0-9]','',nf):
-            return p
-    return max(pools, key=os.path.getmtime)
+    return max(pools, key=lambda p: (template_score(p, vendor), os.path.getmtime(p)))
 
 def main():
     ap=argparse.ArgumentParser()
@@ -169,11 +229,13 @@ def main():
         print('[ERROR] 판매현황에서 처리할 나이스텍 거래처/품목 데이터를 찾지 못했습니다.')
         sys.exit(5)
 
+    template_by_vendor = {vendor: pick_template(args.template, vendor, outdir, rawdir) for vendor in vendors}
     made=[]
     for vendor, rows in vendors.items():
-        tpl=pick_template(args.template, vendor, outdir, rawdir)
+        tpl=template_by_vendor.get(vendor, '')
         if not tpl:
             print(f'[ERROR] [{vendor}] 템플릿 없음 - 전월 나이스텍 마감내역서 필요'); continue
+        print(f'  템플릿: {os.path.basename(tpl)}')
         tmp_fd,tmp=tempfile.mkstemp(suffix='.xlsx', dir=os.environ.get('TEMP', tempfile.gettempdir()))
         os.close(tmp_fd); shutil.copy(tpl, tmp)
         try: os.chmod(tmp,0o644)

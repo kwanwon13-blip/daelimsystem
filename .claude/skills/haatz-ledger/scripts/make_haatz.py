@@ -88,16 +88,77 @@ def save_to_folder(tmp, folder, fn):
     try: os.rename(nfd,nfc)
     except OSError: pass
 
-def pick_template(template_arg, outdir, rawdir):
-    if template_arg and os.path.isfile(template_arg): return template_arg
-    pools=[]
-    for d in [template_arg if template_arg and os.path.isdir(template_arg) else None, outdir, rawdir]:
+def app_root():
+    p = os.path.abspath(__file__)
+    for _ in range(8):
+        p = os.path.dirname(p)
+        if os.path.exists(os.path.join(p, 'server.js')):
+            return p
+    return ''
+
+def template_score(path):
+    name = unicodedata.normalize('NFC', os.path.basename(path))
+    if name.startswith('~$') or not name.lower().endswith('.xlsx'):
+        return -1
+    named_for_haatz = '하츠' in name or 'haatz' in name.lower()
+    score = 0
+    if named_for_haatz:
+        score += 45
+    if '마감내역서' in name or 'template' in name.lower():
+        score += 12
+    try:
+        size = os.path.getsize(path)
+        score += min(size // 10000, 20)
+        wb = load_workbook(path, read_only=True, data_only=False)
+        if '판매현황' in wb.sheetnames:
+            return -1
+        sample = []
+        for ws in wb.worksheets[:2]:
+            for row in ws.iter_rows(max_row=min(ws.max_row, 14), max_col=min(ws.max_column, 8), values_only=True):
+                sample.append(' '.join(str(x or '') for x in row))
+        text = ' '.join(sample)
+        if '거래  명  세  서' in text or '거래 명세서' in text:
+            score += 35
+        if '사업자등록번호' in text or '공급받는자' in text:
+            score += 20
+        if '일자' in text and '품목' in text and '공급가액' in text:
+            score += 15
+    except Exception:
+        return -1
+    if not named_for_haatz and ('하츠' not in text and 'haatz' not in text.lower()):
+        return -1
+    if score < 80:
+        return -1
+    return score
+
+def template_search_dirs(template_arg, outdir, rawdir):
+    dirs = []
+    if template_arg and os.path.isdir(template_arg):
+        dirs.append(template_arg)
+    dirs.append(rawdir)
+    root = app_root()
+    if root:
+        dirs.append(os.path.join(root, 'data', 'ai-skill-templates', 'haatz-ledger'))
+        dirs.append(os.path.join(root, 'learning-data', '_무관_하츠'))
+    seen, out = set(), []
+    for d in dirs:
         if d and os.path.isdir(d):
-            for f in os.listdir(d):
-                nf=unicodedata.normalize('NFC',f)
-                if nf.endswith('.xlsx') and '마감내역서' in nf and '하츠' in nf and not f.startswith('~$'):
-                    pools.append(os.path.join(d,f))
-    return max(pools, key=os.path.getmtime) if pools else ''
+            key = os.path.abspath(d).lower()
+            if key not in seen:
+                seen.add(key)
+                out.append(d)
+    return out
+
+def pick_template(template_arg, outdir, rawdir):
+    if template_arg and os.path.isfile(template_arg):
+        return template_arg if template_score(template_arg) >= 0 else ''
+    pools=[]
+    for d in template_search_dirs(template_arg, outdir, rawdir):
+        for f in os.listdir(d):
+            full = os.path.join(d,f)
+            if os.path.isfile(full) and template_score(full) >= 0:
+                pools.append(full)
+    return max(pools, key=lambda p: (template_score(p), os.path.getmtime(p))) if pools else ''
 
 def main():
     ap=argparse.ArgumentParser()
@@ -140,7 +201,8 @@ def main():
         sys.exit(5)
 
     tpl=pick_template(args.template, outdir, rawdir)
-    if not tpl: print('[ERROR] 하츠 템플릿 없음 - 전월 하츠 마감내역서 필요'); sys.exit(2)
+    if not tpl: print('[ERROR] 하츠 실제 전월 템플릿 없음 - 하츠 마감내역서 양식 xlsx를 먼저 등록해야 합니다.'); sys.exit(2)
+    print('템플릿:', os.path.basename(tpl))
 
     made=[]
     for site, rows in sites.items():

@@ -126,6 +126,32 @@ function persistAgentFiles({ userId, threadId, sessionId, files }) {
   return out;
 }
 
+function buildAgentFinalContent({ status, lastError, lastDone, finalFiles, createdArtifacts, collectedOutput }) {
+  if (lastError) {
+    const tail = String(collectedOutput || '').trim().slice(-2500);
+    return 'Agent error: ' + (lastError.message || 'unknown error')
+      + (tail ? '\n\n실행 로그:\n```text\n' + tail + '\n```' : '');
+  }
+  if (lastDone?.templateSaved?.length) {
+    return `템플릿 저장 완료 (${lastDone.templateSaved.join(', ')})`;
+  }
+  const durationSec = Math.round((lastDone?.durationMs || 0) / 1000);
+  const fileCount = createdArtifacts.length || finalFiles.length;
+  const lines = [`Agent 작업 완료 (${fileCount}개 파일, ${durationSec}초)`];
+  if (createdArtifacts.length) {
+    lines.push('', '생성 파일:');
+    for (const a of createdArtifacts) {
+      lines.push(`- ${a.name || a.filename || 'file'}`);
+    }
+  }
+  const output = String(collectedOutput || '').trim();
+  if (output) {
+    const tail = output.slice(-3500);
+    lines.push('', '실행 요약:', '```text', tail, '```');
+  }
+  return lines.join('\n');
+}
+
 // ── 슬롯 상태 ──
 router.get('/stats', (req, res) => {
   res.json({ ok: true, ...agent.getStats() });
@@ -285,11 +311,9 @@ router.post('/run', async (req, res) => {
               files: finalFiles,
             })
           : [];
-        const summary = lastError
-          ? ('Agent error: ' + (lastError.message || 'unknown error'))
-          : (lastDone?.templateSaved?.length
-              ? `템플릿 저장 완료 (${lastDone.templateSaved.join(', ')})`
-              : `Agent 작업 완료 (${createdArtifacts.length || finalFiles.length}개 파일, ${Math.round((lastDone?.durationMs||0)/1000)}초)`);
+        const summary = buildAgentFinalContent({
+          status, lastError, lastDone, finalFiles, createdArtifacts, collectedOutput,
+        });
         const files = finalFiles.map(f => ({
           name: f.name,
           relPath: f.relPath,
