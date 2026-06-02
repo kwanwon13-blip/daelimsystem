@@ -1040,9 +1040,20 @@ async function sendViaChatFallback(text, attachmentIds, aiMsg) {
   }
 }
 
-async function sendViaAgent(text, attachmentIds, aiMsg) {
-  aiMsg.content = '작업 모드로 실행 중입니다. 파일을 만들거나 정리하는 요청이라 서버 작업공간에서 처리합니다.\n\n';
-  updateLastAIContent(aiMsg.content, true);
+async function sendViaAgent(text, attachmentIds, aiMsg, ownerThreadId) {
+  let agentLog = '';
+  let seenFiles = [];
+  const renderAgentProgress = (phase) => {
+    const parts = [phase || '작업 모드로 실행 중입니다.'];
+    const log = agentLog.trim();
+    if (log) parts.push('```text\n' + log.slice(-5000) + '\n```');
+    if (seenFiles.length) {
+      parts.push('생성 감지:\n' + seenFiles.slice(-8).map(name => '- ' + name).join('\n'));
+    }
+    aiMsg.content = parts.join('\n\n');
+    updateLastAIContent(aiMsg.content, true);
+  };
+  renderAgentProgress('작업 모드로 실행 중입니다. 이 요청도 현재 대화에 저장됩니다.');
   const r = await fetch('/api/ai/agent/run', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1064,7 +1075,6 @@ async function sendViaAgent(text, attachmentIds, aiMsg) {
   const decoder = new TextDecoder();
   let buffer = '';
   let newThreadId = null;
-  let seenFiles = [];
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
@@ -1081,16 +1091,31 @@ async function sendViaAgent(text, attachmentIds, aiMsg) {
       const data = JSON.parse(dataStr);
       if (eventName === 'started') {
         newThreadId = data.threadId || newThreadId;
-        aiMsg.content = '작업을 시작했습니다.\n\n';
-        updateLastAIContent(aiMsg.content, true);
+        if (data.messageId) aiMsg.id = data.messageId;
+        if (newThreadId) {
+          const newKey = String(newThreadId);
+          if (!state.activeThreadId) state.activeThreadId = newThreadId;
+          state.liveByThread[newKey] = aiMsg;
+          if (state.streamingByThread) state.streamingByThread.add(newKey);
+          if (ownerThreadId && ownerThreadId !== newKey) {
+            delete state.liveByThread[ownerThreadId];
+            if (state.streamingByThread) state.streamingByThread.delete(ownerThreadId);
+          }
+          loadThreads();
+        }
+        renderAgentProgress('작업을 시작했습니다. 진행 내용은 이 말풍선에 계속 기록됩니다.');
+      } else if (eventName === 'output') {
+        const chunk = data && data.text ? String(data.text) : '';
+        if (chunk) {
+          agentLog = (agentLog + chunk).slice(-12000);
+          renderAgentProgress('작업 내용을 실시간으로 받아오는 중입니다.');
+        }
       } else if (eventName === 'file') {
         if (data && data.name) seenFiles.push(data.name);
-        aiMsg.content = '작업 중입니다.\n\n생성 감지: ' + seenFiles.slice(-5).join(', ');
-        updateLastAIContent(aiMsg.content, true);
+        renderAgentProgress('파일을 생성하면서 작업 중입니다.');
       } else if (eventName === 'done') {
         const n = Array.isArray(data.files) ? data.files.length : seenFiles.length;
-        aiMsg.content = `작업 마무리 중입니다. 생성 파일 ${n}개를 등록하고 있습니다.`;
-        updateLastAIContent(aiMsg.content, true);
+        renderAgentProgress(`작업 마무리 중입니다. 생성 파일 ${n}개를 등록하고 있습니다.`);
       } else if (eventName === 'saved') {
         aiMsg.streaming = false;
         aiMsg.id = data.messageId || aiMsg.id;
@@ -1195,7 +1220,7 @@ async function sendMessage() {
 
   if (shouldUseAgentMode(text, attachmentIds)) {
     try {
-      await sendViaAgent(text, attachmentIds, aiMsg);
+      await sendViaAgent(text, attachmentIds, aiMsg, ownerThreadId);
     } catch (e) {
       console.error('agent 작업 실패:', e);
       aiMsg.streaming = false;
