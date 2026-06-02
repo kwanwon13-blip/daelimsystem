@@ -625,16 +625,61 @@ def make_outputs(raw_path: str, template_path: str, outdir: str, include_mismatc
     }
 
 
+def app_root() -> str:
+    p = os.path.abspath(__file__)
+    for _ in range(8):
+        p = os.path.dirname(p)
+        if os.path.exists(os.path.join(p, "server.js")):
+            return p
+    return ""
+
+
+def valid_posco_template(path: str) -> bool:
+    try:
+        if not path or not os.path.isfile(path):
+            return False
+        name = os.path.basename(path)
+        if name.startswith("~$") or not name.lower().endswith(".xlsx"):
+            return False
+        build_code_index(path)
+        wb = load_workbook(path, data_only=False)
+        find_statement_sheet(wb)
+        return True
+    except Exception:
+        return False
+
+
+def resolve_template_arg(template_arg: str) -> str:
+    candidates = []
+    if template_arg:
+        if os.path.isfile(template_arg) and valid_posco_template(template_arg):
+            return template_arg
+        if os.path.isdir(template_arg):
+            candidates.extend(str(p) for p in Path(template_arg).glob("*.xlsx"))
+    root = app_root()
+    if root:
+        candidates.extend(str(p) for p in Path(root, "data", "ai-skill-templates", "posco-statement").glob("*.xlsx"))
+        candidates.extend(str(p) for p in Path(root, "learning-data", "_무관_포스코").glob("*.xlsx"))
+    valid = [p for p in candidates if valid_posco_template(p)]
+    if not valid:
+        return ""
+    return max(valid, key=lambda p: (os.path.getsize(p), os.path.getmtime(p)))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Create POSCO transaction statement PDF/workbook.")
     parser.add_argument("--raw", required=True, help="eCount 판매현황 xlsx")
-    parser.add_argument("--template", required=True, help="POSCO 거래명세서 tool/template xlsx")
+    parser.add_argument("--template", default="", help="POSCO 거래명세서 tool/template xlsx or template directory")
     parser.add_argument("--outdir", default=".", help="output directory")
     parser.add_argument("--include-mismatch", action="store_true", help="include rows whose generated amount does not match raw 공급가액")
     args = parser.parse_args(argv)
 
     try:
-        result = make_outputs(args.raw, args.template, args.outdir, include_mismatch=args.include_mismatch)
+        template = resolve_template_arg(args.template)
+        if not template:
+            raise RuntimeError("POSCO 거래명세서 툴 템플릿이 없습니다. data/ai-skill-templates/posco-statement 폴더에 템플릿 xlsx를 등록해야 합니다.")
+        print(f"템플릿: {template}")
+        result = make_outputs(args.raw, template, args.outdir, include_mismatch=args.include_mismatch)
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

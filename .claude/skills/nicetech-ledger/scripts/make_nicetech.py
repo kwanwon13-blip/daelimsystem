@@ -135,6 +135,8 @@ def template_score(path, vendor=''):
             score += 35
     try:
         size = os.path.getsize(path)
+        if size < 20000:
+            return -1
         score += min(size // 10000, 20)
         wb = load_workbook(path, read_only=True, data_only=False)
         if '판매현황' in wb.sheetnames:
@@ -158,7 +160,6 @@ def template_search_dirs(template_arg, outdir, rawdir):
     dirs = []
     if template_arg and os.path.isdir(template_arg):
         dirs.append(template_arg)
-    dirs.append(rawdir)
     root = app_root()
     if root:
         dirs.append(os.path.join(root, 'data', 'ai-skill-templates', 'nicetech-ledger'))
@@ -175,7 +176,8 @@ def template_search_dirs(template_arg, outdir, rawdir):
 def pick_template(template_arg, vendor, outdir, rawdir):
     """거래처명이 파일명에 들어간 템플릿 우선, 없으면 최신 마감내역서 1개를 공용 틀로."""
     if template_arg and os.path.isfile(template_arg):
-        return template_arg if template_score(template_arg, vendor) >= 0 else ''
+        if template_score(template_arg, vendor) >= 0:
+            return template_arg
     pools=[]
     for d in template_search_dirs(template_arg, outdir, rawdir):
         for f in os.listdir(d):

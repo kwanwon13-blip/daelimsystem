@@ -108,6 +108,8 @@ def template_score(path):
         score += 12
     try:
         size = os.path.getsize(path)
+        if size < 20000:
+            return -1
         score += min(size // 10000, 20)
         wb = load_workbook(path, read_only=True, data_only=False)
         if '판매현황' in wb.sheetnames:
@@ -135,7 +137,6 @@ def template_search_dirs(template_arg, outdir, rawdir):
     dirs = []
     if template_arg and os.path.isdir(template_arg):
         dirs.append(template_arg)
-    dirs.append(rawdir)
     root = app_root()
     if root:
         dirs.append(os.path.join(root, 'data', 'ai-skill-templates', 'haatz-ledger'))
@@ -151,7 +152,8 @@ def template_search_dirs(template_arg, outdir, rawdir):
 
 def pick_template(template_arg, outdir, rawdir):
     if template_arg and os.path.isfile(template_arg):
-        return template_arg if template_score(template_arg) >= 0 else ''
+        if template_score(template_arg) >= 0:
+            return template_arg
     pools=[]
     for d in template_search_dirs(template_arg, outdir, rawdir):
         for f in os.listdir(d):

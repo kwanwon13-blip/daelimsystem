@@ -152,28 +152,66 @@ def read_raw_rows(raw_path: str):
     return rows, month_label, warnings
 
 
+def app_root() -> str:
+    p = os.path.abspath(__file__)
+    for _ in range(8):
+        p = os.path.dirname(p)
+        if os.path.exists(os.path.join(p, "server.js")):
+            return p
+    return ""
+
+
+def is_partner_template(path: str) -> bool:
+    try:
+        if not path or not os.path.isfile(path):
+            return False
+        name = os.path.basename(path)
+        if name.startswith("~$") or not name.lower().endswith(".xlsx"):
+            return False
+        wb = load_workbook(path, read_only=True, data_only=False)
+        ws = wb.worksheets[0]
+        values = [clean_text(ws.cell(1, c).value) for c in range(1, min(ws.max_column, 20) + 1)]
+        found = {v for v in values if v}
+        required = {"일자-No.", "품목명", "수량", "단가", "공급가액"}
+        raw_markers = {"거래처명", "프로젝트명", "품목코드"}
+        return len(required.intersection(found)) >= 5 and not raw_markers.intersection(found) and ws.max_column <= 10
+    except Exception:
+        return False
+
+
+def template_search_dirs(template_arg: str):
+    roots = []
+    if template_arg:
+        p = Path(template_arg)
+        if p.is_dir():
+            roots.append(str(p))
+    root = app_root()
+    if root:
+        roots.append(os.path.join(root, "data", "ai-skill-templates", "partner-ledger"))
+        roots.append(os.path.join(root, "learning-data", "_무관_협력사"))
+    seen, out = set(), []
+    for root in roots:
+        if root and os.path.isdir(root):
+            key = os.path.abspath(root).lower()
+            if key not in seen:
+                seen.add(key)
+                out.append(root)
+    return out
+
+
 def list_templates(template_arg: str, raw_dir: str, outdir: str, raw_path: str):
     explicit = []
     candidates = []
-    raw_abs = os.path.abspath(raw_path).lower()
-    search_roots = []
     if template_arg:
         p = Path(template_arg)
-        if p.is_file() and p.suffix.lower() == ".xlsx":
+        if p.is_file() and p.suffix.lower() == ".xlsx" and is_partner_template(str(p)):
             explicit.append(str(p))
-        elif p.is_dir():
-            search_roots.append(str(p))
-    search_roots.extend([outdir, raw_dir])
-    for root in search_roots:
+    for root in template_search_dirs(template_arg):
         if not root or not os.path.isdir(root):
             continue
         for name in os.listdir(root):
-            if name.startswith("~$") or not name.lower().endswith(".xlsx"):
-                continue
             full = os.path.join(root, name)
-            if os.path.isfile(full):
-                if os.path.abspath(full).lower() == raw_abs:
-                    continue
+            if is_partner_template(full):
                 candidates.append(full)
     unique = []
     seen = set()

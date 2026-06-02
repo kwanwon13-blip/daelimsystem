@@ -129,14 +129,74 @@ def save_to_folder(tmp_path, folder, filename):
     try: os.rename(dst_nfd, dst_nfc)
     except OSError: pass
 
-def find_template(*dirs):
-    cands = []
+def app_root():
+    p = os.path.abspath(__file__)
+    for _ in range(8):
+        p = os.path.dirname(p)
+        if os.path.exists(os.path.join(p, 'server.js')):
+            return p
+    return ''
+
+def template_score(path):
+    name = unicodedata.normalize('NFC', os.path.basename(path))
+    if name.startswith('~$') or not name.lower().endswith('.xlsx'):
+        return -1
+    try:
+        size = os.path.getsize(path)
+        if size < 20000:
+            return -1
+        wb = load_workbook(path, read_only=False, data_only=False)
+        if '판매현황' in wb.sheetnames:
+            return -1
+        if '안전' not in wb.sheetnames or '잡자재' not in wb.sheetnames:
+            return -1
+        score = min(size // 10000, 30)
+        if '퍼시스' in name or 'fursys' in name.lower() or 'persys' in name.lower():
+            score += 35
+        for sheet_name in ('안전', '잡자재'):
+            ws = wb[sheet_name]
+            if find_summary_rows(ws)[0] is not None:
+                score += 20
+            sample = []
+            for row in ws.iter_rows(max_row=min(ws.max_row, 14), max_col=min(ws.max_column, 8), values_only=True):
+                sample.append(' '.join(str(x or '') for x in row))
+            text = ' '.join(sample)
+            if '거래  명  세  서' in text or '거래 명세서' in text:
+                score += 20
+            if '사업자등록번호' in text or '공급받는자' in text:
+                score += 15
+        return score if score >= 80 else -1
+    except Exception:
+        return -1
+
+def template_search_dirs(template_arg):
+    dirs = []
+    if template_arg and os.path.isdir(template_arg):
+        dirs.append(template_arg)
+    root = app_root()
+    if root:
+        dirs.append(os.path.join(root, 'data', 'ai-skill-templates', 'persys-ledger'))
+        dirs.append(os.path.join(root, 'learning-data', '_무관_퍼시스'))
+    seen, out = set(), []
     for d in dirs:
-        if not d or not os.path.isdir(d): continue
+        if d and os.path.isdir(d):
+            key = os.path.abspath(d).lower()
+            if key not in seen:
+                seen.add(key)
+                out.append(d)
+    return out
+
+def find_template(template_arg=''):
+    if template_arg and os.path.isfile(template_arg):
+        if template_score(template_arg) >= 0:
+            return template_arg
+    cands = []
+    for d in template_search_dirs(template_arg):
         for f in os.listdir(d):
-            if unicodedata.normalize('NFC', f).startswith('퍼시스-') and f.lower().endswith('.xlsx') and not f.startswith('~$'):
-                cands.append(os.path.join(d, f))
-    return max(cands, key=os.path.getmtime) if cands else ''
+            full = os.path.join(d, f)
+            if os.path.isfile(full) and template_score(full) >= 0:
+                cands.append(full)
+    return max(cands, key=lambda p: (template_score(p), os.path.getmtime(p))) if cands else ''
 
 def main():
     ap = argparse.ArgumentParser()
@@ -150,9 +210,9 @@ def main():
         print('[ERROR] 판매현황 파일 없음:', raw); sys.exit(1)
     outdir = args.outdir or os.path.dirname(os.path.abspath(raw))
     os.makedirs(outdir, exist_ok=True)
-    template = args.template or find_template(outdir, os.path.dirname(os.path.abspath(raw)))
+    template = find_template(args.template)
     if not template:
-        print('[ERROR] 템플릿(전월 퍼시스-*.xlsx)을 못 찾음. --template 로 지정하거나 같은 폴더에 전월 파일을 두세요.'); sys.exit(2)
+        print('[ERROR] 퍼시스 실제 전월 템플릿 없음 - data/ai-skill-templates/persys-ledger 폴더에 퍼시스 마감내역서 양식 xlsx를 등록해야 합니다.'); sys.exit(2)
 
     print('─'*60)
     print('판매현황 :', raw)
