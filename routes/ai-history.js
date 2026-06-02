@@ -2683,7 +2683,7 @@ router.get('/artifacts/:id/preview', async (req, res) => {
           const ws = await wb.csv.readFile(filePath);
           ws.name = 'CSV';
         } else {
-          await wb.xlsx.readFile(filePath);
+          await wb.xlsx.readFile(filePath, { ignoreNodes: ['drawing', 'picture'] });
         }
         const sheets = [];
         wb.eachSheet((sheet) => {
