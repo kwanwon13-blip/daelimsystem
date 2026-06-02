@@ -2692,6 +2692,23 @@ router.get('/artifacts/:id/preview', async (req, res) => {
         return res.json({ ok: true, kind: a.kind, sheets, renderWarning: renderWarning || undefined });
       } catch (e) {
         if (ext === '.xlsx' || ext === '.xlsm') {
+          try {
+            const cleanWb = await readXlsxWithoutDrawings(filePath);
+            const sheets = [];
+            cleanWb.eachSheet((sheet) => {
+              sheets.push(sheetToPreview(sheet, 200, 60));
+            });
+            if (sheets.length) {
+              return res.json({
+                ok: true,
+                kind: a.kind,
+                sheets,
+                parser: 'xlsx-without-drawings',
+                warning: e.message,
+                renderWarning: renderWarning || undefined,
+              });
+            }
+          } catch (_) {}
           const sheets = await extractXlsxZipSheets(filePath, 200, 60);
           if (sheets.length) {
             return res.json({ ok: true, kind: a.kind, sheets, parser: 'xlsx-zip-fallback', warning: e.message, renderWarning: renderWarning || undefined });
@@ -3225,6 +3242,41 @@ function workbookToText(wb) {
     if (rows.length > 0) parts.push(`# ${sheet.name}\n${rows.join('\n')}`);
   });
   return parts.join('\n\n').slice(0, 1000000);
+}
+
+async function readXlsxWithoutDrawings(filePath) {
+  const ExcelJS = require('exceljs');
+  const JSZip = require('jszip');
+  const zip = await JSZip.loadAsync(fs.readFileSync(filePath));
+  const names = Object.keys(zip.files);
+  for (const name of names) {
+    if (/^xl\/(?:drawings|media)\//i.test(name)) zip.remove(name);
+  }
+  for (const name of names) {
+    const lower = name.toLowerCase();
+    const file = zip.file(name);
+    if (!file) continue;
+    if (/^xl\/worksheets\/sheet\d+\.xml$/i.test(lower)) {
+      let xml = await file.async('string');
+      xml = xml
+        .replace(/<drawing\b[^>]*\/>/gi, '')
+        .replace(/<legacyDrawing\b[^>]*\/>/gi, '')
+        .replace(/<picture\b[^>]*\/>/gi, '');
+      zip.file(name, xml);
+    } else if (/^xl\/worksheets\/_rels\/.+\.rels$/i.test(lower)) {
+      let xml = await file.async('string');
+      xml = xml.replace(/<Relationship\b[^>]*(?:\/drawing|\/image)[^>]*\/>/gi, '');
+      zip.file(name, xml);
+    } else if (lower === '[content_types].xml') {
+      let xml = await file.async('string');
+      xml = xml.replace(/<Override\b[^>]*PartName="\/xl\/drawings\/[^"]+"[^>]*\/>/gi, '');
+      zip.file(name, xml);
+    }
+  }
+  const buffer = await zip.generateAsync({ type: 'nodebuffer' });
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer, { ignoreNodes: ['drawing', 'picture'] });
+  return wb;
 }
 
 function decodeXmlText(value) {
