@@ -64,6 +64,10 @@ const DAILY_REQUEST_LIMIT_EMPLOYEE = parseInt(process.env.AI_DAILY_LIMIT_EMPLOYE
 const DAILY_REQUEST_LIMIT_ADMIN = parseInt(process.env.AI_DAILY_LIMIT_ADMIN || '500', 10);
 const AI_CLI_TIMEOUT_MS = parseInt(process.env.AI_CLI_TIMEOUT_MS || String(10 * 60 * 1000), 10);
 
+function apiBillingAllowed() {
+  return String(process.env.AI_ALLOW_API_BILLING || '').trim() === '1';
+}
+
 function requireAuthOrControlSecret(req, res, next) {
   const ctrlSecret = req.headers['x-control-secret'];
   const expected = process.env.CONTROL_DAEMON_SECRET;
@@ -99,12 +103,14 @@ router.use(requireAuthOrControlSecret);
 
 // 헬스체크 — DB 초기화 여부 + API 모드 활성화 여부
 router.get('/health', (req, res) => {
-  const apiOn = !!process.env.ANTHROPIC_API_KEY;
+  const apiOn = apiModeAvailable();
   res.json({
     ok: true,
     ready: !!ai.ready,
     backend: apiOn ? 'api' : 'cli',
     model: apiOn ? (process.env.ANTHROPIC_MODEL || 'claude-opus-4-7') : 'claude-cli',
+    apiKeyConfigured: !!process.env.ANTHROPIC_API_KEY,
+    apiBillingAllowed: apiBillingAllowed(),
   });
 });
 
@@ -1359,7 +1365,7 @@ let CHAT_SYSTEM = buildChatSystem();
 
 // API 모드 활성화 여부
 function apiModeAvailable() {
-  return !!process.env.ANTHROPIC_API_KEY;
+  return apiBillingAllowed() && !!process.env.ANTHROPIC_API_KEY;
 }
 
 const FILE_REQUEST_KEYWORDS = /(엑셀|excel|xlsx|스프레드시트|표로\s*정리|표로\s*만들|PDF|pdf|보고서|보고서로|SVG|svg|HTML|html|마크다운|markdown|md\s*파일|JSON|json|CSV|csv)/i;
@@ -1496,6 +1502,9 @@ async function callClaudeApi(messages, options = {}) {
   throwIfAborted(options.signal);
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY 미설정 — .env 파일에 키를 추가하세요');
+  if (!apiBillingAllowed()) {
+    throw new Error('Claude API billing disabled. Set AI_ALLOW_API_BILLING=1 only when paid API usage is intended.');
+  }
 
   const model = options.model || DEFAULT_MODEL;
   const maxTokens = options.maxTokens || DEFAULT_MAX_TOKENS;
@@ -2025,8 +2034,12 @@ router.post('/chat', async (req, res) => {
 // ──────────────────────────────────────────────────────────
 router.post('/chat-stream', async (req, res) => {
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return res.status(503).json({ error: 'API 모드 비활성 — 스트리밍은 API 모드에서만 지원됩니다' });
+  if (!apiKey || !apiBillingAllowed()) {
+    return res.status(503).json({
+      error: 'Claude API billing is disabled. Use CLI mode or set AI_ALLOW_API_BILLING=1 only when paid API usage is intended.',
+      apiKeyConfigured: !!apiKey,
+      apiBillingAllowed: apiBillingAllowed(),
+    });
   }
 
   const { threadId, projectId, prompt, pageContent, attachmentIds, templateId, sourcePageId, model } = req.body || {};
