@@ -53,6 +53,7 @@ function workflowApp() {
           name: c.name || '',
           company: c.company || '',
           phone: c.mobile || c.phone || '',
+          email: c.email || '',
         })).filter(c => c.name || c.company);
       } catch (_) {
         this.contactOptions = [];
@@ -135,6 +136,28 @@ function workflowApp() {
 
     unreadFileItems() {
       return this.summary?.unreadFileItems || [];
+    },
+
+    findContact(name) {
+      const q = String(name || '').trim().toLowerCase();
+      if (!q) return null;
+      return this.contactOptions.find(c => String(c.name || '').trim().toLowerCase() === q)
+        || this.contactOptions.find(c => String(c.name || '').trim().toLowerCase().includes(q));
+    },
+
+    applyContactToForm() {
+      const c = this.findContact(this.form.contactName);
+      if (!c) return;
+      if (!this.form.companyName && c.company) this.form.companyName = c.company;
+      if (c.phone) this.form.contactPhone = c.phone;
+    },
+
+    applyContactToDetail() {
+      if (!this.detail || !this.detail.job) return;
+      const c = this.findContact(this.detail.job.contactName);
+      if (!c) return;
+      if (!this.detail.job.companyName && c.company) this.detail.job.companyName = c.company;
+      if (c.phone) this.detail.job.contactPhone = c.phone;
     },
 
     selectedUploadTarget() {

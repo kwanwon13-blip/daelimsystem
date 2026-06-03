@@ -21,7 +21,7 @@
   .wf-inbox-item{min-width:220px;max-width:320px;border:1px solid #bfdbfe;border-radius:8px;background:#fff;padding:8px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center;}
   .wf-inbox-title{font-size:12px;font-weight:800;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .wf-inbox-meta{font-size:10.5px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;}
-  .wf-new{display:grid;grid-template-columns:1.2fr .8fr .8fr .7fr .7fr auto;gap:8px;padding:10px 12px;border-bottom:1px solid #e5e9f1;background:#f8fafc;}
+  .wf-new{display:grid;grid-template-columns:minmax(150px,1.2fr) minmax(110px,.8fr) minmax(110px,.8fr) minmax(90px,.7fr) minmax(110px,.7fr) minmax(120px,.7fr) auto;gap:8px;padding:10px 12px;border-bottom:1px solid #e5e9f1;background:#f8fafc;}
   .wf-columns{flex:1;min-height:0;display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));overflow:auto;background:#eef2f7;}
   .wf-col{min-width:210px;border-right:1px solid #dfe4ed;display:flex;flex-direction:column;}
   .wf-col:last-child{border-right:none;}
@@ -145,7 +145,8 @@
         <input class="wf-input" x-model="form.title" placeholder="작업명">
         <input class="wf-input" list="wfCompanyNames" x-model="form.companyName" placeholder="업체">
         <input class="wf-input" x-model="form.projectName" placeholder="현장">
-        <input class="wf-input" list="wfContactNames" x-model="form.contactName" placeholder="담당자">
+        <input class="wf-input" list="wfContactNames" x-model="form.contactName" @change="applyContactToForm()" @blur="applyContactToForm()" placeholder="담당자">
+        <input class="wf-input" x-model="form.contactPhone" placeholder="연락처">
         <input class="wf-input" type="date" x-model="form.dueDate">
         <button class="wf-btn primary" @click="createJob()" :disabled="saving">등록</button>
       </div>
@@ -222,7 +223,7 @@
                 <div class="wf-grid-2">
                   <input class="wf-input" list="wfCompanyNames" x-model="detail.job.companyName" placeholder="업체">
                   <input class="wf-input" x-model="detail.job.projectName" placeholder="현장">
-                  <input class="wf-input" list="wfContactNames" x-model="detail.job.contactName" placeholder="담당자">
+                  <input class="wf-input" list="wfContactNames" x-model="detail.job.contactName" @change="applyContactToDetail()" @blur="applyContactToDetail()" placeholder="담당자">
                   <input class="wf-input" x-model="detail.job.contactPhone" placeholder="연락처">
                   <input class="wf-input" type="date" x-model="detail.job.dueDate">
                   <input class="wf-input" type="date" x-model="detail.job.deliveryDate">
