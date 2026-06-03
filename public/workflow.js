@@ -36,8 +36,17 @@ function workflowApp() {
     },
 
     async init() {
+      if (!window.__workflowPrefillListenerInstalled) {
+        window.addEventListener('workflow:prefill', e => {
+          const root = document.querySelector('[x-data="workflowApp()"]');
+          if (!root || !window.Alpine) return;
+          window.Alpine.$data(root).applyWorkflowDraft(e.detail || {}, true);
+        });
+        window.__workflowPrefillListenerInstalled = true;
+      }
       await Promise.all([this.loadMeta(), this.loadContacts(), this.loadUsers()]);
       await this.loadJobs();
+      this.consumeWorkflowDraft();
     },
 
     async loadMeta() {
@@ -292,6 +301,30 @@ function workflowApp() {
         priority: 'normal',
         summary: '',
       };
+    },
+
+    applyWorkflowDraft(draft, keepOpen) {
+      if (!draft || typeof draft !== 'object') return;
+      const next = { ...this.form };
+      ['title', 'companyName', 'projectName', 'contactName', 'contactPhone', 'dueDate', 'deliveryDate', 'priority', 'summary']
+        .forEach(key => {
+          if (draft[key] !== undefined && draft[key] !== null) next[key] = String(draft[key]);
+        });
+      if (!next.priority) next.priority = 'normal';
+      this.form = next;
+      if (keepOpen) this.newOpen = true;
+    },
+
+    consumeWorkflowDraft() {
+      let raw = '';
+      try {
+        raw = sessionStorage.getItem('workflow:newDraft') || '';
+        if (raw) sessionStorage.removeItem('workflow:newDraft');
+      } catch (_) {}
+      if (!raw) return;
+      try {
+        this.applyWorkflowDraft(JSON.parse(raw), true);
+      } catch (_) {}
     },
 
     async selectJob(id) {

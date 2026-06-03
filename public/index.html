@@ -4792,6 +4792,8 @@
             .ct-acts button{background:none;border:none;cursor:pointer;padding:8px 12px;border-radius:8px;color:#9b9b9b;display:flex;align-items:center;gap:4px;font-size:11px;font-weight:600;white-space:nowrap;}
             .ct-copy-btn{border:1px solid #e0e7ff !important;color:#6366f1 !important;}
             .ct-copy-btn:hover,.ct-table tr:hover .ct-copy-btn:hover{color:#fff !important;background:#4f6ef7 !important;border-color:#4f6ef7 !important;}
+            .ct-acts button.ct-workflow-btn{border:1px solid #bfdbfe;color:#2563eb;background:#eff6ff;}
+            .ct-acts button.ct-workflow-btn:hover{color:#fff;background:#2563eb;border-color:#2563eb;}
             .ct-acts button.del{padding:8px 10px;}
             .ct-acts button.del:hover{color:#f87171;background:#fef2f2;}
             .ct-phone-link{color:#37352f;text-decoration:none;font-weight:600;font-size:12.5px;}
@@ -4822,7 +4824,7 @@
             .ct-col-mobile{width:15%;}
             .ct-col-phone{width:9%;}
             .ct-col-email{width:21%;}
-            .ct-col-act{width:110px;}
+            .ct-col-act{width:160px;}
             /* 드래그 핸들 */
             .ct-drag-handle{cursor:grab;color:#ccc;display:flex;align-items:center;justify-content:center;padding:2px;border-radius:3px;transition:all .1s;opacity:0;}
             .ct-drag-handle:hover{color:#888;background:#f0f0f0;}
@@ -5041,6 +5043,7 @@
                                         <td class="ct-col-act">
                                           <div class="ct-acts">
                                             <button @click.stop="copyText(c)" class="ct-copy-btn" title="복사"><span class="material-symbols-outlined" style="font-size:16px;">content_copy</span> 복사</button>
+                                            <button @click.stop="startWorkflowFromContact(c)" class="ct-workflow-btn" title="워크플로우 작업"><span class="material-symbols-outlined" style="font-size:14px;">account_tree</span> 작업</button>
                                             <button @click.stop="openContactMove(c)" title="현장 이동"
                                               style="background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:2px;"
                                               onmouseover="this.style.background='#dcfce7'" onmouseout="this.style.background='#f0fdf4'">
@@ -5140,6 +5143,7 @@
                                       <td class="ct-col-act">
                                         <div class="ct-acts">
                                           <button @click.stop="copyText(c)" title="복사"><span class="material-symbols-outlined" style="font-size:14px;">content_copy</span></button>
+                                          <button @click.stop="startWorkflowFromContact(c)" class="ct-workflow-btn" title="워크플로우 작업"><span class="material-symbols-outlined" style="font-size:14px;">account_tree</span> 작업</button>
                                           <button @click.stop="openContactMove(c)" title="현장 이동"
                                             style="background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;border-radius:6px;padding:3px 7px;font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:2px;"
                                             onmouseover="this.style.background='#dcfce7'" onmouseout="this.style.background='#f0fdf4'">

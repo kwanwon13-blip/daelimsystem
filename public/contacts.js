@@ -439,6 +439,56 @@ function contactsApp() {
     },
 
     // ── 복사 ──
+    contactWorkflowContext(c) {
+      var ctx = {
+        companyName: c.company || '',
+        projectName: c.note || '',
+        contactName: c.name || '',
+        contactPhone: c.mobile || c.phone || '',
+      };
+      this.tree.forEach(function(comp) {
+        if (c.companyId && comp.id === c.companyId) ctx.companyName = comp.name || ctx.companyName;
+        (comp.projects || []).forEach(function(proj) {
+          if (c.projectId && proj.id === c.projectId) {
+            ctx.companyName = comp.name || ctx.companyName;
+            ctx.projectName = proj.name || ctx.projectName;
+          }
+        });
+      });
+      return ctx;
+    },
+
+    startWorkflowFromContact(c) {
+      var ctx = this.contactWorkflowContext(c || {});
+      var titleBase = ctx.projectName || ctx.companyName || ctx.contactName || '새 작업';
+      var details = [];
+      if (ctx.contactName) details.push('담당자: ' + ctx.contactName);
+      if (ctx.contactPhone) details.push('연락처: ' + ctx.contactPhone);
+      if (c && c.email) details.push('이메일: ' + c.email);
+      if (c && c.position) details.push('직책: ' + c.position);
+      var draft = {
+        title: titleBase + ' 업무',
+        companyName: ctx.companyName,
+        projectName: ctx.projectName,
+        contactName: ctx.contactName,
+        contactPhone: ctx.contactPhone,
+        priority: 'normal',
+        summary: details.join('\n'),
+      };
+      try {
+        sessionStorage.setItem('workflow:newDraft', JSON.stringify(draft));
+        localStorage.setItem('currentTab', 'workflow');
+      } catch (_) {}
+      try {
+        var main = window.Alpine && window.Alpine.$data(document.body);
+        if (main) main.currentTab = 'workflow';
+      } catch (_) {}
+      setTimeout(function() {
+        window.dispatchEvent(new CustomEvent('workflow:prefill', { detail: draft }));
+      }, 80);
+      this.showToast2('워크플로우 작업 초안을 열었습니다');
+    },
+
     copyText(c) {
       // 트리에서 현장명/업체명 찾기
       var siteName = c.note || '';
