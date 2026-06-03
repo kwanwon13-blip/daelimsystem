@@ -383,6 +383,43 @@ function buildSummary(data, req) {
     })
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
   const myActionJobs = activeJobs.filter(job => isUserJob(job, req));
+  const myActionItems = myActionJobs
+    .map(job => {
+      const stage = STAGES.find(s => s.id === job.currentStage) || STAGES[0] || { id: 'design', label: '디자인' };
+      const check = job.stageChecks?.[stage.id] || {};
+      const blockers = completionBlockers(data, job);
+      const dueDate = check.dueDate || job.dueDate || '';
+      const stageOverdue = check.status !== 'done' && isPastDue(dueDate);
+      return {
+        id: job.id,
+        title: job.title,
+        companyName: job.companyName || '',
+        projectName: job.projectName || '',
+        priority: job.priority || 'normal',
+        status: job.status || 'active',
+        stageId: stage.id,
+        stageLabel: stage.label || stage.id,
+        assignee: check.assignee || '',
+        dueDate,
+        overdue: !!(isOverdueJob(job) || overdueStageCount(job) > 0 || stageOverdue),
+        blockedStageCount: blockedStageCount(job),
+        changeRequestCount: changeRequestCount(data, job),
+        completionBlockerCount: blockers.length,
+        latestFileAt: data.files
+          .filter(f => f.jobId === job.id)
+          .reduce((max, f) => !max || f.createdAt > max ? f.createdAt : max, ''),
+        updatedAt: job.updatedAt || job.createdAt || '',
+      };
+    })
+    .sort((a, b) => {
+      if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
+      const ad = a.dueDate || '9999-99-99';
+      const bd = b.dueDate || '9999-99-99';
+      const byDue = String(ad).localeCompare(String(bd));
+      if (byDue !== 0) return byDue;
+      return String(b.updatedAt || b.latestFileAt || '').localeCompare(String(a.updatedAt || a.latestFileAt || ''));
+    })
+    .slice(0, 8);
   const changeRequests = activeJobs.reduce((sum, job) => sum + changeRequestCount(data, job), 0);
   const readyToComplete = activeJobs.filter(job => completionBlockers(data, job).length === 0).length;
   return {
@@ -396,6 +433,7 @@ function buildSummary(data, req) {
     unreadFiles: unreadFiles.length,
     unreadFileItems: unreadFiles.slice(0, 8),
     myActions: myActionJobs.length,
+    myActionItems,
     byStage,
   };
 }

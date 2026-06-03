@@ -156,6 +156,10 @@ function workflowApp() {
       return this.summary?.unreadFileItems || [];
     },
 
+    myActionItems() {
+      return this.summary?.myActionItems || [];
+    },
+
     findContact(name) {
       const q = String(name || '').trim().toLowerCase();
       if (!q) return null;
@@ -291,6 +295,15 @@ function workflowApp() {
       this.scopeFilter = 'all';
       await this.loadJobs();
       await this.selectJob(item.jobId);
+    },
+
+    async openActionJob(item) {
+      if (!item || !item.id) return;
+      this.query = '';
+      this.statusFilter = 'all';
+      this.scopeFilter = 'all';
+      await this.loadJobs();
+      await this.selectJob(item.id);
     },
 
     async refreshDetail(force) {
