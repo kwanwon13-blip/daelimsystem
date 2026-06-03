@@ -59,6 +59,7 @@
   .wf-checkitem{height:24px;border:1px solid #dbe3ef;border-radius:999px;background:#f8fafc;color:#475569;padding:0 8px;font-size:11px;font-weight:800;display:inline-flex;align-items:center;gap:4px;cursor:pointer;}
   .wf-checkitem.done{background:#dcfce7;color:#15803d;border-color:#bbf7d0;}
   .wf-handoff{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:8px;border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;}
+  .wf-delivery{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:8px;border:1px solid #bfdbfe;border-radius:7px;background:#eff6ff;}
   .wf-file{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:8px;border:1px solid #edf0f5;border-radius:6px;}
   .wf-file.unread{border-color:#bfdbfe;background:#eff6ff;}
   .wf-file-name{font-size:12px;font-weight:700;color:#111827;word-break:break-all;}
@@ -325,6 +326,15 @@
                 </div>
                 <input class="wf-input" x-model="uploadNote" placeholder="파일 메모">
                 <input class="wf-input" type="file" multiple @change="uploadFiles($event)">
+                <div class="wf-delivery" x-show="deliverySummary().totalFiles">
+                  <span class="wf-chip" x-text="'파일 ' + (deliverySummary().totalFiles || 0)"></span>
+                  <span class="wf-chip unread" x-show="deliverySummary().targetPendingFiles" x-text="'수신대기 ' + deliverySummary().targetPendingFiles"></span>
+                  <span class="wf-chip ready" x-show="deliverySummary().targetReadFiles" x-text="'수신확인 ' + deliverySummary().targetReadFiles"></span>
+                  <span class="wf-chip" x-show="deliverySummary().pendingReviews" x-text="'검토대기 ' + deliverySummary().pendingReviews"></span>
+                  <span class="wf-chip approved" x-show="deliverySummary().approvedReviews" x-text="'승인 ' + deliverySummary().approvedReviews"></span>
+                  <span class="wf-chip change_requested" x-show="deliverySummary().changeRequests" x-text="'수정요청 ' + deliverySummary().changeRequests"></span>
+                  <span class="wf-muted" x-show="deliveryPendingTargets()" x-text="'미확인 대상: ' + deliveryPendingTargets()"></span>
+                </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr auto auto;gap:8px;align-items:center;">
                   <select class="wf-select" x-model="fileStageFilter">
                     <option value="all">전체 단계</option>
@@ -356,6 +366,8 @@
                         <span x-show="file.readBy && file.readBy.length"> · 확인 </span><span x-show="file.readBy && file.readBy.length" x-text="fileReadNames(file) || file.readBy.length"></span>
                       </div>
                       <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px;">
+                        <span class="wf-chip unread" x-show="file.hasTarget && !file.targetRead">수신대기</span>
+                        <span class="wf-chip ready" x-show="file.hasTarget && file.targetRead">수신확인</span>
                         <span class="wf-chip" :class="file.reviewStatus || 'pending'" x-show="canReviewFile(file)" x-text="fileReviewLabel(file.reviewStatus)"></span>
                         <span class="wf-muted" x-show="file.reviewNote" x-text="file.reviewNote"></span>
                       </div>

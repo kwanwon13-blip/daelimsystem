@@ -262,6 +262,69 @@ function isUnreadForViewer(file, viewerUser) {
   return !readBy.some(r => String(r.userId || '') === userId);
 }
 
+function hasFileTarget(file) {
+  return !!(
+    String(file?.targetUserId || '').trim()
+    || String(file?.targetUserName || '').trim()
+    || String(file?.targetLabel || '').trim()
+  );
+}
+
+function hasTargetRead(file) {
+  const readBy = Array.isArray(file?.readBy) ? file.readBy : [];
+  if (!hasFileTarget(file) || !readBy.length) return false;
+  const targetUserId = String(file.targetUserId || '').trim().toLowerCase();
+  const targetUserName = String(file.targetUserName || '').trim().toLowerCase();
+  const targetLabel = String(file.targetLabel || '').trim().toLowerCase();
+  return readBy.some(r => {
+    const userId = String(r.userId || '').trim().toLowerCase();
+    const name = String(r.name || '').trim().toLowerCase();
+    if (targetUserId && userId === targetUserId) return true;
+    if (targetUserName && name === targetUserName) return true;
+    if (targetLabel && name && targetLabel.includes(name)) return true;
+    if (targetLabel && userId && targetLabel.includes(userId)) return true;
+    return !targetUserId && !targetUserName && !!targetLabel;
+  });
+}
+
+function decorateWorkflowFile(file, viewerUser) {
+  return {
+    ...file,
+    viewerUnread: isUnreadForViewer(file, viewerUser),
+    hasTarget: hasFileTarget(file),
+    targetRead: hasTargetRead(file),
+  };
+}
+
+function isReviewableFile(file) {
+  return ['proof', 'drawing'].includes(file?.kind || 'attachment');
+}
+
+function fileTargetDisplay(file) {
+  return String(file?.targetLabel || file?.targetUserName || file?.targetUserId || '').trim();
+}
+
+function buildDeliverySummary(files, viewerUser) {
+  const list = Array.isArray(files) ? files : [];
+  const targetFiles = list.filter(hasFileTarget);
+  const pendingTargetFiles = targetFiles.filter(f => !hasTargetRead(f));
+  const reviewableFiles = list.filter(isReviewableFile);
+  const pendingTargetLabels = Array.from(new Set(pendingTargetFiles.map(fileTargetDisplay).filter(Boolean)));
+  return {
+    totalFiles: list.length,
+    targetedFiles: targetFiles.length,
+    targetPendingFiles: pendingTargetFiles.length,
+    targetReadFiles: Math.max(0, targetFiles.length - pendingTargetFiles.length),
+    unreadForViewer: list.filter(f => Object.prototype.hasOwnProperty.call(f, 'viewerUnread') ? f.viewerUnread : isUnreadForViewer(f, viewerUser)).length,
+    reviewableFiles: reviewableFiles.length,
+    pendingReviews: reviewableFiles.filter(f => !f.reviewStatus || f.reviewStatus === 'pending').length,
+    approvedReviews: reviewableFiles.filter(f => f.reviewStatus === 'approved').length,
+    changeRequests: reviewableFiles.filter(f => f.reviewStatus === 'change_requested').length,
+    pendingTargets: pendingTargetLabels.slice(0, 8),
+    pendingTargetOverflow: Math.max(0, pendingTargetLabels.length - 8),
+  };
+}
+
 function isOverdueJob(job) {
   if (!job || job.status === 'done' || job.status === 'cancelled' || !job.dueDate) return false;
   return isPastDue(job.dueDate);
@@ -537,12 +600,14 @@ router.get('/jobs/:id', (req, res) => {
   const data = loadStore();
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  const files = data.files
+    .filter(f => f.jobId === job.id)
+    .map(f => decorateWorkflowFile(f, req.user));
   res.json({
     ok: true,
     job: decorateJob(data, job, req.user),
-    files: data.files
-      .filter(f => f.jobId === job.id)
-      .map(f => ({ ...f, viewerUnread: isUnreadForViewer(f, req.user) })),
+    files,
+    deliverySummary: buildDeliverySummary(files, req.user),
     events: data.events.filter(e => e.jobId === job.id),
   });
 });
@@ -696,11 +761,13 @@ router.get('/jobs/:id/files', (req, res) => {
   const data = loadStore();
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  const files = data.files
+    .filter(f => f.jobId === job.id)
+    .map(f => decorateWorkflowFile(f, req.user));
   res.json({
     ok: true,
-    files: data.files
-      .filter(f => f.jobId === job.id)
-      .map(f => ({ ...f, viewerUnread: isUnreadForViewer(f, req.user) })),
+    files,
+    deliverySummary: buildDeliverySummary(files, req.user),
   });
 });
 
@@ -758,7 +825,7 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
   saveStore(data);
   res.json({
     ok: true,
-    files: uploaded.map(f => ({ ...f, viewerUnread: false })),
+    files: uploaded.map(f => decorateWorkflowFile(f, req.user)),
     job: decorateJob(data, job, req.user),
   });
 });
@@ -771,7 +838,7 @@ router.post('/jobs/:id/files/:fileId/read', (req, res) => {
     addEvent(data, req, file.jobId, 'read', `${file.originalName} 확인`, { fileId: file.id });
     saveStore(data);
   }
-  res.json({ ok: true, file });
+  res.json({ ok: true, file: decorateWorkflowFile(file, req.user) });
 });
 
 router.post('/jobs/:id/files/:fileId/review', (req, res) => {
@@ -793,7 +860,7 @@ router.post('/jobs/:id/files/:fileId/review', (req, res) => {
     status,
   });
   saveStore(data);
-  res.json({ ok: true, file: { ...file, viewerUnread: isUnreadForViewer(file, req.user) } });
+  res.json({ ok: true, file: decorateWorkflowFile(file, req.user) });
 });
 
 router.get('/jobs/:id/files/archive', async (req, res) => {

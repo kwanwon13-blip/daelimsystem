@@ -160,6 +160,17 @@ function workflowApp() {
       return this.summary?.myActionItems || [];
     },
 
+    deliverySummary() {
+      return this.detail?.deliverySummary || {};
+    },
+
+    deliveryPendingTargets() {
+      const summary = this.deliverySummary();
+      const names = summary.pendingTargets || [];
+      const overflow = Number(summary.pendingTargetOverflow || 0);
+      return names.join(', ') + (overflow > 0 ? ` 외 ${overflow}` : '');
+    },
+
     findContact(name) {
       const q = String(name || '').trim().toLowerCase();
       if (!q) return null;
