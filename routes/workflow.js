@@ -169,6 +169,11 @@ function safeDate(v) {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : '';
 }
 
+function safeYear(v) {
+  const s = safeText(v, 10);
+  return /^\d{4}$/.test(s) ? s : String(new Date().getFullYear());
+}
+
 function userName(req) {
   return req.user?.name || req.user?.userId || 'unknown';
 }
@@ -1186,12 +1191,14 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
       ? (splitTargetLabels(requestedTargetLabel).length > 1 ? splitTargetLabels(requestedTargetLabel) : autoTargetLabels)
       : (requestedTargetLabel ? uniqueTexts([requestedTargetLabel]) : autoTargetLabels);
   const targetLabel = targetLabels.join(', ') || targetUserName || stageAssignee;
+  const storageYear = safeYear(req.body.storageYear || safeDate(req.body.designDueDate).slice(0, 4));
   const storageCompanyName = safeText(req.body.storageCompanyName, 120) || safeText(job.companyName, 120) || '미지정업체';
   const storageProjectName = safeText(req.body.storageProjectName, 160) || safeText(job.projectName || job.title, 160) || '미지정프로젝트';
+  const storageYearPart = safeFilePart(storageYear, String(new Date().getFullYear()));
   const storageCompanyPart = safeFilePart(storageCompanyName, '미지정업체');
   const storageProjectPart = safeFilePart(storageProjectName, '미지정프로젝트');
-  const storageRelDir = `${storageCompanyPart}/${storageProjectPart}`;
-  const storageDir = path.join(FILE_DIR, storageCompanyPart, storageProjectPart);
+  const storageRelDir = `${storageYearPart}/${storageCompanyPart}/${storageProjectPart}`;
+  const storageDir = path.join(FILE_DIR, storageYearPart, storageCompanyPart, storageProjectPart);
   const uploaded = [];
   for (const file of req.files || []) {
     const originalName = uploadName(file.originalname || file.filename);
@@ -1223,9 +1230,10 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
       designDueDate: safeDate(req.body.designDueDate),
       urgent: String(req.body.urgent || '') === '1' || req.body.urgent === true,
       scheduleNegotiation: '',
+      storageYear,
       storageCompanyName,
       storageProjectName,
-      storageBucket: `${storageCompanyPart}/${storageProjectPart}`,
+      storageBucket: `${storageYearPart}/${storageCompanyPart}/${storageProjectPart}`,
       factoryAvailableDate: '',
       factoryScheduleNote: '',
       targetUserId,

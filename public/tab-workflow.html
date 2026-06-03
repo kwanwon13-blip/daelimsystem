@@ -436,7 +436,7 @@
                     @drop="uploadDroppedFiles($event)">
                     <div>
                       <strong>시안/JPG/AI 여러 개 드래그</strong>
-                      <span x-text="(uploadCompanyName || '회사 미선택') + ' / ' + (uploadProjectName || '프로젝트 미선택')"></span>
+                      <span x-text="uploadStorageYear() + ' / ' + (uploadCompanyName || '회사 미선택') + ' / ' + (uploadProjectName || '프로젝트 미선택')"></span>
                     </div>
                     <span class="wf-btn">파일 선택</span>
                     <input type="file" multiple style="display:none;" @change="uploadFiles($event)">

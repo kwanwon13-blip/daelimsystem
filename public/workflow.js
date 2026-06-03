@@ -212,6 +212,12 @@ function workflowApp() {
       return Array.from(new Set(names.filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b), 'ko'));
     },
 
+    uploadStorageYear() {
+      const dueYear = String(this.uploadDesignDueDate || '').slice(0, 4);
+      if (/^\d{4}$/.test(dueYear)) return dueYear;
+      return String(new Date().getFullYear());
+    },
+
     findContact(name) {
       const q = String(name || '').trim().toLowerCase();
       if (!q) return null;
@@ -588,6 +594,7 @@ function workflowApp() {
       fd.append('note', this.uploadNote || '');
       fd.append('designDueDate', this.uploadDesignDueDate || '');
       fd.append('urgent', this.uploadUrgent ? '1' : '');
+      fd.append('storageYear', this.uploadStorageYear());
       fd.append('storageCompanyName', storageCompanyName);
       fd.append('storageProjectName', storageProjectName);
       fd.append('targetUserId', '');
