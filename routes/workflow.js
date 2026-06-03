@@ -5,6 +5,7 @@ const multer = require('multer');
 const JSZip = require('jszip');
 const { requireAuth } = require('../middleware/auth');
 const db = require('../db');
+const { notify } = require('../utils/notify');
 
 const router = express.Router();
 
@@ -424,6 +425,60 @@ function targetLabelStageIds(label, job) {
     .map(stage => stage.id);
 }
 
+function isApprovedWorkflowUser(user) {
+  return !!(user && user.userId && (!user.status || user.status === 'approved'));
+}
+
+function workflowTargetUsers(job, target = {}, actorId = '') {
+  const org = loadOrgSnapshot();
+  const users = (org.users || []).filter(isApprovedWorkflowUser);
+  const picked = new Map();
+  const actor = lowerText(actorId);
+  const targetUserId = lowerText(target.targetUserId);
+  const targetUserName = lowerText(target.targetUserName);
+  const targetLabel = safeText(target.targetLabel, 120);
+  const targetLabels = splitTargetLabels(targetLabel);
+  const stageIds = uniqueTexts([
+    ...normalizeTargetStageIds(target.targetStageIds),
+    ...targetLabelStageIds(targetLabel, job),
+  ]);
+
+  const addUser = user => {
+    if (!isApprovedWorkflowUser(user)) return;
+    if (actor && lowerText(user.userId) === actor) return;
+    picked.set(String(user.userId), user);
+  };
+
+  for (const user of users) {
+    const uid = lowerText(user.userId);
+    const name = lowerText(user.name);
+    if (targetUserId && uid === targetUserId) addUser(user);
+    if (targetUserName && name === targetUserName) addUser(user);
+    if (stageIds.some(stageId => viewerMatchesStageTarget(job, stageId, user))) addUser(user);
+    if (targetLabels.some(label => textMatchesProfile(label, resolveWorkflowUser(user)))) addUser(user);
+  }
+
+  return Array.from(picked.values());
+}
+
+function notifyWorkflowEventTargets(data, req, event) {
+  if (!event || !hasEventTarget(event)) return;
+  const job = data.jobs.find(j => j.id === event.jobId);
+  if (!job) return;
+  const users = workflowTargetUsers(job, {
+    targetUserId: event.targetUserId,
+    targetUserName: event.targetUserName,
+    targetLabel: event.targetLabel,
+    targetStageIds: eventTargetStageIds(event),
+  }, req.user?.userId || event.actorId || '');
+  if (!users.length) return;
+  const title = safeText(job.title, 80) || '워크플로우';
+  const message = safeText(event.message, 180);
+  for (const user of users) {
+    notify(user.userId, 'workflow', `[워크플로우] ${title}${message ? ' - ' + message : ''}`, 'workflow');
+  }
+}
+
 function stageIndex(stageId) {
   const idx = STAGES.findIndex(s => s.id === stageId);
   return idx >= 0 ? idx : 0;
@@ -471,6 +526,7 @@ function addEvent(data, req, jobId, type, message, meta = {}) {
     createdAt: nowIso(),
   };
   data.events.push(event);
+  notifyWorkflowEventTargets(data, req, event);
   return event;
 }
 
@@ -1423,9 +1479,9 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
     addEvent(data, req, job.id, 'file', `파일 ${uploaded.length}개 업로드${targetLabel ? ' · 확인 대상 ' + targetLabel : ''}`, {
       stageId,
       fileIds: uploaded.map(f => f.id),
-      targetUserId,
-      targetUserName,
-      targetLabel,
+      eventTargetUserId: targetUserId,
+      eventTargetUserName: targetUserName,
+      eventTargetLabel: targetLabel,
       targetStageIds,
     });
   }
@@ -1467,6 +1523,8 @@ router.post('/jobs/:id/files/:fileId/review', (req, res) => {
   addEvent(data, req, file.jobId, 'review', `${file.originalName} ${label}${note ? ' - ' + note : ''}`, {
     fileId: file.id,
     status,
+    eventTargetLabel: job?.stageChecks?.design?.assignee || '',
+    targetStageIds: ['design'],
   });
   saveStore(data);
   res.json({ ok: true, file: decorateWorkflowFile(file, req.user, job) });
