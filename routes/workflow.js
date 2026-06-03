@@ -117,6 +117,11 @@ function inferCurrentStage(stageChecks, fallback = 'design') {
   return fallback || 'delivery';
 }
 
+function stageIndex(stageId) {
+  const idx = STAGES.findIndex(s => s.id === stageId);
+  return idx >= 0 ? idx : 0;
+}
+
 function normalizeJobPayload(body, existing = null) {
   const stageChecks = newStageChecks(existing?.stageChecks || {});
   const status = ['active', 'hold', 'done', 'cancelled'].includes(body.status) ? body.status : (existing?.status || 'active');
@@ -379,6 +384,54 @@ router.post('/jobs/:id/stages/:stageId', (req, res) => {
   job.status = Object.values(job.stageChecks).every(c => c.status === 'done') ? 'done' : (job.status === 'done' ? 'active' : job.status);
   job.updatedAt = nowIso();
   addEvent(data, req, job.id, 'stage', `${stage.label} ${CHECK_STATUS_LABELS[nextStatus] || nextStatus}`, { stageId: stage.id, status: nextStatus });
+  saveStore(data);
+  res.json({ ok: true, job: decorateJob(data, job, req.user) });
+});
+
+router.post('/jobs/:id/handoff', (req, res) => {
+  const data = loadStore();
+  const job = data.jobs.find(j => j.id === req.params.id);
+  if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  if (job.status === 'done' || job.status === 'cancelled') {
+    return res.status(400).json({ error: '이미 종료된 작업입니다.' });
+  }
+
+  job.stageChecks = newStageChecks(job.stageChecks || {});
+  const currentId = STAGES.some(s => s.id === job.currentStage)
+    ? job.currentStage
+    : inferCurrentStage(job.stageChecks, 'design');
+  const currentIdx = stageIndex(currentId);
+  const current = STAGES[currentIdx];
+  const next = STAGES[currentIdx + 1] || null;
+  const message = safeText(req.body.message, 1000);
+  const at = nowIso();
+
+  const currentCheck = job.stageChecks[current.id];
+  currentCheck.status = 'done';
+  currentCheck.completedAt = currentCheck.completedAt || at;
+  currentCheck.updatedAt = at;
+  if (message) currentCheck.note = currentCheck.note ? `${currentCheck.note}\n${message}` : message;
+
+  if (next) {
+    const nextCheck = job.stageChecks[next.id];
+    if (nextCheck.status === 'pending') nextCheck.status = 'ready';
+    nextCheck.updatedAt = at;
+    job.currentStage = next.id;
+    if (job.status === 'hold') job.status = 'active';
+    addEvent(data, req, job.id, 'handoff', `${current.label} 완료 · ${next.label} 전달${message ? ' - ' + message : ''}`, {
+      fromStageId: current.id,
+      toStageId: next.id,
+    });
+  } else {
+    job.currentStage = current.id;
+    job.status = 'done';
+    addEvent(data, req, job.id, 'handoff', `작업 완료${message ? ' - ' + message : ''}`, {
+      fromStageId: current.id,
+      toStageId: '',
+    });
+  }
+
+  job.updatedAt = at;
   saveStore(data);
   res.json({ ok: true, job: decorateJob(data, job, req.user) });
 });

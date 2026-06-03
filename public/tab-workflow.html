@@ -42,6 +42,7 @@
   .wf-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
   .wf-stage-row{display:grid;grid-template-columns:84px 84px 1fr 96px auto;gap:6px;align-items:center;padding:7px;border:1px solid #edf0f5;border-radius:6px;background:#fff;}
   .wf-stage-name{font-size:12px;font-weight:800;color:#111827;}
+  .wf-handoff{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:8px;border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;}
   .wf-file{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:8px;border:1px solid #edf0f5;border-radius:6px;}
   .wf-file.unread{border-color:#bfdbfe;background:#eff6ff;}
   .wf-file-name{font-size:12px;font-weight:700;color:#111827;word-break:break-all;}
@@ -198,6 +199,10 @@
             <section class="wf-section">
               <div class="wf-section-title"><span class="material-symbols-outlined" style="font-size:16px;">task_alt</span>단계</div>
               <div class="wf-section-body">
+                <div class="wf-handoff" x-show="detail.job.status !== 'done' && detail.job.status !== 'cancelled'">
+                  <input class="wf-input" x-model="handoffText" placeholder="전달 메모">
+                  <button class="wf-btn primary" @click="handoffJob()" :disabled="saving" x-text="handoffLabel()"></button>
+                </div>
                 <template x-for="stage in stages" :key="stage.id">
                   <div class="wf-stage-row">
                     <div class="wf-stage-name" x-text="stage.label"></div>

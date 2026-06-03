@@ -15,6 +15,7 @@ function workflowApp() {
     newOpen: false,
     contactOptions: [],
     commentText: '',
+    handoffText: '',
     uploadStageId: '',
     uploadKind: 'attachment',
     uploadNote: '',
@@ -109,6 +110,27 @@ function workflowApp() {
       return !!(file && file.viewerUnread);
     },
 
+    currentStage() {
+      if (!this.detail || !this.detail.job) return null;
+      const id = this.detail.job.currentStage || 'design';
+      return this.stages.find(s => s.id === id) || this.stages[0] || null;
+    },
+
+    nextStage() {
+      const current = this.currentStage();
+      if (!current) return null;
+      const idx = this.stages.findIndex(s => s.id === current.id);
+      return idx >= 0 ? this.stages[idx + 1] || null : null;
+    },
+
+    handoffLabel() {
+      const current = this.currentStage();
+      const next = this.nextStage();
+      if (!current) return '전달';
+      if (!next) return '작업 완료';
+      return `${current.label} 완료 · ${next.label} 전달`;
+    },
+
     async createJob() {
       if (!this.form.title.trim()) return alert('작업명을 입력하세요.');
       this.saving = true;
@@ -197,6 +219,27 @@ function workflowApp() {
       if (!r.ok || !d.ok) return alert(d.error || '단계 저장 실패');
       await this.loadJobs();
       await this.refreshDetail(false);
+    },
+
+    async handoffJob() {
+      if (!this.detail || !this.detail.job) return;
+      this.saving = true;
+      try {
+        const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/handoff', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: this.handoffText }),
+        });
+        const d = await r.json();
+        if (!r.ok || !d.ok) throw new Error(d.error || '전달 실패');
+        this.handoffText = '';
+        await this.loadJobs();
+        await this.refreshDetail(false);
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        this.saving = false;
+      }
     },
 
     async addComment() {
