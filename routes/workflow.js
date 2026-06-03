@@ -2,6 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
+const JSZip = require('jszip');
 const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
@@ -96,6 +97,39 @@ function makeId(prefix) {
 
 function safeText(v, max = 500) {
   return String(v == null ? '' : v).trim().slice(0, max);
+}
+
+function safeFilePart(value, fallback = 'file') {
+  const cleaned = String(value || '')
+    .replace(/[\\/:*?"<>|\r\n\t]+/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+  return cleaned || fallback;
+}
+
+function uniqueZipPath(used, wantedPath) {
+  const normalized = wantedPath.replace(/\\/g, '/');
+  if (!used.has(normalized)) {
+    used.add(normalized);
+    return normalized;
+  }
+  const ext = path.posix.extname(normalized);
+  const base = normalized.slice(0, normalized.length - ext.length);
+  let idx = 2;
+  while (used.has(`${base}_${idx}${ext}`)) idx++;
+  const out = `${base}_${idx}${ext}`;
+  used.add(out);
+  return out;
+}
+
+function attachmentDisposition(filename) {
+  const raw = String(filename || 'download.bin');
+  const fallback = raw
+    .replace(/[\\/\r\n"]/g, '_')
+    .replace(/[^\x20-\x7E]/g, '_')
+    .slice(0, 160) || 'download.bin';
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(raw)}`;
 }
 
 function safeDate(v) {
@@ -762,6 +796,65 @@ router.post('/jobs/:id/files/:fileId/review', (req, res) => {
   res.json({ ok: true, file: { ...file, viewerUnread: isUnreadForViewer(file, req.user) } });
 });
 
+router.get('/jobs/:id/files/archive', async (req, res) => {
+  const data = loadStore();
+  const job = data.jobs.find(j => j.id === req.params.id);
+  if (!job) return res.status(404).send('not found');
+  const stageId = STAGES.some(s => s.id === req.query.stageId) ? req.query.stageId : '';
+  const kind = ['proof', 'attachment', 'drawing', 'photo'].includes(req.query.kind) ? req.query.kind : '';
+  const files = data.files
+    .filter(f => f.jobId === job.id)
+    .filter(f => !stageId || f.stageId === stageId)
+    .filter(f => !kind || (f.kind || 'attachment') === kind)
+    .filter(f => f.storedName && fs.existsSync(path.join(FILE_DIR, f.storedName)));
+  if (!files.length) return res.status(404).send('no files');
+
+  const zip = new JSZip();
+  const used = new Set();
+  const root = safeFilePart(`${job.companyName || 'workflow'}_${job.projectName || ''}_${job.title || job.id}`, job.id);
+  for (const file of files) {
+    const stage = safeFilePart(file.stageId || 'stage');
+    const fileKind = safeFilePart(file.kind || 'attachment');
+    const original = safeFilePart(file.originalName || file.storedName || file.id, file.id);
+    const version = Number(file.version || 1);
+    const zipPath = uniqueZipPath(used, `${root}/${stage}/${fileKind}/v${version}_${original}`);
+    zip.file(zipPath, fs.readFileSync(path.join(FILE_DIR, file.storedName)));
+  }
+  zip.file(`${root}/_manifest.json`, JSON.stringify({
+    job: {
+      id: job.id,
+      title: job.title,
+      companyName: job.companyName || '',
+      projectName: job.projectName || '',
+      currentStage: job.currentStage || '',
+    },
+    filters: { stageId, kind },
+    files: files.map(f => ({
+      id: f.id,
+      stageId: f.stageId,
+      kind: f.kind || 'attachment',
+      version: f.version || 1,
+      originalName: f.originalName,
+      uploadedByName: f.uploadedByName,
+      targetLabel: f.targetLabel || '',
+      reviewStatus: f.reviewStatus || 'pending',
+      reviewNote: f.reviewNote || '',
+      createdAt: f.createdAt,
+    })),
+    generatedAt: nowIso(),
+  }, null, 2));
+
+  const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+  const suffix = [stageId, kind].filter(Boolean).join('_') || 'all';
+  const filename = safeFilePart(`${job.companyName || 'workflow'}_${job.projectName || job.title || job.id}_${suffix}`) + '.zip';
+  addEvent(data, req, job.id, 'archive', `파일 묶음 다운로드 ${files.length}개`, { stageId, kind, count: files.length });
+  saveStore(data);
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', attachmentDisposition(filename));
+  res.setHeader('Cache-Control', 'private, max-age=60');
+  res.send(buffer);
+});
+
 router.get('/files/:fileId/download', (req, res) => {
   const data = loadStore();
   const file = data.files.find(f => f.id === req.params.fileId);
@@ -769,7 +862,7 @@ router.get('/files/:fileId/download', (req, res) => {
   const full = path.join(FILE_DIR, file.storedName);
   if (!fs.existsSync(full)) return res.status(404).send('not found');
   res.setHeader('Content-Type', file.mime || 'application/octet-stream');
-  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.originalName || 'file')}`);
+  res.setHeader('Content-Disposition', attachmentDisposition(file.originalName || 'file'));
   res.sendFile(full);
 });
 

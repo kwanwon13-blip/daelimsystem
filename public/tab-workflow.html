@@ -325,7 +325,7 @@
                 </div>
                 <input class="wf-input" x-model="uploadNote" placeholder="파일 메모">
                 <input class="wf-input" type="file" multiple @change="uploadFiles($event)">
-                <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center;">
+                <div style="display:grid;grid-template-columns:1fr 1fr auto auto;gap:8px;align-items:center;">
                   <select class="wf-select" x-model="fileStageFilter">
                     <option value="all">전체 단계</option>
                     <template x-for="stage in stages" :key="stage.id">
@@ -340,6 +340,7 @@
                     <option value="attachment">첨부</option>
                   </select>
                   <span class="wf-muted" x-text="filteredFiles().length + '/' + (detail.files || []).length"></span>
+                  <a class="wf-btn" x-show="filteredFiles().length" :href="jobArchiveUrl()">묶음 받기</a>
                 </div>
                 <template x-for="file in filteredFiles()" :key="file.id">
                   <div class="wf-file" :class="isUnreadFile(file) ? 'unread' : ''">

@@ -457,6 +457,15 @@ function workflowApp() {
       return '/api/workflow/files/' + encodeURIComponent(file.id) + '/download';
     },
 
+    jobArchiveUrl() {
+      if (!this.detail || !this.detail.job) return '#';
+      const qs = new URLSearchParams();
+      if (this.fileStageFilter !== 'all') qs.set('stageId', this.fileStageFilter);
+      if (this.fileKindFilter !== 'all') qs.set('kind', this.fileKindFilter);
+      const query = qs.toString();
+      return '/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/files/archive' + (query ? '?' + query : '');
+    },
+
     eventTime(ts) {
       if (!ts) return '';
       const d = new Date(ts);
