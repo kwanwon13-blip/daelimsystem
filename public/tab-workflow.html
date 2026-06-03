@@ -111,6 +111,11 @@
   .wf-dropzone.drag{border-color:#2563eb;background:#eff6ff;}
   .wf-dropzone strong{font-size:12px;color:#111827;}
   .wf-dropzone span{font-size:11px;color:#64748b;}
+  .wf-modal-dropzone{min-height:96px;padding:12px;}
+  .wf-new-file-list{display:flex;flex-direction:column;gap:6px;}
+  .wf-new-file-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;border:1px solid #e1e6ef;border-radius:6px;background:#f8fafc;padding:6px 8px;}
+  .wf-new-file-row strong{font-size:12px;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .wf-new-file-row span{font-size:11px;color:#64748b;white-space:nowrap;}
   .wf-preview-modal{position:fixed;inset:0;z-index:9999;background:rgba(3,7,18,.88);display:flex;align-items:center;justify-content:center;padding:10px;}
   .wf-preview-panel{width:calc(100vw - 20px);height:calc(100vh - 20px);background:#0f172a;border-radius:6px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 70px rgba(0,0,0,.45);}
   .wf-preview-head{height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 12px;color:#fff;border-bottom:1px solid rgba(255,255,255,.12);flex:0 0 auto;}
@@ -121,6 +126,7 @@
   .wf-preview-image{display:block;object-fit:contain;background:#111827;}
   .wf-modal{position:fixed;inset:0;z-index:9998;background:rgba(15,23,42,.42);display:flex;align-items:center;justify-content:center;padding:18px;}
   .wf-dialog{width:min(560px,calc(100vw - 36px));background:#fff;border:1px solid #dfe4ed;border-radius:8px;box-shadow:0 24px 70px rgba(15,23,42,.24);overflow:hidden;}
+  .wf-dialog.wide{width:min(760px,calc(100vw - 36px));}
   .wf-dialog-head{height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 14px;border-bottom:1px solid #edf0f5;background:#fbfcfe;}
   .wf-dialog-title{font-size:14px;font-weight:900;color:#111827;display:flex;align-items:center;gap:7px;}
   .wf-dialog-body{padding:14px;display:flex;flex-direction:column;gap:10px;}
@@ -617,7 +623,7 @@
     </aside>
   </div>
   <div class="wf-modal" x-show="newOpen" x-cloak x-transition @click.self="closeNewJobModal()" @keydown.window.escape="closeNewJobModal()">
-    <div class="wf-dialog">
+    <div class="wf-dialog wide">
       <div class="wf-dialog-head">
         <div class="wf-dialog-title">
           <span class="material-symbols-outlined" style="font-size:17px;">add_task</span>
@@ -651,6 +657,29 @@
               <option value="normal">보통</option>
               <option value="low">낮음</option>
             </select>
+          </div>
+        </div>
+        <div class="wf-field">
+          <label>시안 파일</label>
+          <label class="wf-dropzone wf-modal-dropzone" :class="newUploadDragOver ? 'drag' : ''"
+            @dragover.prevent="newUploadDragOver=true"
+            @dragleave.prevent="newUploadDragOver=false"
+            @drop="handleNewDrop($event)">
+            <div>
+              <strong>JPG · PNG · AI 파일을 여러 개 올릴 수 있습니다</strong>
+              <span x-text="'저장 경로: ' + newStorageLabel()"></span>
+            </div>
+            <span class="wf-btn">파일 선택</span>
+            <input type="file" multiple style="display:none;" @change="handleNewFiles($event)">
+          </label>
+          <div class="wf-new-file-list" x-show="newFiles.length">
+            <template x-for="(file, idx) in newFiles" :key="file.name + file.size + file.lastModified + idx">
+              <div class="wf-new-file-row">
+                <strong x-text="file.name"></strong>
+                <span x-text="fileSizeLabel(file.size)"></span>
+                <button class="wf-btn ghost" style="height:26px;padding:0 8px;" @click="removeNewFile(idx)">삭제</button>
+              </div>
+            </template>
           </div>
         </div>
         <div class="wf-field">

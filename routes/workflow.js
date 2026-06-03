@@ -116,6 +116,22 @@ function safeText(v, max = 500) {
   return String(v == null ? '' : v).trim().slice(0, max);
 }
 
+function decodeEncodedText(v) {
+  const raw = String(v == null ? '' : v).trim();
+  if (!raw) return '';
+  try {
+    return decodeURIComponent(raw);
+  } catch (_) {
+    return raw;
+  }
+}
+
+function bodyText(body, key, max = 500) {
+  const encoded = decodeEncodedText(body?.[`${key}Encoded`]);
+  if (encoded) return safeText(encoded, max);
+  return safeText(body?.[key], max);
+}
+
 function safeFilePart(value, fallback = 'file') {
   const cleaned = String(value || '')
     .replace(/[\\/:*?"<>|\r\n\t]+/g, '_')
@@ -1324,7 +1340,7 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
   const stageAssignee = safeText(job.stageChecks?.[stageId]?.assignee, 80);
   const targetUserId = safeText(req.body.targetUserId, 80);
   const targetUserName = safeText(req.body.targetUserName, 80);
-  const requestedTargetLabel = safeText(req.body.targetLabel, 120);
+  const requestedTargetLabel = bodyText(req.body, 'targetLabel', 120);
   const autoTargetLabels = defaultUploadTargetLabels(job, stageId, kind);
   const isDesignAsset = stageId === 'design' && ['proof', 'drawing', 'photo'].includes(kind);
   const requestedTargetStageIds = normalizeTargetStageIds(req.body.targetStageIds);
@@ -1340,8 +1356,8 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
       : (requestedTargetLabel ? uniqueTexts([requestedTargetLabel]) : autoTargetLabels);
   const targetLabel = targetLabels.join(', ') || targetUserName || stageAssignee;
   const storageYear = safeYear(req.body.storageYear || safeDate(req.body.designDueDate).slice(0, 4));
-  const storageCompanyName = safeText(req.body.storageCompanyName, 120) || safeText(job.companyName, 120) || '미지정업체';
-  const storageProjectName = safeText(req.body.storageProjectName, 160) || safeText(job.projectName || job.title, 160) || '미지정프로젝트';
+  const storageCompanyName = bodyText(req.body, 'storageCompanyName', 120) || safeText(job.companyName, 120) || '미지정업체';
+  const storageProjectName = bodyText(req.body, 'storageProjectName', 160) || safeText(job.projectName || job.title, 160) || '미지정프로젝트';
   const storageYearPart = safeFilePart(storageYear, String(new Date().getFullYear()));
   const storageCompanyPart = safeFilePart(storageCompanyName, '미지정업체');
   const storageProjectPart = safeFilePart(storageProjectName, '미지정프로젝트');
@@ -1374,7 +1390,7 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
       storedPath,
       mime: file.mimetype || 'application/octet-stream',
       size: file.size || 0,
-      note: safeText(req.body.note, 1000),
+      note: bodyText(req.body, 'note', 1000),
       designDueDate: safeDate(req.body.designDueDate),
       urgent: String(req.body.urgent || '') === '1' || req.body.urgent === true,
       scheduleNegotiation: '',

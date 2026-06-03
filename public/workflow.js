@@ -14,6 +14,8 @@ function workflowApp() {
     statusFilter: 'active',
     scopeFilter: 'all',
     newOpen: false,
+    newFiles: [],
+    newUploadDragOver: false,
     currentUser: null,
     contactOptions: [],
     commentText: '',
@@ -258,6 +260,58 @@ function workflowApp() {
       return String(new Date().getFullYear());
     },
 
+    newStorageYear() {
+      const dueYear = String(this.form.dueDate || '').slice(0, 4);
+      if (/^\d{4}$/.test(dueYear)) return dueYear;
+      return String(new Date().getFullYear());
+    },
+
+    newStorageLabel() {
+      const company = String(this.form.companyName || '').trim() || '회사 미입력';
+      const project = String(this.form.projectName || '').trim() || '프로젝트 미입력';
+      return `${this.newStorageYear()} / ${company} / ${project}`;
+    },
+
+    fileSizeLabel(size) {
+      const n = Number(size || 0);
+      if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+      if (n >= 1024) return `${Math.round(n / 1024)} KB`;
+      return `${n} B`;
+    },
+
+    setNewFiles(files) {
+      const incoming = Array.from(files || []).filter(Boolean);
+      if (!incoming.length) return;
+      const seen = new Set(this.newFiles.map(f => `${f.name}:${f.size}:${f.lastModified}`));
+      for (const file of incoming) {
+        const key = `${file.name}:${file.size}:${file.lastModified}`;
+        if (!seen.has(key)) {
+          this.newFiles.push(file);
+          seen.add(key);
+        }
+      }
+    },
+
+    handleNewFiles(ev) {
+      this.setNewFiles(ev?.target?.files);
+      if (ev?.target) ev.target.value = '';
+    },
+
+    handleNewDrop(ev) {
+      ev.preventDefault();
+      this.newUploadDragOver = false;
+      this.setNewFiles(ev?.dataTransfer?.files);
+    },
+
+    removeNewFile(idx) {
+      this.newFiles.splice(idx, 1);
+    },
+
+    clearNewFiles() {
+      this.newFiles = [];
+      this.newUploadDragOver = false;
+    },
+
     findContact(name) {
       const q = String(name || '').trim().toLowerCase();
       if (!q) return null;
@@ -284,17 +338,21 @@ function workflowApp() {
       if (!this.detail || !this.detail.job) return '';
       const stageId = 'design';
       if (stageId === 'design' && ['proof', 'drawing', 'photo'].includes(this.uploadKind || 'attachment')) {
-        return ['management', 'factory']
-          .map(id => {
-            const stage = this.stages.find(s => s.id === id);
-            const check = this.detail.job.stageChecks?.[id] || {};
-            return check.assignee || stage?.label || id;
-          })
-          .filter(Boolean)
-          .join(', ');
+        return this.parallelTargetLabelForJob(this.detail.job);
       }
       const check = this.detail.job.stageChecks?.[stageId] || {};
       return check.assignee || '';
+    },
+
+    parallelTargetLabelForJob(job) {
+      return ['management', 'factory']
+        .map(id => {
+          const stage = this.stages.find(s => s.id === id);
+          const check = job?.stageChecks?.[id] || {};
+          return check.assignee || stage?.label || id;
+        })
+        .filter(Boolean)
+        .join(', ');
     },
 
     fileReadNames(file) {
@@ -391,6 +449,9 @@ function workflowApp() {
     async createJob() {
       if (!this.form.title.trim()) return alert('작업명을 입력하세요.');
       if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
+      if (this.newFiles.length && (!String(this.form.companyName || '').trim() || !String(this.form.projectName || '').trim())) {
+        return alert('시안 파일을 같이 올릴 때는 회사명과 프로젝트명을 입력하세요.');
+      }
       this.saving = true;
       try {
         const r = await fetch('/api/workflow/jobs', {
@@ -400,10 +461,29 @@ function workflowApp() {
         });
         const d = await r.json();
         if (!r.ok || !d.ok) throw new Error(d.error || '작업 생성 실패');
+        const pendingFiles = this.newFiles.slice();
+        let uploadError = null;
+        if (pendingFiles.length) {
+          try {
+            await this.uploadFilesForJob(d.job.id, pendingFiles, {
+              companyName: this.form.companyName,
+              projectName: this.form.projectName,
+              designDueDate: this.form.dueDate,
+              urgent: this.form.priority === 'urgent' || this.form.priority === 'high',
+              note: this.form.summary,
+              storageYear: this.newStorageYear(),
+              targetLabel: this.parallelTargetLabelForJob(d.job),
+            });
+          } catch (e) {
+            uploadError = e;
+          }
+        }
         this.resetForm();
+        this.clearNewFiles();
         this.newOpen = false;
         await this.loadJobs();
         await this.selectJob(d.job.id);
+        if (uploadError) alert('작업은 등록됐지만 파일 업로드에 실패했습니다: ' + uploadError.message);
       } catch (e) {
         alert(e.message);
       } finally {
@@ -628,31 +708,62 @@ function workflowApp() {
         alert('회사와 프로젝트를 먼저 선택해주세요.');
         return;
       }
-      const fd = new FormData();
-      Array.from(files).forEach(f => fd.append('files', f));
-      fd.append('stageId', 'design');
-      fd.append('kind', 'proof');
-      fd.append('note', this.uploadNote || '');
-      fd.append('designDueDate', this.uploadDesignDueDate || '');
-      fd.append('urgent', this.uploadUrgent ? '1' : '');
-      fd.append('storageYear', this.uploadStorageYear());
-      fd.append('storageCompanyName', storageCompanyName);
-      fd.append('storageProjectName', storageProjectName);
-      fd.append('targetUserId', '');
-      fd.append('targetUserName', '');
-      fd.append('targetLabel', this.uploadTargetLabel());
-      const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/files', {
-        method: 'POST',
-        body: fd,
-      });
-      if (ev?.target) ev.target.value = '';
-      const d = await r.json();
-      if (!r.ok || !d.ok) return alert(d.error || '파일 업로드 실패');
+      try {
+        await this.uploadFilesForJob(this.detail.job.id, files, {
+          companyName: storageCompanyName,
+          projectName: storageProjectName,
+          designDueDate: this.uploadDesignDueDate || '',
+          urgent: this.uploadUrgent,
+          note: this.uploadNote || '',
+          storageYear: this.uploadStorageYear(),
+          targetLabel: this.uploadTargetLabel(),
+        });
+      } catch (e) {
+        alert(e.message);
+        return;
+      } finally {
+        if (ev?.target) ev.target.value = '';
+      }
       this.uploadNote = '';
-      this.uploadDesignDueDate = '';
+      this.uploadDesignDueDate = this.detail?.job?.dueDate || this.defaultWorkDate();
       this.uploadUrgent = false;
       await this.loadJobs();
       await this.refreshDetail(false);
+    },
+
+    async uploadFilesForJob(jobId, files, options = {}) {
+      const list = Array.from(files || []).filter(Boolean);
+      if (!jobId || !list.length) return null;
+      const storageCompanyName = String(options.companyName || '').trim();
+      const storageProjectName = String(options.projectName || '').trim();
+      if (!storageCompanyName || !storageProjectName) {
+        throw new Error('회사와 프로젝트를 먼저 선택해주세요.');
+      }
+      const fd = new FormData();
+      const encodeField = value => encodeURIComponent(String(value || ''));
+      list.forEach(f => fd.append('files', f));
+      fd.append('stageId', options.stageId || 'design');
+      fd.append('kind', options.kind || 'proof');
+      fd.append('note', options.note || '');
+      fd.append('noteEncoded', encodeField(options.note || ''));
+      fd.append('designDueDate', options.designDueDate || '');
+      fd.append('urgent', options.urgent ? '1' : '');
+      fd.append('storageYear', options.storageYear || String(new Date().getFullYear()));
+      fd.append('storageCompanyName', storageCompanyName);
+      fd.append('storageCompanyNameEncoded', encodeField(storageCompanyName));
+      fd.append('storageProjectName', storageProjectName);
+      fd.append('storageProjectNameEncoded', encodeField(storageProjectName));
+      fd.append('targetUserId', '');
+      fd.append('targetUserName', '');
+      fd.append('targetLabel', options.targetLabel || '');
+      fd.append('targetLabelEncoded', encodeField(options.targetLabel || ''));
+      const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(jobId) + '/files', {
+        method: 'POST',
+        body: fd,
+      });
+      const d = await r.json();
+      if (!r.ok || !d.ok) throw new Error(d.error || '파일 업로드 실패');
+      return d;
     },
 
     async uploadDroppedFiles(ev) {
