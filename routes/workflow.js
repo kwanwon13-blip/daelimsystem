@@ -31,6 +31,12 @@ const CHECK_STATUS_LABELS = {
   blocked: '막힘',
 };
 
+const FILE_REVIEW_LABELS = {
+  pending: '검토대기',
+  approved: '승인',
+  change_requested: '수정요청',
+};
+
 function ensureDirs() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(FILE_DIR)) fs.mkdirSync(FILE_DIR, { recursive: true });
@@ -156,6 +162,16 @@ function addEvent(data, req, jobId, type, message, meta = {}) {
   return event;
 }
 
+function markFileReadBy(file, req) {
+  if (!Array.isArray(file.readBy)) file.readBy = [];
+  const readerId = req.user?.userId || '';
+  if (!file.readBy.some(r => r.userId === readerId)) {
+    file.readBy.push({ userId: readerId, name: userName(req), at: nowIso() });
+    return true;
+  }
+  return false;
+}
+
 function isTargetViewer(file, viewerUser) {
   const viewerId = String(viewerUser?.userId || '').trim().toLowerCase();
   const viewerName = String(viewerUser?.name || '').trim().toLowerCase();
@@ -278,6 +294,8 @@ function buildSummary(data, req) {
         originalName: file.originalName,
         note: file.note || '',
         targetLabel: file.targetLabel || '',
+        reviewStatus: file.reviewStatus || 'pending',
+        reviewNote: file.reviewNote || '',
         uploadedByName: file.uploadedByName,
         createdAt: file.createdAt,
       };
@@ -537,6 +555,11 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
       targetUserId,
       targetUserName,
       targetLabel,
+      reviewStatus: 'pending',
+      reviewNote: '',
+      reviewedBy: '',
+      reviewedByName: '',
+      reviewedAt: '',
       uploadedBy: req.user?.userId || '',
       uploadedByName: userName(req),
       readBy: [],
@@ -567,14 +590,33 @@ router.post('/jobs/:id/files/:fileId/read', (req, res) => {
   const data = loadStore();
   const file = data.files.find(f => f.jobId === req.params.id && f.id === req.params.fileId);
   if (!file) return res.status(404).json({ error: '파일을 찾을 수 없습니다.' });
-  if (!Array.isArray(file.readBy)) file.readBy = [];
-  const readerId = req.user?.userId || '';
-  if (!file.readBy.some(r => r.userId === readerId)) {
-    file.readBy.push({ userId: readerId, name: userName(req), at: nowIso() });
+  if (markFileReadBy(file, req)) {
     addEvent(data, req, file.jobId, 'read', `${file.originalName} 확인`, { fileId: file.id });
     saveStore(data);
   }
   res.json({ ok: true, file });
+});
+
+router.post('/jobs/:id/files/:fileId/review', (req, res) => {
+  const data = loadStore();
+  const file = data.files.find(f => f.jobId === req.params.id && f.id === req.params.fileId);
+  if (!file) return res.status(404).json({ error: '파일을 찾을 수 없습니다.' });
+  const status = ['pending', 'approved', 'change_requested'].includes(req.body.status) ? req.body.status : '';
+  if (!status) return res.status(400).json({ error: '검토 상태가 필요합니다.' });
+  const note = safeText(req.body.note, 1000);
+  file.reviewStatus = status;
+  file.reviewNote = note;
+  file.reviewedBy = req.user?.userId || '';
+  file.reviewedByName = userName(req);
+  file.reviewedAt = nowIso();
+  markFileReadBy(file, req);
+  const label = FILE_REVIEW_LABELS[status] || status;
+  addEvent(data, req, file.jobId, 'review', `${file.originalName} ${label}${note ? ' - ' + note : ''}`, {
+    fileId: file.id,
+    status,
+  });
+  saveStore(data);
+  res.json({ ok: true, file: { ...file, viewerUnread: isUnreadForViewer(file, req.user) } });
 });
 
 router.get('/files/:fileId/download', (req, res) => {

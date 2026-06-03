@@ -38,6 +38,8 @@
   .wf-chip.blocked{background:#fee2e2;color:#b91c1c;border-color:#fecaca;}
   .wf-chip.unread{background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe;}
   .wf-chip.overdue{background:#fee2e2;color:#b91c1c;border-color:#fecaca;}
+  .wf-chip.approved{background:#dcfce7;color:#15803d;border-color:#bbf7d0;}
+  .wf-chip.change_requested{background:#ffedd5;color:#c2410c;border-color:#fed7aa;}
   .wf-detail-head{padding:12px;border-bottom:1px solid #e5e9f1;background:#fbfcfe;}
   .wf-detail-body{height:calc(100% - 70px);overflow:auto;padding:12px;display:flex;flex-direction:column;gap:12px;}
   .wf-section{border:1px solid #e1e6ef;border-radius:8px;background:#fff;}
@@ -285,10 +287,16 @@
                         <span x-show="isUnreadFile(file)"> · 확인 필요</span>
                         <span x-show="file.readBy && file.readBy.length"> · 확인 </span><span x-show="file.readBy && file.readBy.length" x-text="fileReadNames(file) || file.readBy.length"></span>
                       </div>
+                      <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px;">
+                        <span class="wf-chip" :class="file.reviewStatus || 'pending'" x-show="canReviewFile(file)" x-text="fileReviewLabel(file.reviewStatus)"></span>
+                        <span class="wf-muted" x-show="file.reviewNote" x-text="file.reviewNote"></span>
+                      </div>
                     </div>
                     <div style="display:flex;gap:5px;">
                       <a class="wf-btn" :href="fileUrl(file)">받기</a>
                       <button class="wf-btn" @click="markRead(file)">확인</button>
+                      <button class="wf-btn" x-show="canReviewFile(file)" @click="reviewFile(file, 'approved')">승인</button>
+                      <button class="wf-btn" x-show="canReviewFile(file)" @click="reviewFile(file, 'change_requested')">수정요청</button>
                     </div>
                   </div>
                 </template>

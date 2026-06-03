@@ -154,6 +154,14 @@ function workflowApp() {
       return (file?.readBy || []).map(r => r.name || r.userId).filter(Boolean).join(', ');
     },
 
+    fileReviewLabel(status) {
+      return ({ pending: '검토대기', approved: '승인', change_requested: '수정요청' })[status || 'pending'] || '검토대기';
+    },
+
+    canReviewFile(file) {
+      return !!file && ['proof', 'drawing'].includes(file.kind || 'attachment');
+    },
+
     currentStage() {
       if (!this.detail || !this.detail.job) return null;
       const id = this.detail.job.currentStage || 'design';
@@ -349,6 +357,25 @@ function workflowApp() {
       const d = await r.json();
       if (!r.ok || !d.ok) return alert(d.error || '확인 처리 실패');
       if (this.selectedId === jobId) await this.refreshDetail(false);
+      await this.loadJobs();
+      await this.loadSummary();
+    },
+
+    async reviewFile(file, status) {
+      if (!this.detail || !file) return;
+      let note = '';
+      if (status === 'change_requested') {
+        note = prompt('수정 요청 내용을 입력하세요.') || '';
+        if (!note.trim()) return;
+      }
+      const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/files/' + encodeURIComponent(file.id) + '/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, note }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.ok) return alert(d.error || '검토 처리 실패');
+      await this.refreshDetail(false);
       await this.loadJobs();
       await this.loadSummary();
     },
