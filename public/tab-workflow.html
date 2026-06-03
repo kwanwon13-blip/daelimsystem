@@ -107,11 +107,14 @@
   .wf-dropzone.drag{border-color:#2563eb;background:#eff6ff;}
   .wf-dropzone strong{font-size:12px;color:#111827;}
   .wf-dropzone span{font-size:11px;color:#64748b;}
-  .wf-preview-modal{position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.78);display:flex;align-items:center;justify-content:center;padding:24px;}
-  .wf-preview-panel{max-width:min(1180px,92vw);max-height:92vh;background:#0f172a;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.35);}
-  .wf-preview-head{height:44px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 12px;color:#fff;border-bottom:1px solid rgba(255,255,255,.12);}
+  .wf-preview-modal{position:fixed;inset:0;z-index:9999;background:rgba(3,7,18,.88);display:flex;align-items:center;justify-content:center;padding:10px;}
+  .wf-preview-panel{width:calc(100vw - 20px);height:calc(100vh - 20px);background:#0f172a;border-radius:6px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 70px rgba(0,0,0,.45);}
+  .wf-preview-head{height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 12px;color:#fff;border-bottom:1px solid rgba(255,255,255,.12);flex:0 0 auto;}
   .wf-preview-head strong{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  .wf-preview-image{max-width:92vw;max-height:calc(92vh - 44px);object-fit:contain;background:#111827;}
+  .wf-preview-tools{display:flex;gap:6px;align-items:center;flex:0 0 auto;}
+  .wf-preview-stage{flex:1;min-height:0;overflow:auto;background:#020617;display:flex;align-items:center;justify-content:center;padding:12px;}
+  .wf-preview-stage.zoomed{align-items:flex-start;justify-content:flex-start;}
+  .wf-preview-image{display:block;object-fit:contain;background:#111827;}
   .wf-event{padding:8px;border-left:3px solid #cbd5e1;background:#f8fafc;border-radius:4px;font-size:12px;color:#334155;line-height:1.45;}
   .wf-event.unread{border-left-color:#2563eb;background:#eff6ff;}
   .wf-muted{color:#6b7280;font-size:11px;}
@@ -128,6 +131,11 @@
   <datalist id="wfCompanyNames">
     <template x-for="c in contactOptions" :key="c.company + c.name">
       <option :value="c.company"></option>
+    </template>
+  </datalist>
+  <datalist id="wfProjectNames">
+    <template x-for="p in workflowProjectNames()" :key="p">
+      <option :value="p"></option>
     </template>
   </datalist>
   <datalist id="wfUserNames">
@@ -413,7 +421,9 @@
               </div>
               <div class="wf-section-body">
                 <div class="wf-upload-panel" x-show="uploadOpen" x-transition>
-                  <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;">
+                  <div style="display:grid;grid-template-columns:1.2fr 1.2fr 110px 100px 130px;gap:8px;">
+                    <input class="wf-input" list="wfCompanyNames" x-model="uploadCompanyName" placeholder="회사">
+                    <input class="wf-input" list="wfProjectNames" x-model="uploadProjectName" placeholder="프로젝트">
                     <select class="wf-select" x-model="uploadStageId">
                       <template x-for="stage in stages" :key="stage.id">
                         <option :value="stage.id" x-text="stage.label"></option>
@@ -424,12 +434,6 @@
                       <option value="drawing">도면</option>
                       <option value="photo">사진</option>
                       <option value="attachment">첨부</option>
-                    </select>
-                    <select class="wf-select" x-model="uploadTargetUserId">
-                      <option value="">단계 담당</option>
-                      <template x-for="u in workflowUsers" :key="u.userId">
-                        <option :value="u.userId" x-text="u.name"></option>
-                      </template>
                     </select>
                     <input class="wf-input" type="date" x-model="uploadDesignDueDate" title="디자인 희망 완료일">
                   </div>
@@ -443,7 +447,7 @@
                     @drop="uploadDroppedFiles($event)">
                     <div>
                       <strong>시안/JPG/AI 여러 개 드래그</strong>
-                      <span>회사/프로젝트는 현재 작업의 업체/현장 기준으로 자동 분류</span>
+                      <span x-text="(uploadCompanyName || '회사 미선택') + ' / ' + (uploadProjectName || '프로젝트 미선택')"></span>
                     </div>
                     <span class="wf-btn">파일 선택</span>
                     <input type="file" multiple style="display:none;" @change="uploadFiles($event)">
@@ -642,16 +646,23 @@
       </template>
     </aside>
   </div>
-<div class="wf-preview-modal" x-show="filePreview.open" x-cloak @click.self="closeFilePreview()">
+<div class="wf-preview-modal" x-show="filePreview.open" x-cloak @click.self="closeFilePreview()" @keydown.window.escape="closeFilePreview()">
   <div class="wf-preview-panel">
     <div class="wf-preview-head">
       <strong x-text="filePreview.file?.originalName || '시안 미리보기'"></strong>
-      <div style="display:flex;gap:6px;">
+      <div class="wf-preview-tools">
+        <button class="wf-btn" style="height:28px;background:#fff;color:#111827;" @click="fitPreview()">맞춤</button>
+        <button class="wf-btn" style="height:28px;background:#fff;color:#111827;" @click="actualPreview()">100%</button>
+        <button class="wf-btn" style="height:28px;background:#fff;color:#111827;" @click="zoomPreview(-0.25)">-</button>
+        <span class="wf-chip" style="height:28px;background:#1e293b;color:#fff;border-color:#334155;" x-text="previewZoomLabel()"></span>
+        <button class="wf-btn" style="height:28px;background:#fff;color:#111827;" @click="zoomPreview(0.25)">+</button>
         <a class="wf-btn" style="height:28px;background:#fff;color:#111827;" :href="filePreview.file ? fileUrl(filePreview.file) : '#'">원본</a>
         <button class="wf-btn" style="height:28px;background:#fff;color:#111827;" @click="closeFilePreview()">닫기</button>
       </div>
     </div>
-    <img class="wf-preview-image" x-show="filePreview.file" :src="filePreview.file ? filePreviewUrl(filePreview.file) : ''" alt="">
+    <div class="wf-preview-stage" :class="filePreview.fit ? '' : 'zoomed'">
+      <img class="wf-preview-image" x-show="filePreview.file" :src="filePreview.file ? filePreviewUrl(filePreview.file) : ''" :style="previewImageStyle()" alt="">
+    </div>
   </div>
 </div>
 </div>

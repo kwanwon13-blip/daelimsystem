@@ -1186,10 +1186,28 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
       ? (splitTargetLabels(requestedTargetLabel).length > 1 ? splitTargetLabels(requestedTargetLabel) : autoTargetLabels)
       : (requestedTargetLabel ? uniqueTexts([requestedTargetLabel]) : autoTargetLabels);
   const targetLabel = targetLabels.join(', ') || targetUserName || stageAssignee;
+  const storageCompanyName = safeText(req.body.storageCompanyName, 120) || safeText(job.companyName, 120) || '미지정업체';
+  const storageProjectName = safeText(req.body.storageProjectName, 160) || safeText(job.projectName || job.title, 160) || '미지정프로젝트';
+  const storageCompanyPart = safeFilePart(storageCompanyName, '미지정업체');
+  const storageProjectPart = safeFilePart(storageProjectName, '미지정프로젝트');
+  const storageRelDir = `${storageCompanyPart}/${storageProjectPart}`;
+  const storageDir = path.join(FILE_DIR, storageCompanyPart, storageProjectPart);
   const uploaded = [];
   for (const file of req.files || []) {
     const originalName = uploadName(file.originalname || file.filename);
     const version = data.files.filter(f => f.jobId === job.id && f.stageId === stageId && f.originalName === originalName).length + 1;
+    let storedPath = file.filename;
+    try {
+      fs.mkdirSync(storageDir, { recursive: true });
+      const from = path.join(FILE_DIR, file.filename);
+      const to = path.join(storageDir, file.filename);
+      if (fs.existsSync(from)) {
+        fs.renameSync(from, to);
+        storedPath = `${storageRelDir}/${file.filename}`;
+      }
+    } catch (e) {
+      storedPath = file.filename;
+    }
     const rec = {
       id: makeId('wff'),
       jobId: job.id,
@@ -1198,15 +1216,16 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
       version,
       originalName,
       storedName: file.filename,
+      storedPath,
       mime: file.mimetype || 'application/octet-stream',
       size: file.size || 0,
       note: safeText(req.body.note, 1000),
       designDueDate: safeDate(req.body.designDueDate),
       urgent: String(req.body.urgent || '') === '1' || req.body.urgent === true,
       scheduleNegotiation: '',
-      storageCompanyName: safeText(job.companyName, 120) || '미지정업체',
-      storageProjectName: safeText(job.projectName || job.title, 160) || '미지정프로젝트',
-      storageBucket: `${safeFilePart(job.companyName, '미지정업체')}/${safeFilePart(job.projectName || job.title, '미지정프로젝트')}`,
+      storageCompanyName,
+      storageProjectName,
+      storageBucket: `${storageCompanyPart}/${storageProjectPart}`,
       factoryAvailableDate: '',
       factoryScheduleNote: '',
       targetUserId,
@@ -1352,7 +1371,10 @@ router.get('/jobs/:id/files/archive', async (req, res) => {
     .filter(f => f.jobId === job.id)
     .filter(f => !stageId || f.stageId === stageId)
     .filter(f => !kind || (f.kind || 'attachment') === kind)
-    .filter(f => f.storedName && fs.existsSync(path.join(FILE_DIR, f.storedName)));
+    .filter(f => {
+      const full = fileDiskPath(f);
+      return !!(full && fs.existsSync(full));
+    });
   if (!files.length) return res.status(404).send('no files');
 
   const zip = new JSZip();
@@ -1364,7 +1386,7 @@ router.get('/jobs/:id/files/archive', async (req, res) => {
     const original = safeFilePart(file.originalName || file.storedName || file.id, file.id);
     const version = Number(file.version || 1);
     const zipPath = uniqueZipPath(used, `${root}/${stage}/${fileKind}/v${version}_${original}`);
-    zip.file(zipPath, fs.readFileSync(path.join(FILE_DIR, file.storedName)));
+    zip.file(zipPath, fs.readFileSync(fileDiskPath(file)));
   }
   zip.file(`${root}/_manifest.json`, JSON.stringify({
     job: {

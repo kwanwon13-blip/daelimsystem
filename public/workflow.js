@@ -22,6 +22,8 @@ function workflowApp() {
     uploadStageId: '',
     uploadKind: 'attachment',
     uploadTargetUserId: '',
+    uploadCompanyName: '',
+    uploadProjectName: '',
     uploadNote: '',
     uploadDesignDueDate: '',
     uploadUrgent: false,
@@ -29,7 +31,7 @@ function workflowApp() {
     uploadOpen: false,
     fileStageFilter: 'all',
     fileKindFilter: 'all',
-    filePreview: { open: false, file: null },
+    filePreview: { open: false, file: null, zoom: 1, fit: true },
     expandedFileId: '',
     form: {
       title: '',
@@ -201,6 +203,15 @@ function workflowApp() {
       return names.join(', ') + (overflow > 0 ? ` 외 ${overflow}` : '');
     },
 
+    workflowProjectNames() {
+      const names = [];
+      if (this.detail?.job?.projectName) names.push(this.detail.job.projectName);
+      for (const job of this.jobs || []) {
+        if (job.projectName) names.push(job.projectName);
+      }
+      return Array.from(new Set(names.filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b), 'ko'));
+    },
+
     findContact(name) {
       const q = String(name || '').trim().toLowerCase();
       if (!q) return null;
@@ -237,8 +248,6 @@ function workflowApp() {
     },
 
     uploadTargetLabel() {
-      const user = this.selectedUploadTarget();
-      if (user) return `${user.name} (${user.userId})`;
       if (!this.detail || !this.detail.job) return '';
       const stageId = this.uploadStageId || this.detail.job.currentStage || 'design';
       if (stageId === 'design' && ['proof', 'drawing', 'photo'].includes(this.uploadKind || 'attachment')) {
@@ -452,6 +461,8 @@ function workflowApp() {
       }
       this.detail = d;
       this.uploadStageId = this.uploadStageId || d.job.currentStage || 'design';
+      if (force || !this.uploadCompanyName) this.uploadCompanyName = d.job.companyName || '';
+      if (force || !this.uploadProjectName) this.uploadProjectName = d.job.projectName || d.job.title || '';
     },
 
     async saveJob() {
@@ -571,9 +582,10 @@ function workflowApp() {
       fd.append('note', this.uploadNote || '');
       fd.append('designDueDate', this.uploadDesignDueDate || '');
       fd.append('urgent', this.uploadUrgent ? '1' : '');
-      const target = this.selectedUploadTarget();
-      fd.append('targetUserId', target?.userId || '');
-      fd.append('targetUserName', target?.name || '');
+      fd.append('storageCompanyName', this.uploadCompanyName || this.detail.job.companyName || '');
+      fd.append('storageProjectName', this.uploadProjectName || this.detail.job.projectName || this.detail.job.title || '');
+      fd.append('targetUserId', '');
+      fd.append('targetUserName', '');
       fd.append('targetLabel', this.uploadTargetLabel());
       const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/files', {
         method: 'POST',
@@ -699,7 +711,38 @@ function workflowApp() {
 
     openFilePreview(file) {
       if (!file || !file.isImage) return;
-      this.filePreview = { open: true, file };
+      this.filePreview = { open: true, file, zoom: 1, fit: true };
+    },
+
+    fitPreview() {
+      if (!this.filePreview.open) return;
+      this.filePreview.fit = true;
+      this.filePreview.zoom = 1;
+    },
+
+    actualPreview() {
+      if (!this.filePreview.open) return;
+      this.filePreview.fit = false;
+      this.filePreview.zoom = 1;
+    },
+
+    zoomPreview(delta) {
+      if (!this.filePreview.open) return;
+      const current = this.filePreview.fit ? 1 : Number(this.filePreview.zoom || 1);
+      this.filePreview.fit = false;
+      this.filePreview.zoom = Math.min(4, Math.max(0.5, Math.round((current + delta) * 100) / 100));
+    },
+
+    previewZoomLabel() {
+      if (this.filePreview.fit) return '맞춤';
+      return Math.round(Number(this.filePreview.zoom || 1) * 100) + '%';
+    },
+
+    previewImageStyle() {
+      if (this.filePreview.fit) {
+        return 'max-width:100%;max-height:100%;width:auto;height:auto;';
+      }
+      return `width:${Math.round(Number(this.filePreview.zoom || 1) * 100)}%;max-width:none;max-height:none;height:auto;`;
     },
 
     toggleFileCollab(file) {
@@ -708,7 +751,7 @@ function workflowApp() {
     },
 
     closeFilePreview() {
-      this.filePreview = { open: false, file: null };
+      this.filePreview = { open: false, file: null, zoom: 1, fit: true };
     },
 
     fileTypeLabel(file) {
