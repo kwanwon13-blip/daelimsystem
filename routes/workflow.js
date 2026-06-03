@@ -474,8 +474,9 @@ function notifyWorkflowEventTargets(data, req, event) {
   if (!users.length) return;
   const title = safeText(job.title, 80) || '워크플로우';
   const message = safeText(event.message, 180);
+  const link = `workflow:${event.jobId || ''}:${event.id || ''}`;
   for (const user of users) {
-    notify(user.userId, 'workflow', `[워크플로우] ${title}${message ? ' - ' + message : ''}`, 'workflow');
+    notify(user.userId, 'workflow', `[워크플로우] ${title}${message ? ' - ' + message : ''}`, link);
   }
 }
 

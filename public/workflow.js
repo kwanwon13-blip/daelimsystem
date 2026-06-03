@@ -54,10 +54,21 @@ function workflowApp() {
         });
         window.__workflowPrefillListenerInstalled = true;
       }
+      if (!window.__workflowOpenListenerInstalled) {
+        window.addEventListener('workflow:open', e => {
+          const root = document.querySelector('[x-data="workflowApp()"]');
+          if (!root || !window.Alpine) return;
+          const app = window.Alpine.$data(root);
+          const jobId = e.detail?.jobId || '';
+          if (jobId && app?.selectJob) app.selectJob(jobId);
+        });
+        window.__workflowOpenListenerInstalled = true;
+      }
       await Promise.all([this.loadAuth(), this.loadMeta(), this.loadContacts()]);
       if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
       await this.loadJobs();
       this.consumeWorkflowDraft();
+      await this.consumeWorkflowOpenTarget();
     },
 
     async loadAuth() {
@@ -117,6 +128,37 @@ function workflowApp() {
       } finally {
         this.loading = false;
       }
+    },
+
+    workflowOpenTargetFromLocation() {
+      const hash = String(window.location.hash || '').replace(/^#/, '');
+      if (!hash) return {};
+      if (hash.startsWith('workflow:')) {
+        const [, jobId = '', itemId = ''] = hash.split(':');
+        return { jobId: decodeURIComponent(jobId || ''), itemId: decodeURIComponent(itemId || '') };
+      }
+      if (hash.startsWith('workflow?')) {
+        const qs = new URLSearchParams(hash.slice('workflow?'.length));
+        return { jobId: qs.get('job') || '', itemId: qs.get('file') || qs.get('event') || '' };
+      }
+      return {};
+    },
+
+    async consumeWorkflowOpenTarget() {
+      let raw = '';
+      try {
+        raw = sessionStorage.getItem('workflow:openJobId') || '';
+        if (raw) sessionStorage.removeItem('workflow:openJobId');
+      } catch (_) {}
+      const fromHash = this.workflowOpenTargetFromLocation();
+      const jobId = raw || fromHash.jobId || '';
+      if (!jobId) return;
+      this.query = '';
+      this.statusFilter = 'all';
+      this.scopeFilter = 'all';
+      await this.loadJobs();
+      await this.selectJob(jobId);
+      if (fromHash.itemId) this.expandedFileId = fromHash.itemId;
     },
 
     jobsForStage(stageId) {

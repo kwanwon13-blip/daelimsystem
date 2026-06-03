@@ -7442,7 +7442,14 @@ function app() {
 
       // 초기 진입 시 URL hash 가 있으면 그 탭으로 이동 (공유 링크로 바로 들어온 경우)
       try {
-        const initHashTab = (window.location.hash || '').replace('#', '');
+        const initHashRaw = (window.location.hash || '').replace('#', '');
+        const initHashTab = initHashRaw.startsWith('workflow:') || initHashRaw.startsWith('workflow?') ? 'workflow' : initHashRaw;
+        if (initHashTab === 'workflow' && initHashRaw !== 'workflow') {
+          const jobId = initHashRaw.startsWith('workflow:')
+            ? decodeURIComponent((initHashRaw.split(':')[1] || ''))
+            : (new URLSearchParams(initHashRaw.slice('workflow?'.length)).get('job') || '');
+          if (jobId) sessionStorage.setItem('workflow:openJobId', jobId);
+        }
         if (initHashTab && this.tabs.find(t => t.id === initHashTab)) {
           this._suppressHashUpdate = true;
           this.currentTab = initHashTab;
@@ -7452,12 +7459,24 @@ function app() {
 
       // 뒤로가기/앞으로가기 버튼 감지 → URL hash 읽어서 탭 복원
       window.addEventListener('popstate', () => {
-        const tab = (window.location.hash || '').replace('#', '') || 'home';
+        const rawHash = (window.location.hash || '').replace('#', '');
+        const tab = rawHash.startsWith('workflow:') || rawHash.startsWith('workflow?') ? 'workflow' : (rawHash || 'home');
+        let workflowHashJobId = '';
+        if (tab === 'workflow' && rawHash && rawHash !== 'workflow') {
+          try {
+            workflowHashJobId = rawHash.startsWith('workflow:')
+              ? decodeURIComponent((rawHash.split(':')[1] || ''))
+              : (new URLSearchParams(rawHash.slice('workflow?'.length)).get('job') || '');
+            if (workflowHashJobId) sessionStorage.setItem('workflow:openJobId', workflowHashJobId);
+          } catch(e) {}
+        }
         if (tab !== this.currentTab && this.tabs.find(t => t.id === tab)) {
           this._suppressHashUpdate = true;
           this.currentTab = tab;
           // 다음 틱에 플래그 해제 (watch 발동 후)
           this.$nextTick(() => { this._suppressHashUpdate = false; });
+        } else if (tab === 'workflow' && workflowHashJobId) {
+          window.dispatchEvent(new CustomEvent('workflow:open', { detail: { jobId: workflowHashJobId } }));
         }
       });
 
@@ -7608,6 +7627,11 @@ function app() {
           const urgentFiles = Number(s.urgentFiles || 0);
           const count = unreadFiles + unreadEvents + overdueSchedules + urgentFiles;
           if (count > this._notifLastWorkflow && this._notifLastWorkflow >= 0 && this.currentTab !== 'workflow') {
+            const firstWorkflowItem = (s.unreadFiles && s.unreadFiles[0])
+              || (s.unreadEvents && s.unreadEvents[0])
+              || (s.urgentFiles && s.urgentFiles[0])
+              || (s.scheduleItems && s.scheduleItems[0])
+              || null;
             const parts = [];
             if (unreadFiles) parts.push(`시안/파일 ${unreadFiles}건`);
             if (unreadEvents) parts.push(`메모 ${unreadEvents}건`);
@@ -7620,7 +7644,19 @@ function app() {
                 body: msg,
                 icon: '/favicon.ico'
               });
-              n.onclick = () => { this.currentTab = 'workflow'; window.focus(); n.close(); };
+              n.onclick = () => {
+                if (firstWorkflowItem && firstWorkflowItem.jobId) {
+                  sessionStorage.setItem('workflow:openJobId', firstWorkflowItem.jobId);
+                }
+                this.currentTab = 'workflow';
+                if (firstWorkflowItem && firstWorkflowItem.jobId) {
+                  setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('workflow:open', { detail: { jobId: firstWorkflowItem.jobId } }));
+                  }, 50);
+                }
+                window.focus();
+                n.close();
+              };
             }
           }
           this._notifLastWorkflow = count;
