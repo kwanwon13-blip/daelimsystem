@@ -233,6 +233,11 @@ function nextStageDue(job) {
   };
 }
 
+function changeRequestCount(data, job) {
+  if (!job || !data || !Array.isArray(data.files)) return 0;
+  return data.files.filter(f => f.jobId === job.id && f.reviewStatus === 'change_requested').length;
+}
+
 function userMatchTokens(req) {
   return [req.user?.userId, req.user?.name]
     .map(v => String(v || '').trim().toLowerCase())
@@ -265,6 +270,7 @@ function decorateJob(data, job, viewerUser = null) {
     unreadFileCount: files.filter(f => isUnreadForViewer(f, viewerUser)).length,
     blockedStageCount: blockedStageCount(job),
     overdueStageCount: overdueStageCount(job),
+    changeRequestCount: changeRequestCount(data, job),
     overdue: isOverdueJob(job),
     nextStageDue: nextStageDue(job),
     latestFileAt: files.reduce((max, f) => !max || f.createdAt > max ? f.createdAt : max, ''),
@@ -302,12 +308,14 @@ function buildSummary(data, req) {
     })
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
   const myActionJobs = activeJobs.filter(job => isUserJob(job, req));
+  const changeRequests = activeJobs.reduce((sum, job) => sum + changeRequestCount(data, job), 0);
   return {
     active: activeJobs.length,
     done: data.jobs.filter(j => j.status === 'done').length,
     overdue: activeJobs.filter(job => isOverdueJob(job) || overdueStageCount(job) > 0).length,
     overdueStages: activeJobs.reduce((sum, job) => sum + overdueStageCount(job), 0),
     blocked: activeJobs.reduce((sum, job) => sum + blockedStageCount(job), 0),
+    changeRequests,
     unreadFiles: unreadFiles.length,
     unreadFileItems: unreadFiles.slice(0, 8),
     myActions: myActionJobs.length,
@@ -364,7 +372,7 @@ router.get('/jobs', (req, res) => {
   } else if (scope === 'unread') {
     jobs = jobs.filter(j => decorateJob(data, j, req.user).unreadFileCount > 0);
   } else if (scope === 'risk') {
-    jobs = jobs.filter(j => isOverdueJob(j) || overdueStageCount(j) > 0 || blockedStageCount(j) > 0);
+    jobs = jobs.filter(j => isOverdueJob(j) || overdueStageCount(j) > 0 || blockedStageCount(j) > 0 || changeRequestCount(data, j) > 0);
   }
   jobs.sort((a, b) => {
     const ap = { urgent: 0, high: 1, normal: 2, low: 3 }[a.priority] ?? 2;

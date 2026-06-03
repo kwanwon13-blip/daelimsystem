@@ -11,7 +11,7 @@
   .wf-btn.primary{background:#2563eb;color:#fff;border-color:#2563eb;}
   .wf-btn.ghost{background:#f8fafc;}
   .wf-btn:disabled{opacity:.5;cursor:not-allowed;}
-  .wf-summary{display:grid;grid-template-columns:repeat(5,minmax(110px,1fr));gap:8px;padding:10px 12px;border-bottom:1px solid #e5e9f1;background:#fff;}
+  .wf-summary{display:grid;grid-template-columns:repeat(6,minmax(104px,1fr));gap:8px;padding:10px 12px;border-bottom:1px solid #e5e9f1;background:#fff;}
   .wf-metric{border:1px solid #e1e6ef;border-radius:8px;padding:8px 10px;background:#fbfcfe;min-width:0;}
   .wf-metric strong{display:block;font-size:18px;line-height:1.1;color:#111827;}
   .wf-metric span{display:block;font-size:11px;color:#64748b;margin-top:3px;}
@@ -115,6 +115,10 @@
           <strong x-text="summary.blocked || 0"></strong>
           <span>막힘 체크</span>
         </div>
+        <div class="wf-metric warn">
+          <strong x-text="summary.changeRequests || 0"></strong>
+          <span>수정요청</span>
+        </div>
         <div class="wf-metric action">
           <strong x-text="summary.unreadFiles || 0"></strong>
           <span>확인 필요 파일</span>
@@ -172,6 +176,7 @@
                     <span class="wf-chip" x-show="job.nextStageDue" :class="job.nextStageDue && job.nextStageDue.overdue ? 'overdue' : ''" x-text="job.nextStageDue ? (job.nextStageDue.stageLabel + ' ' + job.nextStageDue.dueDate) : ''"></span>
                     <span class="wf-chip overdue" x-show="job.overdueStageCount" x-text="'단계지연 ' + job.overdueStageCount"></span>
                     <span class="wf-chip blocked" x-show="job.blockedStageCount" x-text="'막힘 ' + job.blockedStageCount"></span>
+                    <span class="wf-chip change_requested" x-show="job.changeRequestCount" x-text="'수정요청 ' + job.changeRequestCount"></span>
                     <span class="wf-chip unread" x-show="job.unreadFileCount" x-text="'확인 ' + job.unreadFileCount"></span>
                     <span class="wf-chip" x-show="job.fileCount" x-text="'파일 ' + job.fileCount"></span>
                   </div>
