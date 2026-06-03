@@ -12,7 +12,7 @@
   .wf-btn.primary{background:#2563eb;color:#fff;border-color:#2563eb;}
   .wf-btn.ghost{background:#f8fafc;}
   .wf-btn:disabled{opacity:.5;cursor:not-allowed;}
-  .wf-summary{display:grid;grid-template-columns:repeat(7,minmax(96px,1fr));gap:8px;padding:10px 12px;border-bottom:1px solid #e5e9f1;background:#fff;}
+  .wf-summary{display:grid;grid-template-columns:repeat(8,minmax(90px,1fr));gap:8px;padding:10px 12px;border-bottom:1px solid #e5e9f1;background:#fff;}
   .wf-metric{border:1px solid #e1e6ef;border-radius:8px;padding:8px 10px;background:#fbfcfe;min-width:0;}
   .wf-metric strong{display:block;font-size:18px;line-height:1.1;color:#111827;}
   .wf-metric span{display:block;font-size:11px;color:#64748b;margin-top:3px;}
@@ -138,6 +138,26 @@
           <strong x-text="summary.unreadFiles || 0"></strong>
           <span>확인 필요 파일</span>
         </div>
+        <div class="wf-metric" :class="summary.scheduleOverdue ? 'warn' : 'action'">
+          <strong x-text="summary.scheduleCount || 0"></strong>
+          <span>이번주 일정</span>
+        </div>
+      </div>
+
+      <div class="wf-inbox" x-show="scheduleItems().length">
+        <template x-for="item in scheduleItems()" :key="item.id">
+          <div class="wf-inbox-item">
+            <button style="text-align:left;min-width:0;background:none;border:none;padding:0;cursor:pointer;" @click="openScheduleItem(item)">
+              <div class="wf-inbox-title" x-text="item.title"></div>
+              <div class="wf-inbox-meta">
+                <span x-text="item.label"></span>
+                <span> · </span><span x-text="item.dueDate"></span>
+                <span x-show="item.assignee"> · </span><span x-show="item.assignee" x-text="item.assignee"></span>
+              </div>
+            </button>
+            <span class="wf-chip" :class="item.overdue ? 'overdue' : (item.today ? 'urgent' : 'ready')" x-text="item.overdue ? '지연' : (item.today ? '오늘' : '예정')"></span>
+          </div>
+        </template>
       </div>
 
       <div class="wf-inbox" x-show="myActionItems().length">

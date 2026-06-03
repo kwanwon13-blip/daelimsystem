@@ -415,6 +415,88 @@ function isPastDue(dateValue) {
   return String(dateValue) < today;
 }
 
+function addDaysIso(dateIso, days) {
+  const d = new Date(`${dateIso}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function isScheduleVisible(dateValue, endDate) {
+  const date = safeDate(dateValue);
+  if (!date) return false;
+  return isPastDue(date) || date <= endDate;
+}
+
+function buildScheduleItems(data, req) {
+  const today = new Date().toISOString().slice(0, 10);
+  const endDate = addDaysIso(today, 7);
+  const activeJobs = data.jobs.filter(j => !['done', 'cancelled'].includes(j.status));
+  const items = [];
+
+  function pushItem(job, item) {
+    const dueDate = safeDate(item.dueDate);
+    if (!dueDate || !isScheduleVisible(dueDate, endDate)) return;
+    items.push({
+      id: `${job.id}:${item.kind}:${item.stageId || 'job'}:${dueDate}`,
+      jobId: job.id,
+      title: job.title || '',
+      companyName: job.companyName || '',
+      projectName: job.projectName || '',
+      kind: item.kind,
+      label: item.label,
+      dueDate,
+      overdue: isPastDue(dueDate),
+      today: dueDate === today,
+      stageId: item.stageId || '',
+      stageLabel: item.stageLabel || '',
+      assignee: item.assignee || '',
+      mine: isUserJob(job, req),
+      priority: job.priority || 'normal',
+    });
+  }
+
+  for (const job of activeJobs) {
+    if (job.dueDate) {
+      pushItem(job, {
+        kind: 'job',
+        label: '작업마감',
+        dueDate: job.dueDate,
+        assignee: job.contactName || '',
+      });
+    }
+    if (job.deliveryDate) {
+      pushItem(job, {
+        kind: 'delivery',
+        label: '납품일',
+        dueDate: job.deliveryDate,
+        assignee: job.contactName || '',
+      });
+    }
+    for (const stage of STAGES) {
+      const check = job.stageChecks?.[stage.id] || {};
+      if (check.status === 'done' || !check.dueDate) continue;
+      pushItem(job, {
+        kind: 'stage',
+        label: `${stage.label} 마감`,
+        dueDate: check.dueDate,
+        stageId: stage.id,
+        stageLabel: stage.label,
+        assignee: check.assignee || '',
+      });
+    }
+  }
+
+  return items
+    .sort((a, b) => {
+      if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
+      if (a.today !== b.today) return a.today ? -1 : 1;
+      const byDate = String(a.dueDate).localeCompare(String(b.dueDate));
+      if (byDate !== 0) return byDate;
+      return String(a.title).localeCompare(String(b.title), 'ko');
+    })
+    .slice(0, 12);
+}
+
 function blockedStageCount(job) {
   return Object.values(job.stageChecks || {}).filter(c => c && c.status === 'blocked').length;
 }
@@ -614,6 +696,7 @@ function buildSummary(data, req) {
     .slice(0, 8);
   const changeRequests = activeJobs.reduce((sum, job) => sum + changeRequestCount(data, job), 0);
   const readyToComplete = activeJobs.filter(job => completionBlockers(data, job).length === 0).length;
+  const scheduleItems = buildScheduleItems(data, req);
   return {
     active: activeJobs.length,
     done: data.jobs.filter(j => j.status === 'done').length,
@@ -626,6 +709,9 @@ function buildSummary(data, req) {
     unreadFileItems: unreadFiles.slice(0, 8),
     unreadEvents: unreadEvents.length,
     unreadEventItems: unreadEvents.slice(0, 8),
+    scheduleCount: scheduleItems.length,
+    scheduleOverdue: scheduleItems.filter(item => item.overdue).length,
+    scheduleItems,
     myActions: myActionJobs.length,
     myActionItems,
     byStage,

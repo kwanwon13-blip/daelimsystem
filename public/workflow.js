@@ -6,7 +6,7 @@ function workflowApp() {
     stages: [],
     statuses: {},
     checkStatuses: {},
-    summary: { active: 0, overdue: 0, blocked: 0, unreadFiles: 0, unreadEvents: 0, myActions: 0, byStage: {} },
+    summary: { active: 0, overdue: 0, blocked: 0, unreadFiles: 0, unreadEvents: 0, scheduleCount: 0, myActions: 0, byStage: {} },
     selectedId: '',
     detail: null,
     query: '',
@@ -172,6 +172,10 @@ function workflowApp() {
 
     myActionItems() {
       return this.summary?.myActionItems || [];
+    },
+
+    scheduleItems() {
+      return this.summary?.scheduleItems || [];
     },
 
     deliverySummary() {
@@ -370,6 +374,15 @@ function workflowApp() {
       this.scopeFilter = 'all';
       await this.loadJobs();
       await this.selectJob(item.id);
+    },
+
+    async openScheduleItem(item) {
+      if (!item || !item.jobId) return;
+      this.query = '';
+      this.statusFilter = 'all';
+      this.scopeFilter = 'all';
+      await this.loadJobs();
+      await this.selectJob(item.jobId);
     },
 
     async refreshDetail(force) {
