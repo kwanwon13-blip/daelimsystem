@@ -6,6 +6,7 @@ function workflowApp() {
     stages: [],
     statuses: {},
     checkStatuses: {},
+    summary: { active: 0, overdue: 0, blocked: 0, unreadFiles: 0, myActions: 0, byStage: {} },
     selectedId: '',
     detail: null,
     query: '',
@@ -54,6 +55,14 @@ function workflowApp() {
       }
     },
 
+    async loadSummary() {
+      try {
+        const r = await fetch('/api/workflow/summary');
+        const d = await r.json();
+        if (r.ok && d.ok) this.summary = d.summary || this.summary;
+      } catch (_) {}
+    },
+
     async loadJobs() {
       this.loading = true;
       const qs = new URLSearchParams();
@@ -67,6 +76,7 @@ function workflowApp() {
         if (!this.selectedId && this.jobs[0]) await this.selectJob(this.jobs[0].id);
         if (!this.selectedId && !this.jobs[0]) this.detail = null;
         if (this.selectedId) await this.refreshDetail(false);
+        await this.loadSummary();
       } finally {
         this.loading = false;
       }
@@ -91,6 +101,10 @@ function workflowApp() {
 
     checkLabel(status) {
       return this.checkStatuses[status] || status || '대기';
+    },
+
+    isUnreadFile(file) {
+      return !!(file && file.viewerUnread);
     },
 
     async createJob() {
@@ -224,6 +238,7 @@ function workflowApp() {
       const d = await r.json();
       if (!r.ok || !d.ok) return alert(d.error || '확인 처리 실패');
       await this.refreshDetail(false);
+      await this.loadSummary();
     },
 
     fileUrl(file) {

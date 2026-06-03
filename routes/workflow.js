@@ -151,14 +151,77 @@ function addEvent(data, req, jobId, type, message, meta = {}) {
   return event;
 }
 
-function decorateJob(data, job) {
+function isUnreadForUser(file, userId) {
+  if (!file || !userId) return false;
+  if (String(file.uploadedBy || '') === String(userId)) return false;
+  const readBy = Array.isArray(file.readBy) ? file.readBy : [];
+  return !readBy.some(r => String(r.userId || '') === String(userId));
+}
+
+function isOverdueJob(job) {
+  if (!job || job.status === 'done' || job.status === 'cancelled' || !job.dueDate) return false;
+  const today = new Date().toISOString().slice(0, 10);
+  return String(job.dueDate) < today;
+}
+
+function blockedStageCount(job) {
+  return Object.values(job.stageChecks || {}).filter(c => c && c.status === 'blocked').length;
+}
+
+function decorateJob(data, job, viewerUser = null) {
   const files = data.files.filter(f => f.jobId === job.id);
   const events = data.events.filter(e => e.jobId === job.id);
+  const viewerId = viewerUser?.userId || '';
   return {
     ...job,
     fileCount: files.length,
+    unreadFileCount: files.filter(f => isUnreadForUser(f, viewerId)).length,
+    blockedStageCount: blockedStageCount(job),
+    overdue: isOverdueJob(job),
     latestFileAt: files.reduce((max, f) => !max || f.createdAt > max ? f.createdAt : max, ''),
     latestEvent: events[events.length - 1] || null,
+  };
+}
+
+function buildSummary(data, req) {
+  const userId = req.user?.userId || '';
+  const userLabel = userName(req).toLowerCase();
+  const activeJobs = data.jobs.filter(j => !['done', 'cancelled'].includes(j.status));
+  const byStage = {};
+  for (const stage of STAGES) byStage[stage.id] = 0;
+  for (const job of activeJobs) {
+    const stageId = STAGES.some(s => s.id === job.currentStage) ? job.currentStage : 'design';
+    byStage[stageId] = (byStage[stageId] || 0) + 1;
+  }
+  const unreadFiles = data.files
+    .filter(f => isUnreadForUser(f, userId))
+    .map(file => {
+      const job = data.jobs.find(j => j.id === file.jobId);
+      return {
+        id: file.id,
+        jobId: file.jobId,
+        jobTitle: job?.title || '',
+        stageId: file.stageId,
+        originalName: file.originalName,
+        uploadedByName: file.uploadedByName,
+        createdAt: file.createdAt,
+      };
+    })
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  const myActionJobs = activeJobs.filter(job => {
+    const stageCheck = job.stageChecks?.[job.currentStage] || {};
+    const assignee = String(stageCheck.assignee || '').toLowerCase();
+    return assignee && userLabel && assignee.includes(userLabel);
+  });
+  return {
+    active: activeJobs.length,
+    done: data.jobs.filter(j => j.status === 'done').length,
+    overdue: activeJobs.filter(isOverdueJob).length,
+    blocked: activeJobs.reduce((sum, job) => sum + blockedStageCount(job), 0),
+    unreadFiles: unreadFiles.length,
+    unreadFileItems: unreadFiles.slice(0, 8),
+    myActions: myActionJobs.length,
+    byStage,
   };
 }
 
@@ -189,6 +252,11 @@ router.get('/meta', (req, res) => {
   res.json({ ok: true, stages: STAGES, statuses: STATUS_LABELS, checkStatuses: CHECK_STATUS_LABELS });
 });
 
+router.get('/summary', (req, res) => {
+  const data = loadStore();
+  res.json({ ok: true, summary: buildSummary(data, req) });
+});
+
 router.get('/jobs', (req, res) => {
   const data = loadStore();
   const q = safeText(req.query.q, 100).toLowerCase();
@@ -207,7 +275,7 @@ router.get('/jobs', (req, res) => {
     return String(a.dueDate || '9999-99-99').localeCompare(String(b.dueDate || '9999-99-99'))
       || String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
   });
-  res.json({ ok: true, jobs: jobs.map(job => decorateJob(data, job)) });
+  res.json({ ok: true, jobs: jobs.map(job => decorateJob(data, job, req.user)) });
 });
 
 router.get('/jobs/:id', (req, res) => {
@@ -216,8 +284,10 @@ router.get('/jobs/:id', (req, res) => {
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
   res.json({
     ok: true,
-    job: decorateJob(data, job),
-    files: data.files.filter(f => f.jobId === job.id),
+    job: decorateJob(data, job, req.user),
+    files: data.files
+      .filter(f => f.jobId === job.id)
+      .map(f => ({ ...f, viewerUnread: isUnreadForUser(f, req.user?.userId || '') })),
     events: data.events.filter(e => e.jobId === job.id),
   });
 });
@@ -239,7 +309,7 @@ router.post('/jobs', (req, res) => {
   data.jobs.push(job);
   addEvent(data, req, job.id, 'create', '작업 생성', { title: job.title });
   saveStore(data);
-  res.json({ ok: true, job: decorateJob(data, job) });
+  res.json({ ok: true, job: decorateJob(data, job, req.user) });
 });
 
 router.put('/jobs/:id', (req, res) => {
@@ -261,7 +331,7 @@ router.put('/jobs/:id', (req, res) => {
   }
   addEvent(data, req, job.id, 'update', '작업 정보 수정');
   saveStore(data);
-  res.json({ ok: true, job: decorateJob(data, job) });
+  res.json({ ok: true, job: decorateJob(data, job, req.user) });
 });
 
 router.post('/jobs/:id/stages/:stageId', (req, res) => {
@@ -284,7 +354,7 @@ router.post('/jobs/:id/stages/:stageId', (req, res) => {
   job.updatedAt = nowIso();
   addEvent(data, req, job.id, 'stage', `${stage.label} ${CHECK_STATUS_LABELS[nextStatus] || nextStatus}`, { stageId: stage.id, status: nextStatus });
   saveStore(data);
-  res.json({ ok: true, job: decorateJob(data, job) });
+  res.json({ ok: true, job: decorateJob(data, job, req.user) });
 });
 
 router.post('/jobs/:id/events', (req, res) => {
@@ -303,7 +373,12 @@ router.get('/jobs/:id/files', (req, res) => {
   const data = loadStore();
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
-  res.json({ ok: true, files: data.files.filter(f => f.jobId === job.id) });
+  res.json({
+    ok: true,
+    files: data.files
+      .filter(f => f.jobId === job.id)
+      .map(f => ({ ...f, viewerUnread: isUnreadForUser(f, req.user?.userId || '') })),
+  });
 });
 
 router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
@@ -340,7 +415,11 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
     addEvent(data, req, job.id, 'file', `파일 ${uploaded.length}개 업로드`, { stageId, fileIds: uploaded.map(f => f.id) });
   }
   saveStore(data);
-  res.json({ ok: true, files: uploaded, job: decorateJob(data, job) });
+  res.json({
+    ok: true,
+    files: uploaded.map(f => ({ ...f, viewerUnread: false })),
+    job: decorateJob(data, job, req.user),
+  });
 });
 
 router.post('/jobs/:id/files/:fileId/read', (req, res) => {
