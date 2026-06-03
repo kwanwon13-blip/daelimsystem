@@ -8,6 +8,7 @@ function workflowApp() {
     checkStatuses: {},
     summary: { active: 0, overdue: 0, blocked: 0, unreadFiles: 0, unreadEvents: 0, scheduleCount: 0, myActions: 0, byStage: {} },
     selectedId: '',
+    selectedWorkStageId: '',
     detail: null,
     query: '',
     statusFilter: 'active',
@@ -25,6 +26,7 @@ function workflowApp() {
     uploadDesignDueDate: '',
     uploadUrgent: false,
     uploadDragOver: false,
+    uploadOpen: false,
     fileStageFilter: 'all',
     fileKindFilter: 'all',
     filePreview: { open: false, file: null },
@@ -115,7 +117,12 @@ function workflowApp() {
     },
 
     jobsForStage(stageId) {
-      return this.jobs.filter(j => (j.currentStage || 'design') === stageId);
+      return this.jobs.filter(j => {
+        if (Array.isArray(j.activeStageIds) && j.activeStageIds.length) return j.activeStageIds.includes(stageId);
+        const check = this.stageCheck(j, stageId);
+        if (check.status === 'ready' || check.status === 'blocked') return true;
+        return (j.currentStage || 'design') === stageId && check.status !== 'done';
+      });
     },
 
     stageCheck(job, stageId) {
@@ -234,6 +241,16 @@ function workflowApp() {
       if (user) return `${user.name} (${user.userId})`;
       if (!this.detail || !this.detail.job) return '';
       const stageId = this.uploadStageId || this.detail.job.currentStage || 'design';
+      if (stageId === 'design' && ['proof', 'drawing', 'photo'].includes(this.uploadKind || 'attachment')) {
+        return ['management', 'factory']
+          .map(id => {
+            const stage = this.stages.find(s => s.id === id);
+            const check = this.detail.job.stageChecks?.[id] || {};
+            return check.assignee || stage?.label || id;
+          })
+          .filter(Boolean)
+          .join(', ');
+      }
       const check = this.detail.job.stageChecks?.[stageId] || {};
       return check.assignee || '';
     },
@@ -291,6 +308,11 @@ function workflowApp() {
 
     currentStage() {
       if (!this.detail || !this.detail.job) return null;
+      const preferredId = this.selectedWorkStageId;
+      const preferredCheck = preferredId ? this.detail.job.stageChecks?.[preferredId] : null;
+      if (preferredId && preferredCheck && preferredCheck.status !== 'done') {
+        return this.stages.find(s => s.id === preferredId) || null;
+      }
       const id = this.detail.job.currentStage || 'design';
       return this.stages.find(s => s.id === id) || this.stages[0] || null;
     },
@@ -298,6 +320,13 @@ function workflowApp() {
     nextStage() {
       const current = this.currentStage();
       if (!current) return null;
+      if (current.id === 'design') return { id: 'parallel', label: '관리팀/공장' };
+      if (current.id === 'management' || current.id === 'factory') {
+        const otherId = current.id === 'management' ? 'factory' : 'management';
+        const otherCheck = this.detail?.job?.stageChecks?.[otherId] || {};
+        if (otherCheck.status !== 'done') return null;
+        return this.stages.find(s => s.id === 'delivery') || null;
+      }
       const idx = this.stages.findIndex(s => s.id === current.id);
       return idx >= 0 ? this.stages[idx + 1] || null : null;
     },
@@ -306,6 +335,13 @@ function workflowApp() {
       const current = this.currentStage();
       const next = this.nextStage();
       if (!current) return '전달';
+      if (current.id === 'design') return `${current.label} 완료 · 관리팀/공장 전달`;
+      if (current.id === 'management' || current.id === 'factory') {
+        const otherId = current.id === 'management' ? 'factory' : 'management';
+        const otherCheck = this.detail?.job?.stageChecks?.[otherId] || {};
+        if (otherCheck.status !== 'done') return `${current.label} 완료`;
+        return `${current.label} 완료 · 납품팀 전달`;
+      }
       if (!next) return '작업 완료';
       return `${current.label} 완료 · ${next.label} 전달`;
     },
@@ -370,8 +406,9 @@ function workflowApp() {
       } catch (_) {}
     },
 
-    async selectJob(id) {
+    async selectJob(id, stageId = '') {
       this.selectedId = id;
+      this.selectedWorkStageId = stageId || '';
       await this.refreshDetail(true);
     },
 
@@ -453,12 +490,13 @@ function workflowApp() {
 
     async handoffJob() {
       if (!this.detail || !this.detail.job) return;
+      const stage = this.currentStage();
       this.saving = true;
       try {
         const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/handoff', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: this.handoffText }),
+          body: JSON.stringify({ message: this.handoffText, stageId: stage?.id || '' }),
         });
         const d = await r.json();
         if (!r.ok || !d.ok) throw new Error(d.error || '전달 실패');

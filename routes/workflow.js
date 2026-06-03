@@ -25,6 +25,8 @@ const STAGE_CHECKLISTS = {
   delivery: ['납품 일정 확인', '납품 완료 확인'],
 };
 
+const DESIGN_PARALLEL_STAGE_IDS = ['management', 'factory'];
+
 const STATUS_LABELS = {
   active: '진행',
   hold: '보류',
@@ -219,6 +221,80 @@ function inferCurrentStage(stageChecks, fallback = 'design') {
   return fallback || 'delivery';
 }
 
+function setStageReady(job, stageId, at = nowIso()) {
+  const check = job.stageChecks?.[stageId];
+  if (!check) return false;
+  if (check.status === 'pending') {
+    check.status = 'ready';
+    check.updatedAt = at;
+    return true;
+  }
+  return false;
+}
+
+function syncWorkflowStageFlow(job, at = nowIso()) {
+  if (!job) return { parallelActivated: false, deliveryActivated: false };
+  job.stageChecks = newStageChecks(job.stageChecks || {});
+  let parallelActivated = false;
+  let deliveryActivated = false;
+
+  if (job.stageChecks.design?.status === 'done') {
+    for (const stageId of DESIGN_PARALLEL_STAGE_IDS) {
+      parallelActivated = setStageReady(job, stageId, at) || parallelActivated;
+    }
+  }
+
+  const managementDone = job.stageChecks.management?.status === 'done';
+  const factoryDone = job.stageChecks.factory?.status === 'done';
+  if (managementDone && factoryDone) {
+    deliveryActivated = setStageReady(job, 'delivery', at) || deliveryActivated;
+  }
+
+  job.currentStage = inferCurrentStage(job.stageChecks, job.currentStage || 'design');
+  return { parallelActivated, deliveryActivated };
+}
+
+function activeStageIds(job) {
+  if (!job || !job.stageChecks) return ['design'];
+  const ids = [];
+  for (const stage of STAGES) {
+    const check = job.stageChecks[stage.id] || {};
+    if (check.status === 'done') continue;
+    if (check.status === 'ready' || check.status === 'blocked' || stage.id === job.currentStage) {
+      ids.push(stage.id);
+    }
+  }
+  return ids.length ? ids : [job.currentStage || 'design'];
+}
+
+function uniqueTexts(values) {
+  return Array.from(new Set(values.map(v => safeText(v, 120)).filter(Boolean)));
+}
+
+function stageTargetLabels(job, stageIds) {
+  return uniqueTexts(stageIds.map(stageId => {
+    const stage = STAGES.find(s => s.id === stageId);
+    return job.stageChecks?.[stageId]?.assignee || stage?.label || stageId;
+  }));
+}
+
+function defaultUploadTargetLabels(job, stageId, kind) {
+  if (stageId === 'design' && ['proof', 'drawing', 'photo'].includes(kind || '')) {
+    return stageTargetLabels(job, DESIGN_PARALLEL_STAGE_IDS);
+  }
+  return stageTargetLabels(job, [stageId]);
+}
+
+function fileTargetLabels(file) {
+  const labels = Array.isArray(file?.targetLabels) ? file.targetLabels : [];
+  if (labels.length) return uniqueTexts(labels);
+  return uniqueTexts([file?.targetLabel, file?.targetUserName, file?.targetUserId]);
+}
+
+function splitTargetLabels(label) {
+  return uniqueTexts(String(label || '').split(/[,\u00b7/]+/));
+}
+
 function stageIndex(stageId) {
   const idx = STAGES.findIndex(s => s.id === stageId);
   return idx >= 0 ? idx : 0;
@@ -353,12 +429,15 @@ function isTargetViewer(file, viewerUser) {
   const targetUserId = String(file?.targetUserId || '').trim().toLowerCase();
   const targetUserName = String(file?.targetUserName || '').trim().toLowerCase();
   const targetLabel = String(file?.targetLabel || '').trim().toLowerCase();
-  const hasTarget = !!(targetUserId || targetUserName || targetLabel);
+  const targetLabels = fileTargetLabels(file).map(v => String(v || '').trim().toLowerCase());
+  const hasTarget = !!(targetUserId || targetUserName || targetLabel || targetLabels.length);
   if (!hasTarget) return true;
   if (targetUserId && viewerId && targetUserId === viewerId) return true;
   if (targetUserName && viewerName && targetUserName === viewerName) return true;
   if (targetLabel && viewerName && targetLabel.includes(viewerName)) return true;
   if (targetLabel && viewerId && targetLabel.includes(viewerId)) return true;
+  if (targetLabels.some(label => viewerName && label.includes(viewerName))) return true;
+  if (targetLabels.some(label => viewerId && label.includes(viewerId))) return true;
   return false;
 }
 
@@ -372,6 +451,7 @@ function isUnreadForViewer(file, viewerUser) {
 }
 
 function hasFileTarget(file) {
+  if (fileTargetLabels(file).length) return true;
   return !!(
     String(file?.targetUserId || '').trim()
     || String(file?.targetUserName || '').trim()
@@ -379,9 +459,23 @@ function hasFileTarget(file) {
   );
 }
 
+function readMatchesTarget(readBy, target) {
+  const needle = String(target || '').trim().toLowerCase();
+  if (!needle) return false;
+  return (Array.isArray(readBy) ? readBy : []).some(r => {
+    const userId = String(r.userId || '').trim().toLowerCase();
+    const name = String(r.name || '').trim().toLowerCase();
+    return (userId && needle.includes(userId)) || (name && needle.includes(name));
+  });
+}
+
 function hasTargetRead(file) {
   const readBy = Array.isArray(file?.readBy) ? file.readBy : [];
   if (!hasFileTarget(file) || !readBy.length) return false;
+  const targetLabels = fileTargetLabels(file);
+  if (targetLabels.length > 1) {
+    return targetLabels.every(label => readMatchesTarget(readBy, label));
+  }
   const targetUserId = String(file.targetUserId || '').trim().toLowerCase();
   const targetUserName = String(file.targetUserName || '').trim().toLowerCase();
   const targetLabel = String(file.targetLabel || '').trim().toLowerCase();
@@ -414,7 +508,8 @@ function isReviewableFile(file) {
 }
 
 function fileTargetDisplay(file) {
-  return String(file?.targetLabel || file?.targetUserName || file?.targetUserId || '').trim();
+  const labels = fileTargetLabels(file);
+  return labels.length ? labels.join(', ') : String(file?.targetLabel || file?.targetUserName || file?.targetUserId || '').trim();
 }
 
 function buildDeliverySummary(files, viewerUser) {
@@ -644,6 +739,7 @@ function decorateJob(data, job, viewerUser = null) {
       scheduleNegotiation: primaryVisualFile.scheduleNegotiation || 'pending',
     } : null,
     unreadFileCount: files.filter(f => isUnreadForViewer(f, viewerUser)).length,
+    activeStageIds: activeStageIds(job),
     pendingStageCount: pendingStageCount(job),
     pendingChecklistCount: pendingChecklistCount(job),
     pendingReviewCount: pendingReviewCount(data, job),
@@ -664,8 +760,9 @@ function buildSummary(data, req) {
   const byStage = {};
   for (const stage of STAGES) byStage[stage.id] = 0;
   for (const job of activeJobs) {
-    const stageId = STAGES.some(s => s.id === job.currentStage) ? job.currentStage : 'design';
-    byStage[stageId] = (byStage[stageId] || 0) + 1;
+    for (const stageId of activeStageIds(job)) {
+      byStage[stageId] = (byStage[stageId] || 0) + 1;
+    }
   }
   const unreadFiles = data.files
     .filter(f => isUnreadForViewer(f, req.user))
@@ -877,6 +974,8 @@ router.post('/jobs', (req, res) => {
     createdAt: nowIso(),
     updatedAt: nowIso(),
   };
+  job.stageChecks.design.status = 'ready';
+  job.stageChecks.design.updatedAt = job.updatedAt;
   data.jobs.push(job);
   addEvent(data, req, job.id, 'create', '작업 생성', { title: job.title });
   saveStore(data);
@@ -908,7 +1007,7 @@ router.put('/jobs/:id', (req, res) => {
     }
     job.currentStage = 'delivery';
   } else {
-    job.currentStage = inferCurrentStage(job.stageChecks, job.currentStage);
+    syncWorkflowStageFlow(job);
   }
   addEvent(data, req, job.id, 'update', '작업 정보 수정');
   saveStore(data);
@@ -931,7 +1030,7 @@ router.post('/jobs/:id/stages/:stageId', (req, res) => {
   check.updatedAt = nowIso();
   if (nextStatus === 'done') check.completedAt = check.completedAt || nowIso();
   if (nextStatus !== 'done') check.completedAt = '';
-  job.currentStage = inferCurrentStage(job.stageChecks, job.currentStage);
+  syncWorkflowStageFlow(job);
   const allStagesDone = Object.values(job.stageChecks).every(c => c.status === 'done');
   const blockers = completionBlockers(data, job);
   job.status = allStagesDone && blockers.length === 0 ? 'done' : (job.status === 'done' ? 'active' : job.status);
@@ -950,7 +1049,10 @@ router.post('/jobs/:id/handoff', (req, res) => {
   }
 
   job.stageChecks = newStageChecks(job.stageChecks || {});
-  const currentId = STAGES.some(s => s.id === job.currentStage)
+  const requestedStageId = safeText(req.body.stageId, 80);
+  const currentId = STAGES.some(s => s.id === requestedStageId)
+    ? requestedStageId
+    : STAGES.some(s => s.id === job.currentStage)
     ? job.currentStage
     : inferCurrentStage(job.stageChecks, 'design');
   const currentIdx = stageIndex(currentId);
@@ -965,19 +1067,44 @@ router.post('/jobs/:id/handoff', (req, res) => {
   currentCheck.updatedAt = at;
   if (message) currentCheck.note = currentCheck.note ? `${currentCheck.note}\n${message}` : message;
 
-  if (next) {
+  const flow = syncWorkflowStageFlow(job, at);
+  if (job.status === 'hold') job.status = 'active';
+
+  if (current.id === 'design') {
+    const targetLabels = stageTargetLabels(job, DESIGN_PARALLEL_STAGE_IDS);
+    addEvent(data, req, job.id, 'handoff', `${current.label} 완료 · 관리팀/공장 동시 전달${message ? ' - ' + message : ''}`, {
+      fromStageId: current.id,
+      toStageId: DESIGN_PARALLEL_STAGE_IDS.join(','),
+      eventTargetLabel: targetLabels.join(', '),
+    });
+  } else if (current.id === 'management' || current.id === 'factory') {
+    const otherStageId = current.id === 'management' ? 'factory' : 'management';
+    const other = STAGES.find(s => s.id === otherStageId);
+    if (flow.deliveryActivated) {
+      const deliveryCheck = job.stageChecks.delivery || {};
+      addEvent(data, req, job.id, 'handoff', `${current.label} 완료 · 납품팀 전달${message ? ' - ' + message : ''}`, {
+        fromStageId: current.id,
+        toStageId: 'delivery',
+        eventTargetLabel: deliveryCheck.assignee || '',
+      });
+    } else {
+      addEvent(data, req, job.id, 'handoff', `${current.label} 완료 · ${other?.label || otherStageId} 진행 대기${message ? ' - ' + message : ''}`, {
+        fromStageId: current.id,
+        toStageId: otherStageId,
+        eventTargetLabel: job.stageChecks[otherStageId]?.assignee || '',
+      });
+    }
+  } else if (next) {
     const nextCheck = job.stageChecks[next.id];
     if (nextCheck.status === 'pending') nextCheck.status = 'ready';
     nextCheck.updatedAt = at;
-    job.currentStage = next.id;
-    if (job.status === 'hold') job.status = 'active';
+    syncWorkflowStageFlow(job, at);
     addEvent(data, req, job.id, 'handoff', `${current.label} 완료 · ${next.label} 전달${message ? ' - ' + message : ''}`, {
       fromStageId: current.id,
       toStageId: next.id,
       eventTargetLabel: nextCheck.assignee || '',
     });
   } else {
-    job.currentStage = current.id;
     const blockers = completionBlockers(data, job);
     if (blockers.length) {
       return res.status(400).json({
@@ -1050,7 +1177,15 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
   const stageAssignee = safeText(job.stageChecks?.[stageId]?.assignee, 80);
   const targetUserId = safeText(req.body.targetUserId, 80);
   const targetUserName = safeText(req.body.targetUserName, 80);
-  const targetLabel = safeText(req.body.targetLabel, 120) || targetUserName || stageAssignee;
+  const requestedTargetLabel = safeText(req.body.targetLabel, 120);
+  const autoTargetLabels = defaultUploadTargetLabels(job, stageId, kind);
+  const isDesignAsset = stageId === 'design' && ['proof', 'drawing', 'photo'].includes(kind);
+  const targetLabels = targetUserId || targetUserName
+    ? uniqueTexts([requestedTargetLabel || targetUserName || targetUserId])
+    : isDesignAsset
+      ? (splitTargetLabels(requestedTargetLabel).length > 1 ? splitTargetLabels(requestedTargetLabel) : autoTargetLabels)
+      : (requestedTargetLabel ? uniqueTexts([requestedTargetLabel]) : autoTargetLabels);
+  const targetLabel = targetLabels.join(', ') || targetUserName || stageAssignee;
   const uploaded = [];
   for (const file of req.files || []) {
     const originalName = uploadName(file.originalname || file.filename);
@@ -1077,6 +1212,7 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
       targetUserId,
       targetUserName,
       targetLabel,
+      targetLabels,
       reviewStatus: 'pending',
       reviewNote: '',
       reviewedBy: '',
@@ -1169,6 +1305,7 @@ router.post('/jobs/:id/files/:fileId/schedule', (req, res) => {
   const urgentChanged = urgentBefore !== !!file.urgent;
   const negotiationChanged = negotiationBefore !== file.scheduleNegotiation;
   const designAssignee = safeText(job.stageChecks?.design?.assignee, 80);
+  const managementAssignee = safeText(job.stageChecks?.management?.assignee, 80);
   const factoryAssignee = safeText(job.stageChecks?.factory?.assignee, 80);
   const messageParts = [];
   if (urgentChanged) messageParts.push(file.urgent ? '긴급 요청' : '긴급 해제');
@@ -1178,7 +1315,7 @@ router.post('/jobs/:id/files/:fileId/schedule', (req, res) => {
     fileId: file.id,
     designDueDate: file.designDueDate,
     factoryAvailableDate: file.factoryAvailableDate,
-    eventTargetLabel: factoryChanged ? designAssignee : factoryAssignee,
+    eventTargetLabel: factoryChanged ? uniqueTexts([designAssignee, managementAssignee]).join(', ') : factoryAssignee,
   });
   saveStore(data);
   res.json({ ok: true, file: decorateWorkflowFile(file, req.user), job: decorateJob(data, job, req.user) });

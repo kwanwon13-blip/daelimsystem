@@ -12,13 +12,15 @@
   .wf-btn.primary{background:#2563eb;color:#fff;border-color:#2563eb;}
   .wf-btn.ghost{background:#f8fafc;}
   .wf-btn:disabled{opacity:.5;cursor:not-allowed;}
-  .wf-summary{display:grid;grid-template-columns:repeat(8,minmax(90px,1fr));gap:8px;padding:10px 12px;border-bottom:1px solid #e5e9f1;background:#fff;}
-  .wf-metric{border:1px solid #e1e6ef;border-radius:8px;padding:8px 10px;background:#fbfcfe;min-width:0;}
-  .wf-metric strong{display:block;font-size:18px;line-height:1.1;color:#111827;}
-  .wf-metric span{display:block;font-size:11px;color:#64748b;margin-top:3px;}
+  .wf-summary{display:flex;align-items:center;gap:10px;min-height:34px;padding:6px 12px;border-bottom:1px solid #e5e9f1;background:#fff;overflow:auto;}
+  .wf-metric{border-right:1px solid #e5e9f1;padding:0 10px 0 0;background:transparent;min-width:max-content;display:inline-flex;align-items:center;gap:4px;}
+  .wf-metric:nth-child(6),.wf-metric:nth-child(8){display:none;}
+  .wf-metric:last-child{border-right:none;}
+  .wf-metric strong{display:inline;font-size:13px;line-height:1;color:#111827;}
+  .wf-metric span{display:inline;font-size:11px;color:#64748b;margin:0;}
   .wf-metric.warn strong{color:#b91c1c;}
   .wf-metric.action strong{color:#1d4ed8;}
-  .wf-inbox{display:flex;gap:8px;overflow:auto;padding:9px 12px;border-bottom:1px solid #e5e9f1;background:#f8fbff;}
+  .wf-inbox{display:none!important;gap:8px;overflow:auto;padding:9px 12px;border-bottom:1px solid #e5e9f1;background:#f8fbff;}
   .wf-inbox-item{min-width:220px;max-width:320px;border:1px solid #bfdbfe;border-radius:8px;background:#fff;padding:8px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center;}
   .wf-inbox-title{font-size:12px;font-weight:800;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .wf-inbox-meta{font-size:10.5px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;}
@@ -76,6 +78,7 @@
   .wf-checkitem.done{background:#dcfce7;color:#15803d;border-color:#bbf7d0;}
   .wf-handoff{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:8px;border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;}
   .wf-delivery{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:8px;border:1px solid #bfdbfe;border-radius:7px;background:#eff6ff;}
+  .wf-upload-panel{border:1px solid #e1e6ef;border-radius:8px;background:#fbfcfe;padding:8px;display:flex;flex-direction:column;gap:8px;}
   .wf-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;}
   .wf-gallery.proof-strip{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;scroll-snap-type:x proximity;}
   .wf-gallery.proof-strip .wf-proof-card{min-width:180px;max-width:220px;scroll-snap-align:start;}
@@ -276,7 +279,7 @@
             </div>
             <div class="wf-col-list">
               <template x-for="job in jobsForStage(stage.id)" :key="job.id">
-                <button class="wf-card text-left" :class="selectedId===job.id?'active':''" @click="selectJob(job.id)">
+                <button class="wf-card text-left" :class="selectedId===job.id && (!selectedWorkStageId || selectedWorkStageId===stage.id)?'active':''" @click="selectJob(job.id, stage.id)">
                   <div class="wf-card-visual" x-show="job.primaryVisualFile">
                     <img :src="job.primaryVisualFile ? job.primaryVisualFile.previewUrl : ''" :alt="job.primaryVisualFile ? job.primaryVisualFile.originalName : ''">
                     <span class="wf-card-visual-urgent" x-show="job.primaryVisualFile && job.primaryVisualFile.urgent">긴급</span>
@@ -402,51 +405,58 @@
             </section>
 
             <section class="wf-section">
-              <div class="wf-section-title"><span class="material-symbols-outlined" style="font-size:16px;">photo_library</span>시안 보드</div>
+              <div class="wf-section-title" style="justify-content:space-between;">
+                <span style="display:flex;align-items:center;gap:6px;">
+                  <span class="material-symbols-outlined" style="font-size:16px;">photo_library</span>시안 보드
+                </span>
+                <button class="wf-btn ghost" style="height:26px;" @click="uploadOpen=!uploadOpen" x-text="uploadOpen ? '닫기' : '시안 올리기'"></button>
+              </div>
               <div class="wf-section-body">
-                <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;">
-                  <select class="wf-select" x-model="uploadStageId">
-                    <template x-for="stage in stages" :key="stage.id">
-                      <option :value="stage.id" x-text="stage.label"></option>
-                    </template>
-                  </select>
-                  <select class="wf-select" x-model="uploadKind">
-                    <option value="proof">시안</option>
-                    <option value="drawing">도면</option>
-                    <option value="photo">사진</option>
-                    <option value="attachment">첨부</option>
-                  </select>
-                  <select class="wf-select" x-model="uploadTargetUserId">
-                    <option value="">단계 담당</option>
-                    <template x-for="u in workflowUsers" :key="u.userId">
-                      <option :value="u.userId" x-text="u.name"></option>
-                    </template>
-                  </select>
-                  <input class="wf-input" type="date" x-model="uploadDesignDueDate" title="디자인 희망 완료일">
-                </div>
-                <input class="wf-input" x-model="uploadNote" placeholder="파일 메모">
-                <label style="height:28px;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:#b91c1c;">
-                  <input type="checkbox" x-model="uploadUrgent"> 긴급 시안
-                </label>
-                <label class="wf-dropzone" :class="uploadDragOver ? 'drag' : ''"
-                  @dragover.prevent="uploadDragOver=true"
-                  @dragleave.prevent="uploadDragOver=false"
-                  @drop="uploadDroppedFiles($event)">
-                  <div>
-                    <strong>시안/JPG/AI 여러 개 드래그</strong>
-                    <span>회사/프로젝트는 현재 작업의 업체/현장 기준으로 자동 분류</span>
+                <div class="wf-upload-panel" x-show="uploadOpen" x-transition>
+                  <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;">
+                    <select class="wf-select" x-model="uploadStageId">
+                      <template x-for="stage in stages" :key="stage.id">
+                        <option :value="stage.id" x-text="stage.label"></option>
+                      </template>
+                    </select>
+                    <select class="wf-select" x-model="uploadKind">
+                      <option value="proof">시안</option>
+                      <option value="drawing">도면</option>
+                      <option value="photo">사진</option>
+                      <option value="attachment">첨부</option>
+                    </select>
+                    <select class="wf-select" x-model="uploadTargetUserId">
+                      <option value="">단계 담당</option>
+                      <template x-for="u in workflowUsers" :key="u.userId">
+                        <option :value="u.userId" x-text="u.name"></option>
+                      </template>
+                    </select>
+                    <input class="wf-input" type="date" x-model="uploadDesignDueDate" title="디자인 희망 완료일">
                   </div>
-                  <span class="wf-btn">파일 선택</span>
-                  <input type="file" multiple style="display:none;" @change="uploadFiles($event)">
-                </label>
-                <div class="wf-delivery" x-show="deliverySummary().totalFiles">
-                  <span class="wf-chip" x-text="'파일 ' + (deliverySummary().totalFiles || 0)"></span>
-                  <span class="wf-chip unread" x-show="deliverySummary().targetPendingFiles" x-text="'수신대기 ' + deliverySummary().targetPendingFiles"></span>
-                  <span class="wf-chip ready" x-show="deliverySummary().targetReadFiles" x-text="'수신확인 ' + deliverySummary().targetReadFiles"></span>
-                  <span class="wf-chip" x-show="deliverySummary().pendingReviews" x-text="'검토대기 ' + deliverySummary().pendingReviews"></span>
-                  <span class="wf-chip approved" x-show="deliverySummary().approvedReviews" x-text="'승인 ' + deliverySummary().approvedReviews"></span>
-                  <span class="wf-chip change_requested" x-show="deliverySummary().changeRequests" x-text="'수정요청 ' + deliverySummary().changeRequests"></span>
-                  <span class="wf-muted" x-show="deliveryPendingTargets()" x-text="'미확인 대상: ' + deliveryPendingTargets()"></span>
+                  <input class="wf-input" x-model="uploadNote" placeholder="파일 메모">
+                  <label style="height:28px;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:#b91c1c;">
+                    <input type="checkbox" x-model="uploadUrgent"> 긴급 시안
+                  </label>
+                  <label class="wf-dropzone" :class="uploadDragOver ? 'drag' : ''"
+                    @dragover.prevent="uploadDragOver=true"
+                    @dragleave.prevent="uploadDragOver=false"
+                    @drop="uploadDroppedFiles($event)">
+                    <div>
+                      <strong>시안/JPG/AI 여러 개 드래그</strong>
+                      <span>회사/프로젝트는 현재 작업의 업체/현장 기준으로 자동 분류</span>
+                    </div>
+                    <span class="wf-btn">파일 선택</span>
+                    <input type="file" multiple style="display:none;" @change="uploadFiles($event)">
+                  </label>
+                  <div class="wf-delivery" x-show="deliverySummary().totalFiles">
+                    <span class="wf-chip" x-text="'파일 ' + (deliverySummary().totalFiles || 0)"></span>
+                    <span class="wf-chip unread" x-show="deliverySummary().targetPendingFiles" x-text="'수신대기 ' + deliverySummary().targetPendingFiles"></span>
+                    <span class="wf-chip ready" x-show="deliverySummary().targetReadFiles" x-text="'수신확인 ' + deliverySummary().targetReadFiles"></span>
+                    <span class="wf-chip" x-show="deliverySummary().pendingReviews" x-text="'검토대기 ' + deliverySummary().pendingReviews"></span>
+                    <span class="wf-chip approved" x-show="deliverySummary().approvedReviews" x-text="'승인 ' + deliverySummary().approvedReviews"></span>
+                    <span class="wf-chip change_requested" x-show="deliverySummary().changeRequests" x-text="'수정요청 ' + deliverySummary().changeRequests"></span>
+                    <span class="wf-muted" x-show="deliveryPendingTargets()" x-text="'미확인 대상: ' + deliveryPendingTargets()"></span>
+                  </div>
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr auto auto;gap:8px;align-items:center;">
                   <select class="wf-select" x-model="fileStageFilter">
@@ -496,7 +506,7 @@
                         </div>
                         <div style="display:flex;gap:5px;flex-wrap:wrap;">
                           <a class="wf-btn" :href="fileUrl(file)">원본</a>
-                          <button class="wf-btn" @click="markRead(file)">확인</button>
+                          <button class="wf-btn" x-show="isUnreadFile(file)" @click="markRead(file)">확인</button>
                           <button class="wf-btn" @click="toggleFileCollab(file)" x-text="expandedFileId === file.id ? '접기' : '협의'"></button>
                         </div>
                         <div class="wf-file-collab">
@@ -559,7 +569,7 @@
                           <span class="wf-chip ready" x-show="file.hasTarget && file.targetRead">수신확인</span>
                           <span class="wf-chip" :class="file.reviewStatus || 'pending'" x-show="canReviewFile(file)" x-text="fileReviewLabel(file.reviewStatus)"></span>
                           <a class="wf-btn" :href="fileUrl(file)">받기</a>
-                          <button class="wf-btn" @click="markRead(file)">확인</button>
+                          <button class="wf-btn" x-show="isUnreadFile(file)" @click="markRead(file)">확인</button>
                           <button class="wf-btn" @click="toggleFileCollab(file)" x-text="expandedFileId === file.id ? '접기' : '협의'"></button>
                         </div>
                         <div class="wf-file-collab">
