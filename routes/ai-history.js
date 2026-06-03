@@ -108,7 +108,7 @@ router.get('/health', (req, res) => {
     ok: true,
     ready: !!ai.ready,
     backend: apiOn ? 'api' : 'cli',
-    model: apiOn ? (process.env.ANTHROPIC_MODEL || 'claude-opus-4-7') : 'claude-cli',
+    model: apiOn ? (process.env.ANTHROPIC_MODEL || 'claude-opus-4-8') : 'claude-cli',
     apiKeyConfigured: !!process.env.ANTHROPIC_API_KEY,
     apiBillingAllowed: apiBillingAllowed(),
   });
@@ -1192,7 +1192,7 @@ router.delete('/threads/:id', (req, res) => {
 // ──────────────────────────────────────────────────────────
 
 // 기본 모델 설정 (환경변수로 오버라이드 가능)
-const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL || 'claude-opus-4-7';
+const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL || 'claude-opus-4-8';
 const DEFAULT_MAX_TOKENS = parseInt(process.env.ANTHROPIC_MAX_TOKENS || '2048', 10);
 // 회사 컨텍스트 + 스킬 자동 발견 — system prompt 에 동적 주입
 function loadCompanyContext() {
@@ -1591,7 +1591,7 @@ function runClaudeCli(prompt, options = {}) {
     const APP_ROOT = path.join(__dirname, '..');
     const child = spawn('claude', [
       '-p',
-      '--model', 'claude-opus-4-7',
+      '--model', 'claude-opus-4-8',
       '--permission-mode', 'bypassPermissions',
       '--add-dir', APP_ROOT,
     ], {

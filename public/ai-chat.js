@@ -1,10 +1,10 @@
 // ─── AI 챗 클라이언트 로직 ──────────────────────────────────
 const MODELS = [
-  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', desc: '빠르고 똑똑함 · 일반 대화 (기본)' },
-  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8', desc: '가장 강력 · 복잡한 분석 · 추론' },
+  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8', desc: '메인 · 가장 강력 · 복잡한 분석 · 추론' },
+  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', desc: '빠르고 똑똑함 · 일반 대화' },
   { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', desc: '가장 빠름 · 간단 질문' },
 ];
-const DEFAULT_MODEL_ID = MODELS[0].id; // Sonnet 4.6 기본 (클로드챗처럼 빠릿하게)
+const DEFAULT_MODEL_ID = 'claude-opus-4-8';
 // 이전 버전 모델 ID 가 저장돼 있으면 (오래된 ID) 무시하고 새 기본값으로
 const _saved = localStorage.getItem('ai_chat_model_v2');
 const SAVED_MODEL = (_saved && MODELS.find(m => m.id === _saved)) ? _saved : DEFAULT_MODEL_ID;

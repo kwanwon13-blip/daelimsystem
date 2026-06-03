@@ -665,11 +665,12 @@ const MODEL_PRICING = {
   'claude-haiku-4-5-20251001': { input: 0.80, output: 4.0, cacheRead: 0.08, cacheWrite: 1.0 },
   'claude-sonnet-4-6':         { input: 3.0,  output: 15.0, cacheRead: 0.30, cacheWrite: 3.75 },
   'claude-opus-4-6':           { input: 15.0, output: 75.0, cacheRead: 1.50, cacheWrite: 18.75 },
+  'claude-opus-4-8':           { input: 15.0, output: 75.0, cacheRead: 1.50, cacheWrite: 18.75 },
 };
 
 function calcCostUsd(model, usage) {
   if (!usage) return 0;
-  const p = MODEL_PRICING[model] || MODEL_PRICING['claude-sonnet-4-6'];
+  const p = MODEL_PRICING[model] || MODEL_PRICING['claude-opus-4-8'];
   const input = (usage.input_tokens || 0) * p.input / 1_000_000;
   const output = (usage.output_tokens || 0) * p.output / 1_000_000;
   const cacheR = (usage.cache_read_input_tokens || 0) * p.cacheRead / 1_000_000;

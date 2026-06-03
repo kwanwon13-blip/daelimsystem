@@ -789,7 +789,7 @@ router.post('/ai', async (req, res) => {
     const aiText = await new Promise((resolve, reject) => {
       const child = spawn('claude', [
         '-p',
-        '--model', 'claude-opus-4-7',
+        '--model', 'claude-opus-4-8',
         '--permission-mode', 'bypassPermissions',
       ], {
         shell: true,  // Windows claude.cmd 호환
