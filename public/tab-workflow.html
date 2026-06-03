@@ -64,6 +64,7 @@
   .wf-file.unread{border-color:#bfdbfe;background:#eff6ff;}
   .wf-file-name{font-size:12px;font-weight:700;color:#111827;word-break:break-all;}
   .wf-event{padding:8px;border-left:3px solid #cbd5e1;background:#f8fafc;border-radius:4px;font-size:12px;color:#334155;line-height:1.45;}
+  .wf-event.unread{border-left-color:#2563eb;background:#eff6ff;}
   .wf-muted{color:#6b7280;font-size:11px;}
   .wf-empty{height:100%;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:13px;}
   @media (max-width:1200px){.wf-shell{grid-template-columns:1fr;height:auto}.wf-detail{min-height:620px}.wf-columns{height:560px}.wf-summary{grid-template-columns:repeat(2,1fr)}}
@@ -168,6 +169,21 @@
               </div>
             </button>
             <button class="wf-btn" @click="markInboxRead(item)">확인</button>
+          </div>
+        </template>
+      </div>
+
+      <div class="wf-inbox" x-show="unreadEventItems().length">
+        <template x-for="item in unreadEventItems()" :key="item.id">
+          <div class="wf-inbox-item">
+            <button style="text-align:left;min-width:0;background:none;border:none;padding:0;cursor:pointer;" @click="openUnreadEvent(item)">
+              <div class="wf-inbox-title" x-text="item.message"></div>
+              <div class="wf-inbox-meta">
+                <span x-text="item.jobTitle || '-'"></span>
+                <span x-show="item.actorName"> · </span><span x-show="item.actorName" x-text="item.actorName"></span>
+              </div>
+            </button>
+            <button class="wf-btn" @click="markInboxEventRead(item)">확인</button>
           </div>
         </template>
       </div>
@@ -363,7 +379,7 @@
                         <span> · </span><span x-text="file.uploadedByName"></span>
                         <span x-show="file.targetLabel"> · 대상 </span><span x-show="file.targetLabel" x-text="file.targetLabel"></span>
                         <span x-show="isUnreadFile(file)"> · 확인 필요</span>
-                        <span x-show="file.readBy && file.readBy.length"> · 확인 </span><span x-show="file.readBy && file.readBy.length" x-text="fileReadNames(file) || file.readBy.length"></span>
+                        <span x-show="file.readBy && file.readBy.length"> · 확인 </span><span x-show="file.readBy && file.readBy.length" x-text="fileReadNames(file) || ((file.readBy || []).length)"></span>
                       </div>
                       <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px;">
                         <span class="wf-chip unread" x-show="file.hasTarget && !file.targetRead">수신대기</span>
@@ -386,17 +402,30 @@
             <section class="wf-section">
               <div class="wf-section-title"><span class="material-symbols-outlined" style="font-size:16px;">forum</span>기록</div>
               <div class="wf-section-body">
-                <div style="display:grid;grid-template-columns:1fr auto;gap:8px;">
+                <div style="display:grid;grid-template-columns:1fr 130px auto;gap:8px;">
                   <input class="wf-input" x-model="commentText" @keydown.enter="addComment()" placeholder="댓글">
+                  <select class="wf-select" x-model="commentTargetUserId">
+                    <option value="">대상 없음</option>
+                    <template x-for="u in workflowUsers" :key="u.userId">
+                      <option :value="u.userId" x-text="u.name"></option>
+                    </template>
+                  </select>
                   <button class="wf-btn" @click="addComment()">등록</button>
                 </div>
                 <template x-for="event in detail.events.slice().reverse()" :key="event.id">
-                  <div class="wf-event">
+                  <div class="wf-event" :class="isUnreadEvent(event) ? 'unread' : ''">
                     <div style="display:flex;justify-content:space-between;gap:8px;">
                       <strong x-text="event.actorName"></strong>
                       <span class="wf-muted" x-text="eventTime(event.createdAt)"></span>
                     </div>
                     <div x-text="event.message"></div>
+                    <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px;align-items:center;">
+                      <span class="wf-chip unread" x-show="event.hasTarget && !event.targetRead">메모확인대기</span>
+                      <span class="wf-chip ready" x-show="event.hasTarget && event.targetRead">메모확인</span>
+                      <span class="wf-muted" x-show="event.targetLabel">대상 </span><span class="wf-muted" x-show="event.targetLabel" x-text="event.targetLabel"></span>
+                      <span class="wf-muted" x-show="event.readBy && event.readBy.length"> · 확인 </span><span class="wf-muted" x-show="event.readBy && event.readBy.length" x-text="eventReadNames(event) || ((event.readBy || []).length)"></span>
+                      <button class="wf-btn" x-show="isUnreadEvent(event)" @click="markEventRead(event)">확인</button>
+                    </div>
                   </div>
                 </template>
               </div>

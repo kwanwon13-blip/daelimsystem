@@ -6,7 +6,7 @@ function workflowApp() {
     stages: [],
     statuses: {},
     checkStatuses: {},
-    summary: { active: 0, overdue: 0, blocked: 0, unreadFiles: 0, myActions: 0, byStage: {} },
+    summary: { active: 0, overdue: 0, blocked: 0, unreadFiles: 0, unreadEvents: 0, myActions: 0, byStage: {} },
     selectedId: '',
     detail: null,
     query: '',
@@ -16,6 +16,7 @@ function workflowApp() {
     contactOptions: [],
     workflowUsers: [],
     commentText: '',
+    commentTargetUserId: '',
     handoffText: '',
     uploadStageId: '',
     uploadKind: 'attachment',
@@ -165,6 +166,10 @@ function workflowApp() {
       return this.summary?.unreadFileItems || [];
     },
 
+    unreadEventItems() {
+      return this.summary?.unreadEventItems || [];
+    },
+
     myActionItems() {
       return this.summary?.myActionItems || [];
     },
@@ -206,6 +211,15 @@ function workflowApp() {
       return this.workflowUsers.find(u => String(u.userId) === String(this.uploadTargetUserId)) || null;
     },
 
+    selectedCommentTarget() {
+      return this.workflowUsers.find(u => String(u.userId) === String(this.commentTargetUserId)) || null;
+    },
+
+    commentTargetLabel() {
+      const user = this.selectedCommentTarget();
+      return user ? `${user.name} (${user.userId})` : '';
+    },
+
     uploadTargetLabel() {
       const user = this.selectedUploadTarget();
       if (user) return `${user.name} (${user.userId})`;
@@ -217,6 +231,14 @@ function workflowApp() {
 
     fileReadNames(file) {
       return (file?.readBy || []).map(r => r.name || r.userId).filter(Boolean).join(', ');
+    },
+
+    eventReadNames(event) {
+      return (event?.readBy || []).map(r => r.name || r.userId).filter(Boolean).join(', ');
+    },
+
+    isUnreadEvent(event) {
+      return !!(event && event.viewerUnread);
     },
 
     fileKindLabel(kind) {
@@ -422,15 +444,53 @@ function workflowApp() {
 
     async addComment() {
       if (!this.detail || !this.commentText.trim()) return;
+      const target = this.selectedCommentTarget();
       const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: this.commentText }),
+        body: JSON.stringify({
+          message: this.commentText,
+          targetUserId: target?.userId || '',
+          targetUserName: target?.name || '',
+          targetLabel: this.commentTargetLabel(),
+        }),
       });
       const d = await r.json();
       if (!r.ok || !d.ok) return alert(d.error || '댓글 저장 실패');
       this.commentText = '';
+      this.commentTargetUserId = '';
       await this.refreshDetail(false);
+      await this.loadSummary();
+    },
+
+    async openUnreadEvent(item) {
+      if (!item || !item.jobId) return;
+      this.query = '';
+      this.statusFilter = 'all';
+      this.scopeFilter = 'all';
+      await this.loadJobs();
+      await this.selectJob(item.jobId);
+    },
+
+    async markEventRead(event) {
+      if (!this.detail || !event) return;
+      await this.markEventReadById(this.detail.job.id, event.id);
+    },
+
+    async markInboxEventRead(item) {
+      if (!item || !item.jobId || !item.id) return;
+      await this.markEventReadById(item.jobId, item.id);
+    },
+
+    async markEventReadById(jobId, eventId) {
+      const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(jobId) + '/events/' + encodeURIComponent(eventId) + '/read', {
+        method: 'POST',
+      });
+      const d = await r.json();
+      if (!r.ok || !d.ok) return alert(d.error || '확인 처리 실패');
+      if (this.selectedId === jobId) await this.refreshDetail(false);
+      await this.loadJobs();
+      await this.loadSummary();
     },
 
     async uploadFiles(ev) {

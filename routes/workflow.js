@@ -214,12 +214,23 @@ function normalizeJobPayload(body, existing = null) {
 }
 
 function addEvent(data, req, jobId, type, message, meta = {}) {
+  const targetUserId = safeText(meta.eventTargetUserId, 80);
+  const targetUserName = safeText(meta.eventTargetUserName, 80);
+  const targetLabel = safeText(meta.eventTargetLabel, 120) || targetUserName;
+  const eventMeta = { ...meta };
+  delete eventMeta.eventTargetUserId;
+  delete eventMeta.eventTargetUserName;
+  delete eventMeta.eventTargetLabel;
   const event = {
     id: makeId('evt'),
     jobId,
     type,
     message: safeText(message, 3000),
-    meta,
+    meta: eventMeta,
+    targetUserId,
+    targetUserName,
+    targetLabel,
+    readBy: [],
     actorId: req.user?.userId || '',
     actorName: userName(req),
     createdAt: nowIso(),
@@ -236,6 +247,74 @@ function markFileReadBy(file, req) {
     return true;
   }
   return false;
+}
+
+function markEventReadBy(event, req) {
+  if (!Array.isArray(event.readBy)) event.readBy = [];
+  const readerId = req.user?.userId || '';
+  if (!readerId) return false;
+  if (!event.readBy.some(r => r.userId === readerId)) {
+    event.readBy.push({ userId: readerId, name: userName(req), at: nowIso() });
+    return true;
+  }
+  return false;
+}
+
+function hasEventTarget(event) {
+  return !!(
+    String(event?.targetUserId || '').trim()
+    || String(event?.targetUserName || '').trim()
+    || String(event?.targetLabel || '').trim()
+  );
+}
+
+function isEventTargetViewer(event, viewerUser) {
+  const viewerId = String(viewerUser?.userId || '').trim().toLowerCase();
+  const viewerName = String(viewerUser?.name || '').trim().toLowerCase();
+  const targetUserId = String(event?.targetUserId || '').trim().toLowerCase();
+  const targetUserName = String(event?.targetUserName || '').trim().toLowerCase();
+  const targetLabel = String(event?.targetLabel || '').trim().toLowerCase();
+  if (!hasEventTarget(event)) return false;
+  if (targetUserId && viewerId && targetUserId === viewerId) return true;
+  if (targetUserName && viewerName && targetUserName === viewerName) return true;
+  if (targetLabel && viewerName && targetLabel.includes(viewerName)) return true;
+  if (targetLabel && viewerId && targetLabel.includes(viewerId)) return true;
+  return false;
+}
+
+function isUnreadEventForViewer(event, viewerUser) {
+  const userId = String(viewerUser?.userId || '');
+  if (!event || !userId) return false;
+  if (String(event.actorId || '') === userId) return false;
+  if (!isEventTargetViewer(event, viewerUser)) return false;
+  const readBy = Array.isArray(event.readBy) ? event.readBy : [];
+  return !readBy.some(r => String(r.userId || '') === userId);
+}
+
+function hasEventTargetRead(event) {
+  const readBy = Array.isArray(event?.readBy) ? event.readBy : [];
+  if (!hasEventTarget(event) || !readBy.length) return false;
+  const targetUserId = String(event.targetUserId || '').trim().toLowerCase();
+  const targetUserName = String(event.targetUserName || '').trim().toLowerCase();
+  const targetLabel = String(event.targetLabel || '').trim().toLowerCase();
+  return readBy.some(r => {
+    const userId = String(r.userId || '').trim().toLowerCase();
+    const name = String(r.name || '').trim().toLowerCase();
+    if (targetUserId && userId === targetUserId) return true;
+    if (targetUserName && name === targetUserName) return true;
+    if (targetLabel && name && targetLabel.includes(name)) return true;
+    if (targetLabel && userId && targetLabel.includes(userId)) return true;
+    return !targetUserId && !targetUserName && !!targetLabel;
+  });
+}
+
+function decorateWorkflowEvent(event, viewerUser) {
+  return {
+    ...event,
+    hasTarget: hasEventTarget(event),
+    targetRead: hasEventTargetRead(event),
+    viewerUnread: isUnreadEventForViewer(event, viewerUser),
+  };
 }
 
 function isTargetViewer(file, viewerUser) {
@@ -479,6 +558,22 @@ function buildSummary(data, req) {
       };
     })
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  const unreadEvents = data.events
+    .filter(e => isUnreadEventForViewer(e, req.user))
+    .map(event => {
+      const job = data.jobs.find(j => j.id === event.jobId);
+      return {
+        id: event.id,
+        jobId: event.jobId,
+        jobTitle: job?.title || '',
+        message: event.message || '',
+        type: event.type || '',
+        targetLabel: event.targetLabel || '',
+        actorName: event.actorName || '',
+        createdAt: event.createdAt || '',
+      };
+    })
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
   const myActionJobs = activeJobs.filter(job => isUserJob(job, req));
   const myActionItems = myActionJobs
     .map(job => {
@@ -529,6 +624,8 @@ function buildSummary(data, req) {
     changeRequests,
     unreadFiles: unreadFiles.length,
     unreadFileItems: unreadFiles.slice(0, 8),
+    unreadEvents: unreadEvents.length,
+    unreadEventItems: unreadEvents.slice(0, 8),
     myActions: myActionJobs.length,
     myActionItems,
     byStage,
@@ -608,7 +705,7 @@ router.get('/jobs/:id', (req, res) => {
     job: decorateJob(data, job, req.user),
     files,
     deliverySummary: buildDeliverySummary(files, req.user),
-    events: data.events.filter(e => e.jobId === job.id),
+    events: data.events.filter(e => e.jobId === job.id).map(e => decorateWorkflowEvent(e, req.user)),
   });
 });
 
@@ -723,6 +820,7 @@ router.post('/jobs/:id/handoff', (req, res) => {
     addEvent(data, req, job.id, 'handoff', `${current.label} 완료 · ${next.label} 전달${message ? ' - ' + message : ''}`, {
       fromStageId: current.id,
       toStageId: next.id,
+      eventTargetLabel: nextCheck.assignee || '',
     });
   } else {
     job.currentStage = current.id;
@@ -751,10 +849,28 @@ router.post('/jobs/:id/events', (req, res) => {
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
   const message = safeText(req.body.message, 3000);
   if (!message) return res.status(400).json({ error: '내용이 필요합니다.' });
-  const event = addEvent(data, req, job.id, 'comment', message);
+  const targetUserId = safeText(req.body.targetUserId, 80);
+  const targetUserName = safeText(req.body.targetUserName, 80);
+  const targetLabel = safeText(req.body.targetLabel, 120) || targetUserName;
+  const event = addEvent(data, req, job.id, 'comment', message, {
+    eventTargetUserId: targetUserId,
+    eventTargetUserName: targetUserName,
+    eventTargetLabel: targetLabel,
+  });
   job.updatedAt = nowIso();
   saveStore(data);
-  res.json({ ok: true, event });
+  res.json({ ok: true, event: decorateWorkflowEvent(event, req.user) });
+});
+
+router.post('/jobs/:id/events/:eventId/read', (req, res) => {
+  const data = loadStore();
+  const event = data.events.find(e => e.jobId === req.params.id && e.id === req.params.eventId);
+  if (!event) return res.status(404).json({ error: '기록을 찾을 수 없습니다.' });
+  if (markEventReadBy(event, req)) {
+    addEvent(data, req, event.jobId, 'event_read', `${event.message || '기록'} 확인`, { eventId: event.id });
+    saveStore(data);
+  }
+  res.json({ ok: true, event: decorateWorkflowEvent(event, req.user) });
 });
 
 router.get('/jobs/:id/files', (req, res) => {
