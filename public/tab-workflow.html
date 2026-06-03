@@ -39,6 +39,11 @@
   .wf-card-extra{display:none;gap:5px;flex-wrap:wrap;margin-top:8px;}
   .wf-card.active .wf-card-extra{display:flex;}
   .wf-card:not(.active) .wf-chip{height:18px;padding:0 6px;font-size:10px;}
+  .wf-card-visual{position:relative;display:block;aspect-ratio:16/10;margin:-2px -3px 7px -3px;border-radius:6px;overflow:hidden;background:#e2e8f0;}
+  .wf-card-visual img{width:100%;height:100%;object-fit:cover;display:block;}
+  .wf-card-visual-label{position:absolute;left:6px;bottom:6px;height:19px;border-radius:999px;background:rgba(15,23,42,.82);color:#fff;font-size:10px;font-weight:900;padding:2px 7px;}
+  .wf-card-visual-urgent{position:absolute;top:6px;left:6px;height:19px;border-radius:999px;background:#dc2626;color:#fff;font-size:10px;font-weight:900;padding:2px 7px;}
+  .wf-card-visual-date{position:absolute;right:6px;bottom:6px;height:19px;border-radius:999px;background:rgba(255,255,255,.9);color:#111827;font-size:10px;font-weight:900;padding:2px 7px;}
   .wf-chip{height:20px;display:inline-flex;align-items:center;border-radius:999px;padding:0 7px;font-size:10.5px;font-weight:800;border:1px solid #dbe3ef;background:#f8fafc;color:#475569;}
   .wf-chip.urgent{background:#fee2e2;color:#b91c1c;border-color:#fecaca;}
   .wf-chip.high{background:#ffedd5;color:#c2410c;border-color:#fed7aa;}
@@ -52,6 +57,10 @@
   .wf-chip.not_ready{background:#fef3c7;color:#92400e;border-color:#fde68a;}
   .wf-detail-head{padding:12px;border-bottom:1px solid #e5e9f1;background:#fbfcfe;}
   .wf-detail-body{height:calc(100% - 70px);overflow:auto;padding:12px;display:flex;flex-direction:column;gap:12px;}
+  .wf-detail-body .wf-section:nth-of-type(1){order:2;}
+  .wf-detail-body .wf-section:nth-of-type(2){order:3;}
+  .wf-detail-body .wf-section:nth-of-type(3){order:1;}
+  .wf-detail-body .wf-section:nth-of-type(4){order:4;}
   .wf-section{border:1px solid #e1e6ef;border-radius:8px;background:#fff;}
   .wf-section-title{height:34px;display:flex;align-items:center;gap:6px;padding:0 10px;border-bottom:1px solid #edf0f5;background:#f8fafc;font-size:12px;font-weight:800;color:#374151;}
   .wf-section-body{padding:10px;display:flex;flex-direction:column;gap:8px;}
@@ -67,9 +76,29 @@
   .wf-checkitem.done{background:#dcfce7;color:#15803d;border-color:#bbf7d0;}
   .wf-handoff{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:8px;border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;}
   .wf-delivery{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:8px;border:1px solid #bfdbfe;border-radius:7px;background:#eff6ff;}
-  .wf-file{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:8px;border:1px solid #edf0f5;border-radius:6px;}
-  .wf-file.unread{border-color:#bfdbfe;background:#eff6ff;}
-  .wf-file-name{font-size:12px;font-weight:700;color:#111827;word-break:break-all;}
+  .wf-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;}
+  .wf-proof-card,.wf-file-card{border:1px solid #edf0f5;border-radius:8px;background:#fff;overflow:hidden;}
+  .wf-proof-card.unread,.wf-file-card.unread{border-color:#bfdbfe;background:#eff6ff;}
+  .wf-proof-card.urgent,.wf-file-card.urgent{border-color:#fecaca;background:#fff7f7;}
+  .wf-proof-thumb{position:relative;display:block;width:100%;aspect-ratio:4/3;border:0;background:#f1f5f9;padding:0;cursor:pointer;overflow:hidden;}
+  .wf-proof-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+  .wf-proof-thumb:hover img{transform:scale(1.02);}
+  .wf-proof-badge{position:absolute;top:7px;left:7px;height:20px;border-radius:999px;background:rgba(15,23,42,.82);color:#fff;font-size:10px;font-weight:800;padding:3px 7px;}
+  .wf-proof-info{padding:8px;display:flex;flex-direction:column;gap:6px;}
+  .wf-file-card{display:grid;grid-template-columns:48px minmax(0,1fr);gap:8px;align-items:center;padding:8px;}
+  .wf-file-icon{height:48px;border-radius:8px;background:#f1f5f9;color:#475569;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;border:1px solid #e2e8f0;}
+  .wf-file-icon.ai{background:#111827;color:#fff;border-color:#111827;}
+  .wf-file-name{font-size:12px;font-weight:800;color:#111827;word-break:break-all;line-height:1.35;}
+  .wf-file-thread{border-top:1px solid #edf0f5;padding-top:6px;display:flex;flex-direction:column;gap:5px;}
+  .wf-file-msg{font-size:11px;line-height:1.35;color:#334155;background:#f8fafc;border-radius:6px;padding:5px 6px;}
+  .wf-file-msg strong{font-weight:800;color:#111827;}
+  .wf-file-comment{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px;}
+  .wf-schedule-grid{display:grid;grid-template-columns:1fr;gap:6px;}
+  .wf-preview-modal{position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.78);display:flex;align-items:center;justify-content:center;padding:24px;}
+  .wf-preview-panel{max-width:min(1180px,92vw);max-height:92vh;background:#0f172a;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.35);}
+  .wf-preview-head{height:44px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 12px;color:#fff;border-bottom:1px solid rgba(255,255,255,.12);}
+  .wf-preview-head strong{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .wf-preview-image{max-width:92vw;max-height:calc(92vh - 44px);object-fit:contain;background:#111827;}
   .wf-event{padding:8px;border-left:3px solid #cbd5e1;background:#f8fafc;border-radius:4px;font-size:12px;color:#334155;line-height:1.45;}
   .wf-event.unread{border-left-color:#2563eb;background:#eff6ff;}
   .wf-muted{color:#6b7280;font-size:11px;}
@@ -238,6 +267,12 @@
             <div class="wf-col-list">
               <template x-for="job in jobsForStage(stage.id)" :key="job.id">
                 <button class="wf-card text-left" :class="selectedId===job.id?'active':''" @click="selectJob(job.id)">
+                  <div class="wf-card-visual" x-show="job.primaryVisualFile">
+                    <img :src="job.primaryVisualFile ? job.primaryVisualFile.previewUrl : ''" :alt="job.primaryVisualFile ? job.primaryVisualFile.originalName : ''">
+                    <span class="wf-card-visual-urgent" x-show="job.primaryVisualFile && job.primaryVisualFile.urgent">긴급</span>
+                    <span class="wf-card-visual-label" x-text="'시안 ' + (job.visualFileCount || 1)"></span>
+                    <span class="wf-card-visual-date" x-show="job.primaryVisualFile && job.primaryVisualFile.designDueDate" x-text="job.primaryVisualFile ? job.primaryVisualFile.designDueDate : ''"></span>
+                  </div>
                   <div class="wf-card-title" x-text="job.title"></div>
                   <div class="wf-card-meta">
                     <span x-text="job.companyName || '-'"></span>
@@ -248,6 +283,7 @@
                     <span class="wf-chip overdue" x-show="job.overdue || job.overdueStageCount">지연</span>
                     <span class="wf-chip blocked" x-show="job.blockedStageCount">막힘</span>
                     <span class="wf-chip change_requested" x-show="job.changeRequestCount">수정요청</span>
+                    <span class="wf-chip urgent" x-show="job.urgentFileCount" x-text="'긴급 ' + job.urgentFileCount"></span>
                     <span class="wf-chip unread" x-show="job.unreadFileCount" x-text="'확인 ' + job.unreadFileCount"></span>
                     <span class="wf-chip" x-show="job.dueDate" x-text="job.dueDate"></span>
                     <span class="wf-chip" x-show="!job.dueDate && job.nextStageDue" x-text="job.nextStageDue ? job.nextStageDue.dueDate : ''"></span>
@@ -261,6 +297,7 @@
                     <span class="wf-chip overdue" x-show="job.overdueStageCount" x-text="'단계지연 ' + job.overdueStageCount"></span>
                     <span class="wf-chip blocked" x-show="job.blockedStageCount" x-text="'막힘 ' + job.blockedStageCount"></span>
                     <span class="wf-chip change_requested" x-show="job.changeRequestCount" x-text="'수정요청 ' + job.changeRequestCount"></span>
+                    <span class="wf-chip urgent" x-show="job.urgentFileCount" x-text="'긴급시안 ' + job.urgentFileCount"></span>
                     <span class="wf-chip" :class="job.canComplete ? 'ready' : 'not_ready'" x-text="job.canComplete ? '완료가능' : ('완료전 ' + (job.completionBlockers || []).length)"></span>
                     <span class="wf-chip unread" x-show="job.unreadFileCount" x-text="'확인 ' + job.unreadFileCount"></span>
                     <span class="wf-chip" x-show="job.fileCount" x-text="'파일 ' + job.fileCount"></span>
@@ -355,9 +392,9 @@
             </section>
 
             <section class="wf-section">
-              <div class="wf-section-title"><span class="material-symbols-outlined" style="font-size:16px;">attach_file</span>파일</div>
+              <div class="wf-section-title"><span class="material-symbols-outlined" style="font-size:16px;">photo_library</span>시안 보드</div>
               <div class="wf-section-body">
-                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;">
                   <select class="wf-select" x-model="uploadStageId">
                     <template x-for="stage in stages" :key="stage.id">
                       <option :value="stage.id" x-text="stage.label"></option>
@@ -375,8 +412,12 @@
                       <option :value="u.userId" x-text="u.name"></option>
                     </template>
                   </select>
+                  <input class="wf-input" type="date" x-model="uploadDesignDueDate" title="디자인 희망 완료일">
                 </div>
                 <input class="wf-input" x-model="uploadNote" placeholder="파일 메모">
+                <label style="height:28px;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:#b91c1c;">
+                  <input type="checkbox" x-model="uploadUrgent"> 긴급 시안
+                </label>
                 <input class="wf-input" type="file" multiple @change="uploadFiles($event)">
                 <div class="wf-delivery" x-show="deliverySummary().totalFiles">
                   <span class="wf-chip" x-text="'파일 ' + (deliverySummary().totalFiles || 0)"></span>
@@ -404,34 +445,120 @@
                   <span class="wf-muted" x-text="filteredFiles().length + '/' + (detail.files || []).length"></span>
                   <a class="wf-btn" x-show="filteredFiles().length" :href="jobArchiveUrl()">묶음 받기</a>
                 </div>
-                <template x-for="file in filteredFiles()" :key="file.id">
-                  <div class="wf-file" :class="isUnreadFile(file) ? 'unread' : ''">
-                    <div>
-                      <div class="wf-file-name" x-text="file.originalName"></div>
-                      <div class="wf-muted">
-                        <span x-text="stageLabel(file.stageId)"></span>
-                        <span> · </span><span x-text="fileKindLabel(file.kind)"></span>
-                        <span> · v</span><span x-text="file.version"></span>
-                        <span> · </span><span x-text="file.uploadedByName"></span>
-                        <span x-show="file.targetLabel"> · 대상 </span><span x-show="file.targetLabel" x-text="file.targetLabel"></span>
-                        <span x-show="isUnreadFile(file)"> · 확인 필요</span>
-                        <span x-show="file.readBy && file.readBy.length"> · 확인 </span><span x-show="file.readBy && file.readBy.length" x-text="fileReadNames(file) || ((file.readBy || []).length)"></span>
+                <div class="wf-gallery" x-show="visualFiles().length">
+                  <template x-for="file in visualFiles()" :key="file.id">
+                    <article class="wf-proof-card" :class="[(isUnreadFile(file) ? 'unread' : ''), (file.urgent ? 'urgent' : '')]">
+                      <button class="wf-proof-thumb" @click="openFilePreview(file)">
+                        <img :src="filePreviewUrl(file)" :alt="file.originalName">
+                        <span class="wf-proof-badge" x-text="fileKindLabel(file.kind)"></span>
+                      </button>
+                      <div class="wf-proof-info">
+                        <div class="wf-file-name" x-text="file.originalName"></div>
+                        <div class="wf-muted">
+                          <span x-text="stageLabel(file.stageId)"></span>
+                          <span> · v</span><span x-text="file.version"></span>
+                          <span> · </span><span x-text="file.uploadedByName"></span>
+                        </div>
+                        <div class="wf-muted" x-show="file.targetLabel">
+                          <span>대상 </span><span x-text="file.targetLabel"></span>
+                        </div>
+                        <label style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:800;color:#b91c1c;">
+                          <input type="checkbox" x-model="file.urgent"> 긴급
+                        </label>
+                        <div class="wf-schedule-grid">
+                          <input class="wf-input" type="date" x-model="file.designDueDate" title="디자인 희망 완료일">
+                          <input class="wf-input" type="date" x-model="file.factoryAvailableDate" title="공장 가능일">
+                        </div>
+                        <select class="wf-select" x-model="file.scheduleNegotiation">
+                          <option value="pending">일정확인</option>
+                          <option value="possible">가능</option>
+                          <option value="needs_change">조정요청</option>
+                          <option value="confirmed">확정</option>
+                        </select>
+                        <input class="wf-input" x-model="file.factoryScheduleNote" placeholder="공장 가능일 사유/협의 메모">
+                        <div style="display:flex;gap:5px;flex-wrap:wrap;">
+                          <span class="wf-chip urgent" x-show="file.urgent">긴급</span>
+                          <span class="wf-chip" :class="file.scheduleNegotiation === 'needs_change' ? 'change_requested' : (file.scheduleNegotiation === 'confirmed' || file.scheduleNegotiation === 'possible' ? 'ready' : '')" x-text="scheduleNegotiationLabel(file.scheduleNegotiation)"></span>
+                          <span class="wf-chip unread" x-show="file.hasTarget && !file.targetRead">수신대기</span>
+                          <span class="wf-chip ready" x-show="file.hasTarget && file.targetRead">수신확인</span>
+                          <span class="wf-chip" :class="file.reviewStatus || 'pending'" x-show="canReviewFile(file)" x-text="fileReviewLabel(file.reviewStatus)"></span>
+                        </div>
+                        <div style="display:flex;gap:5px;flex-wrap:wrap;">
+                          <button class="wf-btn" @click="saveFileSchedule(file)">일정저장</button>
+                          <a class="wf-btn" :href="fileUrl(file)">원본</a>
+                          <button class="wf-btn" @click="markRead(file)">확인</button>
+                          <button class="wf-btn" x-show="canReviewFile(file)" @click="reviewFile(file, 'approved')">승인</button>
+                          <button class="wf-btn" x-show="canReviewFile(file)" @click="reviewFile(file, 'change_requested')">수정요청</button>
+                        </div>
+                        <div class="wf-file-thread">
+                          <template x-for="event in fileEvents(file)" :key="event.id">
+                            <div class="wf-file-msg">
+                              <strong x-text="event.actorName"></strong>
+                              <span x-text="' · ' + event.message.replace((file.originalName || '') + ': ', '')"></span>
+                            </div>
+                          </template>
+                          <div class="wf-file-comment">
+                            <input class="wf-input" x-model="file._commentText" @keydown.enter="addFileComment(file)" placeholder="이 시안에 댓글">
+                            <button class="wf-btn" @click="addFileComment(file)">등록</button>
+                          </div>
+                        </div>
+                        <div class="wf-muted" x-show="file.reviewNote" x-text="file.reviewNote"></div>
                       </div>
-                      <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px;">
-                        <span class="wf-chip unread" x-show="file.hasTarget && !file.targetRead">수신대기</span>
-                        <span class="wf-chip ready" x-show="file.hasTarget && file.targetRead">수신확인</span>
-                        <span class="wf-chip" :class="file.reviewStatus || 'pending'" x-show="canReviewFile(file)" x-text="fileReviewLabel(file.reviewStatus)"></span>
-                        <span class="wf-muted" x-show="file.reviewNote" x-text="file.reviewNote"></span>
+                    </article>
+                  </template>
+                </div>
+                <div class="wf-gallery" x-show="sourceFiles().length">
+                  <template x-for="file in sourceFiles()" :key="file.id">
+                    <article class="wf-file-card" :class="[(isUnreadFile(file) ? 'unread' : ''), (file.urgent ? 'urgent' : '')]">
+                      <div class="wf-file-icon" :class="file.isAi ? 'ai' : ''" x-text="fileTypeLabel(file)"></div>
+                      <div style="min-width:0;display:flex;flex-direction:column;gap:5px;">
+                        <div class="wf-file-name" x-text="file.originalName"></div>
+                        <div class="wf-muted">
+                          <span x-text="stageLabel(file.stageId)"></span>
+                          <span> · </span><span x-text="fileKindLabel(file.kind)"></span>
+                          <span> · v</span><span x-text="file.version"></span>
+                          <span> · </span><span x-text="file.uploadedByName"></span>
+                        </div>
+                        <label style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:800;color:#b91c1c;">
+                          <input type="checkbox" x-model="file.urgent"> 긴급
+                        </label>
+                        <div class="wf-schedule-grid">
+                          <input class="wf-input" type="date" x-model="file.designDueDate" title="디자인 희망 완료일">
+                          <input class="wf-input" type="date" x-model="file.factoryAvailableDate" title="공장 가능일">
+                        </div>
+                        <select class="wf-select" x-model="file.scheduleNegotiation">
+                          <option value="pending">일정확인</option>
+                          <option value="possible">가능</option>
+                          <option value="needs_change">조정요청</option>
+                          <option value="confirmed">확정</option>
+                        </select>
+                        <input class="wf-input" x-model="file.factoryScheduleNote" placeholder="공장 가능일 사유/협의 메모">
+                        <div style="display:flex;gap:5px;flex-wrap:wrap;">
+                          <span class="wf-chip urgent" x-show="file.urgent">긴급</span>
+                          <span class="wf-chip" :class="file.scheduleNegotiation === 'needs_change' ? 'change_requested' : (file.scheduleNegotiation === 'confirmed' || file.scheduleNegotiation === 'possible' ? 'ready' : '')" x-text="scheduleNegotiationLabel(file.scheduleNegotiation)"></span>
+                          <span class="wf-chip unread" x-show="file.hasTarget && !file.targetRead">수신대기</span>
+                          <span class="wf-chip ready" x-show="file.hasTarget && file.targetRead">수신확인</span>
+                          <span class="wf-chip" :class="file.reviewStatus || 'pending'" x-show="canReviewFile(file)" x-text="fileReviewLabel(file.reviewStatus)"></span>
+                          <button class="wf-btn" @click="saveFileSchedule(file)">일정저장</button>
+                          <a class="wf-btn" :href="fileUrl(file)">받기</a>
+                          <button class="wf-btn" @click="markRead(file)">확인</button>
+                        </div>
+                        <div class="wf-file-thread">
+                          <template x-for="event in fileEvents(file)" :key="event.id">
+                            <div class="wf-file-msg">
+                              <strong x-text="event.actorName"></strong>
+                              <span x-text="' · ' + event.message.replace((file.originalName || '') + ': ', '')"></span>
+                            </div>
+                          </template>
+                          <div class="wf-file-comment">
+                            <input class="wf-input" x-model="file._commentText" @keydown.enter="addFileComment(file)" placeholder="이 파일에 댓글">
+                            <button class="wf-btn" @click="addFileComment(file)">등록</button>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    <div style="display:flex;gap:5px;">
-                      <a class="wf-btn" :href="fileUrl(file)">받기</a>
-                      <button class="wf-btn" @click="markRead(file)">확인</button>
-                      <button class="wf-btn" x-show="canReviewFile(file)" @click="reviewFile(file, 'approved')">승인</button>
-                      <button class="wf-btn" x-show="canReviewFile(file)" @click="reviewFile(file, 'change_requested')">수정요청</button>
-                    </div>
-                  </div>
-                </template>
+                    </article>
+                  </template>
+                </div>
               </div>
             </section>
 
@@ -471,5 +598,17 @@
       </template>
     </aside>
   </div>
+<div class="wf-preview-modal" x-show="filePreview.open" x-cloak @click.self="closeFilePreview()">
+  <div class="wf-preview-panel">
+    <div class="wf-preview-head">
+      <strong x-text="filePreview.file?.originalName || '시안 미리보기'"></strong>
+      <div style="display:flex;gap:6px;">
+        <a class="wf-btn" style="height:28px;background:#fff;color:#111827;" :href="filePreview.file ? fileUrl(filePreview.file) : '#'">원본</a>
+        <button class="wf-btn" style="height:28px;background:#fff;color:#111827;" @click="closeFilePreview()">닫기</button>
+      </div>
+    </div>
+    <img class="wf-preview-image" x-show="filePreview.file" :src="filePreview.file ? filePreviewUrl(filePreview.file) : ''" alt="">
+  </div>
+</div>
 </div>
 </div>

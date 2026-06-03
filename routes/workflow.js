@@ -45,6 +45,13 @@ const FILE_REVIEW_LABELS = {
   change_requested: '수정요청',
 };
 
+const SCHEDULE_NEGOTIATION_LABELS = {
+  pending: '일정확인',
+  possible: '가능',
+  needs_change: '조정요청',
+  confirmed: '확정',
+};
+
 function ensureDirs() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(FILE_DIR)) fs.mkdirSync(FILE_DIR, { recursive: true });
@@ -106,6 +113,29 @@ function safeFilePart(value, fallback = 'file') {
     .trim()
     .slice(0, 120);
   return cleaned || fallback;
+}
+
+function fileDiskPath(file) {
+  const rel = String(file?.storedPath || file?.storedName || '').replace(/\\/g, '/');
+  if (!rel) return null;
+  const root = path.resolve(FILE_DIR);
+  const full = path.resolve(FILE_DIR, rel);
+  if (full !== root && !full.startsWith(root + path.sep)) return null;
+  return full;
+}
+
+function fileExt(file) {
+  return path.extname(String(file?.originalName || file?.storedName || '')).toLowerCase();
+}
+
+function isImageFile(file) {
+  const mime = String(file?.mime || '').toLowerCase();
+  if (mime.startsWith('image/')) return true;
+  return ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].includes(fileExt(file));
+}
+
+function isAiFile(file) {
+  return fileExt(file) === '.ai';
 }
 
 function uniqueZipPath(used, wantedPath) {
@@ -369,6 +399,10 @@ function hasTargetRead(file) {
 function decorateWorkflowFile(file, viewerUser) {
   return {
     ...file,
+    isImage: isImageFile(file),
+    isAi: isAiFile(file),
+    previewUrl: isImageFile(file) ? `/api/workflow/files/${encodeURIComponent(file.id)}/preview` : '',
+    downloadUrl: `/api/workflow/files/${encodeURIComponent(file.id)}/download`,
     viewerUnread: isUnreadForViewer(file, viewerUser),
     hasTarget: hasFileTarget(file),
     targetRead: hasTargetRead(file),
@@ -592,9 +626,23 @@ function decorateJob(data, job, viewerUser = null) {
   const files = data.files.filter(f => f.jobId === job.id);
   const events = data.events.filter(e => e.jobId === job.id);
   const blockers = completionBlockers(data, job);
+  const primaryVisualFile = files
+    .filter(isImageFile)
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0] || null;
   return {
     ...job,
     fileCount: files.length,
+    visualFileCount: files.filter(isImageFile).length,
+    urgentFileCount: files.filter(f => f.urgent && (!f.scheduleNegotiation || f.scheduleNegotiation === 'pending' || f.scheduleNegotiation === 'needs_change')).length,
+    primaryVisualFile: primaryVisualFile ? {
+      id: primaryVisualFile.id,
+      originalName: primaryVisualFile.originalName || '',
+      previewUrl: `/api/workflow/files/${encodeURIComponent(primaryVisualFile.id)}/preview`,
+      designDueDate: primaryVisualFile.designDueDate || '',
+      factoryAvailableDate: primaryVisualFile.factoryAvailableDate || '',
+      urgent: !!primaryVisualFile.urgent,
+      scheduleNegotiation: primaryVisualFile.scheduleNegotiation || 'pending',
+    } : null,
     unreadFileCount: files.filter(f => isUnreadForViewer(f, viewerUser)).length,
     pendingStageCount: pendingStageCount(job),
     pendingChecklistCount: pendingChecklistCount(job),
@@ -656,6 +704,24 @@ function buildSummary(data, req) {
       };
     })
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  const urgentFiles = data.files
+    .filter(f => f.urgent && (!f.scheduleNegotiation || f.scheduleNegotiation === 'pending' || f.scheduleNegotiation === 'needs_change'))
+    .map(file => {
+      const job = data.jobs.find(j => j.id === file.jobId);
+      return {
+        id: file.id,
+        jobId: file.jobId,
+        jobTitle: job?.title || '',
+        stageId: file.stageId,
+        stageLabel: STAGES.find(s => s.id === file.stageId)?.label || file.stageId,
+        originalName: file.originalName,
+        designDueDate: file.designDueDate || '',
+        factoryAvailableDate: file.factoryAvailableDate || '',
+        scheduleNegotiation: file.scheduleNegotiation || 'pending',
+        createdAt: file.createdAt || '',
+      };
+    })
+    .sort((a, b) => String(a.designDueDate || '9999-99-99').localeCompare(String(b.designDueDate || '9999-99-99')));
   const myActionJobs = activeJobs.filter(job => isUserJob(job, req));
   const myActionItems = myActionJobs
     .map(job => {
@@ -709,6 +775,8 @@ function buildSummary(data, req) {
     unreadFileItems: unreadFiles.slice(0, 8),
     unreadEvents: unreadEvents.length,
     unreadEventItems: unreadEvents.slice(0, 8),
+    urgentFiles: urgentFiles.length,
+    urgentFileItems: urgentFiles.slice(0, 8),
     scheduleCount: scheduleItems.length,
     scheduleOverdue: scheduleItems.filter(item => item.overdue).length,
     scheduleItems,
@@ -998,6 +1066,11 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
       mime: file.mimetype || 'application/octet-stream',
       size: file.size || 0,
       note: safeText(req.body.note, 1000),
+      designDueDate: safeDate(req.body.designDueDate),
+      urgent: String(req.body.urgent || '') === '1' || req.body.urgent === true,
+      scheduleNegotiation: '',
+      factoryAvailableDate: '',
+      factoryScheduleNote: '',
       targetUserId,
       targetUserName,
       targetLabel,
@@ -1065,6 +1138,70 @@ router.post('/jobs/:id/files/:fileId/review', (req, res) => {
   res.json({ ok: true, file: decorateWorkflowFile(file, req.user) });
 });
 
+router.post('/jobs/:id/files/:fileId/schedule', (req, res) => {
+  const data = loadStore();
+  const job = data.jobs.find(j => j.id === req.params.id);
+  const file = data.files.find(f => f.jobId === req.params.id && f.id === req.params.fileId);
+  if (!job || !file) return res.status(404).json({ error: '작업 또는 파일을 찾을 수 없습니다.' });
+  job.stageChecks = newStageChecks(job.stageChecks || {});
+  const designBefore = file.designDueDate || '';
+  const factoryBefore = file.factoryAvailableDate || '';
+  const noteBefore = file.factoryScheduleNote || '';
+  const urgentBefore = !!file.urgent;
+  const negotiationBefore = file.scheduleNegotiation || '';
+  file.designDueDate = safeDate(req.body.designDueDate);
+  file.urgent = String(req.body.urgent || '') === '1' || req.body.urgent === true;
+  file.factoryAvailableDate = safeDate(req.body.factoryAvailableDate);
+  file.factoryScheduleNote = safeText(req.body.factoryScheduleNote, 1000);
+  file.scheduleNegotiation = ['pending', 'possible', 'needs_change', 'confirmed'].includes(req.body.scheduleNegotiation)
+    ? req.body.scheduleNegotiation
+    : (file.scheduleNegotiation || (file.factoryAvailableDate ? 'possible' : 'pending'));
+  file.scheduleUpdatedAt = nowIso();
+  file.scheduleUpdatedBy = req.user?.userId || '';
+  file.scheduleUpdatedByName = userName(req);
+  job.updatedAt = nowIso();
+
+  const designChanged = designBefore !== file.designDueDate;
+  const factoryChanged = factoryBefore !== file.factoryAvailableDate || noteBefore !== file.factoryScheduleNote;
+  const urgentChanged = urgentBefore !== !!file.urgent;
+  const negotiationChanged = negotiationBefore !== file.scheduleNegotiation;
+  const designAssignee = safeText(job.stageChecks?.design?.assignee, 80);
+  const factoryAssignee = safeText(job.stageChecks?.factory?.assignee, 80);
+  const messageParts = [];
+  if (urgentChanged) messageParts.push(file.urgent ? '긴급 요청' : '긴급 해제');
+  if (designChanged) messageParts.push(`희망일 ${file.designDueDate || '미정'}`);
+  if (factoryChanged || negotiationChanged) messageParts.push(`공장 ${SCHEDULE_NEGOTIATION_LABELS[file.scheduleNegotiation || 'pending'] || '일정확인'} · 가능일 ${file.factoryAvailableDate || '미정'}${file.factoryScheduleNote ? ' - ' + file.factoryScheduleNote : ''}`);
+  addEvent(data, req, job.id, 'file_schedule', `${file.originalName} 일정 협의 · ${messageParts.join(' · ') || '일정 확인'}`, {
+    fileId: file.id,
+    designDueDate: file.designDueDate,
+    factoryAvailableDate: file.factoryAvailableDate,
+    eventTargetLabel: factoryChanged ? designAssignee : factoryAssignee,
+  });
+  saveStore(data);
+  res.json({ ok: true, file: decorateWorkflowFile(file, req.user), job: decorateJob(data, job, req.user) });
+});
+
+router.post('/jobs/:id/files/:fileId/events', (req, res) => {
+  const data = loadStore();
+  const job = data.jobs.find(j => j.id === req.params.id);
+  const file = data.files.find(f => f.jobId === req.params.id && f.id === req.params.fileId);
+  if (!job || !file) return res.status(404).json({ error: '작업 또는 파일을 찾을 수 없습니다.' });
+  const message = safeText(req.body.message, 3000);
+  if (!message) return res.status(400).json({ error: '내용이 필요합니다.' });
+  const targetUserId = safeText(req.body.targetUserId, 80);
+  const targetUserName = safeText(req.body.targetUserName, 80);
+  const targetLabel = safeText(req.body.targetLabel, 120) || targetUserName || file.targetLabel || '';
+  const event = addEvent(data, req, job.id, 'file_comment', `${file.originalName}: ${message}`, {
+    fileId: file.id,
+    eventTargetUserId: targetUserId,
+    eventTargetUserName: targetUserName,
+    eventTargetLabel: targetLabel,
+  });
+  job.updatedAt = nowIso();
+  saveStore(data);
+  res.json({ ok: true, event: decorateWorkflowEvent(event, req.user) });
+});
+
 router.get('/jobs/:id/files/archive', async (req, res) => {
   const data = loadStore();
   const job = data.jobs.find(j => j.id === req.params.id);
@@ -1128,10 +1265,22 @@ router.get('/files/:fileId/download', (req, res) => {
   const data = loadStore();
   const file = data.files.find(f => f.id === req.params.fileId);
   if (!file) return res.status(404).send('not found');
-  const full = path.join(FILE_DIR, file.storedName);
-  if (!fs.existsSync(full)) return res.status(404).send('not found');
+  const full = fileDiskPath(file);
+  if (!full || !fs.existsSync(full)) return res.status(404).send('not found');
   res.setHeader('Content-Type', file.mime || 'application/octet-stream');
   res.setHeader('Content-Disposition', attachmentDisposition(file.originalName || 'file'));
+  res.sendFile(full);
+});
+
+router.get('/files/:fileId/preview', (req, res) => {
+  const data = loadStore();
+  const file = data.files.find(f => f.id === req.params.fileId);
+  if (!file || !isImageFile(file)) return res.status(404).send('not found');
+  const full = fileDiskPath(file);
+  if (!full || !fs.existsSync(full)) return res.status(404).send('not found');
+  res.setHeader('Content-Type', file.mime || 'image/jpeg');
+  res.setHeader('Content-Disposition', 'inline');
+  res.setHeader('Cache-Control', 'private, max-age=300');
   res.sendFile(full);
 });
 

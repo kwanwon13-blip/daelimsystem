@@ -22,8 +22,11 @@ function workflowApp() {
     uploadKind: 'attachment',
     uploadTargetUserId: '',
     uploadNote: '',
+    uploadDesignDueDate: '',
+    uploadUrgent: false,
     fileStageFilter: 'all',
     fileKindFilter: 'all',
+    filePreview: { open: false, file: null },
     form: {
       title: '',
       companyName: '',
@@ -258,8 +261,20 @@ function workflowApp() {
       });
     },
 
+    visualFiles() {
+      return this.filteredFiles().filter(file => file.isImage);
+    },
+
+    sourceFiles() {
+      return this.filteredFiles().filter(file => !file.isImage);
+    },
+
     fileReviewLabel(status) {
       return ({ pending: '검토대기', approved: '승인', change_requested: '수정요청' })[status || 'pending'] || '검토대기';
+    },
+
+    scheduleNegotiationLabel(status) {
+      return ({ pending: '일정확인', possible: '가능', needs_change: '조정요청', confirmed: '확정' })[status || 'pending'] || '일정확인';
     },
 
     completionBlockerText(job) {
@@ -514,6 +529,8 @@ function workflowApp() {
       fd.append('stageId', this.uploadStageId || this.detail.job.currentStage || 'design');
       fd.append('kind', this.uploadKind || 'attachment');
       fd.append('note', this.uploadNote || '');
+      fd.append('designDueDate', this.uploadDesignDueDate || '');
+      fd.append('urgent', this.uploadUrgent ? '1' : '');
       const target = this.selectedUploadTarget();
       fd.append('targetUserId', target?.userId || '');
       fd.append('targetUserName', target?.name || '');
@@ -526,8 +543,62 @@ function workflowApp() {
       const d = await r.json();
       if (!r.ok || !d.ok) return alert(d.error || '파일 업로드 실패');
       this.uploadNote = '';
+      this.uploadDesignDueDate = '';
+      this.uploadUrgent = false;
       await this.loadJobs();
       await this.refreshDetail(false);
+    },
+
+    async saveFileSchedule(file) {
+      if (!this.detail || !file) return;
+      const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/files/' + encodeURIComponent(file.id) + '/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          designDueDate: file.designDueDate || '',
+          urgent: !!file.urgent,
+          factoryAvailableDate: file.factoryAvailableDate || '',
+          factoryScheduleNote: file.factoryScheduleNote || '',
+          scheduleNegotiation: file.scheduleNegotiation || '',
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.ok) return alert(d.error || '일정 저장 실패');
+      await this.refreshDetail(false);
+      await this.loadJobs();
+      await this.loadSummary();
+    },
+
+    fileEvents(file) {
+      if (!file || !this.detail) return [];
+      return (this.detail.events || [])
+        .filter(event => event.meta && event.meta.fileId === file.id)
+        .slice()
+        .reverse()
+        .slice(0, 4);
+    },
+
+    async addFileComment(file) {
+      if (!this.detail || !file) return;
+      const message = String(file._commentText || '').trim();
+      if (!message) return;
+      const target = this.selectedUploadTarget();
+      const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/files/' + encodeURIComponent(file.id) + '/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message,
+          targetUserId: target?.userId || file.targetUserId || '',
+          targetUserName: target?.name || file.targetUserName || '',
+          targetLabel: this.uploadTargetLabel() || file.targetLabel || '',
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.ok) return alert(d.error || '댓글 등록 실패');
+      file._commentText = '';
+      await this.refreshDetail(false);
+      await this.loadJobs();
+      await this.loadSummary();
     },
 
     async markRead(file) {
@@ -571,7 +642,30 @@ function workflowApp() {
     },
 
     fileUrl(file) {
-      return '/api/workflow/files/' + encodeURIComponent(file.id) + '/download';
+      if (!file) return '#';
+      return file.downloadUrl || ('/api/workflow/files/' + encodeURIComponent(file.id) + '/download');
+    },
+
+    filePreviewUrl(file) {
+      if (!file || !file.isImage) return '';
+      return file.previewUrl || this.fileUrl(file);
+    },
+
+    openFilePreview(file) {
+      if (!file || !file.isImage) return;
+      this.filePreview = { open: true, file };
+    },
+
+    closeFilePreview() {
+      this.filePreview = { open: false, file: null };
+    },
+
+    fileTypeLabel(file) {
+      if (!file) return 'FILE';
+      if (file.isAi) return 'AI';
+      const name = String(file.originalName || '');
+      const m = name.match(/\.([a-z0-9]+)$/i);
+      return m ? m[1].toUpperCase().slice(0, 5) : 'FILE';
     },
 
     jobArchiveUrl() {
