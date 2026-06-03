@@ -24,9 +24,11 @@ function workflowApp() {
     uploadNote: '',
     uploadDesignDueDate: '',
     uploadUrgent: false,
+    uploadDragOver: false,
     fileStageFilter: 'all',
     fileKindFilter: 'all',
     filePreview: { open: false, file: null },
+    expandedFileId: '',
     form: {
       title: '',
       companyName: '',
@@ -522,7 +524,7 @@ function workflowApp() {
     },
 
     async uploadFiles(ev) {
-      const files = ev.target.files;
+      const files = ev?.target?.files || ev?.dataTransfer?.files || ev;
       if (!this.detail || !files || !files.length) return;
       const fd = new FormData();
       Array.from(files).forEach(f => fd.append('files', f));
@@ -539,7 +541,7 @@ function workflowApp() {
         method: 'POST',
         body: fd,
       });
-      ev.target.value = '';
+      if (ev?.target) ev.target.value = '';
       const d = await r.json();
       if (!r.ok || !d.ok) return alert(d.error || '파일 업로드 실패');
       this.uploadNote = '';
@@ -547,6 +549,12 @@ function workflowApp() {
       this.uploadUrgent = false;
       await this.loadJobs();
       await this.refreshDetail(false);
+    },
+
+    async uploadDroppedFiles(ev) {
+      ev.preventDefault();
+      this.uploadDragOver = false;
+      await this.uploadFiles(ev);
     },
 
     async saveFileSchedule(file) {
@@ -654,6 +662,11 @@ function workflowApp() {
     openFilePreview(file) {
       if (!file || !file.isImage) return;
       this.filePreview = { open: true, file };
+    },
+
+    toggleFileCollab(file) {
+      if (!file) return;
+      this.expandedFileId = this.expandedFileId === file.id ? '' : file.id;
     },
 
     closeFilePreview() {

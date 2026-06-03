@@ -77,6 +77,8 @@
   .wf-handoff{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:8px;border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;}
   .wf-delivery{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:8px;border:1px solid #bfdbfe;border-radius:7px;background:#eff6ff;}
   .wf-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;}
+  .wf-gallery.proof-strip{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;scroll-snap-type:x proximity;}
+  .wf-gallery.proof-strip .wf-proof-card{min-width:180px;max-width:220px;scroll-snap-align:start;}
   .wf-proof-card,.wf-file-card{border:1px solid #edf0f5;border-radius:8px;background:#fff;overflow:hidden;}
   .wf-proof-card.unread,.wf-file-card.unread{border-color:#bfdbfe;background:#eff6ff;}
   .wf-proof-card.urgent,.wf-file-card.urgent{border-color:#fecaca;background:#fff7f7;}
@@ -94,6 +96,14 @@
   .wf-file-msg strong{font-weight:800;color:#111827;}
   .wf-file-comment{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px;}
   .wf-schedule-grid{display:grid;grid-template-columns:1fr;gap:6px;}
+  .wf-file-collab{display:none;border-top:1px solid #edf0f5;padding-top:7px;gap:6px;flex-direction:column;}
+  .wf-proof-card.active .wf-file-collab,.wf-file-card.active .wf-file-collab{display:flex;}
+  .wf-file-summary{display:grid;grid-template-columns:1fr;gap:4px;font-size:11px;color:#475569;}
+  .wf-file-summary strong{color:#111827;}
+  .wf-dropzone{border:1px dashed #9db4d8;border-radius:8px;background:#f8fbff;padding:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;color:#334155;}
+  .wf-dropzone.drag{border-color:#2563eb;background:#eff6ff;}
+  .wf-dropzone strong{font-size:12px;color:#111827;}
+  .wf-dropzone span{font-size:11px;color:#64748b;}
   .wf-preview-modal{position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.78);display:flex;align-items:center;justify-content:center;padding:24px;}
   .wf-preview-panel{max-width:min(1180px,92vw);max-height:92vh;background:#0f172a;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.35);}
   .wf-preview-head{height:44px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 12px;color:#fff;border-bottom:1px solid rgba(255,255,255,.12);}
@@ -418,7 +428,17 @@
                 <label style="height:28px;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:#b91c1c;">
                   <input type="checkbox" x-model="uploadUrgent"> 긴급 시안
                 </label>
-                <input class="wf-input" type="file" multiple @change="uploadFiles($event)">
+                <label class="wf-dropzone" :class="uploadDragOver ? 'drag' : ''"
+                  @dragover.prevent="uploadDragOver=true"
+                  @dragleave.prevent="uploadDragOver=false"
+                  @drop="uploadDroppedFiles($event)">
+                  <div>
+                    <strong>시안/JPG/AI 여러 개 드래그</strong>
+                    <span>회사/프로젝트는 현재 작업의 업체/현장 기준으로 자동 분류</span>
+                  </div>
+                  <span class="wf-btn">파일 선택</span>
+                  <input type="file" multiple style="display:none;" @change="uploadFiles($event)">
+                </label>
                 <div class="wf-delivery" x-show="deliverySummary().totalFiles">
                   <span class="wf-chip" x-text="'파일 ' + (deliverySummary().totalFiles || 0)"></span>
                   <span class="wf-chip unread" x-show="deliverySummary().targetPendingFiles" x-text="'수신대기 ' + deliverySummary().targetPendingFiles"></span>
@@ -445,9 +465,9 @@
                   <span class="wf-muted" x-text="filteredFiles().length + '/' + (detail.files || []).length"></span>
                   <a class="wf-btn" x-show="filteredFiles().length" :href="jobArchiveUrl()">묶음 받기</a>
                 </div>
-                <div class="wf-gallery" x-show="visualFiles().length">
+                <div class="wf-gallery proof-strip" x-show="visualFiles().length">
                   <template x-for="file in visualFiles()" :key="file.id">
-                    <article class="wf-proof-card" :class="[(isUnreadFile(file) ? 'unread' : ''), (file.urgent ? 'urgent' : '')]">
+                    <article class="wf-proof-card" :class="[(isUnreadFile(file) ? 'unread' : ''), (file.urgent ? 'urgent' : ''), (expandedFileId === file.id ? 'active' : '')]">
                       <button class="wf-proof-thumb" @click="openFilePreview(file)">
                         <img :src="filePreviewUrl(file)" :alt="file.originalName">
                         <span class="wf-proof-badge" x-text="fileKindLabel(file.kind)"></span>
@@ -459,23 +479,14 @@
                           <span> · v</span><span x-text="file.version"></span>
                           <span> · </span><span x-text="file.uploadedByName"></span>
                         </div>
+                        <div class="wf-muted" x-show="file.storageBucket" x-text="file.storageBucket"></div>
                         <div class="wf-muted" x-show="file.targetLabel">
                           <span>대상 </span><span x-text="file.targetLabel"></span>
                         </div>
-                        <label style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:800;color:#b91c1c;">
-                          <input type="checkbox" x-model="file.urgent"> 긴급
-                        </label>
-                        <div class="wf-schedule-grid">
-                          <input class="wf-input" type="date" x-model="file.designDueDate" title="디자인 희망 완료일">
-                          <input class="wf-input" type="date" x-model="file.factoryAvailableDate" title="공장 가능일">
+                        <div class="wf-file-summary">
+                          <div><strong>희망</strong> <span x-text="file.designDueDate || '미정'"></span></div>
+                          <div><strong>공장</strong> <span x-text="file.factoryAvailableDate || '확인 전'"></span></div>
                         </div>
-                        <select class="wf-select" x-model="file.scheduleNegotiation">
-                          <option value="pending">일정확인</option>
-                          <option value="possible">가능</option>
-                          <option value="needs_change">조정요청</option>
-                          <option value="confirmed">확정</option>
-                        </select>
-                        <input class="wf-input" x-model="file.factoryScheduleNote" placeholder="공장 가능일 사유/협의 메모">
                         <div style="display:flex;gap:5px;flex-wrap:wrap;">
                           <span class="wf-chip urgent" x-show="file.urgent">긴급</span>
                           <span class="wf-chip" :class="file.scheduleNegotiation === 'needs_change' ? 'change_requested' : (file.scheduleNegotiation === 'confirmed' || file.scheduleNegotiation === 'possible' ? 'ready' : '')" x-text="scheduleNegotiationLabel(file.scheduleNegotiation)"></span>
@@ -484,13 +495,30 @@
                           <span class="wf-chip" :class="file.reviewStatus || 'pending'" x-show="canReviewFile(file)" x-text="fileReviewLabel(file.reviewStatus)"></span>
                         </div>
                         <div style="display:flex;gap:5px;flex-wrap:wrap;">
-                          <button class="wf-btn" @click="saveFileSchedule(file)">일정저장</button>
                           <a class="wf-btn" :href="fileUrl(file)">원본</a>
                           <button class="wf-btn" @click="markRead(file)">확인</button>
-                          <button class="wf-btn" x-show="canReviewFile(file)" @click="reviewFile(file, 'approved')">승인</button>
-                          <button class="wf-btn" x-show="canReviewFile(file)" @click="reviewFile(file, 'change_requested')">수정요청</button>
+                          <button class="wf-btn" @click="toggleFileCollab(file)" x-text="expandedFileId === file.id ? '접기' : '협의'"></button>
                         </div>
-                        <div class="wf-file-thread">
+                        <div class="wf-file-collab">
+                          <label style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:800;color:#b91c1c;">
+                            <input type="checkbox" x-model="file.urgent"> 긴급
+                          </label>
+                          <div class="wf-schedule-grid">
+                            <input class="wf-input" type="date" x-model="file.designDueDate" title="디자인 희망 완료일">
+                            <input class="wf-input" type="date" x-model="file.factoryAvailableDate" title="공장 가능일">
+                          </div>
+                          <select class="wf-select" x-model="file.scheduleNegotiation">
+                            <option value="pending">일정확인</option>
+                            <option value="possible">가능</option>
+                            <option value="needs_change">조정요청</option>
+                            <option value="confirmed">확정</option>
+                          </select>
+                          <input class="wf-input" x-model="file.factoryScheduleNote" placeholder="공장 가능일 사유/협의 메모">
+                          <div style="display:flex;gap:5px;flex-wrap:wrap;">
+                            <button class="wf-btn" @click="saveFileSchedule(file)">일정저장</button>
+                            <button class="wf-btn" x-show="canReviewFile(file)" @click="reviewFile(file, 'approved')">승인</button>
+                            <button class="wf-btn" x-show="canReviewFile(file)" @click="reviewFile(file, 'change_requested')">수정요청</button>
+                          </div>
                           <template x-for="event in fileEvents(file)" :key="event.id">
                             <div class="wf-file-msg">
                               <strong x-text="event.actorName"></strong>
@@ -509,7 +537,7 @@
                 </div>
                 <div class="wf-gallery" x-show="sourceFiles().length">
                   <template x-for="file in sourceFiles()" :key="file.id">
-                    <article class="wf-file-card" :class="[(isUnreadFile(file) ? 'unread' : ''), (file.urgent ? 'urgent' : '')]">
+                    <article class="wf-file-card" :class="[(isUnreadFile(file) ? 'unread' : ''), (file.urgent ? 'urgent' : ''), (expandedFileId === file.id ? 'active' : '')]">
                       <div class="wf-file-icon" :class="file.isAi ? 'ai' : ''" x-text="fileTypeLabel(file)"></div>
                       <div style="min-width:0;display:flex;flex-direction:column;gap:5px;">
                         <div class="wf-file-name" x-text="file.originalName"></div>
@@ -519,31 +547,37 @@
                           <span> · v</span><span x-text="file.version"></span>
                           <span> · </span><span x-text="file.uploadedByName"></span>
                         </div>
-                        <label style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:800;color:#b91c1c;">
-                          <input type="checkbox" x-model="file.urgent"> 긴급
-                        </label>
-                        <div class="wf-schedule-grid">
-                          <input class="wf-input" type="date" x-model="file.designDueDate" title="디자인 희망 완료일">
-                          <input class="wf-input" type="date" x-model="file.factoryAvailableDate" title="공장 가능일">
+                        <div class="wf-muted" x-show="file.storageBucket" x-text="file.storageBucket"></div>
+                        <div class="wf-file-summary">
+                          <div><strong>희망</strong> <span x-text="file.designDueDate || '미정'"></span></div>
+                          <div><strong>공장</strong> <span x-text="file.factoryAvailableDate || '확인 전'"></span></div>
                         </div>
-                        <select class="wf-select" x-model="file.scheduleNegotiation">
-                          <option value="pending">일정확인</option>
-                          <option value="possible">가능</option>
-                          <option value="needs_change">조정요청</option>
-                          <option value="confirmed">확정</option>
-                        </select>
-                        <input class="wf-input" x-model="file.factoryScheduleNote" placeholder="공장 가능일 사유/협의 메모">
                         <div style="display:flex;gap:5px;flex-wrap:wrap;">
                           <span class="wf-chip urgent" x-show="file.urgent">긴급</span>
                           <span class="wf-chip" :class="file.scheduleNegotiation === 'needs_change' ? 'change_requested' : (file.scheduleNegotiation === 'confirmed' || file.scheduleNegotiation === 'possible' ? 'ready' : '')" x-text="scheduleNegotiationLabel(file.scheduleNegotiation)"></span>
                           <span class="wf-chip unread" x-show="file.hasTarget && !file.targetRead">수신대기</span>
                           <span class="wf-chip ready" x-show="file.hasTarget && file.targetRead">수신확인</span>
                           <span class="wf-chip" :class="file.reviewStatus || 'pending'" x-show="canReviewFile(file)" x-text="fileReviewLabel(file.reviewStatus)"></span>
-                          <button class="wf-btn" @click="saveFileSchedule(file)">일정저장</button>
                           <a class="wf-btn" :href="fileUrl(file)">받기</a>
                           <button class="wf-btn" @click="markRead(file)">확인</button>
+                          <button class="wf-btn" @click="toggleFileCollab(file)" x-text="expandedFileId === file.id ? '접기' : '협의'"></button>
                         </div>
-                        <div class="wf-file-thread">
+                        <div class="wf-file-collab">
+                          <label style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:800;color:#b91c1c;">
+                            <input type="checkbox" x-model="file.urgent"> 긴급
+                          </label>
+                          <div class="wf-schedule-grid">
+                            <input class="wf-input" type="date" x-model="file.designDueDate" title="디자인 희망 완료일">
+                            <input class="wf-input" type="date" x-model="file.factoryAvailableDate" title="공장 가능일">
+                          </div>
+                          <select class="wf-select" x-model="file.scheduleNegotiation">
+                            <option value="pending">일정확인</option>
+                            <option value="possible">가능</option>
+                            <option value="needs_change">조정요청</option>
+                            <option value="confirmed">확정</option>
+                          </select>
+                          <input class="wf-input" x-model="file.factoryScheduleNote" placeholder="공장 가능일 사유/협의 메모">
+                          <button class="wf-btn" @click="saveFileSchedule(file)">일정저장</button>
                           <template x-for="event in fileEvents(file)" :key="event.id">
                             <div class="wf-file-msg">
                               <strong x-text="event.actorName"></strong>
