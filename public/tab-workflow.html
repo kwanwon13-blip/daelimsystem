@@ -51,6 +51,12 @@
   .wf-stage-row{display:grid;grid-template-columns:84px 84px 1fr 96px auto auto;gap:6px;align-items:center;padding:7px;border:1px solid #edf0f5;border-radius:6px;background:#fff;}
   .wf-stage-row.overdue{border-color:#fecaca;background:#fff5f5;}
   .wf-stage-name{font-size:12px;font-weight:800;color:#111827;}
+  .wf-stage-block{border:1px solid #edf0f5;border-radius:7px;background:#fff;}
+  .wf-stage-block.overdue{border-color:#fecaca;background:#fff5f5;}
+  .wf-stage-block .wf-stage-row{border:none;border-radius:0;background:transparent;}
+  .wf-checklist{display:flex;gap:6px;flex-wrap:wrap;padding:0 8px 8px 8px;}
+  .wf-checkitem{height:24px;border:1px solid #dbe3ef;border-radius:999px;background:#f8fafc;color:#475569;padding:0 8px;font-size:11px;font-weight:800;display:inline-flex;align-items:center;gap:4px;cursor:pointer;}
+  .wf-checkitem.done{background:#dcfce7;color:#15803d;border-color:#bbf7d0;}
   .wf-handoff{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:8px;border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;}
   .wf-file{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:8px;border:1px solid #edf0f5;border-radius:6px;}
   .wf-file.unread{border-color:#bfdbfe;background:#eff6ff;}
@@ -250,18 +256,28 @@
                   <button class="wf-btn primary" @click="handoffJob()" :disabled="saving" x-text="handoffLabel()"></button>
                 </div>
                 <template x-for="stage in stages" :key="stage.id">
-                  <div class="wf-stage-row" :class="isStageOverdue(stage.id) ? 'overdue' : ''">
-                    <div class="wf-stage-name" x-text="stage.label"></div>
-                    <select class="wf-select" x-model="detail.job.stageChecks[stage.id].status">
-                      <option value="pending">대기</option>
-                      <option value="ready">진행</option>
-                      <option value="done">완료</option>
-                      <option value="blocked">막힘</option>
-                    </select>
-                    <input class="wf-input" list="wfUserNames" x-model="detail.job.stageChecks[stage.id].assignee" placeholder="담당">
-                    <input class="wf-input" type="date" x-model="detail.job.stageChecks[stage.id].dueDate">
-                    <span class="wf-chip overdue" x-show="isStageOverdue(stage.id)">지연</span>
-                    <button class="wf-btn" @click="saveStage(stage.id)">체크</button>
+                  <div class="wf-stage-block" :class="isStageOverdue(stage.id) ? 'overdue' : ''">
+                    <div class="wf-stage-row">
+                      <div class="wf-stage-name" x-text="stage.label"></div>
+                      <select class="wf-select" x-model="detail.job.stageChecks[stage.id].status">
+                        <option value="pending">대기</option>
+                        <option value="ready">진행</option>
+                        <option value="done">완료</option>
+                        <option value="blocked">막힘</option>
+                      </select>
+                      <input class="wf-input" list="wfUserNames" x-model="detail.job.stageChecks[stage.id].assignee" placeholder="담당">
+                      <input class="wf-input" type="date" x-model="detail.job.stageChecks[stage.id].dueDate">
+                      <span class="wf-chip overdue" x-show="isStageOverdue(stage.id)">지연</span>
+                      <button class="wf-btn" @click="saveStage(stage.id)" x-text="'체크 ' + checklistDoneCount(stage.id) + '/' + stageChecklist(stage.id).length"></button>
+                    </div>
+                    <div class="wf-checklist">
+                      <template x-for="item in stageChecklist(stage.id)" :key="item.id">
+                        <button class="wf-checkitem" :class="item.done ? 'done' : ''" @click="toggleChecklist(stage.id, item)">
+                          <span class="material-symbols-outlined" style="font-size:14px;" x-text="item.done ? 'check_circle' : 'radio_button_unchecked'"></span>
+                          <span x-text="item.label"></span>
+                        </button>
+                      </template>
+                    </div>
                   </div>
                 </template>
               </div>

@@ -130,6 +130,22 @@ function workflowApp() {
       return check.status !== 'done' && this.isPastDue(check.dueDate);
     },
 
+    stageChecklist(stageId) {
+      if (!this.detail || !this.detail.job) return [];
+      return this.detail.job.stageChecks?.[stageId]?.checklist || [];
+    },
+
+    checklistDoneCount(stageId) {
+      return this.stageChecklist(stageId).filter(item => item.done).length;
+    },
+
+    async toggleChecklist(stageId, item) {
+      if (!item) return;
+      item.done = !item.done;
+      item.updatedAt = new Date().toISOString();
+      await this.saveStage(stageId);
+    },
+
     isUnreadFile(file) {
       return !!(file && file.viewerUnread);
     },

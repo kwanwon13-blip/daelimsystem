@@ -17,6 +17,13 @@ const STAGES = [
   { id: 'delivery', label: '납품팀', icon: 'local_shipping' },
 ];
 
+const STAGE_CHECKLISTS = {
+  design: ['시안 파일 정리', '승인/수정요청 확인'],
+  management: ['일정 확인', '발주/관리 전달 확인'],
+  factory: ['제작 사양 확인', '제작 완료 확인'],
+  delivery: ['납품 일정 확인', '납품 완료 확인'],
+};
+
 const STATUS_LABELS = {
   active: '진행',
   hold: '보류',
@@ -100,6 +107,30 @@ function userName(req) {
   return req.user?.name || req.user?.userId || 'unknown';
 }
 
+function normalizeChecklist(stageId, prev = []) {
+  const base = (STAGE_CHECKLISTS[stageId] || []).map((label, idx) => ({
+    id: `${stageId}_${idx + 1}`,
+    label,
+    done: false,
+  }));
+  const prevItems = Array.isArray(prev) ? prev : [];
+  const byId = {};
+  for (const item of prevItems) {
+    const id = safeText(item?.id, 80);
+    if (!id) continue;
+    byId[id] = {
+      id,
+      label: safeText(item?.label, 120),
+      done: !!item?.done,
+      updatedAt: item?.updatedAt || '',
+    };
+  }
+  return base.map(item => {
+    const saved = byId[item.id];
+    return saved ? { ...item, done: !!saved.done, updatedAt: saved.updatedAt || '' } : item;
+  });
+}
+
 function newStageChecks(seed = {}) {
   const out = {};
   for (const stage of STAGES) {
@@ -109,6 +140,7 @@ function newStageChecks(seed = {}) {
       assignee: safeText(prev.assignee, 80),
       dueDate: safeDate(prev.dueDate),
       note: safeText(prev.note, 1000),
+      checklist: normalizeChecklist(stage.id, prev.checklist),
       completedAt: prev.completedAt || '',
       updatedAt: prev.updatedAt || '',
     };
@@ -243,6 +275,14 @@ function pendingStageCount(job) {
   return STAGES.filter(stage => job.stageChecks[stage.id]?.status !== 'done').length;
 }
 
+function pendingChecklistCount(job) {
+  if (!job || !job.stageChecks) return 0;
+  return STAGES.reduce((sum, stage) => {
+    const items = job.stageChecks[stage.id]?.checklist || [];
+    return sum + items.filter(item => !item.done).length;
+  }, 0);
+}
+
 function pendingReviewCount(data, job) {
   if (!job || !data || !Array.isArray(data.files)) return 0;
   return data.files.filter(f => {
@@ -255,10 +295,12 @@ function pendingReviewCount(data, job) {
 function completionBlockers(data, job) {
   const blockers = [];
   const pendingStages = pendingStageCount(job);
+  const pendingChecklist = pendingChecklistCount(job);
   const blockedStages = blockedStageCount(job);
   const pendingReviews = pendingReviewCount(data, job);
   const changeRequests = changeRequestCount(data, job);
   if (pendingStages) blockers.push({ key: 'pendingStages', label: '미완료 단계', count: pendingStages });
+  if (pendingChecklist) blockers.push({ key: 'pendingChecklist', label: '미완료 체크', count: pendingChecklist });
   if (blockedStages) blockers.push({ key: 'blockedStages', label: '막힘 단계', count: blockedStages });
   if (pendingReviews) blockers.push({ key: 'pendingReviews', label: '검토대기 파일', count: pendingReviews });
   if (changeRequests) blockers.push({ key: 'changeRequests', label: '수정요청 파일', count: changeRequests });
@@ -297,6 +339,7 @@ function decorateJob(data, job, viewerUser = null) {
     fileCount: files.length,
     unreadFileCount: files.filter(f => isUnreadForViewer(f, viewerUser)).length,
     pendingStageCount: pendingStageCount(job),
+    pendingChecklistCount: pendingChecklistCount(job),
     pendingReviewCount: pendingReviewCount(data, job),
     blockedStageCount: blockedStageCount(job),
     overdueStageCount: overdueStageCount(job),
@@ -496,6 +539,7 @@ router.post('/jobs/:id/stages/:stageId', (req, res) => {
   check.assignee = safeText(req.body.assignee, 80);
   check.dueDate = safeDate(req.body.dueDate);
   check.note = safeText(req.body.note, 1000);
+  check.checklist = normalizeChecklist(stage.id, req.body.checklist);
   check.updatedAt = nowIso();
   if (nextStatus === 'done') check.completedAt = check.completedAt || nowIso();
   if (nextStatus !== 'done') check.completedAt = '';
