@@ -421,20 +421,9 @@
               </div>
               <div class="wf-section-body">
                 <div class="wf-upload-panel" x-show="uploadOpen" x-transition>
-                  <div style="display:grid;grid-template-columns:1.2fr 1.2fr 110px 100px 130px;gap:8px;">
+                  <div style="display:grid;grid-template-columns:1fr 1fr 130px;gap:8px;">
                     <input class="wf-input" list="wfCompanyNames" x-model="uploadCompanyName" placeholder="회사">
                     <input class="wf-input" list="wfProjectNames" x-model="uploadProjectName" placeholder="프로젝트">
-                    <select class="wf-select" x-model="uploadStageId">
-                      <template x-for="stage in stages" :key="stage.id">
-                        <option :value="stage.id" x-text="stage.label"></option>
-                      </template>
-                    </select>
-                    <select class="wf-select" x-model="uploadKind">
-                      <option value="proof">시안</option>
-                      <option value="drawing">도면</option>
-                      <option value="photo">사진</option>
-                      <option value="attachment">첨부</option>
-                    </select>
                     <input class="wf-input" type="date" x-model="uploadDesignDueDate" title="디자인 희망 완료일">
                   </div>
                   <input class="wf-input" x-model="uploadNote" placeholder="파일 메모">

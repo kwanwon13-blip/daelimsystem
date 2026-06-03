@@ -19,8 +19,8 @@ function workflowApp() {
     commentText: '',
     commentTargetUserId: '',
     handoffText: '',
-    uploadStageId: '',
-    uploadKind: 'attachment',
+    uploadStageId: 'design',
+    uploadKind: 'proof',
     uploadTargetUserId: '',
     uploadCompanyName: '',
     uploadProjectName: '',
@@ -249,7 +249,7 @@ function workflowApp() {
 
     uploadTargetLabel() {
       if (!this.detail || !this.detail.job) return '';
-      const stageId = this.uploadStageId || this.detail.job.currentStage || 'design';
+      const stageId = 'design';
       if (stageId === 'design' && ['proof', 'drawing', 'photo'].includes(this.uploadKind || 'attachment')) {
         return ['management', 'factory']
           .map(id => {
@@ -460,7 +460,7 @@ function workflowApp() {
         return;
       }
       this.detail = d;
-      this.uploadStageId = this.uploadStageId || d.job.currentStage || 'design';
+      this.uploadStageId = 'design';
       if (force || !this.uploadCompanyName) this.uploadCompanyName = d.job.companyName || '';
       if (force || !this.uploadProjectName) this.uploadProjectName = d.job.projectName || d.job.title || '';
     },
@@ -577,8 +577,8 @@ function workflowApp() {
       if (!this.detail || !files || !files.length) return;
       const fd = new FormData();
       Array.from(files).forEach(f => fd.append('files', f));
-      fd.append('stageId', this.uploadStageId || this.detail.job.currentStage || 'design');
-      fd.append('kind', this.uploadKind || 'attachment');
+      fd.append('stageId', 'design');
+      fd.append('kind', 'proof');
       fd.append('note', this.uploadNote || '');
       fd.append('designDueDate', this.uploadDesignDueDate || '');
       fd.append('urgent', this.uploadUrgent ? '1' : '');
