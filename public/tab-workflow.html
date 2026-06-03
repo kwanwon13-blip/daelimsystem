@@ -307,12 +307,29 @@
                 </div>
                 <input class="wf-input" x-model="uploadNote" placeholder="파일 메모">
                 <input class="wf-input" type="file" multiple @change="uploadFiles($event)">
-                <template x-for="file in detail.files" :key="file.id">
+                <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center;">
+                  <select class="wf-select" x-model="fileStageFilter">
+                    <option value="all">전체 단계</option>
+                    <template x-for="stage in stages" :key="stage.id">
+                      <option :value="stage.id" x-text="stage.label"></option>
+                    </template>
+                  </select>
+                  <select class="wf-select" x-model="fileKindFilter">
+                    <option value="all">전체 파일</option>
+                    <option value="proof">시안</option>
+                    <option value="drawing">도면</option>
+                    <option value="photo">사진</option>
+                    <option value="attachment">첨부</option>
+                  </select>
+                  <span class="wf-muted" x-text="filteredFiles().length + '/' + (detail.files || []).length"></span>
+                </div>
+                <template x-for="file in filteredFiles()" :key="file.id">
                   <div class="wf-file" :class="isUnreadFile(file) ? 'unread' : ''">
                     <div>
                       <div class="wf-file-name" x-text="file.originalName"></div>
                       <div class="wf-muted">
                         <span x-text="stageLabel(file.stageId)"></span>
+                        <span> · </span><span x-text="fileKindLabel(file.kind)"></span>
                         <span> · v</span><span x-text="file.version"></span>
                         <span> · </span><span x-text="file.uploadedByName"></span>
                         <span x-show="file.targetLabel"> · 대상 </span><span x-show="file.targetLabel" x-text="file.targetLabel"></span>

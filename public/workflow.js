@@ -21,6 +21,8 @@ function workflowApp() {
     uploadKind: 'attachment',
     uploadTargetUserId: '',
     uploadNote: '',
+    fileStageFilter: 'all',
+    fileKindFilter: 'all',
     form: {
       title: '',
       companyName: '',
@@ -191,6 +193,19 @@ function workflowApp() {
 
     fileReadNames(file) {
       return (file?.readBy || []).map(r => r.name || r.userId).filter(Boolean).join(', ');
+    },
+
+    fileKindLabel(kind) {
+      return ({ proof: '시안', drawing: '도면', photo: '사진', attachment: '첨부' })[kind || 'attachment'] || '첨부';
+    },
+
+    filteredFiles() {
+      const files = this.detail?.files || [];
+      return files.filter(file => {
+        if (this.fileStageFilter !== 'all' && file.stageId !== this.fileStageFilter) return false;
+        if (this.fileKindFilter !== 'all' && (file.kind || 'attachment') !== this.fileKindFilter) return false;
+        return true;
+      });
     },
 
     fileReviewLabel(status) {
