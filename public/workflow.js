@@ -121,6 +121,10 @@ function workflowApp() {
       return !!(file && file.viewerUnread);
     },
 
+    unreadFileItems() {
+      return this.summary?.unreadFileItems || [];
+    },
+
     selectedUploadTarget() {
       return this.workflowUsers.find(u => String(u.userId) === String(this.uploadTargetUserId)) || null;
     },
@@ -198,6 +202,15 @@ function workflowApp() {
     async selectJob(id) {
       this.selectedId = id;
       await this.refreshDetail(true);
+    },
+
+    async openUnreadFile(item) {
+      if (!item || !item.jobId) return;
+      this.query = '';
+      this.statusFilter = 'all';
+      this.scopeFilter = 'all';
+      await this.loadJobs();
+      await this.selectJob(item.jobId);
     },
 
     async refreshDetail(force) {
@@ -309,12 +322,22 @@ function workflowApp() {
 
     async markRead(file) {
       if (!this.detail || !file) return;
-      const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/files/' + encodeURIComponent(file.id) + '/read', {
+      await this.markFileRead(this.detail.job.id, file.id);
+    },
+
+    async markInboxRead(item) {
+      if (!item || !item.jobId || !item.id) return;
+      await this.markFileRead(item.jobId, item.id);
+    },
+
+    async markFileRead(jobId, fileId) {
+      const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(jobId) + '/files/' + encodeURIComponent(fileId) + '/read', {
         method: 'POST',
       });
       const d = await r.json();
       if (!r.ok || !d.ok) return alert(d.error || '확인 처리 실패');
-      await this.refreshDetail(false);
+      if (this.selectedId === jobId) await this.refreshDetail(false);
+      await this.loadJobs();
       await this.loadSummary();
     },
 

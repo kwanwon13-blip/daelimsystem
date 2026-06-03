@@ -17,6 +17,10 @@
   .wf-metric span{display:block;font-size:11px;color:#64748b;margin-top:3px;}
   .wf-metric.warn strong{color:#b91c1c;}
   .wf-metric.action strong{color:#1d4ed8;}
+  .wf-inbox{display:flex;gap:8px;overflow:auto;padding:9px 12px;border-bottom:1px solid #e5e9f1;background:#f8fbff;}
+  .wf-inbox-item{min-width:220px;max-width:320px;border:1px solid #bfdbfe;border-radius:8px;background:#fff;padding:8px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center;}
+  .wf-inbox-title{font-size:12px;font-weight:800;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .wf-inbox-meta{font-size:10.5px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;}
   .wf-new{display:grid;grid-template-columns:1.2fr .8fr .8fr .7fr .7fr auto;gap:8px;padding:10px 12px;border-bottom:1px solid #e5e9f1;background:#f8fafc;}
   .wf-columns{flex:1;min-height:0;display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));overflow:auto;background:#eef2f7;}
   .wf-col{min-width:210px;border-right:1px solid #dfe4ed;display:flex;flex-direction:column;}
@@ -112,6 +116,22 @@
           <strong x-text="summary.unreadFiles || 0"></strong>
           <span>확인 필요 파일</span>
         </div>
+      </div>
+
+      <div class="wf-inbox" x-show="unreadFileItems().length">
+        <template x-for="item in unreadFileItems()" :key="item.id">
+          <div class="wf-inbox-item">
+            <button style="text-align:left;min-width:0;background:none;border:none;padding:0;cursor:pointer;" @click="openUnreadFile(item)">
+              <div class="wf-inbox-title" x-text="item.originalName"></div>
+              <div class="wf-inbox-meta">
+                <span x-text="item.jobTitle || '-'"></span>
+                <span> · </span><span x-text="item.stageLabel || stageLabel(item.stageId)"></span>
+                <span x-show="item.uploadedByName"> · </span><span x-show="item.uploadedByName" x-text="item.uploadedByName"></span>
+              </div>
+            </button>
+            <button class="wf-btn" @click="markInboxRead(item)">확인</button>
+          </div>
+        </template>
       </div>
 
       <div class="wf-new" x-show="newOpen" x-transition>

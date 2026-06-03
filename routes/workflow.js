@@ -244,7 +244,11 @@ function buildSummary(data, req) {
         jobId: file.jobId,
         jobTitle: job?.title || '',
         stageId: file.stageId,
+        stageLabel: STAGES.find(s => s.id === file.stageId)?.label || file.stageId,
+        kind: file.kind || 'attachment',
         originalName: file.originalName,
+        note: file.note || '',
+        targetLabel: file.targetLabel || '',
         uploadedByName: file.uploadedByName,
         createdAt: file.createdAt,
       };
