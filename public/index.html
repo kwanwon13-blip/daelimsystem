@@ -43,6 +43,7 @@
   <script src="/purchase-auto.js"></script>
   <script src="/orgchart.js"></script>
   <script src="/statements.js"></script>
+  <script src="/workflow.js"></script>
   <!-- Chart.js (홈 대시보드 그래프) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <!-- SheetJS — AI 챗에서 엑셀 인라인 미리보기 -->
@@ -1719,6 +1720,14 @@
             <span style="font-size:12px;">연락처</span>
           </button>
         </template>
+        <template x-if="tabs.find(t=>t.id==='workflow')">
+          <button @click="currentTab = 'workflow'"
+            :class="currentTab === 'workflow' ? 'active' : ''"
+            class="sidebar-nav-item w-full text-left">
+            <span class="material-symbols-outlined" style="font-size:17px">account_tree</span>
+            <span style="font-size:12px;">워크플로우</span>
+          </button>
+        </template>
       </div>
     </nav>
 
@@ -1764,6 +1773,7 @@
             currentTab === 'stats' ? 'bar_chart' :
             currentTab === 'workspace' ? 'edit_document' :
             currentTab === 'ai' ? 'smart_toy' :
+            currentTab === 'workflow' ? 'account_tree' :
             currentTab === 'gpsAttendance' ? 'location_on' :
             'settings'
           "></span>
@@ -5275,6 +5285,10 @@
         </div>
       </template>
 
+      <template x-if="currentTab === 'workflow'">
+        <!--INCLUDE:tab-workflow.html-->
+      </template>
+
       <!-- CALENDAR TAB (캘린더) -->
       <template x-if="currentTab === 'calendar'">
         <div class="space-y-4 fade-in">
@@ -6352,6 +6366,7 @@ function app() {
       { id: 'statements', label: 'OCR 자동입력' },
       { id: 'companyPurchase', label: '컴퍼니 매입 OCR' },
       { id: 'contacts', label: '연락처' },
+      { id: 'workflow', label: '워크플로우' },
       { id: 'calendar', label: '캘린더' },
       { id: 'approval', label: '결재' },
       { id: 'orgchart', label: '조직도' },
@@ -6468,7 +6483,7 @@ function app() {
           // { id: 'purchaseAuto', label: '매입 자동화' },     // 숨김 — OCR 자동입력으로 흡수
           { id: 'photos', label: '사진 라이브러리' },
           { id: 'statements', label: 'OCR 자동입력' },
-          { id: 'contacts', label: '연락처' }, { id: 'calendar', label: '캘린더' }, { id: 'notices', label: '공지사항' }, { id: 'settings', label: '설정' },
+          { id: 'contacts', label: '연락처' }, { id: 'workflow', label: '워크플로우' }, { id: 'calendar', label: '캘린더' }, { id: 'notices', label: '공지사항' }, { id: 'settings', label: '설정' },
           { id: 'workspace', label: '워크스페이스' },
           { id: 'ai', label: 'AI 챗' },
           { id: 'gpsAttendance', label: 'GPS 출퇴근' }
@@ -6483,7 +6498,7 @@ function app() {
       }
       const perms = this.auth.permissions || [];
       // 권한 무관 — 아이디만 있으면 누구든 쓸 수 있는 공용 메뉴
-      const universalMenus = ['design', 'statements', 'photos', 'contacts'];
+      const universalMenus = ['design', 'statements', 'photos', 'contacts', 'workflow'];
       const defaultMenus = ['home', 'quote', 'history', 'salesLookup', 'workspace', 'ai', 'gpsAttendance', ...universalMenus];
       const allowed = perms.length > 0
         ? ['home', ...perms, ...universalMenus]   // 권한 있어도 공용 메뉴는 강제 추가

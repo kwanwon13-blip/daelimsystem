@@ -357,6 +357,7 @@ app.use('/api/master', require('./routes/master'));
 // ★ 중요: /api 에 마운트된 router.use(requireAuth) 라우터들(vendorPrices/quotes)보다 앞에 마운트해야
 // /api/contacts/m/* (무인증 모바일 라우트) 가 그들에게 가로채여 401 떨어지지 않음.
 app.use('/api/contacts', require('./routes/contacts'));
+app.use('/api/workflow', require('./routes/workflow'));
 
 // AI routes must be mounted before broad /api routers that install requireAuth
 // middleware globally, otherwise internal control-secret verification never reaches them.

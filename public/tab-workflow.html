@@ -1,0 +1,237 @@
+<style>
+  .wf-shell{height:calc(100vh - 112px);min-height:640px;display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:14px;color:#1f2937;}
+  .wf-board,.wf-detail{background:#fff;border:1px solid #dfe4ed;border-radius:8px;overflow:hidden;}
+  .wf-toolbar{height:58px;display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #e5e9f1;background:#fbfcfe;}
+  .wf-toolbar h2{font-size:15px;font-weight:800;margin:0;color:#111827;}
+  .wf-input,.wf-select,.wf-textarea{border:1px solid #cfd6e3;border-radius:6px;background:#fff;color:#1f2937;font-size:12px;outline:none;}
+  .wf-input,.wf-select{height:34px;padding:0 9px;}
+  .wf-textarea{padding:8px 9px;resize:vertical;min-height:68px;line-height:1.45;}
+  .wf-btn{height:34px;border:1px solid #cfd6e3;border-radius:6px;background:#fff;color:#1f2937;font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:5px;padding:0 10px;cursor:pointer;}
+  .wf-btn.primary{background:#2563eb;color:#fff;border-color:#2563eb;}
+  .wf-btn.ghost{background:#f8fafc;}
+  .wf-btn:disabled{opacity:.5;cursor:not-allowed;}
+  .wf-new{display:grid;grid-template-columns:1.2fr .8fr .8fr .7fr .7fr auto;gap:8px;padding:10px 12px;border-bottom:1px solid #e5e9f1;background:#f8fafc;}
+  .wf-columns{height:calc(100% - 58px);display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));overflow:auto;background:#eef2f7;}
+  .wf-col{min-width:210px;border-right:1px solid #dfe4ed;display:flex;flex-direction:column;}
+  .wf-col:last-child{border-right:none;}
+  .wf-col-head{height:42px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;background:#f8fafc;border-bottom:1px solid #dfe4ed;font-size:12px;font-weight:800;color:#374151;}
+  .wf-col-list{padding:10px;display:flex;flex-direction:column;gap:8px;overflow:auto;}
+  .wf-card{border:1px solid #d8dee9;border-radius:8px;background:#fff;padding:10px;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.04);}
+  .wf-card.active{border-color:#2563eb;box-shadow:0 0 0 2px rgba(37,99,235,.12);}
+  .wf-card-title{font-size:13px;font-weight:800;color:#111827;line-height:1.35;margin-bottom:5px;word-break:break-word;}
+  .wf-card-meta{font-size:11px;color:#6b7280;display:flex;gap:5px;flex-wrap:wrap;line-height:1.4;}
+  .wf-chip{height:20px;display:inline-flex;align-items:center;border-radius:999px;padding:0 7px;font-size:10.5px;font-weight:800;border:1px solid #dbe3ef;background:#f8fafc;color:#475569;}
+  .wf-chip.urgent{background:#fee2e2;color:#b91c1c;border-color:#fecaca;}
+  .wf-chip.high{background:#ffedd5;color:#c2410c;border-color:#fed7aa;}
+  .wf-chip.done{background:#dcfce7;color:#15803d;border-color:#bbf7d0;}
+  .wf-chip.blocked{background:#fee2e2;color:#b91c1c;border-color:#fecaca;}
+  .wf-detail-head{padding:12px;border-bottom:1px solid #e5e9f1;background:#fbfcfe;}
+  .wf-detail-body{height:calc(100% - 70px);overflow:auto;padding:12px;display:flex;flex-direction:column;gap:12px;}
+  .wf-section{border:1px solid #e1e6ef;border-radius:8px;background:#fff;}
+  .wf-section-title{height:34px;display:flex;align-items:center;gap:6px;padding:0 10px;border-bottom:1px solid #edf0f5;background:#f8fafc;font-size:12px;font-weight:800;color:#374151;}
+  .wf-section-body{padding:10px;display:flex;flex-direction:column;gap:8px;}
+  .wf-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .wf-stage-row{display:grid;grid-template-columns:84px 84px 1fr 96px auto;gap:6px;align-items:center;padding:7px;border:1px solid #edf0f5;border-radius:6px;background:#fff;}
+  .wf-stage-name{font-size:12px;font-weight:800;color:#111827;}
+  .wf-file{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:8px;border:1px solid #edf0f5;border-radius:6px;}
+  .wf-file-name{font-size:12px;font-weight:700;color:#111827;word-break:break-all;}
+  .wf-event{padding:8px;border-left:3px solid #cbd5e1;background:#f8fafc;border-radius:4px;font-size:12px;color:#334155;line-height:1.45;}
+  .wf-muted{color:#6b7280;font-size:11px;}
+  .wf-empty{height:100%;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:13px;}
+  @media (max-width:1200px){.wf-shell{grid-template-columns:1fr;height:auto}.wf-detail{min-height:620px}.wf-columns{height:560px}}
+</style>
+
+<div class="fade-in" x-data="workflowApp()" x-init="init()">
+  <datalist id="wfContactNames">
+    <template x-for="c in contactOptions" :key="c.name + c.phone">
+      <option :value="c.name" :label="(c.company || '') + (c.phone ? ' · ' + c.phone : '')"></option>
+    </template>
+  </datalist>
+  <datalist id="wfCompanyNames">
+    <template x-for="c in contactOptions" :key="c.company + c.name">
+      <option :value="c.company"></option>
+    </template>
+  </datalist>
+
+  <div class="wf-shell">
+    <section class="wf-board">
+      <div class="wf-toolbar">
+        <h2>워크플로우</h2>
+        <input class="wf-input" style="width:220px;" x-model="query" @keydown.enter="loadJobs()" placeholder="검색">
+        <select class="wf-select" x-model="statusFilter" @change="loadJobs()">
+          <option value="active">진행</option>
+          <option value="hold">보류</option>
+          <option value="done">완료</option>
+          <option value="all">전체</option>
+        </select>
+        <button class="wf-btn ghost" @click="loadJobs()"><span class="material-symbols-outlined" style="font-size:16px;">search</span>조회</button>
+        <div style="flex:1"></div>
+        <button class="wf-btn primary" @click="newOpen=!newOpen"><span class="material-symbols-outlined" style="font-size:16px;">add</span>작업</button>
+      </div>
+
+      <div class="wf-new" x-show="newOpen" x-transition>
+        <input class="wf-input" x-model="form.title" placeholder="작업명">
+        <input class="wf-input" list="wfCompanyNames" x-model="form.companyName" placeholder="업체">
+        <input class="wf-input" x-model="form.projectName" placeholder="현장">
+        <input class="wf-input" list="wfContactNames" x-model="form.contactName" placeholder="담당자">
+        <input class="wf-input" type="date" x-model="form.dueDate">
+        <button class="wf-btn primary" @click="createJob()" :disabled="saving">등록</button>
+      </div>
+
+      <div class="wf-columns">
+        <template x-for="stage in stages" :key="stage.id">
+          <div class="wf-col">
+            <div class="wf-col-head">
+              <span style="display:flex;align-items:center;gap:5px;">
+                <span class="material-symbols-outlined" style="font-size:16px;" x-text="stage.icon"></span>
+                <span x-text="stage.label"></span>
+              </span>
+              <span class="wf-chip" x-text="jobsForStage(stage.id).length"></span>
+            </div>
+            <div class="wf-col-list">
+              <template x-for="job in jobsForStage(stage.id)" :key="job.id">
+                <button class="wf-card text-left" :class="selectedId===job.id?'active':''" @click="selectJob(job.id)">
+                  <div class="wf-card-title" x-text="job.title"></div>
+                  <div class="wf-card-meta">
+                    <span x-text="job.companyName || '-'"></span>
+                    <span x-show="job.projectName">·</span>
+                    <span x-show="job.projectName" x-text="job.projectName"></span>
+                  </div>
+                  <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px;">
+                    <span class="wf-chip" :class="job.priority" x-text="priorityLabel(job.priority)"></span>
+                    <span class="wf-chip" x-show="job.dueDate" x-text="job.dueDate"></span>
+                    <span class="wf-chip" x-show="job.fileCount" x-text="'파일 ' + job.fileCount"></span>
+                  </div>
+                </button>
+              </template>
+              <div class="wf-empty" x-show="!jobsForStage(stage.id).length">비어 있음</div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </section>
+
+    <aside class="wf-detail">
+      <template x-if="!detail">
+        <div class="wf-empty">작업을 선택하세요</div>
+      </template>
+
+      <template x-if="detail && detail.job">
+        <div style="height:100%;display:flex;flex-direction:column;">
+          <div class="wf-detail-head">
+            <input class="wf-input" style="width:100%;font-size:14px;font-weight:800;" x-model="detail.job.title">
+            <div style="display:flex;gap:6px;margin-top:8px;">
+              <select class="wf-select" x-model="detail.job.priority">
+                <option value="urgent">긴급</option>
+                <option value="high">높음</option>
+                <option value="normal">보통</option>
+                <option value="low">낮음</option>
+              </select>
+              <select class="wf-select" x-model="detail.job.status">
+                <option value="active">진행</option>
+                <option value="hold">보류</option>
+                <option value="done">완료</option>
+                <option value="cancelled">취소</option>
+              </select>
+              <button class="wf-btn primary" @click="saveJob()" :disabled="saving">저장</button>
+            </div>
+          </div>
+
+          <div class="wf-detail-body">
+            <section class="wf-section">
+              <div class="wf-section-title"><span class="material-symbols-outlined" style="font-size:16px;">business</span>기본</div>
+              <div class="wf-section-body">
+                <div class="wf-grid-2">
+                  <input class="wf-input" list="wfCompanyNames" x-model="detail.job.companyName" placeholder="업체">
+                  <input class="wf-input" x-model="detail.job.projectName" placeholder="현장">
+                  <input class="wf-input" list="wfContactNames" x-model="detail.job.contactName" placeholder="담당자">
+                  <input class="wf-input" x-model="detail.job.contactPhone" placeholder="연락처">
+                  <input class="wf-input" type="date" x-model="detail.job.dueDate">
+                  <input class="wf-input" type="date" x-model="detail.job.deliveryDate">
+                </div>
+                <textarea class="wf-textarea" x-model="detail.job.summary" placeholder="메모"></textarea>
+              </div>
+            </section>
+
+            <section class="wf-section">
+              <div class="wf-section-title"><span class="material-symbols-outlined" style="font-size:16px;">task_alt</span>단계</div>
+              <div class="wf-section-body">
+                <template x-for="stage in stages" :key="stage.id">
+                  <div class="wf-stage-row">
+                    <div class="wf-stage-name" x-text="stage.label"></div>
+                    <select class="wf-select" x-model="detail.job.stageChecks[stage.id].status">
+                      <option value="pending">대기</option>
+                      <option value="ready">진행</option>
+                      <option value="done">완료</option>
+                      <option value="blocked">막힘</option>
+                    </select>
+                    <input class="wf-input" x-model="detail.job.stageChecks[stage.id].assignee" placeholder="담당">
+                    <input class="wf-input" type="date" x-model="detail.job.stageChecks[stage.id].dueDate">
+                    <button class="wf-btn" @click="saveStage(stage.id)">체크</button>
+                  </div>
+                </template>
+              </div>
+            </section>
+
+            <section class="wf-section">
+              <div class="wf-section-title"><span class="material-symbols-outlined" style="font-size:16px;">attach_file</span>파일</div>
+              <div class="wf-section-body">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                  <select class="wf-select" x-model="uploadStageId">
+                    <template x-for="stage in stages" :key="stage.id">
+                      <option :value="stage.id" x-text="stage.label"></option>
+                    </template>
+                  </select>
+                  <select class="wf-select" x-model="uploadKind">
+                    <option value="proof">시안</option>
+                    <option value="drawing">도면</option>
+                    <option value="photo">사진</option>
+                    <option value="attachment">첨부</option>
+                  </select>
+                </div>
+                <input class="wf-input" x-model="uploadNote" placeholder="파일 메모">
+                <input class="wf-input" type="file" multiple @change="uploadFiles($event)">
+                <template x-for="file in detail.files" :key="file.id">
+                  <div class="wf-file">
+                    <div>
+                      <div class="wf-file-name" x-text="file.originalName"></div>
+                      <div class="wf-muted">
+                        <span x-text="stageLabel(file.stageId)"></span>
+                        <span> · v</span><span x-text="file.version"></span>
+                        <span> · </span><span x-text="file.uploadedByName"></span>
+                        <span x-show="file.readBy && file.readBy.length"> · 확인 </span><span x-show="file.readBy && file.readBy.length" x-text="file.readBy.length"></span>
+                      </div>
+                    </div>
+                    <div style="display:flex;gap:5px;">
+                      <a class="wf-btn" :href="fileUrl(file)">받기</a>
+                      <button class="wf-btn" @click="markRead(file)">확인</button>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </section>
+
+            <section class="wf-section">
+              <div class="wf-section-title"><span class="material-symbols-outlined" style="font-size:16px;">forum</span>기록</div>
+              <div class="wf-section-body">
+                <div style="display:grid;grid-template-columns:1fr auto;gap:8px;">
+                  <input class="wf-input" x-model="commentText" @keydown.enter="addComment()" placeholder="댓글">
+                  <button class="wf-btn" @click="addComment()">등록</button>
+                </div>
+                <template x-for="event in detail.events.slice().reverse()" :key="event.id">
+                  <div class="wf-event">
+                    <div style="display:flex;justify-content:space-between;gap:8px;">
+                      <strong x-text="event.actorName"></strong>
+                      <span class="wf-muted" x-text="eventTime(event.createdAt)"></span>
+                    </div>
+                    <div x-text="event.message"></div>
+                  </div>
+                </template>
+              </div>
+            </section>
+          </div>
+        </div>
+      </template>
+    </aside>
+  </div>
+</div>
