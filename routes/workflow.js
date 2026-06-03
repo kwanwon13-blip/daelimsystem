@@ -168,6 +168,29 @@ function blockedStageCount(job) {
   return Object.values(job.stageChecks || {}).filter(c => c && c.status === 'blocked').length;
 }
 
+function userMatchTokens(req) {
+  return [req.user?.userId, req.user?.name]
+    .map(v => String(v || '').trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function textMatchesToken(text, tokens) {
+  const hay = String(text || '').trim().toLowerCase();
+  return !!hay && tokens.some(token => hay.includes(token));
+}
+
+function isUserJob(job, req) {
+  const tokens = userMatchTokens(req);
+  const userId = String(req.user?.userId || '').trim().toLowerCase();
+  if (!job || !tokens.length) return false;
+  if (userId && String(job.createdBy || '').trim().toLowerCase() === userId) return true;
+  if (textMatchesToken(job.createdByName, tokens)) return true;
+  return Object.values(job.stageChecks || {}).some(check => {
+    if (!check || check.status === 'done') return false;
+    return textMatchesToken(check.assignee, tokens);
+  });
+}
+
 function decorateJob(data, job, viewerUser = null) {
   const files = data.files.filter(f => f.jobId === job.id);
   const events = data.events.filter(e => e.jobId === job.id);
@@ -185,7 +208,6 @@ function decorateJob(data, job, viewerUser = null) {
 
 function buildSummary(data, req) {
   const userId = req.user?.userId || '';
-  const userLabel = userName(req).toLowerCase();
   const activeJobs = data.jobs.filter(j => !['done', 'cancelled'].includes(j.status));
   const byStage = {};
   for (const stage of STAGES) byStage[stage.id] = 0;
@@ -208,11 +230,7 @@ function buildSummary(data, req) {
       };
     })
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
-  const myActionJobs = activeJobs.filter(job => {
-    const stageCheck = job.stageChecks?.[job.currentStage] || {};
-    const assignee = String(stageCheck.assignee || '').toLowerCase();
-    return assignee && userLabel && assignee.includes(userLabel);
-  });
+  const myActionJobs = activeJobs.filter(job => isUserJob(job, req));
   return {
     active: activeJobs.length,
     done: data.jobs.filter(j => j.status === 'done').length,
@@ -261,12 +279,20 @@ router.get('/jobs', (req, res) => {
   const data = loadStore();
   const q = safeText(req.query.q, 100).toLowerCase();
   const status = safeText(req.query.status, 30);
+  const scope = safeText(req.query.scope, 30) || 'all';
   let jobs = data.jobs.slice();
   if (status && status !== 'all') jobs = jobs.filter(j => j.status === status);
   if (q) {
     jobs = jobs.filter(j => [
       j.title, j.companyName, j.projectName, j.contactName, j.summary,
     ].join(' ').toLowerCase().includes(q));
+  }
+  if (scope === 'mine') {
+    jobs = jobs.filter(j => isUserJob(j, req));
+  } else if (scope === 'unread') {
+    jobs = jobs.filter(j => decorateJob(data, j, req.user).unreadFileCount > 0);
+  } else if (scope === 'risk') {
+    jobs = jobs.filter(j => isOverdueJob(j) || blockedStageCount(j) > 0);
   }
   jobs.sort((a, b) => {
     const ap = { urgent: 0, high: 1, normal: 2, low: 3 }[a.priority] ?? 2;

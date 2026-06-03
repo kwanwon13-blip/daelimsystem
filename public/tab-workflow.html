@@ -11,7 +11,7 @@
   .wf-btn.primary{background:#2563eb;color:#fff;border-color:#2563eb;}
   .wf-btn.ghost{background:#f8fafc;}
   .wf-btn:disabled{opacity:.5;cursor:not-allowed;}
-  .wf-summary{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:8px;padding:10px 12px;border-bottom:1px solid #e5e9f1;background:#fff;}
+  .wf-summary{display:grid;grid-template-columns:repeat(5,minmax(110px,1fr));gap:8px;padding:10px 12px;border-bottom:1px solid #e5e9f1;background:#fff;}
   .wf-metric{border:1px solid #e1e6ef;border-radius:8px;padding:8px 10px;background:#fbfcfe;min-width:0;}
   .wf-metric strong{display:block;font-size:18px;line-height:1.1;color:#111827;}
   .wf-metric span{display:block;font-size:11px;color:#64748b;margin-top:3px;}
@@ -74,6 +74,12 @@
           <option value="done">완료</option>
           <option value="all">전체</option>
         </select>
+        <select class="wf-select" x-model="scopeFilter" @change="loadJobs()">
+          <option value="all">전체</option>
+          <option value="mine">내 담당</option>
+          <option value="unread">확인 필요</option>
+          <option value="risk">지연/막힘</option>
+        </select>
         <button class="wf-btn ghost" @click="loadJobs()"><span class="material-symbols-outlined" style="font-size:16px;">search</span>조회</button>
         <div style="flex:1"></div>
         <button class="wf-btn primary" @click="newOpen=!newOpen"><span class="material-symbols-outlined" style="font-size:16px;">add</span>작업</button>
@@ -83,6 +89,10 @@
         <div class="wf-metric">
           <strong x-text="summary.active || 0"></strong>
           <span>진행 작업</span>
+        </div>
+        <div class="wf-metric action">
+          <strong x-text="summary.myActions || 0"></strong>
+          <span>내 담당</span>
         </div>
         <div class="wf-metric warn">
           <strong x-text="summary.overdue || 0"></strong>

@@ -11,6 +11,7 @@ function workflowApp() {
     detail: null,
     query: '',
     statusFilter: 'active',
+    scopeFilter: 'all',
     newOpen: false,
     contactOptions: [],
     commentText: '',
@@ -68,6 +69,7 @@ function workflowApp() {
       const qs = new URLSearchParams();
       if (this.query.trim()) qs.set('q', this.query.trim());
       if (this.statusFilter) qs.set('status', this.statusFilter);
+      if (this.scopeFilter && this.scopeFilter !== 'all') qs.set('scope', this.scopeFilter);
       try {
         const r = await fetch('/api/workflow/jobs?' + qs.toString());
         const d = await r.json();
