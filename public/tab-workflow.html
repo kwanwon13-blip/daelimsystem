@@ -1,6 +1,8 @@
 <div class="wf-tab-root">
 <style>
-  .wf-shell{height:calc(100vh - 112px);min-height:640px;display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:14px;color:#1f2937;}
+  .wf-shell{height:calc(100vh - 112px);min-height:640px;display:grid;grid-template-columns:minmax(0,1fr) minmax(380px,460px);gap:14px;color:#1f2937;}
+  .wf-shell.no-detail{grid-template-columns:minmax(0,1fr);}
+  .wf-shell.no-detail .wf-detail{display:none;}
   .wf-board,.wf-detail{background:#fff;border:1px solid #dfe4ed;border-radius:8px;overflow:hidden;}
   .wf-board{display:flex;flex-direction:column;}
   .wf-toolbar{height:58px;display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #e5e9f1;background:#fbfcfe;}
@@ -24,7 +26,9 @@
   .wf-inbox-item{min-width:220px;max-width:320px;border:1px solid #bfdbfe;border-radius:8px;background:#fff;padding:8px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center;}
   .wf-inbox-title{font-size:12px;font-weight:800;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .wf-inbox-meta{font-size:10.5px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;}
-  .wf-new{display:grid;grid-template-columns:minmax(150px,1.2fr) minmax(110px,.8fr) minmax(110px,.8fr) minmax(90px,.7fr) minmax(110px,.7fr) minmax(120px,.7fr) auto;gap:8px;padding:10px 12px;border-bottom:1px solid #e5e9f1;background:#f8fafc;}
+  .wf-new{display:grid;grid-template-columns:minmax(170px,1.5fr) minmax(120px,.9fr) minmax(130px,1fr) minmax(120px,.75fr) minmax(120px,.7fr) auto;gap:8px;padding:10px 12px;border-bottom:1px solid #e5e9f1;background:#f8fafc;}
+  .wf-creator{height:34px;display:flex;align-items:center;gap:5px;border:1px solid #e1e6ef;border-radius:6px;background:#fff;padding:0 9px;color:#475569;font-size:11px;font-weight:800;min-width:0;}
+  .wf-creator span:last-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .wf-columns{flex:1;min-height:0;display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));overflow:auto;background:#eef2f7;}
   .wf-col{min-width:210px;border-right:1px solid #dfe4ed;display:flex;flex-direction:column;}
   .wf-col:last-child{border-right:none;}
@@ -67,7 +71,7 @@
   .wf-section-title{height:34px;display:flex;align-items:center;gap:6px;padding:0 10px;border-bottom:1px solid #edf0f5;background:#f8fafc;font-size:12px;font-weight:800;color:#374151;}
   .wf-section-body{padding:10px;display:flex;flex-direction:column;gap:8px;}
   .wf-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
-  .wf-stage-row{display:grid;grid-template-columns:84px 84px 1fr 96px auto auto;gap:6px;align-items:center;padding:7px;border:1px solid #edf0f5;border-radius:6px;background:#fff;}
+  .wf-stage-row{display:grid;grid-template-columns:84px 84px 1fr auto auto;gap:6px;align-items:center;padding:7px;border:1px solid #edf0f5;border-radius:6px;background:#fff;}
   .wf-stage-row.overdue{border-color:#fecaca;background:#fff5f5;}
   .wf-stage-name{font-size:12px;font-weight:800;color:#111827;}
   .wf-stage-block{border:1px solid #edf0f5;border-radius:7px;background:#fff;}
@@ -78,14 +82,14 @@
   .wf-checkitem.done{background:#dcfce7;color:#15803d;border-color:#bbf7d0;}
   .wf-handoff{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:8px;border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;}
   .wf-delivery{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:8px;border:1px solid #bfdbfe;border-radius:7px;background:#eff6ff;}
-  .wf-upload-panel{border:1px solid #e1e6ef;border-radius:8px;background:#fbfcfe;padding:8px;display:flex;flex-direction:column;gap:8px;}
+  .wf-upload-panel{border:1px solid #bfdbfe;border-radius:8px;background:#f8fbff;padding:10px;display:flex;flex-direction:column;gap:9px;}
   .wf-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;}
-  .wf-gallery.proof-strip{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;scroll-snap-type:x proximity;}
-  .wf-gallery.proof-strip .wf-proof-card{min-width:180px;max-width:220px;scroll-snap-align:start;}
+  .wf-gallery.proof-strip{display:grid;grid-template-columns:1fr;gap:10px;overflow:visible;padding-bottom:0;}
+  .wf-gallery.proof-strip .wf-proof-card{min-width:0;max-width:none;}
   .wf-proof-card,.wf-file-card{border:1px solid #edf0f5;border-radius:8px;background:#fff;overflow:hidden;}
   .wf-proof-card.unread,.wf-file-card.unread{border-color:#bfdbfe;background:#eff6ff;}
   .wf-proof-card.urgent,.wf-file-card.urgent{border-color:#fecaca;background:#fff7f7;}
-  .wf-proof-thumb{position:relative;display:block;width:100%;aspect-ratio:4/3;border:0;background:#f1f5f9;padding:0;cursor:pointer;overflow:hidden;}
+  .wf-proof-thumb{position:relative;display:block;width:100%;aspect-ratio:16/10;border:0;background:#f1f5f9;padding:0;cursor:pointer;overflow:hidden;}
   .wf-proof-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
   .wf-proof-thumb:hover img{transform:scale(1.02);}
   .wf-proof-badge{position:absolute;top:7px;left:7px;height:20px;border-radius:999px;background:rgba(15,23,42,.82);color:#fff;font-size:10px;font-weight:800;padding:3px 7px;}
@@ -103,7 +107,7 @@
   .wf-proof-card.active .wf-file-collab,.wf-file-card.active .wf-file-collab{display:flex;}
   .wf-file-summary{display:grid;grid-template-columns:1fr;gap:4px;font-size:11px;color:#475569;}
   .wf-file-summary strong{color:#111827;}
-  .wf-dropzone{border:1px dashed #9db4d8;border-radius:8px;background:#f8fbff;padding:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;color:#334155;}
+  .wf-dropzone{min-height:118px;border:1px dashed #9db4d8;border-radius:8px;background:#fff;padding:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;color:#334155;text-align:center;cursor:pointer;}
   .wf-dropzone.drag{border-color:#2563eb;background:#eff6ff;}
   .wf-dropzone strong{font-size:12px;color:#111827;}
   .wf-dropzone span{font-size:11px;color:#64748b;}
@@ -115,11 +119,20 @@
   .wf-preview-stage{flex:1;min-height:0;overflow:auto;background:#020617;display:flex;align-items:center;justify-content:center;padding:12px;}
   .wf-preview-stage.zoomed{align-items:flex-start;justify-content:flex-start;}
   .wf-preview-image{display:block;object-fit:contain;background:#111827;}
+  .wf-modal{position:fixed;inset:0;z-index:9998;background:rgba(15,23,42,.42);display:flex;align-items:center;justify-content:center;padding:18px;}
+  .wf-dialog{width:min(560px,calc(100vw - 36px));background:#fff;border:1px solid #dfe4ed;border-radius:8px;box-shadow:0 24px 70px rgba(15,23,42,.24);overflow:hidden;}
+  .wf-dialog-head{height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 14px;border-bottom:1px solid #edf0f5;background:#fbfcfe;}
+  .wf-dialog-title{font-size:14px;font-weight:900;color:#111827;display:flex;align-items:center;gap:7px;}
+  .wf-dialog-body{padding:14px;display:flex;flex-direction:column;gap:10px;}
+  .wf-dialog-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-top:1px solid #edf0f5;background:#fbfcfe;}
+  .wf-field{display:flex;flex-direction:column;gap:5px;}
+  .wf-field label{font-size:11px;font-weight:900;color:#475569;}
+  .wf-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
   .wf-event{padding:8px;border-left:3px solid #cbd5e1;background:#f8fafc;border-radius:4px;font-size:12px;color:#334155;line-height:1.45;}
   .wf-event.unread{border-left-color:#2563eb;background:#eff6ff;}
   .wf-muted{color:#6b7280;font-size:11px;}
   .wf-empty{height:100%;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:13px;}
-  @media (max-width:1200px){.wf-shell{grid-template-columns:1fr;height:auto}.wf-detail{min-height:620px}.wf-columns{height:560px}.wf-summary{grid-template-columns:repeat(2,1fr)}}
+  @media (max-width:1200px){.wf-shell{grid-template-columns:1fr;height:auto}.wf-detail{min-height:620px}.wf-columns{height:560px}.wf-summary{grid-template-columns:repeat(2,1fr)}.wf-new{grid-template-columns:1fr 1fr}.wf-new .wf-btn.primary{width:100%;justify-content:center;}}
 </style>
 
 <div class="fade-in" x-data="workflowApp()" x-init="init()">
@@ -129,8 +142,8 @@
     </template>
   </datalist>
   <datalist id="wfCompanyNames">
-    <template x-for="c in contactOptions" :key="c.company + c.name">
-      <option :value="c.company"></option>
+    <template x-for="company in workflowCompanyNames()" :key="company">
+      <option :value="company"></option>
     </template>
   </datalist>
   <datalist id="wfProjectNames">
@@ -138,13 +151,7 @@
       <option :value="p"></option>
     </template>
   </datalist>
-  <datalist id="wfUserNames">
-    <template x-for="u in workflowUsers" :key="u.userId">
-      <option :value="u.name" :label="u.userId + (u.position ? ' · ' + u.position : '')"></option>
-    </template>
-  </datalist>
-
-  <div class="wf-shell">
+  <div class="wf-shell" :class="detail && detail.job ? 'has-detail' : 'no-detail'">
     <section class="wf-board">
       <div class="wf-toolbar">
         <h2>워크플로우</h2>
@@ -163,7 +170,7 @@
         </select>
         <button class="wf-btn ghost" @click="loadJobs()"><span class="material-symbols-outlined" style="font-size:16px;">search</span>조회</button>
         <div style="flex:1"></div>
-        <button class="wf-btn primary" @click="newOpen=!newOpen"><span class="material-symbols-outlined" style="font-size:16px;">add</span>작업</button>
+        <button class="wf-btn primary" @click="openNewJobModal()"><span class="material-symbols-outlined" style="font-size:16px;">add</span>작업</button>
       </div>
 
       <div class="wf-summary">
@@ -265,16 +272,6 @@
         </template>
       </div>
 
-      <div class="wf-new" x-show="newOpen" x-transition>
-        <input class="wf-input" x-model="form.title" placeholder="작업명">
-        <input class="wf-input" list="wfCompanyNames" x-model="form.companyName" placeholder="업체">
-        <input class="wf-input" x-model="form.projectName" placeholder="현장">
-        <input class="wf-input" list="wfContactNames" x-model="form.contactName" @change="applyContactToForm()" @blur="applyContactToForm()" placeholder="담당자">
-        <input class="wf-input" x-model="form.contactPhone" placeholder="연락처">
-        <input class="wf-input" type="date" x-model="form.dueDate">
-        <button class="wf-btn primary" @click="createJob()" :disabled="saving">등록</button>
-      </div>
-
       <div class="wf-columns">
         <template x-for="stage in stages" :key="stage.id">
           <div class="wf-col">
@@ -365,11 +362,13 @@
             <section class="wf-section">
               <div class="wf-section-title"><span class="material-symbols-outlined" style="font-size:16px;">business</span>기본</div>
               <div class="wf-section-body">
+                <div class="wf-creator" title="담당자는 로그인 사용자로 자동 저장됩니다.">
+                  <span class="material-symbols-outlined" style="font-size:15px;">person</span>
+                  <span x-text="'담당 ' + currentUserLabel()"></span>
+                </div>
                 <div class="wf-grid-2">
                   <input class="wf-input" list="wfCompanyNames" x-model="detail.job.companyName" placeholder="업체">
                   <input class="wf-input" x-model="detail.job.projectName" placeholder="현장">
-                  <input class="wf-input" list="wfContactNames" x-model="detail.job.contactName" @change="applyContactToDetail()" @blur="applyContactToDetail()" placeholder="담당자">
-                  <input class="wf-input" x-model="detail.job.contactPhone" placeholder="연락처">
                   <input class="wf-input" type="date" x-model="detail.job.dueDate">
                   <input class="wf-input" type="date" x-model="detail.job.deliveryDate">
                 </div>
@@ -394,7 +393,6 @@
                         <option value="done">완료</option>
                         <option value="blocked">막힘</option>
                       </select>
-                      <input class="wf-input" list="wfUserNames" x-model="detail.job.stageChecks[stage.id].assignee" placeholder="담당">
                       <input class="wf-input" type="date" x-model="detail.job.stageChecks[stage.id].dueDate">
                       <span class="wf-chip overdue" x-show="isStageOverdue(stage.id)">지연</span>
                       <button class="wf-btn" @click="saveStage(stage.id)" x-text="'체크 ' + checklistDoneCount(stage.id) + '/' + stageChecklist(stage.id).length"></button>
@@ -415,28 +413,30 @@
             <section class="wf-section">
               <div class="wf-section-title" style="justify-content:space-between;">
                 <span style="display:flex;align-items:center;gap:6px;">
-                  <span class="material-symbols-outlined" style="font-size:16px;">photo_library</span>시안 보드
+                  <span class="material-symbols-outlined" style="font-size:16px;">cloud_upload</span>시안 등록
                 </span>
-                <button class="wf-btn ghost" style="height:26px;" @click="uploadOpen=!uploadOpen" x-text="uploadOpen ? '닫기' : '시안 올리기'"></button>
+                <span class="wf-muted" x-text="'등록자 ' + currentUserLabel()"></span>
               </div>
               <div class="wf-section-body">
-                <div class="wf-upload-panel" x-show="uploadOpen" x-transition>
+                <div class="wf-upload-panel">
+                  <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <span class="wf-chip unread">관리팀·공장 자동전달</span>
+                    <label style="height:28px;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:#b91c1c;">
+                      <input type="checkbox" x-model="uploadUrgent"> 긴급
+                    </label>
+                  </div>
                   <div style="display:grid;grid-template-columns:1fr 1fr 130px;gap:8px;">
                     <input class="wf-input" list="wfCompanyNames" x-model="uploadCompanyName" placeholder="회사">
                     <input class="wf-input" list="wfProjectNames" x-model="uploadProjectName" placeholder="프로젝트">
                     <input class="wf-input" type="date" x-model="uploadDesignDueDate" title="디자인 희망 완료일">
                   </div>
-                  <input class="wf-input" x-model="uploadNote" placeholder="파일 메모">
-                  <label style="height:28px;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:#b91c1c;">
-                    <input type="checkbox" x-model="uploadUrgent"> 긴급 시안
-                  </label>
                   <label class="wf-dropzone" :class="uploadDragOver ? 'drag' : ''"
                     @dragover.prevent="uploadDragOver=true"
                     @dragleave.prevent="uploadDragOver=false"
                     @drop="uploadDroppedFiles($event)">
                     <div>
-                      <strong>시안/JPG/AI 여러 개 드래그</strong>
-                      <span x-text="uploadStorageYear() + ' / ' + (uploadCompanyName || '회사 미선택') + ' / ' + (uploadProjectName || '프로젝트 미선택')"></span>
+                      <strong>JPG · PNG · AI 파일을 여기에 드래그</strong>
+                      <span x-text="'입력한 폴더: ' + uploadStorageYear() + ' / ' + (uploadCompanyName || '회사 미입력') + ' / ' + (uploadProjectName || '프로젝트 미입력')"></span>
                     </div>
                     <span class="wf-btn">파일 선택</span>
                     <input type="file" multiple style="display:none;" @change="uploadFiles($event)">
@@ -589,14 +589,8 @@
             <section class="wf-section">
               <div class="wf-section-title"><span class="material-symbols-outlined" style="font-size:16px;">forum</span>기록</div>
               <div class="wf-section-body">
-                <div style="display:grid;grid-template-columns:1fr 130px auto;gap:8px;">
+                <div style="display:grid;grid-template-columns:1fr auto;gap:8px;">
                   <input class="wf-input" x-model="commentText" @keydown.enter="addComment()" placeholder="댓글">
-                  <select class="wf-select" x-model="commentTargetUserId">
-                    <option value="">대상 없음</option>
-                    <template x-for="u in workflowUsers" :key="u.userId">
-                      <option :value="u.userId" x-text="u.name"></option>
-                    </template>
-                  </select>
                   <button class="wf-btn" @click="addComment()">등록</button>
                 </div>
                 <template x-for="event in detail.events.slice().reverse()" :key="event.id">
@@ -621,6 +615,59 @@
         </div>
       </template>
     </aside>
+  </div>
+  <div class="wf-modal" x-show="newOpen" x-cloak x-transition @click.self="closeNewJobModal()" @keydown.window.escape="closeNewJobModal()">
+    <div class="wf-dialog">
+      <div class="wf-dialog-head">
+        <div class="wf-dialog-title">
+          <span class="material-symbols-outlined" style="font-size:17px;">add_task</span>
+          작업 등록
+        </div>
+        <button class="wf-btn ghost" style="height:28px;" @click="closeNewJobModal()">닫기</button>
+      </div>
+      <div class="wf-dialog-body">
+        <div class="wf-field">
+          <label>작업명</label>
+          <input class="wf-input" x-ref="newJobTitle" x-model="form.title" @keydown.enter="createJob()" placeholder="작업명을 입력">
+        </div>
+        <div class="wf-modal-grid">
+          <div class="wf-field">
+            <label>회사명</label>
+            <input class="wf-input" list="wfCompanyNames" x-model="form.companyName" placeholder="직접 입력 또는 선택">
+          </div>
+          <div class="wf-field">
+            <label>프로젝트/현장</label>
+            <input class="wf-input" list="wfProjectNames" x-model="form.projectName" placeholder="프로젝트명">
+          </div>
+          <div class="wf-field">
+            <label>희망 완료일</label>
+            <input class="wf-input" type="date" x-model="form.dueDate">
+          </div>
+          <div class="wf-field">
+            <label>긴급도</label>
+            <select class="wf-select" x-model="form.priority">
+              <option value="urgent">긴급</option>
+              <option value="high">높음</option>
+              <option value="normal">보통</option>
+              <option value="low">낮음</option>
+            </select>
+          </div>
+        </div>
+        <div class="wf-field">
+          <label>메모</label>
+          <textarea class="wf-textarea" x-model="form.summary" placeholder="전달할 내용을 짧게 입력"></textarea>
+        </div>
+      </div>
+      <div class="wf-dialog-foot">
+        <div class="wf-creator" title="담당자는 로그인 사용자로 자동 저장됩니다.">
+          <span class="material-symbols-outlined" style="font-size:15px;">person</span>
+          <span x-text="'담당 ' + currentUserLabel()"></span>
+        </div>
+        <button class="wf-btn primary" @click="createJob()" :disabled="saving">
+          <span class="material-symbols-outlined" style="font-size:16px;">check</span>등록
+        </button>
+      </div>
+    </div>
   </div>
 <div class="wf-preview-modal" x-show="filePreview.open" x-cloak @click.self="closeFilePreview()" @keydown.window.escape="closeFilePreview()">
   <div class="wf-preview-panel">

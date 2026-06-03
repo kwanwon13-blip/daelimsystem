@@ -4,6 +4,7 @@ const path = require('path');
 const multer = require('multer');
 const JSZip = require('jszip');
 const { requireAuth } = require('../middleware/auth');
+const db = require('../db');
 
 const router = express.Router();
 
@@ -26,6 +27,13 @@ const STAGE_CHECKLISTS = {
 };
 
 const DESIGN_PARALLEL_STAGE_IDS = ['management', 'factory'];
+
+const STAGE_DEPARTMENT_ALIASES = {
+  design: ['디자인팀', '디자인'],
+  management: ['경영관리팀', '관리팀', '관리'],
+  factory: ['공장', '공장팀', '생산팀'],
+  delivery: ['납품팀', '납품'],
+};
 
 const STATUS_LABELS = {
   active: '진행',
@@ -300,6 +308,106 @@ function splitTargetLabels(label) {
   return uniqueTexts(String(label || '').split(/[,\u00b7/]+/));
 }
 
+function normalizeTargetStageIds(value) {
+  const raw = Array.isArray(value) ? value : String(value || '').split(/[,\s]+/);
+  return uniqueTexts(raw).filter(id => STAGES.some(stage => stage.id === id));
+}
+
+function fileTargetStageIds(file) {
+  return normalizeTargetStageIds(file?.targetStageIds);
+}
+
+function eventTargetStageIds(event) {
+  return normalizeTargetStageIds(event?.targetStageIds || event?.meta?.targetStageIds);
+}
+
+let orgCache = { at: 0, data: { users: [], departments: [] } };
+
+function loadOrgSnapshot() {
+  const now = Date.now();
+  if (now - orgCache.at < 1500) return orgCache.data;
+  try {
+    const data = db.loadUsers ? db.loadUsers() : db.조직관리.load();
+    orgCache = {
+      at: now,
+      data: {
+        users: Array.isArray(data.users) ? data.users : [],
+        departments: Array.isArray(data.departments) ? data.departments : [],
+      },
+    };
+  } catch (_) {
+    orgCache = { at: now, data: { users: [], departments: [] } };
+  }
+  return orgCache.data;
+}
+
+function lowerText(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function resolveWorkflowUser(userLike = {}) {
+  const org = loadOrgSnapshot();
+  const userId = lowerText(userLike.userId);
+  const name = lowerText(userLike.name);
+  const found = org.users.find(u => userId && lowerText(u.userId) === userId)
+    || org.users.find(u => name && lowerText(u.name) === name)
+    || {};
+  const departmentValue = userLike.department || found.department || '';
+  const dept = org.departments.find(d => lowerText(d.id) === lowerText(departmentValue) || lowerText(d.name) === lowerText(departmentValue));
+  const departmentName = dept ? dept.name : departmentValue;
+  const departmentId = dept ? dept.id : departmentValue;
+  return {
+    userId,
+    name: name || lowerText(found.name),
+    departmentId: lowerText(departmentId),
+    departmentName: lowerText(departmentName),
+    raw: found,
+  };
+}
+
+function profileTokens(profile) {
+  return uniqueTexts([
+    profile.userId,
+    profile.name,
+    profile.departmentId,
+    profile.departmentName,
+  ]).map(lowerText).filter(Boolean);
+}
+
+function textMatchesProfile(text, profile) {
+  const hay = lowerText(text);
+  if (!hay) return false;
+  return profileTokens(profile).some(token => hay.includes(token) || token.includes(hay));
+}
+
+function stageTargetTexts(job, stageId) {
+  const stage = STAGES.find(s => s.id === stageId);
+  const check = job?.stageChecks?.[stageId] || {};
+  return uniqueTexts([
+    stageId,
+    stage?.label,
+    check.assignee,
+    ...(STAGE_DEPARTMENT_ALIASES[stageId] || []),
+  ]);
+}
+
+function viewerMatchesStageTarget(job, stageId, viewerUser) {
+  if (!STAGES.some(stage => stage.id === stageId)) return false;
+  const profile = resolveWorkflowUser(viewerUser || {});
+  return stageTargetTexts(job, stageId).some(text => textMatchesProfile(text, profile));
+}
+
+function targetLabelStageIds(label, job) {
+  const needle = lowerText(label);
+  if (!needle) return [];
+  return STAGES
+    .filter(stage => stageTargetTexts(job, stage.id).some(text => {
+      const hay = lowerText(text);
+      return hay && (needle.includes(hay) || hay.includes(needle));
+    }))
+    .map(stage => stage.id);
+}
+
 function stageIndex(stageId) {
   const idx = STAGES.findIndex(s => s.id === stageId);
   return idx >= 0 ? idx : 0;
@@ -372,6 +480,7 @@ function markEventReadBy(event, req) {
 }
 
 function hasEventTarget(event) {
+  if (eventTargetStageIds(event).length) return true;
   return !!(
     String(event?.targetUserId || '').trim()
     || String(event?.targetUserName || '').trim()
@@ -379,35 +488,46 @@ function hasEventTarget(event) {
   );
 }
 
-function isEventTargetViewer(event, viewerUser) {
+function isEventTargetViewer(event, viewerUser, job = null) {
   const viewerId = String(viewerUser?.userId || '').trim().toLowerCase();
   const viewerName = String(viewerUser?.name || '').trim().toLowerCase();
   const targetUserId = String(event?.targetUserId || '').trim().toLowerCase();
   const targetUserName = String(event?.targetUserName || '').trim().toLowerCase();
   const targetLabel = String(event?.targetLabel || '').trim().toLowerCase();
   if (!hasEventTarget(event)) return false;
+  const stageIds = eventTargetStageIds(event);
+  if (job && stageIds.some(stageId => viewerMatchesStageTarget(job, stageId, viewerUser))) return true;
   if (targetUserId && viewerId && targetUserId === viewerId) return true;
   if (targetUserName && viewerName && targetUserName === viewerName) return true;
   if (targetLabel && viewerName && targetLabel.includes(viewerName)) return true;
   if (targetLabel && viewerId && targetLabel.includes(viewerId)) return true;
+  if (job && targetLabelStageIds(targetLabel, job).some(stageId => viewerMatchesStageTarget(job, stageId, viewerUser))) return true;
   return false;
 }
 
-function isUnreadEventForViewer(event, viewerUser) {
+function isUnreadEventForViewer(event, viewerUser, job = null) {
   const userId = String(viewerUser?.userId || '');
   if (!event || !userId) return false;
   if (String(event.actorId || '') === userId) return false;
-  if (!isEventTargetViewer(event, viewerUser)) return false;
+  if (!isEventTargetViewer(event, viewerUser, job)) return false;
   const readBy = Array.isArray(event.readBy) ? event.readBy : [];
   return !readBy.some(r => String(r.userId || '') === userId);
 }
 
-function hasEventTargetRead(event) {
+function hasEventTargetRead(event, job = null) {
   const readBy = Array.isArray(event?.readBy) ? event.readBy : [];
   if (!hasEventTarget(event) || !readBy.length) return false;
+  const stageIds = eventTargetStageIds(event);
+  if (job && stageIds.length) {
+    return stageIds.every(stageId => readBy.some(reader => viewerMatchesStageTarget(job, stageId, reader)));
+  }
   const targetUserId = String(event.targetUserId || '').trim().toLowerCase();
   const targetUserName = String(event.targetUserName || '').trim().toLowerCase();
   const targetLabel = String(event.targetLabel || '').trim().toLowerCase();
+  const targetStageIds = job ? targetLabelStageIds(targetLabel, job) : [];
+  if (job && targetStageIds.length) {
+    return targetStageIds.every(stageId => readBy.some(reader => viewerMatchesStageTarget(job, stageId, reader)));
+  }
   return readBy.some(r => {
     const userId = String(r.userId || '').trim().toLowerCase();
     const name = String(r.name || '').trim().toLowerCase();
@@ -419,43 +539,47 @@ function hasEventTargetRead(event) {
   });
 }
 
-function decorateWorkflowEvent(event, viewerUser) {
+function decorateWorkflowEvent(event, viewerUser, job = null) {
   return {
     ...event,
     hasTarget: hasEventTarget(event),
-    targetRead: hasEventTargetRead(event),
-    viewerUnread: isUnreadEventForViewer(event, viewerUser),
+    targetRead: hasEventTargetRead(event, job),
+    viewerUnread: isUnreadEventForViewer(event, viewerUser, job),
   };
 }
 
-function isTargetViewer(file, viewerUser) {
+function isTargetViewer(file, viewerUser, job = null) {
   const viewerId = String(viewerUser?.userId || '').trim().toLowerCase();
   const viewerName = String(viewerUser?.name || '').trim().toLowerCase();
   const targetUserId = String(file?.targetUserId || '').trim().toLowerCase();
   const targetUserName = String(file?.targetUserName || '').trim().toLowerCase();
   const targetLabel = String(file?.targetLabel || '').trim().toLowerCase();
   const targetLabels = fileTargetLabels(file).map(v => String(v || '').trim().toLowerCase());
-  const hasTarget = !!(targetUserId || targetUserName || targetLabel || targetLabels.length);
+  const stageIds = fileTargetStageIds(file);
+  const hasTarget = !!(targetUserId || targetUserName || targetLabel || targetLabels.length || stageIds.length);
   if (!hasTarget) return true;
+  if (job && stageIds.some(stageId => viewerMatchesStageTarget(job, stageId, viewerUser))) return true;
   if (targetUserId && viewerId && targetUserId === viewerId) return true;
   if (targetUserName && viewerName && targetUserName === viewerName) return true;
   if (targetLabel && viewerName && targetLabel.includes(viewerName)) return true;
   if (targetLabel && viewerId && targetLabel.includes(viewerId)) return true;
   if (targetLabels.some(label => viewerName && label.includes(viewerName))) return true;
   if (targetLabels.some(label => viewerId && label.includes(viewerId))) return true;
+  if (job && targetLabels.some(label => targetLabelStageIds(label, job).some(stageId => viewerMatchesStageTarget(job, stageId, viewerUser)))) return true;
   return false;
 }
 
-function isUnreadForViewer(file, viewerUser) {
+function isUnreadForViewer(file, viewerUser, job = null) {
   const userId = String(viewerUser?.userId || '');
   if (!file || !userId) return false;
   if (String(file.uploadedBy || '') === userId) return false;
-  if (!isTargetViewer(file, viewerUser)) return false;
+  if (!isTargetViewer(file, viewerUser, job)) return false;
   const readBy = Array.isArray(file.readBy) ? file.readBy : [];
   return !readBy.some(r => String(r.userId || '') === userId);
 }
 
 function hasFileTarget(file) {
+  if (fileTargetStageIds(file).length) return true;
   if (fileTargetLabels(file).length) return true;
   return !!(
     String(file?.targetUserId || '').trim()
@@ -464,9 +588,13 @@ function hasFileTarget(file) {
   );
 }
 
-function readMatchesTarget(readBy, target) {
+function readMatchesTarget(readBy, target, job = null) {
   const needle = String(target || '').trim().toLowerCase();
   if (!needle) return false;
+  const stageIds = job ? targetLabelStageIds(needle, job) : [];
+  if (job && stageIds.length) {
+    return stageIds.some(stageId => (Array.isArray(readBy) ? readBy : []).some(reader => viewerMatchesStageTarget(job, stageId, reader)));
+  }
   return (Array.isArray(readBy) ? readBy : []).some(r => {
     const userId = String(r.userId || '').trim().toLowerCase();
     const name = String(r.name || '').trim().toLowerCase();
@@ -474,16 +602,24 @@ function readMatchesTarget(readBy, target) {
   });
 }
 
-function hasTargetRead(file) {
+function hasTargetRead(file, job = null) {
   const readBy = Array.isArray(file?.readBy) ? file.readBy : [];
   if (!hasFileTarget(file) || !readBy.length) return false;
+  const stageIds = fileTargetStageIds(file);
+  if (job && stageIds.length) {
+    return stageIds.every(stageId => readBy.some(reader => viewerMatchesStageTarget(job, stageId, reader)));
+  }
   const targetLabels = fileTargetLabels(file);
   if (targetLabels.length > 1) {
-    return targetLabels.every(label => readMatchesTarget(readBy, label));
+    return targetLabels.every(label => readMatchesTarget(readBy, label, job));
   }
   const targetUserId = String(file.targetUserId || '').trim().toLowerCase();
   const targetUserName = String(file.targetUserName || '').trim().toLowerCase();
   const targetLabel = String(file.targetLabel || '').trim().toLowerCase();
+  const targetStageIds = job ? targetLabelStageIds(targetLabel, job) : [];
+  if (job && targetStageIds.length) {
+    return targetStageIds.every(stageId => readBy.some(reader => viewerMatchesStageTarget(job, stageId, reader)));
+  }
   return readBy.some(r => {
     const userId = String(r.userId || '').trim().toLowerCase();
     const name = String(r.name || '').trim().toLowerCase();
@@ -495,16 +631,16 @@ function hasTargetRead(file) {
   });
 }
 
-function decorateWorkflowFile(file, viewerUser) {
+function decorateWorkflowFile(file, viewerUser, job = null) {
   return {
     ...file,
     isImage: isImageFile(file),
     isAi: isAiFile(file),
     previewUrl: isImageFile(file) ? `/api/workflow/files/${encodeURIComponent(file.id)}/preview` : '',
     downloadUrl: `/api/workflow/files/${encodeURIComponent(file.id)}/download`,
-    viewerUnread: isUnreadForViewer(file, viewerUser),
+    viewerUnread: isUnreadForViewer(file, viewerUser, job),
     hasTarget: hasFileTarget(file),
-    targetRead: hasTargetRead(file),
+    targetRead: hasTargetRead(file, job),
   };
 }
 
@@ -517,10 +653,10 @@ function fileTargetDisplay(file) {
   return labels.length ? labels.join(', ') : String(file?.targetLabel || file?.targetUserName || file?.targetUserId || '').trim();
 }
 
-function buildDeliverySummary(files, viewerUser) {
+function buildDeliverySummary(files, viewerUser, job = null) {
   const list = Array.isArray(files) ? files : [];
   const targetFiles = list.filter(hasFileTarget);
-  const pendingTargetFiles = targetFiles.filter(f => !hasTargetRead(f));
+  const pendingTargetFiles = targetFiles.filter(f => !hasTargetRead(f, job));
   const reviewableFiles = list.filter(isReviewableFile);
   const pendingTargetLabels = Array.from(new Set(pendingTargetFiles.map(fileTargetDisplay).filter(Boolean)));
   return {
@@ -528,7 +664,7 @@ function buildDeliverySummary(files, viewerUser) {
     targetedFiles: targetFiles.length,
     targetPendingFiles: pendingTargetFiles.length,
     targetReadFiles: Math.max(0, targetFiles.length - pendingTargetFiles.length),
-    unreadForViewer: list.filter(f => Object.prototype.hasOwnProperty.call(f, 'viewerUnread') ? f.viewerUnread : isUnreadForViewer(f, viewerUser)).length,
+    unreadForViewer: list.filter(f => Object.prototype.hasOwnProperty.call(f, 'viewerUnread') ? f.viewerUnread : isUnreadForViewer(f, viewerUser, job)).length,
     reviewableFiles: reviewableFiles.length,
     pendingReviews: reviewableFiles.filter(f => !f.reviewStatus || f.reviewStatus === 'pending').length,
     approvedReviews: reviewableFiles.filter(f => f.reviewStatus === 'approved').length,
@@ -716,8 +852,9 @@ function isUserJob(job, req) {
   if (!job || !tokens.length) return false;
   if (userId && String(job.createdBy || '').trim().toLowerCase() === userId) return true;
   if (textMatchesToken(job.createdByName, tokens)) return true;
-  return Object.values(job.stageChecks || {}).some(check => {
+  return Object.entries(job.stageChecks || {}).some(([stageId, check]) => {
     if (!check || check.status === 'done') return false;
+    if (viewerMatchesStageTarget(job, stageId, req.user)) return true;
     return textMatchesToken(check.assignee, tokens);
   });
 }
@@ -743,7 +880,7 @@ function decorateJob(data, job, viewerUser = null) {
       urgent: !!primaryVisualFile.urgent,
       scheduleNegotiation: primaryVisualFile.scheduleNegotiation || 'pending',
     } : null,
-    unreadFileCount: files.filter(f => isUnreadForViewer(f, viewerUser)).length,
+    unreadFileCount: files.filter(f => isUnreadForViewer(f, viewerUser, job)).length,
     activeStageIds: activeStageIds(job),
     pendingStageCount: pendingStageCount(job),
     pendingChecklistCount: pendingChecklistCount(job),
@@ -770,7 +907,7 @@ function buildSummary(data, req) {
     }
   }
   const unreadFiles = data.files
-    .filter(f => isUnreadForViewer(f, req.user))
+    .filter(f => isUnreadForViewer(f, req.user, data.jobs.find(j => j.id === f.jobId)))
     .map(file => {
       const job = data.jobs.find(j => j.id === file.jobId);
       return {
@@ -791,7 +928,7 @@ function buildSummary(data, req) {
     })
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
   const unreadEvents = data.events
-    .filter(e => isUnreadEventForViewer(e, req.user))
+    .filter(e => isUnreadEventForViewer(e, req.user, data.jobs.find(j => j.id === e.jobId)))
     .map(event => {
       const job = data.jobs.find(j => j.id === event.jobId);
       return {
@@ -955,13 +1092,13 @@ router.get('/jobs/:id', (req, res) => {
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
   const files = data.files
     .filter(f => f.jobId === job.id)
-    .map(f => decorateWorkflowFile(f, req.user));
+    .map(f => decorateWorkflowFile(f, req.user, job));
   res.json({
     ok: true,
     job: decorateJob(data, job, req.user),
     files,
-    deliverySummary: buildDeliverySummary(files, req.user),
-    events: data.events.filter(e => e.jobId === job.id).map(e => decorateWorkflowEvent(e, req.user)),
+    deliverySummary: buildDeliverySummary(files, req.user, job),
+    events: data.events.filter(e => e.jobId === job.id).map(e => decorateWorkflowEvent(e, req.user, job)),
   });
 });
 
@@ -1081,6 +1218,7 @@ router.post('/jobs/:id/handoff', (req, res) => {
       fromStageId: current.id,
       toStageId: DESIGN_PARALLEL_STAGE_IDS.join(','),
       eventTargetLabel: targetLabels.join(', '),
+      targetStageIds: DESIGN_PARALLEL_STAGE_IDS,
     });
   } else if (current.id === 'management' || current.id === 'factory') {
     const otherStageId = current.id === 'management' ? 'factory' : 'management';
@@ -1091,12 +1229,14 @@ router.post('/jobs/:id/handoff', (req, res) => {
         fromStageId: current.id,
         toStageId: 'delivery',
         eventTargetLabel: deliveryCheck.assignee || '',
+        targetStageIds: ['delivery'],
       });
     } else {
       addEvent(data, req, job.id, 'handoff', `${current.label} 완료 · ${other?.label || otherStageId} 진행 대기${message ? ' - ' + message : ''}`, {
         fromStageId: current.id,
         toStageId: otherStageId,
         eventTargetLabel: job.stageChecks[otherStageId]?.assignee || '',
+        targetStageIds: [otherStageId],
       });
     }
   } else if (next) {
@@ -1108,6 +1248,7 @@ router.post('/jobs/:id/handoff', (req, res) => {
       fromStageId: current.id,
       toStageId: next.id,
       eventTargetLabel: nextCheck.assignee || '',
+      targetStageIds: [next.id],
     });
   } else {
     const blockers = completionBlockers(data, job);
@@ -1145,18 +1286,19 @@ router.post('/jobs/:id/events', (req, res) => {
   });
   job.updatedAt = nowIso();
   saveStore(data);
-  res.json({ ok: true, event: decorateWorkflowEvent(event, req.user) });
+  res.json({ ok: true, event: decorateWorkflowEvent(event, req.user, job) });
 });
 
 router.post('/jobs/:id/events/:eventId/read', (req, res) => {
   const data = loadStore();
   const event = data.events.find(e => e.jobId === req.params.id && e.id === req.params.eventId);
   if (!event) return res.status(404).json({ error: '기록을 찾을 수 없습니다.' });
+  const job = data.jobs.find(j => j.id === event.jobId) || null;
   if (markEventReadBy(event, req)) {
     addEvent(data, req, event.jobId, 'event_read', `${event.message || '기록'} 확인`, { eventId: event.id });
     saveStore(data);
   }
-  res.json({ ok: true, event: decorateWorkflowEvent(event, req.user) });
+  res.json({ ok: true, event: decorateWorkflowEvent(event, req.user, job) });
 });
 
 router.get('/jobs/:id/files', (req, res) => {
@@ -1165,11 +1307,11 @@ router.get('/jobs/:id/files', (req, res) => {
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
   const files = data.files
     .filter(f => f.jobId === job.id)
-    .map(f => decorateWorkflowFile(f, req.user));
+    .map(f => decorateWorkflowFile(f, req.user, job));
   res.json({
     ok: true,
     files,
-    deliverySummary: buildDeliverySummary(files, req.user),
+    deliverySummary: buildDeliverySummary(files, req.user, job),
   });
 });
 
@@ -1185,6 +1327,12 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
   const requestedTargetLabel = safeText(req.body.targetLabel, 120);
   const autoTargetLabels = defaultUploadTargetLabels(job, stageId, kind);
   const isDesignAsset = stageId === 'design' && ['proof', 'drawing', 'photo'].includes(kind);
+  const requestedTargetStageIds = normalizeTargetStageIds(req.body.targetStageIds);
+  const targetStageIds = targetUserId || targetUserName
+    ? []
+    : isDesignAsset
+      ? (requestedTargetStageIds.length ? requestedTargetStageIds : DESIGN_PARALLEL_STAGE_IDS)
+      : requestedTargetStageIds;
   const targetLabels = targetUserId || targetUserName
     ? uniqueTexts([requestedTargetLabel || targetUserName || targetUserId])
     : isDesignAsset
@@ -1240,6 +1388,7 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
       targetUserName,
       targetLabel,
       targetLabels,
+      targetStageIds,
       reviewStatus: 'pending',
       reviewNote: '',
       reviewedBy: '',
@@ -1261,12 +1410,13 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
       targetUserId,
       targetUserName,
       targetLabel,
+      targetStageIds,
     });
   }
   saveStore(data);
   res.json({
     ok: true,
-    files: uploaded.map(f => decorateWorkflowFile(f, req.user)),
+    files: uploaded.map(f => decorateWorkflowFile(f, req.user, job)),
     job: decorateJob(data, job, req.user),
   });
 });
@@ -1275,17 +1425,19 @@ router.post('/jobs/:id/files/:fileId/read', (req, res) => {
   const data = loadStore();
   const file = data.files.find(f => f.jobId === req.params.id && f.id === req.params.fileId);
   if (!file) return res.status(404).json({ error: '파일을 찾을 수 없습니다.' });
+  const job = data.jobs.find(j => j.id === file.jobId) || null;
   if (markFileReadBy(file, req)) {
     addEvent(data, req, file.jobId, 'read', `${file.originalName} 확인`, { fileId: file.id });
     saveStore(data);
   }
-  res.json({ ok: true, file: decorateWorkflowFile(file, req.user) });
+  res.json({ ok: true, file: decorateWorkflowFile(file, req.user, job) });
 });
 
 router.post('/jobs/:id/files/:fileId/review', (req, res) => {
   const data = loadStore();
   const file = data.files.find(f => f.jobId === req.params.id && f.id === req.params.fileId);
   if (!file) return res.status(404).json({ error: '파일을 찾을 수 없습니다.' });
+  const job = data.jobs.find(j => j.id === file.jobId) || null;
   const status = ['pending', 'approved', 'change_requested'].includes(req.body.status) ? req.body.status : '';
   if (!status) return res.status(400).json({ error: '검토 상태가 필요합니다.' });
   const note = safeText(req.body.note, 1000);
@@ -1301,7 +1453,7 @@ router.post('/jobs/:id/files/:fileId/review', (req, res) => {
     status,
   });
   saveStore(data);
-  res.json({ ok: true, file: decorateWorkflowFile(file, req.user) });
+  res.json({ ok: true, file: decorateWorkflowFile(file, req.user, job) });
 });
 
 router.post('/jobs/:id/files/:fileId/schedule', (req, res) => {
@@ -1343,9 +1495,10 @@ router.post('/jobs/:id/files/:fileId/schedule', (req, res) => {
     designDueDate: file.designDueDate,
     factoryAvailableDate: file.factoryAvailableDate,
     eventTargetLabel: factoryChanged ? uniqueTexts([designAssignee, managementAssignee]).join(', ') : factoryAssignee,
+    targetStageIds: factoryChanged ? ['design', 'management'] : ['factory'],
   });
   saveStore(data);
-  res.json({ ok: true, file: decorateWorkflowFile(file, req.user), job: decorateJob(data, job, req.user) });
+  res.json({ ok: true, file: decorateWorkflowFile(file, req.user, job), job: decorateJob(data, job, req.user) });
 });
 
 router.post('/jobs/:id/files/:fileId/events', (req, res) => {
@@ -1363,10 +1516,11 @@ router.post('/jobs/:id/files/:fileId/events', (req, res) => {
     eventTargetUserId: targetUserId,
     eventTargetUserName: targetUserName,
     eventTargetLabel: targetLabel,
+    targetStageIds: targetUserId || targetUserName ? [] : (fileTargetStageIds(file).length ? fileTargetStageIds(file) : targetLabelStageIds(targetLabel, job)),
   });
   job.updatedAt = nowIso();
   saveStore(data);
-  res.json({ ok: true, event: decorateWorkflowEvent(event, req.user) });
+  res.json({ ok: true, event: decorateWorkflowEvent(event, req.user, job) });
 });
 
 router.get('/jobs/:id/files/archive', async (req, res) => {

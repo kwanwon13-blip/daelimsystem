@@ -14,14 +14,12 @@ function workflowApp() {
     statusFilter: 'active',
     scopeFilter: 'all',
     newOpen: false,
+    currentUser: null,
     contactOptions: [],
-    workflowUsers: [],
     commentText: '',
-    commentTargetUserId: '',
     handoffText: '',
     uploadStageId: 'design',
     uploadKind: 'proof',
-    uploadTargetUserId: '',
     uploadCompanyName: '',
     uploadProjectName: '',
     uploadNote: '',
@@ -54,9 +52,20 @@ function workflowApp() {
         });
         window.__workflowPrefillListenerInstalled = true;
       }
-      await Promise.all([this.loadMeta(), this.loadContacts(), this.loadUsers()]);
+      await Promise.all([this.loadAuth(), this.loadMeta(), this.loadContacts()]);
+      if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
       await this.loadJobs();
       this.consumeWorkflowDraft();
+    },
+
+    async loadAuth() {
+      try {
+        const r = await fetch('/api/auth/me');
+        const d = await r.json();
+        this.currentUser = d && d.loggedIn ? d : null;
+      } catch (_) {
+        this.currentUser = null;
+      }
     },
 
     async loadMeta() {
@@ -81,15 +90,6 @@ function workflowApp() {
       }
     },
 
-    async loadUsers() {
-      try {
-        const users = await fetch('/api/users/list').then(r => r.ok ? r.json() : []);
-        this.workflowUsers = (users || []).filter(u => u && u.userId && u.name);
-      } catch (_) {
-        this.workflowUsers = [];
-      }
-    },
-
     async loadSummary() {
       try {
         const r = await fetch('/api/workflow/summary');
@@ -109,8 +109,7 @@ function workflowApp() {
         const d = await r.json();
         this.jobs = d.jobs || [];
         if (this.selectedId && !this.jobs.find(j => j.id === this.selectedId)) this.selectedId = '';
-        if (!this.selectedId && this.jobs[0]) await this.selectJob(this.jobs[0].id);
-        if (!this.selectedId && !this.jobs[0]) this.detail = null;
+        if (!this.selectedId) this.detail = null;
         if (this.selectedId) await this.refreshDetail(false);
         await this.loadSummary();
       } finally {
@@ -212,6 +211,47 @@ function workflowApp() {
       return Array.from(new Set(names.filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b), 'ko'));
     },
 
+    workflowCompanyNames() {
+      const names = [];
+      if (this.detail?.job?.companyName) names.push(this.detail.job.companyName);
+      for (const job of this.jobs || []) {
+        if (job.companyName) names.push(job.companyName);
+      }
+      for (const contact of this.contactOptions || []) {
+        if (contact.company) names.push(contact.company);
+      }
+      return Array.from(new Set(names.map(v => String(v || '').trim()).filter(Boolean)))
+        .sort((a, b) => a.localeCompare(b, 'ko'));
+    },
+
+    currentUserLabel() {
+      if (!this.currentUser) return '로그인 사용자';
+      return this.currentUser.name || this.currentUser.userId || '로그인 사용자';
+    },
+
+    formatDateInput(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    },
+
+    addWorkingDays(baseDate, days) {
+      const date = baseDate instanceof Date ? new Date(baseDate.getTime()) : new Date(baseDate || Date.now());
+      date.setHours(12, 0, 0, 0);
+      let remain = Number(days || 0);
+      while (remain > 0) {
+        date.setDate(date.getDate() + 1);
+        const day = date.getDay();
+        if (day !== 0 && day !== 6) remain -= 1;
+      }
+      return this.formatDateInput(date);
+    },
+
+    defaultWorkDate() {
+      return this.addWorkingDays(new Date(), 3);
+    },
+
     uploadStorageYear() {
       const dueYear = String(this.uploadDesignDueDate || '').slice(0, 4);
       if (/^\d{4}$/.test(dueYear)) return dueYear;
@@ -238,19 +278,6 @@ function workflowApp() {
       if (!c) return;
       if (!this.detail.job.companyName && c.company) this.detail.job.companyName = c.company;
       if (c.phone) this.detail.job.contactPhone = c.phone;
-    },
-
-    selectedUploadTarget() {
-      return this.workflowUsers.find(u => String(u.userId) === String(this.uploadTargetUserId)) || null;
-    },
-
-    selectedCommentTarget() {
-      return this.workflowUsers.find(u => String(u.userId) === String(this.commentTargetUserId)) || null;
-    },
-
-    commentTargetLabel() {
-      const user = this.selectedCommentTarget();
-      return user ? `${user.name} (${user.userId})` : '';
     },
 
     uploadTargetLabel() {
@@ -363,6 +390,7 @@ function workflowApp() {
 
     async createJob() {
       if (!this.form.title.trim()) return alert('작업명을 입력하세요.');
+      if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
       this.saving = true;
       try {
         const r = await fetch('/api/workflow/jobs', {
@@ -390,11 +418,23 @@ function workflowApp() {
         projectName: '',
         contactName: '',
         contactPhone: '',
-        dueDate: '',
+        dueDate: this.defaultWorkDate(),
         deliveryDate: '',
         priority: 'normal',
         summary: '',
       };
+    },
+
+    openNewJobModal() {
+      if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
+      this.newOpen = true;
+      setTimeout(() => {
+        try { this.$refs?.newJobTitle?.focus(); } catch (_) {}
+      }, 50);
+    },
+
+    closeNewJobModal() {
+      this.newOpen = false;
     },
 
     applyWorkflowDraft(draft, keepOpen) {
@@ -405,6 +445,7 @@ function workflowApp() {
           if (draft[key] !== undefined && draft[key] !== null) next[key] = String(draft[key]);
         });
       if (!next.priority) next.priority = 'normal';
+      if (!next.dueDate) next.dueDate = this.defaultWorkDate();
       this.form = next;
       if (keepOpen) this.newOpen = true;
     },
@@ -467,8 +508,10 @@ function workflowApp() {
       }
       this.detail = d;
       this.uploadStageId = 'design';
+      this.uploadOpen = true;
       if (force || !this.uploadCompanyName) this.uploadCompanyName = d.job.companyName || '';
       if (force || !this.uploadProjectName) this.uploadProjectName = d.job.projectName || d.job.title || '';
+      if (force || !this.uploadDesignDueDate) this.uploadDesignDueDate = d.job.dueDate || this.defaultWorkDate();
     },
 
     async saveJob() {
@@ -529,21 +572,19 @@ function workflowApp() {
 
     async addComment() {
       if (!this.detail || !this.commentText.trim()) return;
-      const target = this.selectedCommentTarget();
       const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: this.commentText,
-          targetUserId: target?.userId || '',
-          targetUserName: target?.name || '',
-          targetLabel: this.commentTargetLabel(),
+          targetUserId: '',
+          targetUserName: '',
+          targetLabel: '',
         }),
       });
       const d = await r.json();
       if (!r.ok || !d.ok) return alert(d.error || '댓글 저장 실패');
       this.commentText = '';
-      this.commentTargetUserId = '';
       await this.refreshDetail(false);
       await this.loadSummary();
     },
@@ -653,14 +694,13 @@ function workflowApp() {
       if (!this.detail || !file) return;
       const message = String(file._commentText || '').trim();
       if (!message) return;
-      const target = this.selectedUploadTarget();
       const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/files/' + encodeURIComponent(file.id) + '/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message,
-          targetUserId: target?.userId || file.targetUserId || '',
-          targetUserName: target?.name || file.targetUserName || '',
+          targetUserId: '',
+          targetUserName: '',
           targetLabel: this.uploadTargetLabel() || file.targetLabel || '',
         }),
       });
