@@ -117,6 +117,18 @@ function workflowApp() {
       return this.checkStatuses[status] || status || '대기';
     },
 
+    isPastDue(dateValue) {
+      if (!dateValue) return false;
+      const today = new Date().toISOString().slice(0, 10);
+      return String(dateValue) < today;
+    },
+
+    isStageOverdue(stageId) {
+      if (!this.detail || !this.detail.job) return false;
+      const check = this.detail.job.stageChecks?.[stageId] || {};
+      return check.status !== 'done' && this.isPastDue(check.dueDate);
+    },
+
     isUnreadFile(file) {
       return !!(file && file.viewerUnread);
     },

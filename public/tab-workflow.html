@@ -44,7 +44,8 @@
   .wf-section-title{height:34px;display:flex;align-items:center;gap:6px;padding:0 10px;border-bottom:1px solid #edf0f5;background:#f8fafc;font-size:12px;font-weight:800;color:#374151;}
   .wf-section-body{padding:10px;display:flex;flex-direction:column;gap:8px;}
   .wf-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
-  .wf-stage-row{display:grid;grid-template-columns:84px 84px 1fr 96px auto;gap:6px;align-items:center;padding:7px;border:1px solid #edf0f5;border-radius:6px;background:#fff;}
+  .wf-stage-row{display:grid;grid-template-columns:84px 84px 1fr 96px auto auto;gap:6px;align-items:center;padding:7px;border:1px solid #edf0f5;border-radius:6px;background:#fff;}
+  .wf-stage-row.overdue{border-color:#fecaca;background:#fff5f5;}
   .wf-stage-name{font-size:12px;font-weight:800;color:#111827;}
   .wf-handoff{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:8px;border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;}
   .wf-file{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:8px;border:1px solid #edf0f5;border-radius:6px;}
@@ -166,6 +167,8 @@
                     <span class="wf-chip" :class="job.priority" x-text="priorityLabel(job.priority)"></span>
                     <span class="wf-chip" x-show="job.dueDate" x-text="job.dueDate"></span>
                     <span class="wf-chip overdue" x-show="job.overdue">지연</span>
+                    <span class="wf-chip" x-show="job.nextStageDue" :class="job.nextStageDue && job.nextStageDue.overdue ? 'overdue' : ''" x-text="job.nextStageDue ? (job.nextStageDue.stageLabel + ' ' + job.nextStageDue.dueDate) : ''"></span>
+                    <span class="wf-chip overdue" x-show="job.overdueStageCount" x-text="'단계지연 ' + job.overdueStageCount"></span>
                     <span class="wf-chip blocked" x-show="job.blockedStageCount" x-text="'막힘 ' + job.blockedStageCount"></span>
                     <span class="wf-chip unread" x-show="job.unreadFileCount" x-text="'확인 ' + job.unreadFileCount"></span>
                     <span class="wf-chip" x-show="job.fileCount" x-text="'파일 ' + job.fileCount"></span>
@@ -229,7 +232,7 @@
                   <button class="wf-btn primary" @click="handoffJob()" :disabled="saving" x-text="handoffLabel()"></button>
                 </div>
                 <template x-for="stage in stages" :key="stage.id">
-                  <div class="wf-stage-row">
+                  <div class="wf-stage-row" :class="isStageOverdue(stage.id) ? 'overdue' : ''">
                     <div class="wf-stage-name" x-text="stage.label"></div>
                     <select class="wf-select" x-model="detail.job.stageChecks[stage.id].status">
                       <option value="pending">대기</option>
@@ -239,6 +242,7 @@
                     </select>
                     <input class="wf-input" list="wfUserNames" x-model="detail.job.stageChecks[stage.id].assignee" placeholder="담당">
                     <input class="wf-input" type="date" x-model="detail.job.stageChecks[stage.id].dueDate">
+                    <span class="wf-chip overdue" x-show="isStageOverdue(stage.id)">지연</span>
                     <button class="wf-btn" @click="saveStage(stage.id)">체크</button>
                   </div>
                 </template>

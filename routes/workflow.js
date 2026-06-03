@@ -182,12 +182,39 @@ function isUnreadForViewer(file, viewerUser) {
 
 function isOverdueJob(job) {
   if (!job || job.status === 'done' || job.status === 'cancelled' || !job.dueDate) return false;
+  return isPastDue(job.dueDate);
+}
+
+function isPastDue(dateValue) {
+  if (!dateValue) return false;
   const today = new Date().toISOString().slice(0, 10);
-  return String(job.dueDate) < today;
+  return String(dateValue) < today;
 }
 
 function blockedStageCount(job) {
   return Object.values(job.stageChecks || {}).filter(c => c && c.status === 'blocked').length;
+}
+
+function overdueStageCount(job) {
+  if (!job || job.status === 'done' || job.status === 'cancelled') return 0;
+  return Object.values(job.stageChecks || {})
+    .filter(c => c && c.status !== 'done' && isPastDue(c.dueDate)).length;
+}
+
+function nextStageDue(job) {
+  if (!job || !job.stageChecks) return null;
+  const pending = STAGES
+    .map(stage => ({ stage, check: job.stageChecks[stage.id] || {} }))
+    .filter(({ check }) => check.status !== 'done' && check.dueDate)
+    .sort((a, b) => String(a.check.dueDate).localeCompare(String(b.check.dueDate)));
+  if (!pending.length) return null;
+  const first = pending[0];
+  return {
+    stageId: first.stage.id,
+    stageLabel: first.stage.label,
+    dueDate: first.check.dueDate,
+    overdue: isPastDue(first.check.dueDate),
+  };
 }
 
 function userMatchTokens(req) {
@@ -221,7 +248,9 @@ function decorateJob(data, job, viewerUser = null) {
     fileCount: files.length,
     unreadFileCount: files.filter(f => isUnreadForViewer(f, viewerUser)).length,
     blockedStageCount: blockedStageCount(job),
+    overdueStageCount: overdueStageCount(job),
     overdue: isOverdueJob(job),
+    nextStageDue: nextStageDue(job),
     latestFileAt: files.reduce((max, f) => !max || f.createdAt > max ? f.createdAt : max, ''),
     latestEvent: events[events.length - 1] || null,
   };
@@ -258,7 +287,8 @@ function buildSummary(data, req) {
   return {
     active: activeJobs.length,
     done: data.jobs.filter(j => j.status === 'done').length,
-    overdue: activeJobs.filter(isOverdueJob).length,
+    overdue: activeJobs.filter(job => isOverdueJob(job) || overdueStageCount(job) > 0).length,
+    overdueStages: activeJobs.reduce((sum, job) => sum + overdueStageCount(job), 0),
     blocked: activeJobs.reduce((sum, job) => sum + blockedStageCount(job), 0),
     unreadFiles: unreadFiles.length,
     unreadFileItems: unreadFiles.slice(0, 8),
@@ -316,7 +346,7 @@ router.get('/jobs', (req, res) => {
   } else if (scope === 'unread') {
     jobs = jobs.filter(j => decorateJob(data, j, req.user).unreadFileCount > 0);
   } else if (scope === 'risk') {
-    jobs = jobs.filter(j => isOverdueJob(j) || blockedStageCount(j) > 0);
+    jobs = jobs.filter(j => isOverdueJob(j) || overdueStageCount(j) > 0 || blockedStageCount(j) > 0);
   }
   jobs.sort((a, b) => {
     const ap = { urgent: 0, high: 1, normal: 2, low: 3 }[a.priority] ?? 2;
