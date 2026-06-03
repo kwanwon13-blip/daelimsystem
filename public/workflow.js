@@ -181,6 +181,12 @@ function workflowApp() {
       return ({ pending: '검토대기', approved: '승인', change_requested: '수정요청' })[status || 'pending'] || '검토대기';
     },
 
+    completionBlockerText(job) {
+      const blockers = job?.completionBlockers || [];
+      if (!blockers.length) return '완료 가능';
+      return blockers.map(b => `${b.label} ${b.count}`).join(' · ');
+    },
+
     canReviewFile(file) {
       return !!file && ['proof', 'drawing'].includes(file.kind || 'attachment');
     },

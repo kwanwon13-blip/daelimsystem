@@ -238,6 +238,33 @@ function changeRequestCount(data, job) {
   return data.files.filter(f => f.jobId === job.id && f.reviewStatus === 'change_requested').length;
 }
 
+function pendingStageCount(job) {
+  if (!job || !job.stageChecks) return STAGES.length;
+  return STAGES.filter(stage => job.stageChecks[stage.id]?.status !== 'done').length;
+}
+
+function pendingReviewCount(data, job) {
+  if (!job || !data || !Array.isArray(data.files)) return 0;
+  return data.files.filter(f => {
+    if (f.jobId !== job.id) return false;
+    if (!['proof', 'drawing'].includes(f.kind || 'attachment')) return false;
+    return !f.reviewStatus || f.reviewStatus === 'pending';
+  }).length;
+}
+
+function completionBlockers(data, job) {
+  const blockers = [];
+  const pendingStages = pendingStageCount(job);
+  const blockedStages = blockedStageCount(job);
+  const pendingReviews = pendingReviewCount(data, job);
+  const changeRequests = changeRequestCount(data, job);
+  if (pendingStages) blockers.push({ key: 'pendingStages', label: '미완료 단계', count: pendingStages });
+  if (blockedStages) blockers.push({ key: 'blockedStages', label: '막힘 단계', count: blockedStages });
+  if (pendingReviews) blockers.push({ key: 'pendingReviews', label: '검토대기 파일', count: pendingReviews });
+  if (changeRequests) blockers.push({ key: 'changeRequests', label: '수정요청 파일', count: changeRequests });
+  return blockers;
+}
+
 function userMatchTokens(req) {
   return [req.user?.userId, req.user?.name]
     .map(v => String(v || '').trim().toLowerCase())
@@ -264,13 +291,18 @@ function isUserJob(job, req) {
 function decorateJob(data, job, viewerUser = null) {
   const files = data.files.filter(f => f.jobId === job.id);
   const events = data.events.filter(e => e.jobId === job.id);
+  const blockers = completionBlockers(data, job);
   return {
     ...job,
     fileCount: files.length,
     unreadFileCount: files.filter(f => isUnreadForViewer(f, viewerUser)).length,
+    pendingStageCount: pendingStageCount(job),
+    pendingReviewCount: pendingReviewCount(data, job),
     blockedStageCount: blockedStageCount(job),
     overdueStageCount: overdueStageCount(job),
     changeRequestCount: changeRequestCount(data, job),
+    canComplete: blockers.length === 0,
+    completionBlockers: blockers,
     overdue: isOverdueJob(job),
     nextStageDue: nextStageDue(job),
     latestFileAt: files.reduce((max, f) => !max || f.createdAt > max ? f.createdAt : max, ''),
@@ -309,9 +341,11 @@ function buildSummary(data, req) {
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
   const myActionJobs = activeJobs.filter(job => isUserJob(job, req));
   const changeRequests = activeJobs.reduce((sum, job) => sum + changeRequestCount(data, job), 0);
+  const readyToComplete = activeJobs.filter(job => completionBlockers(data, job).length === 0).length;
   return {
     active: activeJobs.length,
     done: data.jobs.filter(j => j.status === 'done').length,
+    readyToComplete,
     overdue: activeJobs.filter(job => isOverdueJob(job) || overdueStageCount(job) > 0).length,
     overdueStages: activeJobs.reduce((sum, job) => sum + overdueStageCount(job), 0),
     blocked: activeJobs.reduce((sum, job) => sum + blockedStageCount(job), 0),
@@ -423,6 +457,16 @@ router.put('/jobs/:id', (req, res) => {
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
   const payload = normalizeJobPayload(req.body || {}, job);
+  if (payload.status === 'done') {
+    const nextJob = { ...job, ...payload };
+    const blockers = completionBlockers(data, nextJob);
+    if (blockers.length) {
+      return res.status(400).json({
+        error: '완료 전 확인할 항목이 남아 있습니다.',
+        blockers,
+      });
+    }
+  }
   Object.assign(job, payload, { updatedAt: nowIso() });
   if (job.status === 'done') {
     for (const stage of STAGES) {
@@ -456,7 +500,9 @@ router.post('/jobs/:id/stages/:stageId', (req, res) => {
   if (nextStatus === 'done') check.completedAt = check.completedAt || nowIso();
   if (nextStatus !== 'done') check.completedAt = '';
   job.currentStage = inferCurrentStage(job.stageChecks, job.currentStage);
-  job.status = Object.values(job.stageChecks).every(c => c.status === 'done') ? 'done' : (job.status === 'done' ? 'active' : job.status);
+  const allStagesDone = Object.values(job.stageChecks).every(c => c.status === 'done');
+  const blockers = completionBlockers(data, job);
+  job.status = allStagesDone && blockers.length === 0 ? 'done' : (job.status === 'done' ? 'active' : job.status);
   job.updatedAt = nowIso();
   addEvent(data, req, job.id, 'stage', `${stage.label} ${CHECK_STATUS_LABELS[nextStatus] || nextStatus}`, { stageId: stage.id, status: nextStatus });
   saveStore(data);
@@ -499,6 +545,13 @@ router.post('/jobs/:id/handoff', (req, res) => {
     });
   } else {
     job.currentStage = current.id;
+    const blockers = completionBlockers(data, job);
+    if (blockers.length) {
+      return res.status(400).json({
+        error: '완료 전 확인할 항목이 남아 있습니다.',
+        blockers,
+      });
+    }
     job.status = 'done';
     addEvent(data, req, job.id, 'handoff', `작업 완료${message ? ' - ' + message : ''}`, {
       fromStageId: current.id,
