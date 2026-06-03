@@ -451,21 +451,8 @@
                     <span class="wf-muted" x-show="deliveryPendingTargets()" x-text="'미확인 대상: ' + deliveryPendingTargets()"></span>
                   </div>
                 </div>
-                <div style="display:grid;grid-template-columns:1fr 1fr auto auto;gap:8px;align-items:center;">
-                  <select class="wf-select" x-model="fileStageFilter">
-                    <option value="all">전체 단계</option>
-                    <template x-for="stage in stages" :key="stage.id">
-                      <option :value="stage.id" x-text="stage.label"></option>
-                    </template>
-                  </select>
-                  <select class="wf-select" x-model="fileKindFilter">
-                    <option value="all">전체 파일</option>
-                    <option value="proof">시안</option>
-                    <option value="drawing">도면</option>
-                    <option value="photo">사진</option>
-                    <option value="attachment">첨부</option>
-                  </select>
-                  <span class="wf-muted" x-text="filteredFiles().length + '/' + (detail.files || []).length"></span>
+                <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
+                  <span class="wf-muted" x-text="'시안 ' + visualFiles().length + '개'"></span>
                   <a class="wf-btn" x-show="filteredFiles().length" :href="jobArchiveUrl()">묶음 받기</a>
                 </div>
                 <div class="wf-gallery proof-strip" x-show="visualFiles().length">

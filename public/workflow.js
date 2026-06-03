@@ -575,6 +575,12 @@ function workflowApp() {
     async uploadFiles(ev) {
       const files = ev?.target?.files || ev?.dataTransfer?.files || ev;
       if (!this.detail || !files || !files.length) return;
+      const storageCompanyName = String(this.uploadCompanyName || this.detail.job.companyName || '').trim();
+      const storageProjectName = String(this.uploadProjectName || this.detail.job.projectName || this.detail.job.title || '').trim();
+      if (!storageCompanyName || !storageProjectName) {
+        alert('회사와 프로젝트를 먼저 선택해주세요.');
+        return;
+      }
       const fd = new FormData();
       Array.from(files).forEach(f => fd.append('files', f));
       fd.append('stageId', 'design');
@@ -582,8 +588,8 @@ function workflowApp() {
       fd.append('note', this.uploadNote || '');
       fd.append('designDueDate', this.uploadDesignDueDate || '');
       fd.append('urgent', this.uploadUrgent ? '1' : '');
-      fd.append('storageCompanyName', this.uploadCompanyName || this.detail.job.companyName || '');
-      fd.append('storageProjectName', this.uploadProjectName || this.detail.job.projectName || this.detail.job.title || '');
+      fd.append('storageCompanyName', storageCompanyName);
+      fd.append('storageProjectName', storageProjectName);
       fd.append('targetUserId', '');
       fd.append('targetUserName', '');
       fd.append('targetLabel', this.uploadTargetLabel());
