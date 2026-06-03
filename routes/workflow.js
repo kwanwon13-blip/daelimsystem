@@ -156,11 +156,28 @@ function addEvent(data, req, jobId, type, message, meta = {}) {
   return event;
 }
 
-function isUnreadForUser(file, userId) {
+function isTargetViewer(file, viewerUser) {
+  const viewerId = String(viewerUser?.userId || '').trim().toLowerCase();
+  const viewerName = String(viewerUser?.name || '').trim().toLowerCase();
+  const targetUserId = String(file?.targetUserId || '').trim().toLowerCase();
+  const targetUserName = String(file?.targetUserName || '').trim().toLowerCase();
+  const targetLabel = String(file?.targetLabel || '').trim().toLowerCase();
+  const hasTarget = !!(targetUserId || targetUserName || targetLabel);
+  if (!hasTarget) return true;
+  if (targetUserId && viewerId && targetUserId === viewerId) return true;
+  if (targetUserName && viewerName && targetUserName === viewerName) return true;
+  if (targetLabel && viewerName && targetLabel.includes(viewerName)) return true;
+  if (targetLabel && viewerId && targetLabel.includes(viewerId)) return true;
+  return false;
+}
+
+function isUnreadForViewer(file, viewerUser) {
+  const userId = String(viewerUser?.userId || '');
   if (!file || !userId) return false;
-  if (String(file.uploadedBy || '') === String(userId)) return false;
+  if (String(file.uploadedBy || '') === userId) return false;
+  if (!isTargetViewer(file, viewerUser)) return false;
   const readBy = Array.isArray(file.readBy) ? file.readBy : [];
-  return !readBy.some(r => String(r.userId || '') === String(userId));
+  return !readBy.some(r => String(r.userId || '') === userId);
 }
 
 function isOverdueJob(job) {
@@ -199,11 +216,10 @@ function isUserJob(job, req) {
 function decorateJob(data, job, viewerUser = null) {
   const files = data.files.filter(f => f.jobId === job.id);
   const events = data.events.filter(e => e.jobId === job.id);
-  const viewerId = viewerUser?.userId || '';
   return {
     ...job,
     fileCount: files.length,
-    unreadFileCount: files.filter(f => isUnreadForUser(f, viewerId)).length,
+    unreadFileCount: files.filter(f => isUnreadForViewer(f, viewerUser)).length,
     blockedStageCount: blockedStageCount(job),
     overdue: isOverdueJob(job),
     latestFileAt: files.reduce((max, f) => !max || f.createdAt > max ? f.createdAt : max, ''),
@@ -212,7 +228,6 @@ function decorateJob(data, job, viewerUser = null) {
 }
 
 function buildSummary(data, req) {
-  const userId = req.user?.userId || '';
   const activeJobs = data.jobs.filter(j => !['done', 'cancelled'].includes(j.status));
   const byStage = {};
   for (const stage of STAGES) byStage[stage.id] = 0;
@@ -221,7 +236,7 @@ function buildSummary(data, req) {
     byStage[stageId] = (byStage[stageId] || 0) + 1;
   }
   const unreadFiles = data.files
-    .filter(f => isUnreadForUser(f, userId))
+    .filter(f => isUnreadForViewer(f, req.user))
     .map(file => {
       const job = data.jobs.find(j => j.id === file.jobId);
       return {
@@ -318,7 +333,7 @@ router.get('/jobs/:id', (req, res) => {
     job: decorateJob(data, job, req.user),
     files: data.files
       .filter(f => f.jobId === job.id)
-      .map(f => ({ ...f, viewerUnread: isUnreadForUser(f, req.user?.userId || '') })),
+      .map(f => ({ ...f, viewerUnread: isUnreadForViewer(f, req.user) })),
     events: data.events.filter(e => e.jobId === job.id),
   });
 });
@@ -456,7 +471,7 @@ router.get('/jobs/:id/files', (req, res) => {
     ok: true,
     files: data.files
       .filter(f => f.jobId === job.id)
-      .map(f => ({ ...f, viewerUnread: isUnreadForUser(f, req.user?.userId || '') })),
+      .map(f => ({ ...f, viewerUnread: isUnreadForViewer(f, req.user) })),
   });
 });
 
@@ -466,6 +481,10 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
   const stageId = STAGES.some(s => s.id === req.body.stageId) ? req.body.stageId : job.currentStage;
   const kind = ['proof', 'attachment', 'drawing', 'photo'].includes(req.body.kind) ? req.body.kind : 'attachment';
+  const stageAssignee = safeText(job.stageChecks?.[stageId]?.assignee, 80);
+  const targetUserId = safeText(req.body.targetUserId, 80);
+  const targetUserName = safeText(req.body.targetUserName, 80);
+  const targetLabel = safeText(req.body.targetLabel, 120) || targetUserName || stageAssignee;
   const uploaded = [];
   for (const file of req.files || []) {
     const originalName = uploadName(file.originalname || file.filename);
@@ -481,6 +500,9 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
       mime: file.mimetype || 'application/octet-stream',
       size: file.size || 0,
       note: safeText(req.body.note, 1000),
+      targetUserId,
+      targetUserName,
+      targetLabel,
       uploadedBy: req.user?.userId || '',
       uploadedByName: userName(req),
       readBy: [],
@@ -491,7 +513,13 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
   }
   if (uploaded.length) {
     job.updatedAt = nowIso();
-    addEvent(data, req, job.id, 'file', `파일 ${uploaded.length}개 업로드`, { stageId, fileIds: uploaded.map(f => f.id) });
+    addEvent(data, req, job.id, 'file', `파일 ${uploaded.length}개 업로드${targetLabel ? ' · 확인 대상 ' + targetLabel : ''}`, {
+      stageId,
+      fileIds: uploaded.map(f => f.id),
+      targetUserId,
+      targetUserName,
+      targetLabel,
+    });
   }
   saveStore(data);
   res.json({

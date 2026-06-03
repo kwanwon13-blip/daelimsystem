@@ -14,10 +14,12 @@ function workflowApp() {
     scopeFilter: 'all',
     newOpen: false,
     contactOptions: [],
+    workflowUsers: [],
     commentText: '',
     handoffText: '',
     uploadStageId: '',
     uploadKind: 'attachment',
+    uploadTargetUserId: '',
     uploadNote: '',
     form: {
       title: '',
@@ -32,7 +34,7 @@ function workflowApp() {
     },
 
     async init() {
-      await Promise.all([this.loadMeta(), this.loadContacts()]);
+      await Promise.all([this.loadMeta(), this.loadContacts(), this.loadUsers()]);
       await this.loadJobs();
     },
 
@@ -54,6 +56,15 @@ function workflowApp() {
         })).filter(c => c.name || c.company);
       } catch (_) {
         this.contactOptions = [];
+      }
+    },
+
+    async loadUsers() {
+      try {
+        const users = await fetch('/api/users/list').then(r => r.ok ? r.json() : []);
+        this.workflowUsers = (users || []).filter(u => u && u.userId && u.name);
+      } catch (_) {
+        this.workflowUsers = [];
       }
     },
 
@@ -108,6 +119,23 @@ function workflowApp() {
 
     isUnreadFile(file) {
       return !!(file && file.viewerUnread);
+    },
+
+    selectedUploadTarget() {
+      return this.workflowUsers.find(u => String(u.userId) === String(this.uploadTargetUserId)) || null;
+    },
+
+    uploadTargetLabel() {
+      const user = this.selectedUploadTarget();
+      if (user) return `${user.name} (${user.userId})`;
+      if (!this.detail || !this.detail.job) return '';
+      const stageId = this.uploadStageId || this.detail.job.currentStage || 'design';
+      const check = this.detail.job.stageChecks?.[stageId] || {};
+      return check.assignee || '';
+    },
+
+    fileReadNames(file) {
+      return (file?.readBy || []).map(r => r.name || r.userId).filter(Boolean).join(', ');
     },
 
     currentStage() {
@@ -263,6 +291,10 @@ function workflowApp() {
       fd.append('stageId', this.uploadStageId || this.detail.job.currentStage || 'design');
       fd.append('kind', this.uploadKind || 'attachment');
       fd.append('note', this.uploadNote || '');
+      const target = this.selectedUploadTarget();
+      fd.append('targetUserId', target?.userId || '');
+      fd.append('targetUserName', target?.name || '');
+      fd.append('targetLabel', this.uploadTargetLabel());
       const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/files', {
         method: 'POST',
         body: fd,
