@@ -83,6 +83,12 @@ const ORDER_STATUS_LABELS = {
   cancelled: '취소',
 };
 
+const ORDER_RESPONSE_LABELS = {
+  possible: '가능',
+  needs_change: '조정요청',
+  confirmed: '확정',
+};
+
 function ensureDirs() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(FILE_DIR)) fs.mkdirSync(FILE_DIR, { recursive: true });
@@ -878,6 +884,43 @@ function makeOrderMailDraft(job, order, files) {
   return { subject, body: lines.join('\n') };
 }
 
+function normalizeOrderResponse(body = {}) {
+  const responseStatus = Object.prototype.hasOwnProperty.call(ORDER_RESPONSE_LABELS, body.responseStatus)
+    ? body.responseStatus
+    : 'possible';
+  return {
+    responseStatus,
+    responseAvailableDate: safeDate(body.responseAvailableDate || body.availableDate),
+    responseNote: safeText(body.responseNote || body.note, 3000),
+    respondedByName: safeText(body.respondedByName || body.responderName, 120),
+  };
+}
+
+function orderStatusFromResponse(responseStatus) {
+  if (responseStatus === 'needs_change') return 'replied';
+  return 'confirmed';
+}
+
+function decoratePublicOrderFile(file) {
+  return {
+    id: file.id,
+    originalName: file.originalName || file.storedName || file.id,
+    kind: file.kind || 'attachment',
+    stageId: file.stageId || '',
+    version: file.version || 1,
+    mime: file.mime || '',
+    size: file.size || 0,
+    isImage: isImageFile(file),
+    isAi: isAiFile(file),
+    designDueDate: file.designDueDate || '',
+    factoryAvailableDate: file.factoryAvailableDate || '',
+    urgent: !!file.urgent,
+    scheduleNegotiation: file.scheduleNegotiation || 'pending',
+    downloadUrl: file.publicToken ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/download` : '',
+    previewUrl: file.publicToken && isImageFile(file) ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/preview` : '',
+  };
+}
+
 function decorateOrder(data, job, order) {
   const files = orderFiles(data, order, job);
   const draft = makeOrderMailDraft(job, order, files);
@@ -887,10 +930,58 @@ function decorateOrder(data, job, order) {
     fileNames: files.map(f => f.originalName || f.storedName || f.id),
     statusLabel: ORDER_STATUS_LABELS[order.status] || order.status || '초안',
     targetTypeLabel: order.targetType === 'external' ? '외주/업체' : '우리공장',
+    responseStatusLabel: ORDER_RESPONSE_LABELS[order.responseStatus] || '',
+    publicViewUrl: order.publicToken ? `/workflow/order/${encodeURIComponent(order.publicToken)}` : '',
     publicArchiveUrl: order.publicToken ? `/api/workflow/public/orders/${encodeURIComponent(order.publicToken)}/files.zip` : '',
     mailSubject: draft.subject,
     mailBody: draft.body,
   };
+}
+
+function decoratePublicOrder(data, job, order) {
+  const files = orderFiles(data, order, job);
+  const decorated = decorateOrder(data, job, order);
+  return {
+    ok: true,
+    job: {
+      id: job.id,
+      title: job.title || '',
+      companyName: job.companyName || '',
+      projectName: job.projectName || '',
+      dueDate: job.dueDate || '',
+      deliveryDate: job.deliveryDate || '',
+      priority: job.priority || 'normal',
+      summary: job.summary || '',
+    },
+    order: {
+      id: order.id,
+      targetName: order.targetName || '',
+      targetType: order.targetType || 'internal',
+      status: order.status || 'draft',
+      statusLabel: decorated.statusLabel,
+      dueDate: order.dueDate || '',
+      note: order.note || '',
+      fileCount: files.length,
+      responseStatus: order.responseStatus || '',
+      responseStatusLabel: decorated.responseStatusLabel,
+      responseAvailableDate: order.responseAvailableDate || '',
+      responseNote: order.responseNote || '',
+      respondedByName: order.respondedByName || '',
+      respondedAt: order.respondedAt || '',
+      publicArchiveUrl: decorated.publicArchiveUrl,
+    },
+    files: files.map(decoratePublicOrderFile),
+    responseLabels: ORDER_RESPONSE_LABELS,
+  };
+}
+
+function applyOrderResponseToFiles(files, response) {
+  for (const file of files) {
+    if (response.responseAvailableDate) file.factoryAvailableDate = response.responseAvailableDate;
+    file.scheduleNegotiation = response.responseStatus === 'needs_change' ? 'needs_change' : 'possible';
+    if (response.responseNote) file.factoryScheduleNote = response.responseNote;
+    file.updatedAt = nowIso();
+  }
 }
 
 function buildOrderSummary(data, job) {
@@ -1413,6 +1504,50 @@ router.get('/public/orders/:token/files.zip', async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+});
+
+router.get('/public/orders/:token', (req, res) => {
+  const data = loadStore();
+  const token = safeText(req.params.token, 120);
+  const order = (data.orders || []).find(o => String(o.publicToken || '') === token);
+  if (!order) return res.status(404).json({ error: '발주를 찾을 수 없습니다.' });
+  const job = data.jobs.find(j => j.id === order.jobId);
+  if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  res.json(decoratePublicOrder(data, job, order));
+});
+
+router.post('/public/orders/:token/reply', (req, res) => {
+  const data = loadStore();
+  const token = safeText(req.params.token, 120);
+  const order = (data.orders || []).find(o => String(o.publicToken || '') === token);
+  if (!order) return res.status(404).json({ error: '발주를 찾을 수 없습니다.' });
+  const job = data.jobs.find(j => j.id === order.jobId);
+  if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+
+  const response = normalizeOrderResponse(req.body || {});
+  Object.assign(order, response, {
+    status: orderStatusFromResponse(response.responseStatus),
+    respondedAt: nowIso(),
+    updatedAt: nowIso(),
+  });
+  const files = orderFiles(data, order, job);
+  applyOrderResponseToFiles(files, response);
+  job.updatedAt = nowIso();
+
+  const label = ORDER_RESPONSE_LABELS[response.responseStatus] || response.responseStatus;
+  const by = response.respondedByName || order.targetName || '외부 회신';
+  const dateText = response.responseAvailableDate ? ` · 가능일 ${response.responseAvailableDate}` : '';
+  const noteText = response.responseNote ? ` · ${response.responseNote}` : '';
+  addEvent(data, { user: { userId: 'public-order', name: by } }, job.id, 'order_public_reply', `발주 회신 · ${order.targetName} · ${label}${dateText}${noteText}`, {
+    orderId: order.id,
+    targetName: order.targetName,
+    responseStatus: response.responseStatus,
+    responseAvailableDate: response.responseAvailableDate,
+    responseNote: response.responseNote,
+    targetStageIds: ['design', 'management'],
+  });
+  saveStore(data);
+  res.json(decoratePublicOrder(data, job, order));
 });
 
 router.use(requireAuth);

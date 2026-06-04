@@ -167,6 +167,12 @@ app.get('/workspace/view/:token', (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'workspace-view.html'));
 });
 
+// ── 워크플로우 발주 공개 확인 화면 ──
+// 공장/외부업체가 Cloudflare 터널 링크로 파일을 받고 납기 가능 여부를 회신하는 무로그인 화면.
+app.get('/workflow/order/:token', (req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'workflow-order.html'));
+});
+
 // ── /data 경로 — 이미지 파일만 서빙 (JSON/DB/백업 파일 보호) ──────
 // 이전에는 data/ 전체를 정적 서빙하여 설정.json(SMTP 비번), 조직관리.json(사용자 해시),
 // 업무데이터.db, 감사로그.json 등이 웹으로 모두 노출됐음. 이미지만 화이트리스트 허용.

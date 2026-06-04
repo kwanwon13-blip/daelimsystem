@@ -658,6 +658,8 @@
                           <button class="wf-btn" @click="saveOrder(order)">상태 저장</button>
                         </div>
                         <div style="display:flex;gap:5px;flex-wrap:wrap;">
+                          <a class="wf-btn" x-show="orderViewUrl(order)" :href="orderViewUrl(order)" target="_blank">공장화면</a>
+                          <button class="wf-btn" x-show="orderViewUrl(order)" @click="copyOrderViewLink(order)">화면링크</button>
                           <a class="wf-btn" x-show="orderArchiveUrl(order)" :href="orderArchiveUrl(order)">묶음</a>
                           <button class="wf-btn" x-show="orderArchiveUrl(order)" @click="copyOrderArchiveLink(order)">링크</button>
                           <button class="wf-btn" @click="copyOrderMailDraft(order)">메일초안</button>

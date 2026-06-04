@@ -551,6 +551,17 @@ function workflowApp() {
       return order && order.publicArchiveUrl ? order.publicArchiveUrl : '';
     },
 
+    orderViewUrl(order) {
+      return order && order.publicViewUrl ? order.publicViewUrl : '';
+    },
+
+    async copyOrderViewLink(order) {
+      const url = this.orderViewUrl(order);
+      if (!url) return alert('발주 확인 화면 링크가 없습니다.');
+      const ok = await this.copyText(this.absoluteUrl(url));
+      alert(ok ? '발주 확인 화면 링크를 복사했습니다.' : '링크 복사에 실패했습니다.');
+    },
+
     async copyOrderArchiveLink(order) {
       const url = this.orderArchiveUrl(order);
       if (!url) return alert('발주 묶음 링크가 없습니다.');
@@ -560,12 +571,14 @@ function workflowApp() {
 
     async copyOrderMailDraft(order) {
       if (!order) return;
+      const viewUrl = this.orderViewUrl(order) ? this.absoluteUrl(this.orderViewUrl(order)) : '';
       const url = this.orderArchiveUrl(order) ? this.absoluteUrl(this.orderArchiveUrl(order)) : '';
       const text = [
         '제목: ' + (order.mailSubject || ''),
         '',
         order.mailBody || '',
         '',
+        viewUrl ? '발주 확인/회신 링크: ' + viewUrl : '',
         url ? '발주 묶음 링크: ' + url : '',
       ].filter(v => v !== '').join('\n');
       const ok = await this.copyText(text);

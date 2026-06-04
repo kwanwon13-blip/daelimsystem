@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>발주 확인</title>
+  <style>
+    :root {
+      --ink: #111827;
+      --muted: #64748b;
+      --line: #d8dee8;
+      --soft: #f4f7fb;
+      --blue: #2563eb;
+      --blue-dark: #1d4ed8;
+      --green: #15803d;
+      --red: #dc2626;
+      --amber: #b45309;
+      --card: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+      color: var(--ink);
+      background: #e8edf4;
+      letter-spacing: 0;
+    }
+    button, input, select, textarea {
+      font: inherit;
+    }
+    .top {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 18px;
+      background: #ffffff;
+      border-bottom: 1px solid var(--line);
+    }
+    .brand {
+      min-width: 0;
+    }
+    .brand strong {
+      display: block;
+      font-size: 15px;
+      line-height: 1.25;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .brand span {
+      display: block;
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .actions {
+      display: flex;
+      gap: 7px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .btn {
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      background: #fff;
+      color: #1f2937;
+      padding: 8px 11px;
+      font-size: 13px;
+      font-weight: 800;
+      text-decoration: none;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 36px;
+    }
+    .btn.primary {
+      background: var(--blue);
+      border-color: var(--blue);
+      color: #fff;
+    }
+    .btn.primary:hover { background: var(--blue-dark); }
+    .btn:disabled {
+      opacity: .55;
+      cursor: not-allowed;
+    }
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+    }
+    .summary {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 12px;
+    }
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .panel-head {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .panel-title {
+      font-size: 14px;
+      font-weight: 900;
+    }
+    .panel-body {
+      padding: 14px;
+    }
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .info {
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      background: #fbfdff;
+    }
+    .info b {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      margin-bottom: 5px;
+    }
+    .info span {
+      display: block;
+      font-size: 14px;
+      font-weight: 800;
+      word-break: keep-all;
+      overflow-wrap: anywhere;
+    }
+    .chips {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .chip {
+      border-radius: 999px;
+      padding: 4px 8px;
+      border: 1px solid #dbe4f0;
+      color: #334155;
+      background: #fff;
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .chip.red { color: var(--red); border-color: #fecaca; background: #fff5f5; }
+    .chip.green { color: var(--green); border-color: #bbf7d0; background: #f0fdf4; }
+    .chip.amber { color: var(--amber); border-color: #fde68a; background: #fffbeb; }
+    .file-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+      gap: 12px;
+    }
+    .file {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 260px;
+    }
+    .thumb {
+      height: 176px;
+      background: #edf2f8;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      cursor: pointer;
+    }
+    .thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #f8fafc;
+    }
+    .file-mark {
+      width: 78px;
+      height: 78px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      background: #334155;
+      font-size: 20px;
+      font-weight: 900;
+    }
+    .file-mark.ai { background: #ea580c; }
+    .file-body {
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex: 1;
+    }
+    .file-name {
+      font-size: 13px;
+      font-weight: 900;
+      line-height: 1.35;
+      min-height: 35px;
+      overflow-wrap: anywhere;
+    }
+    .file-meta {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .file-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: auto;
+      flex-wrap: wrap;
+    }
+    .reply {
+      display: grid;
+      gap: 10px;
+    }
+    label {
+      display: grid;
+      gap: 5px;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 900;
+    }
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 9px 10px;
+      background: #fff;
+      color: #111827;
+      font-size: 14px;
+    }
+    textarea {
+      min-height: 92px;
+      resize: vertical;
+    }
+    .state {
+      color: var(--muted);
+      font-size: 13px;
+      padding: 18px;
+      text-align: center;
+    }
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 18px;
+      transform: translateX(-50%);
+      background: #111827;
+      color: #fff;
+      padding: 10px 13px;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 800;
+      display: none;
+      z-index: 30;
+    }
+    .toast.show { display: block; }
+    .viewer {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      background: rgba(15, 23, 42, .88);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .viewer.open { display: flex; }
+    .viewer img {
+      max-width: 96vw;
+      max-height: 88vh;
+      background: #fff;
+      border-radius: 4px;
+    }
+    .viewer button {
+      position: fixed;
+      right: 18px;
+      top: 14px;
+    }
+    @media (max-width: 840px) {
+      .summary { grid-template-columns: 1fr; }
+      .top { align-items: flex-start; flex-direction: column; }
+      .actions { width: 100%; justify-content: flex-start; }
+      .info-grid { grid-template-columns: 1fr; }
+      main { padding: 10px; }
+      .file-grid { grid-template-columns: 1fr; }
+      .thumb { height: 240px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <strong id="topTitle">발주 확인</strong>
+      <span id="topSub">파일과 납기 요청을 확인해 주세요.</span>
+    </div>
+    <div class="actions">
+      <a class="btn" id="zipTop" href="#" download>묶음 다운로드</a>
+      <button class="btn" id="copyBtn" type="button">링크 복사</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="state" id="loading">발주 정보를 불러오는 중입니다.</div>
+    <div class="state" id="error" style="display:none;"></div>
+
+    <section class="summary" id="content" style="display:none;">
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title">발주 내용</div>
+          <div class="chips">
+            <span class="chip" id="statusChip">상태</span>
+            <span class="chip amber" id="dueChip">납기</span>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="info-grid">
+            <div class="info"><b>회사</b><span id="companyName"></span></div>
+            <div class="info"><b>프로젝트/현장</b><span id="projectName"></span></div>
+            <div class="info"><b>발주 대상</b><span id="targetName"></span></div>
+            <div class="info"><b>첨부 파일</b><span id="fileCount"></span></div>
+          </div>
+          <div class="info" style="margin-top:10px;" id="noteBox">
+            <b>요청사항</b><span id="orderNote"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title">납기 회신</div>
+          <span class="chip green" id="replyChip" style="display:none;"></span>
+        </div>
+        <div class="panel-body">
+          <form class="reply" id="replyForm">
+            <label>회신
+              <select id="responseStatus">
+                <option value="possible">요청 일정 가능</option>
+                <option value="needs_change">일정 조정 필요</option>
+                <option value="confirmed">확정</option>
+              </select>
+            </label>
+            <label>가능일
+              <input id="responseAvailableDate" type="date">
+            </label>
+            <label>회신자
+              <input id="respondedByName" placeholder="이름 또는 업체명">
+            </label>
+            <label>메모
+              <textarea id="responseNote" placeholder="수량, 납기, 제작 관련 메모"></textarea>
+            </label>
+            <button class="btn primary" id="submitBtn" type="submit">회신 저장</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="filesPanel" style="display:none;">
+      <div class="panel-head">
+        <div class="panel-title">시안 및 첨부</div>
+        <a class="btn" id="zipBody" href="#" download>전체 묶음</a>
+      </div>
+      <div class="panel-body">
+        <div class="file-grid" id="fileGrid"></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="viewer" id="viewer">
+    <button class="btn" type="button" id="viewerClose">닫기</button>
+    <img id="viewerImg" alt="">
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const state = { token: '', data: null };
+    const $ = id => document.getElementById(id);
+
+    function tokenFromLocation() {
+      const parts = location.pathname.split('/').filter(Boolean);
+      const idx = parts.findIndex(p => p === 'order');
+      if (idx >= 0 && parts[idx + 1]) return decodeURIComponent(parts[idx + 1]);
+      return new URLSearchParams(location.search).get('token') || '';
+    }
+
+    function showToast(message) {
+      const el = $('toast');
+      el.textContent = message;
+      el.classList.add('show');
+      setTimeout(() => el.classList.remove('show'), 1800);
+    }
+
+    async function copyText(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch (_) {}
+      }
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand && document.execCommand('copy');
+      document.body.removeChild(ta);
+      return !!ok;
+    }
+
+    function abs(url) {
+      if (!url) return '#';
+      try { return new URL(url, location.origin).toString(); }
+      catch (_) { return url; }
+    }
+
+    function labelKind(file) {
+      if (file.kind === 'proof') return '시안';
+      if (file.kind === 'drawing') return '도면';
+      if (file.kind === 'photo') return '사진';
+      return '첨부';
+    }
+
+    function formatDate(dateText) {
+      return dateText || '협의';
+    }
+
+    function statusClass(status) {
+      if (status === 'confirmed' || status === 'done') return 'chip green';
+      if (status === 'replied') return 'chip amber';
+      if (status === 'cancelled') return 'chip red';
+      return 'chip';
+    }
+
+    function openViewer(src) {
+      if (!src) return;
+      $('viewerImg').src = src;
+      $('viewer').classList.add('open');
+    }
+
+    function closeViewer() {
+      $('viewer').classList.remove('open');
+      $('viewerImg').src = '';
+    }
+
+    function renderFile(file) {
+      const card = document.createElement('article');
+      card.className = 'file';
+
+      const thumb = document.createElement('div');
+      thumb.className = 'thumb';
+      if (file.isImage && file.previewUrl) {
+        const img = document.createElement('img');
+        img.src = file.previewUrl;
+        img.alt = file.originalName || '';
+        thumb.appendChild(img);
+        thumb.addEventListener('click', () => openViewer(file.previewUrl));
+      } else {
+        const mark = document.createElement('div');
+        mark.className = 'file-mark' + (file.isAi ? ' ai' : '');
+        mark.textContent = file.isAi ? 'AI' : 'FILE';
+        thumb.appendChild(mark);
+      }
+
+      const body = document.createElement('div');
+      body.className = 'file-body';
+      const name = document.createElement('div');
+      name.className = 'file-name';
+      name.textContent = file.originalName || 'file';
+      const meta = document.createElement('div');
+      meta.className = 'file-meta';
+      meta.textContent = `${labelKind(file)} · v${file.version || 1} · 희망 ${formatDate(file.designDueDate)} · 공장 ${formatDate(file.factoryAvailableDate)}`;
+      const actions = document.createElement('div');
+      actions.className = 'file-actions';
+      const down = document.createElement('a');
+      down.className = 'btn';
+      down.href = file.downloadUrl || '#';
+      down.textContent = '원본 받기';
+      down.download = '';
+      actions.appendChild(down);
+      if (file.isImage && file.previewUrl) {
+        const view = document.createElement('button');
+        view.className = 'btn';
+        view.type = 'button';
+        view.textContent = '크게 보기';
+        view.addEventListener('click', () => openViewer(file.previewUrl));
+        actions.appendChild(view);
+      }
+      body.append(name, meta, actions);
+      card.append(thumb, body);
+      return card;
+    }
+
+    function render(data) {
+      const job = data.job || {};
+      const order = data.order || {};
+      state.data = data;
+      $('loading').style.display = 'none';
+      $('error').style.display = 'none';
+      $('content').style.display = '';
+      $('filesPanel').style.display = '';
+
+      const title = [job.companyName, job.projectName || job.title].filter(Boolean).join(' · ') || '발주 확인';
+      $('topTitle').textContent = title;
+      $('topSub').textContent = `${order.targetName || '발주처'} · 파일 ${order.fileCount || 0}건`;
+      document.title = title;
+      $('companyName').textContent = job.companyName || '-';
+      $('projectName').textContent = job.projectName || job.title || '-';
+      $('targetName').textContent = order.targetName || '-';
+      $('fileCount').textContent = `${order.fileCount || 0}건`;
+      $('orderNote').textContent = order.note || '별도 요청사항 없음';
+      $('statusChip').className = statusClass(order.status);
+      $('statusChip').textContent = order.statusLabel || order.status || '상태';
+      $('dueChip').textContent = `희망 ${formatDate(order.dueDate || job.dueDate)}`;
+      $('zipTop').href = order.publicArchiveUrl || '#';
+      $('zipBody').href = order.publicArchiveUrl || '#';
+
+      $('responseStatus').value = order.responseStatus || 'possible';
+      $('responseAvailableDate').value = order.responseAvailableDate || order.dueDate || job.dueDate || '';
+      $('respondedByName').value = order.respondedByName || order.targetName || '';
+      $('responseNote').value = order.responseNote || '';
+      if (order.respondedAt) {
+        $('replyChip').style.display = '';
+        $('replyChip').textContent = `${order.responseStatusLabel || '회신'} 저장됨`;
+      }
+
+      const grid = $('fileGrid');
+      grid.innerHTML = '';
+      (data.files || []).forEach(file => grid.appendChild(renderFile(file)));
+    }
+
+    function showError(message) {
+      $('loading').style.display = 'none';
+      $('content').style.display = 'none';
+      $('filesPanel').style.display = 'none';
+      $('error').style.display = '';
+      $('error').textContent = message;
+    }
+
+    async function loadOrder() {
+      state.token = tokenFromLocation();
+      if (!state.token) return showError('발주 링크가 올바르지 않습니다.');
+      try {
+        const res = await fetch('/api/workflow/public/orders/' + encodeURIComponent(state.token));
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || '발주 정보를 불러오지 못했습니다.');
+        render(data);
+      } catch (e) {
+        showError(e.message || '발주 정보를 불러오지 못했습니다.');
+      }
+    }
+
+    async function submitReply(event) {
+      event.preventDefault();
+      const btn = $('submitBtn');
+      btn.disabled = true;
+      try {
+        const payload = {
+          responseStatus: $('responseStatus').value,
+          responseAvailableDate: $('responseAvailableDate').value,
+          respondedByName: $('respondedByName').value,
+          responseNote: $('responseNote').value,
+        };
+        const res = await fetch('/api/workflow/public/orders/' + encodeURIComponent(state.token) + '/reply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || '회신 저장에 실패했습니다.');
+        render(data);
+        showToast('회신을 저장했습니다.');
+      } catch (e) {
+        showToast(e.message || '회신 저장에 실패했습니다.');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    $('copyBtn').addEventListener('click', async () => {
+      const ok = await copyText(location.href);
+      showToast(ok ? '링크를 복사했습니다.' : '복사에 실패했습니다.');
+    });
+    $('replyForm').addEventListener('submit', submitReply);
+    $('viewerClose').addEventListener('click', closeViewer);
+    $('viewer').addEventListener('click', e => {
+      if (e.target === $('viewer')) closeViewer();
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') closeViewer();
+    });
+    loadOrder();
+  </script>
+</body>
+</html>
