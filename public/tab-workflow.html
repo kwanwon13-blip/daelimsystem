@@ -459,7 +459,11 @@
                 </div>
                 <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
                   <span class="wf-muted" x-text="'시안 ' + visualFiles().length + '개'"></span>
-                  <a class="wf-btn" x-show="filteredFiles().length" :href="jobArchiveUrl()">묶음 받기</a>
+                  <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end;">
+                    <a class="wf-btn" x-show="filteredFiles().length" :href="jobArchiveUrl()">묶음 받기</a>
+                    <a class="wf-btn" x-show="filteredFiles().length && factoryArchiveUrl()" :href="factoryArchiveUrl()">공장 묶음</a>
+                    <button class="wf-btn" x-show="filteredFiles().length && factoryArchiveUrl()" @click="copyFactoryArchiveLink()">공장 링크</button>
+                  </div>
                 </div>
                 <div class="wf-gallery proof-strip" x-show="visualFiles().length">
                   <template x-for="file in visualFiles()" :key="file.id">
@@ -492,6 +496,8 @@
                         </div>
                         <div style="display:flex;gap:5px;flex-wrap:wrap;">
                           <a class="wf-btn" :href="fileUrl(file)">원본</a>
+                          <a class="wf-btn" x-show="publicFileUrl(file)" :href="publicFileUrl(file)">공장받기</a>
+                          <button class="wf-btn" x-show="publicFileUrl(file)" @click="copyFactoryFileLink(file)">링크</button>
                           <button class="wf-btn" x-show="isUnreadFile(file)" @click="markRead(file)">확인</button>
                           <button class="wf-btn" @click="toggleFileCollab(file)" x-text="expandedFileId === file.id ? '접기' : '협의'"></button>
                         </div>
@@ -555,6 +561,8 @@
                           <span class="wf-chip ready" x-show="file.hasTarget && file.targetRead">수신확인</span>
                           <span class="wf-chip" :class="file.reviewStatus || 'pending'" x-show="canReviewFile(file)" x-text="fileReviewLabel(file.reviewStatus)"></span>
                           <a class="wf-btn" :href="fileUrl(file)">받기</a>
+                          <a class="wf-btn" x-show="publicFileUrl(file)" :href="publicFileUrl(file)">공장받기</a>
+                          <button class="wf-btn" x-show="publicFileUrl(file)" @click="copyFactoryFileLink(file)">링크</button>
                           <button class="wf-btn" x-show="isUnreadFile(file)" @click="markRead(file)">확인</button>
                           <button class="wf-btn" @click="toggleFileCollab(file)" x-text="expandedFileId === file.id ? '접기' : '협의'"></button>
                         </div>

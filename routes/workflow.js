@@ -1,6 +1,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const multer = require('multer');
 const JSZip = require('jszip');
 const { requireAuth } = require('../middleware/auth');
@@ -84,6 +85,7 @@ function loadStore() {
     if (!Array.isArray(data.jobs)) data.jobs = [];
     if (!Array.isArray(data.events)) data.events = [];
     if (!Array.isArray(data.files)) data.files = [];
+    if (ensurePublicTokens(data)) saveStore(data);
     return data;
   } catch (e) {
     const brokenPath = STORE_PATH + '.broken_' + Date.now();
@@ -111,6 +113,44 @@ function nowIso() {
 
 function makeId(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function makePublicToken() {
+  return crypto.randomBytes(18)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function makeUniquePublicToken(data) {
+  const used = new Set();
+  for (const job of data?.jobs || []) {
+    if (job?.publicToken) used.add(String(job.publicToken));
+  }
+  for (const file of data?.files || []) {
+    if (file?.publicToken) used.add(String(file.publicToken));
+  }
+  let token = makePublicToken();
+  while (used.has(token)) token = makePublicToken();
+  return token;
+}
+
+function ensurePublicTokens(data) {
+  let changed = false;
+  for (const job of data?.jobs || []) {
+    if (!job.publicToken) {
+      job.publicToken = makeUniquePublicToken(data);
+      changed = true;
+    }
+  }
+  for (const file of data?.files || []) {
+    if (!file.publicToken) {
+      file.publicToken = makeUniquePublicToken(data);
+      changed = true;
+    }
+  }
+  return changed;
 }
 
 function safeText(v, max = 500) {
@@ -705,12 +745,16 @@ function hasTargetRead(file, job = null) {
 }
 
 function decorateWorkflowFile(file, viewerUser, job = null) {
+  const publicDownloadUrl = file.publicToken ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/download` : '';
+  const publicPreviewUrl = file.publicToken && isImageFile(file) ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/preview` : '';
   return {
     ...file,
     isImage: isImageFile(file),
     isAi: isAiFile(file),
     previewUrl: isImageFile(file) ? `/api/workflow/files/${encodeURIComponent(file.id)}/preview` : '',
     downloadUrl: `/api/workflow/files/${encodeURIComponent(file.id)}/download`,
+    publicDownloadUrl,
+    publicPreviewUrl,
     viewerUnread: isUnreadForViewer(file, viewerUser, job),
     hasTarget: hasFileTarget(file),
     targetRead: hasTargetRead(file, job),
@@ -944,10 +988,13 @@ function decorateJob(data, job, viewerUser = null) {
     fileCount: files.length,
     visualFileCount: files.filter(isImageFile).length,
     urgentFileCount: files.filter(f => f.urgent && (!f.scheduleNegotiation || f.scheduleNegotiation === 'pending' || f.scheduleNegotiation === 'needs_change')).length,
+    publicArchiveUrl: job.publicToken ? `/api/workflow/public/jobs/${encodeURIComponent(job.publicToken)}/files.zip` : '',
     primaryVisualFile: primaryVisualFile ? {
       id: primaryVisualFile.id,
       originalName: primaryVisualFile.originalName || '',
       previewUrl: `/api/workflow/files/${encodeURIComponent(primaryVisualFile.id)}/preview`,
+      publicPreviewUrl: primaryVisualFile.publicToken ? `/api/workflow/public/files/${encodeURIComponent(primaryVisualFile.publicToken)}/preview` : '',
+      publicDownloadUrl: primaryVisualFile.publicToken ? `/api/workflow/public/files/${encodeURIComponent(primaryVisualFile.publicToken)}/download` : '',
       designDueDate: primaryVisualFile.designDueDate || '',
       factoryAvailableDate: primaryVisualFile.factoryAvailableDate || '',
       urgent: !!primaryVisualFile.urgent,
@@ -1119,6 +1166,113 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage, limits: { fileSize: 100 * 1024 * 1024, files: 20 } });
 
+function archiveFilters(query = {}) {
+  const stageId = STAGES.some(s => s.id === query.stageId) ? query.stageId : '';
+  const kind = ['proof', 'attachment', 'drawing', 'photo'].includes(query.kind) ? query.kind : '';
+  return { stageId, kind };
+}
+
+function jobArchiveFiles(data, job, filters = {}) {
+  const { stageId = '', kind = '' } = filters;
+  return data.files
+    .filter(f => f.jobId === job.id)
+    .filter(f => !stageId || f.stageId === stageId)
+    .filter(f => !kind || (f.kind || 'attachment') === kind)
+    .filter(f => {
+      const full = fileDiskPath(f);
+      return !!(full && fs.existsSync(full));
+    });
+}
+
+async function buildJobArchive(data, job, filters = {}) {
+  const { stageId = '', kind = '' } = filters;
+  const files = jobArchiveFiles(data, job, filters);
+  if (!files.length) return null;
+
+  const zip = new JSZip();
+  const used = new Set();
+  const root = safeFilePart(`${job.companyName || 'workflow'}_${job.projectName || ''}_${job.title || job.id}`, job.id);
+  for (const file of files) {
+    const stage = safeFilePart(file.stageId || 'stage');
+    const fileKind = safeFilePart(file.kind || 'attachment');
+    const original = safeFilePart(file.originalName || file.storedName || file.id, file.id);
+    const version = Number(file.version || 1);
+    const zipPath = uniqueZipPath(used, `${root}/${stage}/${fileKind}/v${version}_${original}`);
+    zip.file(zipPath, fs.readFileSync(fileDiskPath(file)));
+  }
+  zip.file(`${root}/_manifest.json`, JSON.stringify({
+    job: {
+      id: job.id,
+      title: job.title,
+      companyName: job.companyName || '',
+      projectName: job.projectName || '',
+      currentStage: job.currentStage || '',
+    },
+    filters: { stageId, kind },
+    files: files.map(f => ({
+      id: f.id,
+      stageId: f.stageId,
+      kind: f.kind || 'attachment',
+      version: f.version || 1,
+      originalName: f.originalName,
+      uploadedByName: f.uploadedByName,
+      targetLabel: f.targetLabel || '',
+      reviewStatus: f.reviewStatus || 'pending',
+      reviewNote: f.reviewNote || '',
+      createdAt: f.createdAt,
+    })),
+    generatedAt: nowIso(),
+  }, null, 2));
+
+  const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+  const suffix = [stageId, kind].filter(Boolean).join('_') || 'all';
+  const filename = safeFilePart(`${job.companyName || 'workflow'}_${job.projectName || job.title || job.id}_${suffix}`) + '.zip';
+  return { buffer, filename, files };
+}
+
+function sendWorkflowFile(res, file, inline = false, publicCache = false) {
+  const full = fileDiskPath(file);
+  if (!full || !fs.existsSync(full)) return false;
+  res.setHeader('Content-Type', file.mime || 'application/octet-stream');
+  res.setHeader('Content-Disposition', inline ? 'inline' : attachmentDisposition(file.originalName || 'file'));
+  res.setHeader('Cache-Control', publicCache ? 'public, max-age=300' : 'private, max-age=300');
+  res.sendFile(full);
+  return true;
+}
+
+router.get('/public/files/:token/download', (req, res) => {
+  const data = loadStore();
+  const token = safeText(req.params.token, 120);
+  const file = data.files.find(f => String(f.publicToken || '') === token);
+  if (!file) return res.status(404).send('not found');
+  if (!sendWorkflowFile(res, file, false, true)) return res.status(404).send('not found');
+});
+
+router.get('/public/files/:token/preview', (req, res) => {
+  const data = loadStore();
+  const token = safeText(req.params.token, 120);
+  const file = data.files.find(f => String(f.publicToken || '') === token);
+  if (!file || !isImageFile(file)) return res.status(404).send('not found');
+  if (!sendWorkflowFile(res, file, true, true)) return res.status(404).send('not found');
+});
+
+router.get('/public/jobs/:token/files.zip', async (req, res, next) => {
+  try {
+    const data = loadStore();
+    const token = safeText(req.params.token, 120);
+    const job = data.jobs.find(j => String(j.publicToken || '') === token);
+    if (!job) return res.status(404).send('not found');
+    const archive = await buildJobArchive(data, job, archiveFilters(req.query));
+    if (!archive) return res.status(404).send('no files');
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', attachmentDisposition(archive.filename));
+    res.setHeader('Cache-Control', 'public, max-age=60');
+    res.send(archive.buffer);
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.use(requireAuth);
 
 router.get('/meta', (req, res) => {
@@ -1181,6 +1335,7 @@ router.post('/jobs', (req, res) => {
   if (!payload.title) return res.status(400).json({ error: '작업명이 필요합니다.' });
   const job = {
     id: makeId('wf'),
+    publicToken: makeUniquePublicToken(data),
     ...payload,
     stageChecks: newStageChecks(),
     currentStage: 'design',
@@ -1438,6 +1593,7 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
     }
     const rec = {
       id: makeId('wff'),
+      publicToken: makeUniquePublicToken(data),
       jobId: job.id,
       stageId,
       kind,
@@ -1602,62 +1758,15 @@ router.get('/jobs/:id/files/archive', async (req, res) => {
   const data = loadStore();
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).send('not found');
-  const stageId = STAGES.some(s => s.id === req.query.stageId) ? req.query.stageId : '';
-  const kind = ['proof', 'attachment', 'drawing', 'photo'].includes(req.query.kind) ? req.query.kind : '';
-  const files = data.files
-    .filter(f => f.jobId === job.id)
-    .filter(f => !stageId || f.stageId === stageId)
-    .filter(f => !kind || (f.kind || 'attachment') === kind)
-    .filter(f => {
-      const full = fileDiskPath(f);
-      return !!(full && fs.existsSync(full));
-    });
-  if (!files.length) return res.status(404).send('no files');
-
-  const zip = new JSZip();
-  const used = new Set();
-  const root = safeFilePart(`${job.companyName || 'workflow'}_${job.projectName || ''}_${job.title || job.id}`, job.id);
-  for (const file of files) {
-    const stage = safeFilePart(file.stageId || 'stage');
-    const fileKind = safeFilePart(file.kind || 'attachment');
-    const original = safeFilePart(file.originalName || file.storedName || file.id, file.id);
-    const version = Number(file.version || 1);
-    const zipPath = uniqueZipPath(used, `${root}/${stage}/${fileKind}/v${version}_${original}`);
-    zip.file(zipPath, fs.readFileSync(fileDiskPath(file)));
-  }
-  zip.file(`${root}/_manifest.json`, JSON.stringify({
-    job: {
-      id: job.id,
-      title: job.title,
-      companyName: job.companyName || '',
-      projectName: job.projectName || '',
-      currentStage: job.currentStage || '',
-    },
-    filters: { stageId, kind },
-    files: files.map(f => ({
-      id: f.id,
-      stageId: f.stageId,
-      kind: f.kind || 'attachment',
-      version: f.version || 1,
-      originalName: f.originalName,
-      uploadedByName: f.uploadedByName,
-      targetLabel: f.targetLabel || '',
-      reviewStatus: f.reviewStatus || 'pending',
-      reviewNote: f.reviewNote || '',
-      createdAt: f.createdAt,
-    })),
-    generatedAt: nowIso(),
-  }, null, 2));
-
-  const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
-  const suffix = [stageId, kind].filter(Boolean).join('_') || 'all';
-  const filename = safeFilePart(`${job.companyName || 'workflow'}_${job.projectName || job.title || job.id}_${suffix}`) + '.zip';
-  addEvent(data, req, job.id, 'archive', `파일 묶음 다운로드 ${files.length}개`, { stageId, kind, count: files.length });
+  const filters = archiveFilters(req.query);
+  const archive = await buildJobArchive(data, job, filters);
+  if (!archive) return res.status(404).send('no files');
+  addEvent(data, req, job.id, 'archive', `파일 묶음 다운로드 ${archive.files.length}개`, { ...filters, count: archive.files.length });
   saveStore(data);
   res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Disposition', attachmentDisposition(filename));
+  res.setHeader('Content-Disposition', attachmentDisposition(archive.filename));
   res.setHeader('Cache-Control', 'private, max-age=60');
-  res.send(buffer);
+  res.send(archive.buffer);
 });
 
 router.get('/files/:fileId/download', (req, res) => {

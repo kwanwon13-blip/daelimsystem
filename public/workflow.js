@@ -915,6 +915,51 @@ function workflowApp() {
       return file.previewUrl || this.fileUrl(file);
     },
 
+    publicFileUrl(file) {
+      return file && file.publicDownloadUrl ? file.publicDownloadUrl : '';
+    },
+
+    absoluteUrl(url) {
+      if (!url) return '';
+      try {
+        return new URL(url, window.location.origin).toString();
+      } catch (_) {
+        return url;
+      }
+    },
+
+    async copyText(text) {
+      const value = String(text || '');
+      if (!value) return false;
+      const api = typeof navigator !== 'undefined' ? navigator.clipboard : null;
+      if (api && typeof api.writeText === 'function') {
+        try {
+          await api.writeText(value);
+          return true;
+        } catch (_) {}
+      }
+      try {
+        const el = document.createElement('textarea');
+        el.value = value;
+        el.setAttribute('readonly', '');
+        el.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;';
+        document.body.appendChild(el);
+        el.select();
+        const ok = document.execCommand && document.execCommand('copy');
+        document.body.removeChild(el);
+        return !!ok;
+      } catch (_) {
+        return false;
+      }
+    },
+
+    async copyFactoryFileLink(file) {
+      const url = this.publicFileUrl(file);
+      if (!url) return alert('공장 다운로드 링크가 없습니다.');
+      const ok = await this.copyText(this.absoluteUrl(url));
+      alert(ok ? '공장 다운로드 링크를 복사했습니다.' : '링크 복사에 실패했습니다.');
+    },
+
     openFilePreview(file) {
       if (!file || !file.isImage) return;
       this.filePreview = { open: true, file, zoom: 1, fit: true };
@@ -975,6 +1020,23 @@ function workflowApp() {
       if (this.fileKindFilter !== 'all') qs.set('kind', this.fileKindFilter);
       const query = qs.toString();
       return '/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/files/archive' + (query ? '?' + query : '');
+    },
+
+    factoryArchiveUrl() {
+      const base = this.detail && this.detail.job ? (this.detail.job.publicArchiveUrl || '') : '';
+      if (!base) return '';
+      const qs = new URLSearchParams();
+      if (this.fileStageFilter !== 'all') qs.set('stageId', this.fileStageFilter);
+      if (this.fileKindFilter !== 'all') qs.set('kind', this.fileKindFilter);
+      const query = qs.toString();
+      return base + (query ? '?' + query : '');
+    },
+
+    async copyFactoryArchiveLink() {
+      const url = this.factoryArchiveUrl();
+      if (!url) return alert('공장 묶음 다운로드 링크가 없습니다.');
+      const ok = await this.copyText(this.absoluteUrl(url));
+      alert(ok ? '공장 묶음 다운로드 링크를 복사했습니다.' : '링크 복사에 실패했습니다.');
     },
 
     eventTime(ts) {
