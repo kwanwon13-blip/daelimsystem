@@ -152,8 +152,18 @@
       <option :value="company"></option>
     </template>
   </datalist>
-  <datalist id="wfProjectNames">
-    <template x-for="p in workflowProjectNames()" :key="p">
+  <datalist id="wfFormProjectNames">
+    <template x-for="p in workflowProjectNames(form.companyName, form.projectName)" :key="'form-'+p">
+      <option :value="p"></option>
+    </template>
+  </datalist>
+  <datalist id="wfUploadProjectNames">
+    <template x-for="p in workflowProjectNames(uploadCompanyName, uploadProjectName)" :key="'upload-'+p">
+      <option :value="p"></option>
+    </template>
+  </datalist>
+  <datalist id="wfDetailProjectNames">
+    <template x-for="p in workflowProjectNames(detail && detail.job ? detail.job.companyName : '', detail && detail.job ? detail.job.projectName : '')" :key="'detail-'+p">
       <option :value="p"></option>
     </template>
   </datalist>
@@ -374,7 +384,7 @@
                 </div>
                 <div class="wf-grid-2">
                   <input class="wf-input" list="wfCompanyNames" x-model="detail.job.companyName" placeholder="업체">
-                  <input class="wf-input" x-model="detail.job.projectName" placeholder="현장">
+                  <input class="wf-input" list="wfDetailProjectNames" x-model="detail.job.projectName" placeholder="현장">
                   <input class="wf-input" type="date" x-model="detail.job.dueDate">
                   <input class="wf-input" type="date" x-model="detail.job.deliveryDate">
                 </div>
@@ -433,7 +443,7 @@
                   </div>
                   <div style="display:grid;grid-template-columns:1fr 1fr 130px;gap:8px;">
                     <input class="wf-input" list="wfCompanyNames" x-model="uploadCompanyName" placeholder="회사">
-                    <input class="wf-input" list="wfProjectNames" x-model="uploadProjectName" placeholder="프로젝트">
+                    <input class="wf-input" list="wfUploadProjectNames" x-model="uploadProjectName" placeholder="프로젝트">
                     <input class="wf-input" type="date" x-model="uploadDesignDueDate" title="디자인 희망 완료일">
                   </div>
                   <label class="wf-dropzone" :class="uploadDragOver ? 'drag' : ''"
@@ -601,6 +611,65 @@
             </section>
 
             <section class="wf-section">
+              <div class="wf-section-title" style="justify-content:space-between;">
+                <span style="display:flex;align-items:center;gap:6px;">
+                  <span class="material-symbols-outlined" style="font-size:16px;">outbox</span>발주 패키지
+                </span>
+                <span class="wf-muted" x-text="'진행 ' + (orderSummary().active || 0) + ' / 전체 ' + (orderSummary().total || 0)"></span>
+              </div>
+              <div class="wf-section-body">
+                <div class="wf-upload-panel">
+                  <div style="display:grid;grid-template-columns:120px 1fr 120px;gap:8px;">
+                    <select class="wf-select" x-model="orderForm.targetPreset" @change="onOrderTargetPreset()">
+                      <template x-for="target in orderTargets" :key="target.id">
+                        <option :value="target.id" x-text="target.label"></option>
+                      </template>
+                    </select>
+                    <input class="wf-input" x-model="orderForm.targetName" placeholder="발주 대상">
+                    <input class="wf-input" type="date" x-model="orderForm.dueDate" title="희망 납기">
+                  </div>
+                  <textarea class="wf-textarea" x-model="orderForm.note" placeholder="발주 요청사항"></textarea>
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+                    <span class="wf-muted" x-text="'현재 표시 파일 ' + currentOrderFileIds().length + '건으로 패키지 생성'"></span>
+                    <button class="wf-btn primary" @click="createOrderPackage()">발주 패키지 생성</button>
+                  </div>
+                </div>
+
+                <div class="wf-gallery" x-show="orders().length">
+                  <template x-for="order in orders()" :key="order.id">
+                    <article class="wf-file-card" style="grid-template-columns:minmax(0,1fr);">
+                      <div style="min-width:0;display:flex;flex-direction:column;gap:7px;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                          <div class="wf-file-name" x-text="order.targetName"></div>
+                          <span class="wf-chip" :class="order.status === 'done' || order.status === 'confirmed' ? 'ready' : (order.status === 'cancelled' ? 'blocked' : 'unread')" x-text="orderStatusLabel(order.status)"></span>
+                        </div>
+                        <div class="wf-muted">
+                          <span x-text="orderTargetTypeLabel(order.targetType)"></span>
+                          <span> · 파일 </span><span x-text="order.fileCount || 0"></span><span>건</span>
+                          <span x-show="order.dueDate"> · 납기 </span><span x-show="order.dueDate" x-text="order.dueDate"></span>
+                        </div>
+                        <div class="wf-muted" x-show="order.fileNames && order.fileNames.length" x-text="order.fileNames.slice(0, 3).join(', ') + ((order.fileNames.length > 3) ? ' 외 ' + (order.fileNames.length - 3) + '건' : '')"></div>
+                        <div style="display:grid;grid-template-columns:1fr 120px;gap:6px;">
+                          <select class="wf-select" x-model="order.status">
+                            <template x-for="(label, status) in orderStatuses" :key="status">
+                              <option :value="status" x-text="label"></option>
+                            </template>
+                          </select>
+                          <button class="wf-btn" @click="saveOrder(order)">상태 저장</button>
+                        </div>
+                        <div style="display:flex;gap:5px;flex-wrap:wrap;">
+                          <a class="wf-btn" x-show="orderArchiveUrl(order)" :href="orderArchiveUrl(order)">묶음</a>
+                          <button class="wf-btn" x-show="orderArchiveUrl(order)" @click="copyOrderArchiveLink(order)">링크</button>
+                          <button class="wf-btn" @click="copyOrderMailDraft(order)">메일초안</button>
+                        </div>
+                      </div>
+                    </article>
+                  </template>
+                </div>
+              </div>
+            </section>
+
+            <section class="wf-section">
               <div class="wf-section-title"><span class="material-symbols-outlined" style="font-size:16px;">forum</span>기록</div>
               <div class="wf-section-body">
                 <div style="display:grid;grid-template-columns:1fr auto;gap:8px;">
@@ -651,7 +720,7 @@
           </div>
           <div class="wf-field">
             <label>프로젝트/현장</label>
-            <input class="wf-input" list="wfProjectNames" x-model="form.projectName" placeholder="프로젝트명">
+            <input class="wf-input" list="wfFormProjectNames" x-model="form.projectName" placeholder="프로젝트명">
           </div>
           <div class="wf-field">
             <label>희망 완료일</label>

@@ -64,13 +64,32 @@ const SCHEDULE_NEGOTIATION_LABELS = {
   confirmed: '확정',
 };
 
+const ORDER_TARGETS = [
+  { id: 'factory', label: '우리공장', type: 'internal' },
+  { id: 'lacoss', label: '라코스', type: 'external' },
+  { id: 'isangtech', label: '이상테크', type: 'external' },
+  { id: 'kep', label: 'KEP', type: 'external' },
+  { id: 'space-etching', label: '공간부식', type: 'external' },
+  { id: 'other', label: '기타', type: 'external' },
+];
+
+const ORDER_STATUS_LABELS = {
+  draft: '초안',
+  requested: '발주요청',
+  sent: '발송',
+  replied: '회신',
+  confirmed: '확정',
+  done: '완료',
+  cancelled: '취소',
+};
+
 function ensureDirs() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(FILE_DIR)) fs.mkdirSync(FILE_DIR, { recursive: true });
 }
 
 function emptyStore() {
-  return { jobs: [], events: [], files: [] };
+  return { jobs: [], events: [], files: [], orders: [] };
 }
 
 function loadStore() {
@@ -85,6 +104,7 @@ function loadStore() {
     if (!Array.isArray(data.jobs)) data.jobs = [];
     if (!Array.isArray(data.events)) data.events = [];
     if (!Array.isArray(data.files)) data.files = [];
+    if (!Array.isArray(data.orders)) data.orders = [];
     if (ensurePublicTokens(data)) saveStore(data);
     return data;
   } catch (e) {
@@ -131,6 +151,9 @@ function makeUniquePublicToken(data) {
   for (const file of data?.files || []) {
     if (file?.publicToken) used.add(String(file.publicToken));
   }
+  for (const order of data?.orders || []) {
+    if (order?.publicToken) used.add(String(order.publicToken));
+  }
   let token = makePublicToken();
   while (used.has(token)) token = makePublicToken();
   return token;
@@ -147,6 +170,12 @@ function ensurePublicTokens(data) {
   for (const file of data?.files || []) {
     if (!file.publicToken) {
       file.publicToken = makeUniquePublicToken(data);
+      changed = true;
+    }
+  }
+  for (const order of data?.orders || []) {
+    if (!order.publicToken) {
+      order.publicToken = makeUniquePublicToken(data);
       changed = true;
     }
   }
@@ -791,6 +820,90 @@ function buildDeliverySummary(files, viewerUser, job = null) {
   };
 }
 
+function normalizeFileIds(value) {
+  const raw = Array.isArray(value) ? value : String(value || '').split(',');
+  return uniqueTexts(raw.map(v => safeText(v, 120)));
+}
+
+function normalizeOrderPayload(body = {}, existing = {}) {
+  const targetPreset = ORDER_TARGETS.find(t => t.id === body.targetPreset || t.label === body.targetName);
+  const targetType = ['internal', 'external'].includes(body.targetType)
+    ? body.targetType
+    : (targetPreset?.type || existing.targetType || 'internal');
+  const targetName = safeText(body.targetName || targetPreset?.label || existing.targetName || '우리공장', 120);
+  const status = Object.prototype.hasOwnProperty.call(ORDER_STATUS_LABELS, body.status)
+    ? body.status
+    : (existing.status || 'draft');
+  return {
+    targetPreset: safeText(body.targetPreset || targetPreset?.id || existing.targetPreset || '', 80),
+    targetType,
+    targetName,
+    status,
+    dueDate: safeDate(body.dueDate) || existing.dueDate || '',
+    fileIds: normalizeFileIds(body.fileIds || existing.fileIds || []),
+    mailTo: safeText(body.mailTo || existing.mailTo || '', 300),
+    mailCc: safeText(body.mailCc || existing.mailCc || '', 500),
+    note: safeText(body.note || existing.note || '', 3000),
+  };
+}
+
+function orderFiles(data, order, job = null) {
+  const ids = new Set(normalizeFileIds(order?.fileIds || []));
+  return (data.files || [])
+    .filter(f => (!job || f.jobId === job.id) && ids.has(f.id))
+    .filter(f => {
+      const full = fileDiskPath(f);
+      return !!(full && fs.existsSync(full));
+    });
+}
+
+function makeOrderMailDraft(job, order, files) {
+  const targetName = order.targetName || '발주처';
+  const project = job.projectName || job.title || '';
+  const subject = `[발주] ${job.companyName || '프로젝트'}${project ? ' - ' + project : ''} / ${targetName}`;
+  const lines = [
+    `${targetName} 담당자님,`,
+    '',
+    '아래 건 제작 가능 여부와 납기 확인 부탁드립니다.',
+    '',
+    `- 회사: ${job.companyName || '-'}`,
+    `- 프로젝트/현장: ${project || '-'}`,
+    `- 희망 납기: ${order.dueDate || '협의'}`,
+    `- 첨부/시안: ${files.length}건`,
+  ];
+  if (order.note) {
+    lines.push(`- 요청사항: ${order.note}`);
+  }
+  lines.push('', '첨부 파일은 ERP 발주 묶음 링크 또는 별도 첨부로 전달됩니다.', '확인 후 회신 부탁드립니다.');
+  return { subject, body: lines.join('\n') };
+}
+
+function decorateOrder(data, job, order) {
+  const files = orderFiles(data, order, job);
+  const draft = makeOrderMailDraft(job, order, files);
+  return {
+    ...order,
+    fileCount: files.length,
+    fileNames: files.map(f => f.originalName || f.storedName || f.id),
+    statusLabel: ORDER_STATUS_LABELS[order.status] || order.status || '초안',
+    targetTypeLabel: order.targetType === 'external' ? '외주/업체' : '우리공장',
+    publicArchiveUrl: order.publicToken ? `/api/workflow/public/orders/${encodeURIComponent(order.publicToken)}/files.zip` : '',
+    mailSubject: draft.subject,
+    mailBody: draft.body,
+  };
+}
+
+function buildOrderSummary(data, job) {
+  const orders = (data.orders || []).filter(o => o.jobId === job.id);
+  return {
+    total: orders.length,
+    active: orders.filter(o => !['done', 'cancelled'].includes(o.status || 'draft')).length,
+    external: orders.filter(o => o.targetType === 'external').length,
+    internal: orders.filter(o => o.targetType !== 'external').length,
+    pending: orders.filter(o => ['draft', 'requested', 'sent', 'replied'].includes(o.status || 'draft')).length,
+  };
+}
+
 function isOverdueJob(job) {
   if (!job || job.status === 'done' || job.status === 'cancelled' || !job.dueDate) return false;
   return isPastDue(job.dueDate);
@@ -979,6 +1092,7 @@ function isUserJob(job, req) {
 function decorateJob(data, job, viewerUser = null) {
   const files = data.files.filter(f => f.jobId === job.id);
   const events = data.events.filter(e => e.jobId === job.id);
+  const orderSummary = buildOrderSummary(data, job);
   const blockers = completionBlockers(data, job);
   const primaryVisualFile = files
     .filter(isImageFile)
@@ -986,6 +1100,9 @@ function decorateJob(data, job, viewerUser = null) {
   return {
     ...job,
     fileCount: files.length,
+    orderCount: orderSummary.total,
+    activeOrderCount: orderSummary.active,
+    externalOrderCount: orderSummary.external,
     visualFileCount: files.filter(isImageFile).length,
     urgentFileCount: files.filter(f => f.urgent && (!f.scheduleNegotiation || f.scheduleNegotiation === 'pending' || f.scheduleNegotiation === 'needs_change')).length,
     publicArchiveUrl: job.publicToken ? `/api/workflow/public/jobs/${encodeURIComponent(job.publicToken)}/files.zip` : '',
@@ -1014,6 +1131,7 @@ function decorateJob(data, job, viewerUser = null) {
     nextStageDue: nextStageDue(job),
     latestFileAt: files.reduce((max, f) => !max || f.createdAt > max ? f.createdAt : max, ''),
     latestEvent: events[events.length - 1] || null,
+    orderSummary,
   };
 }
 
@@ -1184,9 +1302,7 @@ function jobArchiveFiles(data, job, filters = {}) {
     });
 }
 
-async function buildJobArchive(data, job, filters = {}) {
-  const { stageId = '', kind = '' } = filters;
-  const files = jobArchiveFiles(data, job, filters);
+async function buildArchiveFromFiles(job, files, filters = {}, suffix = 'all') {
   if (!files.length) return null;
 
   const zip = new JSZip();
@@ -1208,7 +1324,7 @@ async function buildJobArchive(data, job, filters = {}) {
       projectName: job.projectName || '',
       currentStage: job.currentStage || '',
     },
-    filters: { stageId, kind },
+    filters,
     files: files.map(f => ({
       id: f.id,
       stageId: f.stageId,
@@ -1225,9 +1341,15 @@ async function buildJobArchive(data, job, filters = {}) {
   }, null, 2));
 
   const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
-  const suffix = [stageId, kind].filter(Boolean).join('_') || 'all';
   const filename = safeFilePart(`${job.companyName || 'workflow'}_${job.projectName || job.title || job.id}_${suffix}`) + '.zip';
   return { buffer, filename, files };
+}
+
+async function buildJobArchive(data, job, filters = {}) {
+  const { stageId = '', kind = '' } = filters;
+  const files = jobArchiveFiles(data, job, filters);
+  const suffix = [stageId, kind].filter(Boolean).join('_') || 'all';
+  return buildArchiveFromFiles(job, files, { stageId, kind }, suffix);
 }
 
 function sendWorkflowFile(res, file, inline = false, publicCache = false) {
@@ -1273,10 +1395,37 @@ router.get('/public/jobs/:token/files.zip', async (req, res, next) => {
   }
 });
 
+router.get('/public/orders/:token/files.zip', async (req, res, next) => {
+  try {
+    const data = loadStore();
+    const token = safeText(req.params.token, 120);
+    const order = (data.orders || []).find(o => String(o.publicToken || '') === token);
+    if (!order) return res.status(404).send('not found');
+    const job = data.jobs.find(j => j.id === order.jobId);
+    if (!job) return res.status(404).send('not found');
+    const files = orderFiles(data, order, job);
+    const archive = await buildArchiveFromFiles(job, files, { orderId: order.id, targetName: order.targetName || '' }, `order_${safeFilePart(order.targetName || order.id)}`);
+    if (!archive) return res.status(404).send('no files');
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', attachmentDisposition(archive.filename));
+    res.setHeader('Cache-Control', 'public, max-age=60');
+    res.send(archive.buffer);
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.use(requireAuth);
 
 router.get('/meta', (req, res) => {
-  res.json({ ok: true, stages: STAGES, statuses: STATUS_LABELS, checkStatuses: CHECK_STATUS_LABELS });
+  res.json({
+    ok: true,
+    stages: STAGES,
+    statuses: STATUS_LABELS,
+    checkStatuses: CHECK_STATUS_LABELS,
+    orderTargets: ORDER_TARGETS,
+    orderStatuses: ORDER_STATUS_LABELS,
+  });
 });
 
 router.get('/summary', (req, res) => {
@@ -1324,6 +1473,8 @@ router.get('/jobs/:id', (req, res) => {
     ok: true,
     job: decorateJob(data, job, req.user),
     files,
+    orders: (data.orders || []).filter(o => o.jobId === job.id).map(o => decorateOrder(data, job, o)),
+    orderSummary: buildOrderSummary(data, job),
     deliverySummary: buildDeliverySummary(files, req.user, job),
     events: data.events.filter(e => e.jobId === job.id).map(e => decorateWorkflowEvent(e, req.user, job)),
   });
@@ -1540,6 +1691,85 @@ router.get('/jobs/:id/files', (req, res) => {
     ok: true,
     files,
     deliverySummary: buildDeliverySummary(files, req.user, job),
+  });
+});
+
+router.get('/jobs/:id/orders', (req, res) => {
+  const data = loadStore();
+  const job = data.jobs.find(j => j.id === req.params.id);
+  if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  res.json({
+    ok: true,
+    orders: (data.orders || []).filter(o => o.jobId === job.id).map(o => decorateOrder(data, job, o)),
+    orderSummary: buildOrderSummary(data, job),
+  });
+});
+
+router.post('/jobs/:id/orders', (req, res) => {
+  const data = loadStore();
+  const job = data.jobs.find(j => j.id === req.params.id);
+  if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  const payload = normalizeOrderPayload(req.body || {});
+  const validFileIds = new Set(data.files.filter(f => f.jobId === job.id).map(f => f.id));
+  payload.fileIds = payload.fileIds.filter(id => validFileIds.has(id));
+  if (!payload.fileIds.length) return res.status(400).json({ error: '발주에 포함할 파일이 필요합니다.' });
+  const order = {
+    id: makeId('wfo'),
+    publicToken: makeUniquePublicToken(data),
+    jobId: job.id,
+    ...payload,
+    createdBy: req.user?.userId || '',
+    createdByName: userName(req),
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+  };
+  data.orders.push(order);
+  job.updatedAt = nowIso();
+  addEvent(data, req, job.id, 'order', `발주 패키지 생성 · ${order.targetName} · 파일 ${order.fileIds.length}건`, {
+    orderId: order.id,
+    targetName: order.targetName,
+    targetType: order.targetType,
+    fileIds: order.fileIds,
+  });
+  saveStore(data);
+  res.json({
+    ok: true,
+    order: decorateOrder(data, job, order),
+    orders: data.orders.filter(o => o.jobId === job.id).map(o => decorateOrder(data, job, o)),
+    orderSummary: buildOrderSummary(data, job),
+    job: decorateJob(data, job, req.user),
+  });
+});
+
+router.put('/jobs/:id/orders/:orderId', (req, res) => {
+  const data = loadStore();
+  const job = data.jobs.find(j => j.id === req.params.id);
+  const order = (data.orders || []).find(o => o.jobId === req.params.id && o.id === req.params.orderId);
+  if (!job || !order) return res.status(404).json({ error: '작업 또는 발주를 찾을 수 없습니다.' });
+  const beforeStatus = order.status || 'draft';
+  const payload = normalizeOrderPayload(req.body || {}, order);
+  const validFileIds = new Set(data.files.filter(f => f.jobId === job.id).map(f => f.id));
+  payload.fileIds = payload.fileIds.filter(id => validFileIds.has(id));
+  if (!payload.fileIds.length) payload.fileIds = normalizeFileIds(order.fileIds || []);
+  Object.assign(order, payload, {
+    updatedAt: nowIso(),
+    updatedBy: req.user?.userId || '',
+    updatedByName: userName(req),
+  });
+  job.updatedAt = nowIso();
+  addEvent(data, req, job.id, 'order_update', `발주 패키지 ${ORDER_STATUS_LABELS[order.status] || order.status} · ${order.targetName}`, {
+    orderId: order.id,
+    targetName: order.targetName,
+    status: order.status,
+    previousStatus: beforeStatus,
+  });
+  saveStore(data);
+  res.json({
+    ok: true,
+    order: decorateOrder(data, job, order),
+    orders: data.orders.filter(o => o.jobId === job.id).map(o => decorateOrder(data, job, o)),
+    orderSummary: buildOrderSummary(data, job),
+    job: decorateJob(data, job, req.user),
   });
 });
 

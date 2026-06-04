@@ -61,6 +61,109 @@ function matchesAnyDesignTerm(item, terms) {
   return terms.some(term => text.includes(term));
 }
 
+function cleanHierarchyPart(value) {
+  return String(value || '')
+    .replace(/[\\/:*?"<>|\r\n\t]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+}
+
+function cleanCompanyDisplayName(value) {
+  return cleanHierarchyPart(value)
+    .replace(/^[★●◆■\s]+/g, '')
+    .replace(/\s*시안작업\s*$/g, '')
+    .trim();
+}
+
+function isYearHierarchyPart(value) {
+  const s = cleanHierarchyPart(value);
+  return /^20\d{2}(\s*년)?(\s*시안작업)?$/i.test(s)
+    || /^\d{2}년(\s*.+)?$/i.test(s)
+    || /^20\d{2}\s*시안작업$/i.test(s);
+}
+
+function isNoiseHierarchyPart(value) {
+  const s = cleanHierarchyPart(value).toLowerCase();
+  if (!s || s.length < 2) return true;
+  if (isYearHierarchyPart(s)) return true;
+  if (s.includes('.')) return true;
+  return new Set([
+    'backup', 'data', 'temp', 'tmp', 'thumbs', 'images', 'ai', 'pdf', 'jpg', 'png',
+    '업무', '내부서류', '결산', '정산', '시안', '원본', '수정', '완료', '최종', '참고',
+    '신규', '복사', '반사', '추가', '기타', '도면', '사진', '샘플', '샘플링',
+    '관리팀', '견적서', '각종시안 자료', '용품사진', 'price-list-app', '박과장', '핫초코'
+  ]).has(s);
+}
+
+function isWorkflowCompanyName(value) {
+  const s = cleanCompanyDisplayName(value);
+  if (isNoiseHierarchyPart(s)) return false;
+  if (s.length >= 2 && /(건설|공영|이앤씨|E&C|ENC|스틸|기술|종합|산업|개발|금속|엔지니어링|익스테리어|하우징|공사|코닝|포스코|하츠|나이스텍|퍼시스|㈜|\(주\))/i.test(s)) return true;
+  return s.length >= 3 && s.length <= 40;
+}
+
+function hierarchyCandidateFromParts(parts) {
+  const clean = (parts || []).map(cleanHierarchyPart).filter(Boolean);
+  if (clean.length < 3) return null;
+  const lastDirIdx = clean.length - 2;
+  const firstIsYear = isYearHierarchyPart(clean[0]);
+  const companyIdx = firstIsYear ? 1 : 0;
+  const yearAfterCompany = isYearHierarchyPart(clean[companyIdx + 1]);
+  const projectIdx = yearAfterCompany ? companyIdx + 2 : companyIdx + 1;
+  if (projectIdx > lastDirIdx) return null;
+  const company = cleanCompanyDisplayName(clean[companyIdx]);
+  const project = clean[projectIdx];
+  if (!isWorkflowCompanyName(company) || isNoiseHierarchyPart(project)) return null;
+  return {
+    company,
+    project,
+    companyFolder: clean[companyIdx],
+    yearFolder: yearAfterCompany ? clean[companyIdx + 1] : (firstIsYear ? clean[0] : ''),
+  };
+}
+
+function designWorkflowOptions() {
+  const companyStats = new Map();
+  const projectStats = new Map();
+  for (const item of designIndex || []) {
+    const candidate = hierarchyCandidateFromParts(item.parts || []);
+    if (!candidate) continue;
+    const companyKey = normalizeDesignFilter(candidate.company);
+    const projectKey = normalizeDesignFilter(candidate.project);
+    if (!companyKey || !projectKey) continue;
+    if (!companyStats.has(companyKey)) {
+      companyStats.set(companyKey, {
+        name: candidate.company,
+        folderName: candidate.companyFolder,
+        count: 0,
+      });
+    }
+    const companyStat = companyStats.get(companyKey);
+    companyStat.count += 1;
+    if (!companyStat.folderName && candidate.companyFolder) companyStat.folderName = candidate.companyFolder;
+    if (!projectStats.has(companyKey)) projectStats.set(companyKey, new Map());
+    const projects = projectStats.get(companyKey);
+    if (!projects.has(projectKey)) projects.set(projectKey, { name: candidate.project, count: 0 });
+    projects.get(projectKey).count += 1;
+  }
+  const companies = Array.from(companyStats.values())
+    .map(company => {
+      const projects = projectStats.get(normalizeDesignFilter(company.name)) || new Map();
+      return { ...company, projectCount: projects.size };
+    })
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ko'))
+    .slice(0, 500);
+  const projectsByCompany = {};
+  for (const company of companies) {
+    const key = normalizeDesignFilter(company.name);
+    projectsByCompany[company.name] = Array.from((projectStats.get(key) || new Map()).values())
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ko'))
+      .slice(0, 300);
+  }
+  return { companies, projectsByCompany };
+}
+
 let designIndex = [];
 let designIndexStatus = { built: false, building: false, count: 0, lastBuilt: null, error: null };
 
@@ -326,6 +429,24 @@ router.get('/design/thumb', requireAuth, async (req, res) => {
 });
 
 router.get('/design/status', (req, res) => res.json(designIndexStatus));
+
+router.get('/design/workflow-options', requireAuth, (req, res) => {
+  const options = designWorkflowOptions();
+  const companyTerm = normalizeDesignFilter(req.query.company);
+  let projects = [];
+  if (companyTerm) {
+    const company = options.companies.find(c => normalizeDesignFilter(c.name) === companyTerm || normalizeDesignFilter(c.folderName) === companyTerm)
+      || options.companies.find(c => normalizeDesignFilter(c.name).includes(companyTerm) || normalizeDesignFilter(c.folderName).includes(companyTerm));
+    if (company) projects = options.projectsByCompany[company.name] || [];
+  }
+  res.json({
+    ok: true,
+    companies: options.companies,
+    projectsByCompany: options.projectsByCompany,
+    projects,
+    status: designIndexStatus,
+  });
+});
 
 // 내부망 여부 확인
 router.get('/session/info', requireAuth, (req, res) => {

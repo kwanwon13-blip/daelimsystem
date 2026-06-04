@@ -6,6 +6,8 @@ function workflowApp() {
     stages: [],
     statuses: {},
     checkStatuses: {},
+    orderTargets: [],
+    orderStatuses: {},
     summary: { active: 0, overdue: 0, blocked: 0, unreadFiles: 0, unreadEvents: 0, scheduleCount: 0, myActions: 0, byStage: {} },
     selectedId: '',
     selectedWorkStageId: '',
@@ -18,6 +20,7 @@ function workflowApp() {
     newUploadDragOver: false,
     currentUser: null,
     contactOptions: [],
+    designWorkflowOptions: { companies: [], projectsByCompany: {} },
     commentText: '',
     handoffText: '',
     uploadStageId: 'design',
@@ -33,6 +36,13 @@ function workflowApp() {
     fileKindFilter: 'all',
     filePreview: { open: false, file: null, zoom: 1, fit: true },
     expandedFileId: '',
+    orderForm: {
+      targetPreset: 'factory',
+      targetType: 'internal',
+      targetName: '우리공장',
+      dueDate: '',
+      note: '',
+    },
     form: {
       title: '',
       companyName: '',
@@ -64,7 +74,7 @@ function workflowApp() {
         });
         window.__workflowOpenListenerInstalled = true;
       }
-      await Promise.all([this.loadAuth(), this.loadMeta(), this.loadContacts()]);
+      await Promise.all([this.loadAuth(), this.loadMeta(), this.loadContacts(), this.loadDesignWorkflowOptions()]);
       if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
       await this.loadJobs();
       this.consumeWorkflowDraft();
@@ -87,6 +97,8 @@ function workflowApp() {
       this.stages = d.stages || [];
       this.statuses = d.statuses || {};
       this.checkStatuses = d.checkStatuses || {};
+      this.orderTargets = d.orderTargets || [];
+      this.orderStatuses = d.orderStatuses || {};
     },
 
     async loadContacts() {
@@ -100,6 +112,21 @@ function workflowApp() {
         })).filter(c => c.name || c.company);
       } catch (_) {
         this.contactOptions = [];
+      }
+    },
+
+    async loadDesignWorkflowOptions() {
+      try {
+        const r = await fetch('/api/design/workflow-options');
+        const d = await r.json();
+        if (r.ok && d.ok) {
+          this.designWorkflowOptions = {
+            companies: Array.isArray(d.companies) ? d.companies : [],
+            projectsByCompany: d.projectsByCompany || {},
+          };
+        }
+      } catch (_) {
+        this.designWorkflowOptions = { companies: [], projectsByCompany: {} };
       }
     },
 
@@ -246,17 +273,43 @@ function workflowApp() {
       return names.join(', ') + (overflow > 0 ? ` 외 ${overflow}` : '');
     },
 
-    workflowProjectNames() {
+    normalizeOptionName(value) {
+      return String(value || '')
+        .replace(/^[★●◆■\s]+/g, '')
+        .replace(/\s*시안작업\s*$/g, '')
+        .toLowerCase()
+        .replace(/\s+/g, '');
+    },
+
+    projectNamesForCompany(companyName) {
+      const key = this.normalizeOptionName(companyName);
+      if (!key) return [];
+      const entries = Object.entries(this.designWorkflowOptions.projectsByCompany || {});
+      const exact = entries.find(([company]) => this.normalizeOptionName(company) === key);
+      const fuzzy = exact || entries.find(([company]) => {
+        const c = this.normalizeOptionName(company);
+        return c && (c.includes(key) || key.includes(c));
+      });
+      return fuzzy ? (fuzzy[1] || []).map(p => p.name || p).filter(Boolean) : [];
+    },
+
+    workflowProjectNames(companyName = '', currentProjectName = '') {
       const names = [];
-      if (this.detail?.job?.projectName) names.push(this.detail.job.projectName);
+      names.push(...this.projectNamesForCompany(companyName));
+      if (currentProjectName) names.push(currentProjectName);
+      const companyKey = this.normalizeOptionName(companyName);
+      if (this.detail?.job?.projectName && (!companyKey || this.normalizeOptionName(this.detail.job.companyName) === companyKey)) names.push(this.detail.job.projectName);
       for (const job of this.jobs || []) {
-        if (job.projectName) names.push(job.projectName);
+        if (job.projectName && (!companyKey || this.normalizeOptionName(job.companyName) === companyKey)) names.push(job.projectName);
       }
       return Array.from(new Set(names.filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b), 'ko'));
     },
 
     workflowCompanyNames() {
       const names = [];
+      for (const company of this.designWorkflowOptions.companies || []) {
+        if (company?.name) names.push(company.name);
+      }
       if (this.detail?.job?.companyName) names.push(this.detail.job.companyName);
       for (const job of this.jobs || []) {
         if (job.companyName) names.push(job.companyName);
@@ -428,6 +481,95 @@ function workflowApp() {
 
     sourceFiles() {
       return this.filteredFiles().filter(file => !file.isImage);
+    },
+
+    orders() {
+      return this.detail?.orders || [];
+    },
+
+    orderSummary() {
+      return this.detail?.orderSummary || this.detail?.job?.orderSummary || {};
+    },
+
+    onOrderTargetPreset() {
+      const target = (this.orderTargets || []).find(t => t.id === this.orderForm.targetPreset);
+      if (!target) return;
+      this.orderForm.targetName = target.label || this.orderForm.targetName;
+      this.orderForm.targetType = target.type || this.orderForm.targetType || 'internal';
+    },
+
+    orderStatusLabel(status) {
+      return this.orderStatuses?.[status] || status || '초안';
+    },
+
+    orderTargetTypeLabel(type) {
+      return type === 'external' ? '외주/업체' : '우리공장';
+    },
+
+    currentOrderFileIds() {
+      return this.filteredFiles().map(file => file.id).filter(Boolean);
+    },
+
+    applyOrderResponse(d) {
+      if (!this.detail) return;
+      if (Array.isArray(d.orders)) this.detail.orders = d.orders;
+      if (d.orderSummary) this.detail.orderSummary = d.orderSummary;
+      if (d.job) this.detail.job = d.job;
+    },
+
+    async createOrderPackage() {
+      if (!this.detail || !this.detail.job) return;
+      const fileIds = this.currentOrderFileIds();
+      if (!fileIds.length) return alert('발주에 포함할 파일이 없습니다.');
+      if (!String(this.orderForm.targetName || '').trim()) return alert('발주 대상을 입력하세요.');
+      const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...this.orderForm, fileIds }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.ok) return alert(d.error || '발주 패키지 생성 실패');
+      this.applyOrderResponse(d);
+      await this.loadJobs();
+      alert('발주 패키지를 만들었습니다.');
+    },
+
+    async saveOrder(order) {
+      if (!this.detail || !this.detail.job || !order) return;
+      const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/orders/' + encodeURIComponent(order.id), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(order),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.ok) return alert(d.error || '발주 저장 실패');
+      this.applyOrderResponse(d);
+      await this.loadJobs();
+    },
+
+    orderArchiveUrl(order) {
+      return order && order.publicArchiveUrl ? order.publicArchiveUrl : '';
+    },
+
+    async copyOrderArchiveLink(order) {
+      const url = this.orderArchiveUrl(order);
+      if (!url) return alert('발주 묶음 링크가 없습니다.');
+      const ok = await this.copyText(this.absoluteUrl(url));
+      alert(ok ? '발주 묶음 링크를 복사했습니다.' : '링크 복사에 실패했습니다.');
+    },
+
+    async copyOrderMailDraft(order) {
+      if (!order) return;
+      const url = this.orderArchiveUrl(order) ? this.absoluteUrl(this.orderArchiveUrl(order)) : '';
+      const text = [
+        '제목: ' + (order.mailSubject || ''),
+        '',
+        order.mailBody || '',
+        '',
+        url ? '발주 묶음 링크: ' + url : '',
+      ].filter(v => v !== '').join('\n');
+      const ok = await this.copyText(text);
+      alert(ok ? '메일 초안을 복사했습니다.' : '메일 초안 복사에 실패했습니다.');
     },
 
     fileReviewLabel(status) {
@@ -634,6 +776,7 @@ function workflowApp() {
       if (force || !this.uploadCompanyName) this.uploadCompanyName = d.job.companyName || '';
       if (force || !this.uploadProjectName) this.uploadProjectName = d.job.projectName || d.job.title || '';
       if (force || !this.uploadDesignDueDate) this.uploadDesignDueDate = d.job.dueDate || this.defaultWorkDate();
+      if (force || !this.orderForm.dueDate) this.orderForm.dueDate = d.job.dueDate || this.defaultWorkDate();
     },
 
     async saveJob() {
