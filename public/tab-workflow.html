@@ -123,9 +123,10 @@
   .wf-file-msg{font-size:11px;line-height:1.35;color:#334155;background:#f8fafc;border-radius:6px;padding:5px 6px;}
   .wf-file-msg strong{font-weight:800;color:#111827;}
   .wf-file-comment{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px;}
-  .wf-schedule-grid{display:grid;grid-template-columns:1fr;gap:6px;}
   .wf-file-collab{display:none;border-top:1px solid #edf0f5;padding-top:7px;gap:6px;flex-direction:column;}
   .wf-proof-card.active .wf-file-collab,.wf-file-card.active .wf-file-collab{display:flex;}
+  .wf-collab-compact{display:grid;grid-template-columns:110px minmax(0,1fr) auto;gap:6px;align-items:center;}
+  .wf-collab-actions{display:flex;gap:5px;flex-wrap:wrap;align-items:center;}
   .wf-file-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;font-size:11px;color:#475569;}
   .wf-file-summary strong{color:#111827;}
   .wf-proof-secondary{display:none;}
@@ -643,34 +644,36 @@
                           <button class="wf-btn" @click="toggleFileCollab(file)" x-text="expandedFileId === file.id ? '접기' : '협의'"></button>
                         </div>
                         <div class="wf-file-collab">
-                          <label style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:800;color:#b91c1c;">
-                            <input type="checkbox" x-model="file.urgent"> 긴급
-                          </label>
-                          <div class="wf-schedule-grid">
-                            <input class="wf-input" type="date" x-model="file.designDueDate" title="디자인 희망 완료일">
+                          <div class="wf-collab-compact">
+                            <select class="wf-select" x-model="file.scheduleNegotiation">
+                              <option value="pending">확인중</option>
+                              <option value="possible">가능</option>
+                              <option value="needs_change">조정</option>
+                              <option value="confirmed">확정</option>
+                            </select>
                             <input class="wf-input" type="date" x-model="file.factoryAvailableDate" title="공장 가능일">
-                          </div>
-                          <select class="wf-select" x-model="file.scheduleNegotiation">
-                            <option value="pending">일정확인</option>
-                            <option value="possible">가능</option>
-                            <option value="needs_change">조정요청</option>
-                            <option value="confirmed">확정</option>
-                          </select>
-                          <input class="wf-input" x-model="file.factoryScheduleNote" placeholder="공장 가능일 사유/협의 메모">
-                          <div style="display:flex;gap:5px;flex-wrap:wrap;">
                             <button class="wf-btn" @click="saveFileSchedule(file)">일정저장</button>
+                          </div>
+                          <input class="wf-input" x-model="file.factoryScheduleNote" placeholder="공장 일정 메모">
+                          <div class="wf-collab-actions">
+                            <label style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:800;color:#b91c1c;">
+                              <input type="checkbox" x-model="file.urgent"> 긴급
+                            </label>
                             <button class="wf-btn" x-show="canReviewFile(file)" @click="reviewFile(file, 'approved')">승인</button>
                             <button class="wf-btn" x-show="canReviewFile(file)" @click="reviewFile(file, 'change_requested')">수정요청</button>
+                            <button class="wf-btn" @click="file._threadOpen = !file._threadOpen" x-text="file._threadOpen ? '대화 접기' : ('대화 ' + fileEvents(file).length)"></button>
                           </div>
-                          <template x-for="event in fileEvents(file)" :key="event.id">
-                            <div class="wf-file-msg">
-                              <strong x-text="event.actorName"></strong>
-                              <span x-text="' · ' + event.message.replace((file.originalName || '') + ': ', '')"></span>
+                          <div class="wf-file-thread" x-show="file._threadOpen" x-cloak>
+                            <template x-for="event in fileEvents(file)" :key="event.id">
+                              <div class="wf-file-msg">
+                                <strong x-text="event.actorName"></strong>
+                                <span x-text="' · ' + event.message.replace((file.originalName || '') + ': ', '')"></span>
+                              </div>
+                            </template>
+                            <div class="wf-file-comment">
+                              <input class="wf-input" x-model="file._commentText" @keydown.enter="addFileComment(file)" placeholder="이 시안에 댓글">
+                              <button class="wf-btn" @click="addFileComment(file)">등록</button>
                             </div>
-                          </template>
-                          <div class="wf-file-comment">
-                            <input class="wf-input" x-model="file._commentText" @keydown.enter="addFileComment(file)" placeholder="이 시안에 댓글">
-                            <button class="wf-btn" @click="addFileComment(file)">등록</button>
                           </div>
                         </div>
                         <div class="wf-muted" x-show="file.reviewNote" x-text="file.reviewNote"></div>
@@ -709,30 +712,34 @@
                           <button class="wf-btn" @click="toggleFileCollab(file)" x-text="expandedFileId === file.id ? '접기' : '협의'"></button>
                         </div>
                         <div class="wf-file-collab">
-                          <label style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:800;color:#b91c1c;">
-                            <input type="checkbox" x-model="file.urgent"> 긴급
-                          </label>
-                          <div class="wf-schedule-grid">
-                            <input class="wf-input" type="date" x-model="file.designDueDate" title="디자인 희망 완료일">
+                          <div class="wf-collab-compact">
+                            <select class="wf-select" x-model="file.scheduleNegotiation">
+                              <option value="pending">확인중</option>
+                              <option value="possible">가능</option>
+                              <option value="needs_change">조정</option>
+                              <option value="confirmed">확정</option>
+                            </select>
                             <input class="wf-input" type="date" x-model="file.factoryAvailableDate" title="공장 가능일">
+                            <button class="wf-btn" @click="saveFileSchedule(file)">일정저장</button>
                           </div>
-                          <select class="wf-select" x-model="file.scheduleNegotiation">
-                            <option value="pending">일정확인</option>
-                            <option value="possible">가능</option>
-                            <option value="needs_change">조정요청</option>
-                            <option value="confirmed">확정</option>
-                          </select>
-                          <input class="wf-input" x-model="file.factoryScheduleNote" placeholder="공장 가능일 사유/협의 메모">
-                          <button class="wf-btn" @click="saveFileSchedule(file)">일정저장</button>
-                          <template x-for="event in fileEvents(file)" :key="event.id">
-                            <div class="wf-file-msg">
-                              <strong x-text="event.actorName"></strong>
-                              <span x-text="' · ' + event.message.replace((file.originalName || '') + ': ', '')"></span>
+                          <input class="wf-input" x-model="file.factoryScheduleNote" placeholder="공장 일정 메모">
+                          <div class="wf-collab-actions">
+                            <label style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:800;color:#b91c1c;">
+                              <input type="checkbox" x-model="file.urgent"> 긴급
+                            </label>
+                            <button class="wf-btn" @click="file._threadOpen = !file._threadOpen" x-text="file._threadOpen ? '대화 접기' : ('대화 ' + fileEvents(file).length)"></button>
+                          </div>
+                          <div class="wf-file-thread" x-show="file._threadOpen" x-cloak>
+                            <template x-for="event in fileEvents(file)" :key="event.id">
+                              <div class="wf-file-msg">
+                                <strong x-text="event.actorName"></strong>
+                                <span x-text="' · ' + event.message.replace((file.originalName || '') + ': ', '')"></span>
+                              </div>
+                            </template>
+                            <div class="wf-file-comment">
+                              <input class="wf-input" x-model="file._commentText" @keydown.enter="addFileComment(file)" placeholder="이 파일에 댓글">
+                              <button class="wf-btn" @click="addFileComment(file)">등록</button>
                             </div>
-                          </template>
-                          <div class="wf-file-comment">
-                            <input class="wf-input" x-model="file._commentText" @keydown.enter="addFileComment(file)" placeholder="이 파일에 댓글">
-                            <button class="wf-btn" @click="addFileComment(file)">등록</button>
                           </div>
                         </div>
                       </div>
