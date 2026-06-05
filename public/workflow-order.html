@@ -237,10 +237,11 @@
     .file-schedule {
       border-top: 1px solid #e2e8f0;
       padding-top: 8px;
-      display: grid;
+      display: none;
       grid-template-columns: 1fr 1fr;
       gap: 7px;
     }
+    .file-schedule.open { display: grid; }
     .file-schedule label {
       font-size: 11px;
     }
@@ -334,7 +335,7 @@
       <span id="topSub">파일과 납기 요청을 확인해 주세요.</span>
     </div>
     <div class="actions">
-      <a class="btn primary" id="zipTop" href="#" download>파일 받기</a>
+      <a class="btn primary" id="zipTop" href="#" download>전체 다운로드</a>
     </div>
   </header>
 
@@ -366,7 +367,7 @@
 
       <div class="panel">
         <div class="panel-head">
-          <div class="panel-title">납기 회신</div>
+          <div class="panel-title">가능일 회신</div>
           <span class="chip green" id="replyChip" style="display:none;"></span>
         </div>
         <div class="panel-body">
@@ -387,7 +388,7 @@
             <label>메모
               <textarea id="responseNote" placeholder="수량, 납기, 제작 관련 메모"></textarea>
             </label>
-            <button class="btn" id="applyAllBtn" type="button">전체 파일 일정에 적용</button>
+            <button class="btn" id="fileScheduleToggle" type="button">파일별 일정 조정</button>
             <button class="btn primary" id="submitBtn" type="submit">회신 저장</button>
           </form>
         </div>
@@ -397,7 +398,7 @@
     <section class="panel" id="filesPanel" style="display:none;">
       <div class="panel-head">
         <div class="panel-title">시안 및 첨부</div>
-        <a class="btn" id="zipBody" href="#" download>파일 받기</a>
+        <a class="btn" id="zipBody" href="#" download>전체 다운로드</a>
       </div>
       <div class="panel-body">
         <div class="file-grid" id="fileGrid"></div>
@@ -412,7 +413,7 @@
   <div class="toast" id="toast"></div>
 
   <script>
-    const state = { token: '', data: null };
+    const state = { token: '', data: null, fileSchedulesOpen: false };
     const $ = id => document.getElementById(id);
 
     function tokenFromLocation() {
@@ -510,7 +511,7 @@
       const down = document.createElement('a');
       down.className = 'btn';
       down.href = file.downloadUrl || '#';
-      down.textContent = '파일 받기';
+      down.textContent = '다운로드';
       down.download = '';
       actions.appendChild(down);
       if (file.isImage && file.previewUrl) {
@@ -521,9 +522,18 @@
         view.addEventListener('click', () => openViewer(file.previewUrl));
         actions.appendChild(view);
       }
+      const scheduleToggle = document.createElement('button');
+      scheduleToggle.className = 'btn';
+      scheduleToggle.type = 'button';
+      scheduleToggle.textContent = '일정 조정';
+      scheduleToggle.addEventListener('click', () => {
+        schedule.classList.toggle('open');
+      });
+      actions.appendChild(scheduleToggle);
 
       const schedule = document.createElement('div');
       schedule.className = 'file-schedule';
+      if (state.fileSchedulesOpen) schedule.classList.add('open');
       schedule.dataset.fileResponse = '1';
       schedule.dataset.fileId = file.id || '';
       const order = state.data?.order || {};
@@ -566,7 +576,14 @@
         if (date) date.value = $('responseAvailableDate').value;
         if (note) note.value = $('responseNote').value;
       });
-      showToast('전체 파일 일정에 반영했습니다.');
+    }
+
+    function toggleFileSchedules() {
+      state.fileSchedulesOpen = !state.fileSchedulesOpen;
+      document.querySelectorAll('[data-file-response="1"]').forEach(row => {
+        row.classList.toggle('open', state.fileSchedulesOpen);
+      });
+      $('fileScheduleToggle').textContent = state.fileSchedulesOpen ? '파일별 일정 닫기' : '파일별 일정 조정';
     }
 
     function render(data) {
@@ -597,6 +614,7 @@
       $('responseAvailableDate').value = order.responseAvailableDate || order.dueDate || job.dueDate || '';
       $('respondedByName').value = order.respondedByName || order.targetName || '';
       $('responseNote').value = order.responseNote || '';
+      $('fileScheduleToggle').textContent = state.fileSchedulesOpen ? '파일별 일정 닫기' : '파일별 일정 조정';
       if (order.respondedAt) {
         $('replyChip').style.display = '';
         $('replyChip').textContent = `${order.responseStatusLabel || '회신'} 저장됨`;
@@ -633,6 +651,7 @@
       const btn = $('submitBtn');
       btn.disabled = true;
       try {
+        if (!document.querySelector('[data-file-response="1"].open')) applyGlobalReplyToFiles();
         const payload = {
           responseStatus: $('responseStatus').value,
           responseAvailableDate: $('responseAvailableDate').value,
@@ -657,7 +676,7 @@
     }
 
     $('replyForm').addEventListener('submit', submitReply);
-    $('applyAllBtn').addEventListener('click', applyGlobalReplyToFiles);
+    $('fileScheduleToggle').addEventListener('click', toggleFileSchedules);
     $('viewerClose').addEventListener('click', closeViewer);
     $('viewer').addEventListener('click', e => {
       if (e.target === $('viewer')) closeViewer();
