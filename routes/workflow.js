@@ -1745,7 +1745,17 @@ function pendingOrderCount(data, job) {
   if (!job || !data || !Array.isArray(data.orders)) return 0;
   return data.orders.filter(order => {
     if (order.jobId !== job.id) return false;
+    if (order.responseStatus === 'needs_change' || order.status === 'replied') return false;
     return !['done', 'confirmed', 'cancelled'].includes(order.status || 'draft');
+  }).length;
+}
+
+function orderChangeRequestCount(data, job) {
+  if (!job || !data || !Array.isArray(data.orders)) return 0;
+  return data.orders.filter(order => {
+    if (order.jobId !== job.id) return false;
+    if (['done', 'confirmed', 'cancelled'].includes(order.status || 'draft')) return false;
+    return order.responseStatus === 'needs_change' || order.status === 'replied';
   }).length;
 }
 
@@ -1756,13 +1766,15 @@ function completionBlockers(data, job) {
   const blockedStages = blockedStageCount(job);
   const pendingReviews = pendingReviewCount(data, job);
   const changeRequests = changeRequestCount(data, job);
+  const orderChangeRequests = orderChangeRequestCount(data, job);
   const pendingOrders = pendingOrderCount(data, job);
   if (pendingStages) blockers.push({ key: 'pendingStages', label: '미완료 단계', count: pendingStages });
   if (pendingChecklist) blockers.push({ key: 'pendingChecklist', label: '미완료 체크', count: pendingChecklist });
   if (blockedStages) blockers.push({ key: 'blockedStages', label: '막힘 단계', count: blockedStages });
   if (pendingReviews) blockers.push({ key: 'pendingReviews', label: '검토대기 파일', count: pendingReviews });
   if (changeRequests) blockers.push({ key: 'changeRequests', label: '수정/조정요청 파일', count: changeRequests });
-  if (pendingOrders) blockers.push({ key: 'pendingOrders', label: '미완료 발주', count: pendingOrders });
+  if (orderChangeRequests) blockers.push({ key: 'orderChangeRequests', label: '전달 조정요청', count: orderChangeRequests });
+  if (pendingOrders) blockers.push({ key: 'pendingOrders', label: '미확정 전달', count: pendingOrders });
   return blockers;
 }
 
