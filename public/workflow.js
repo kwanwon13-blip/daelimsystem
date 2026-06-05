@@ -789,7 +789,9 @@ function workflowApp() {
     },
 
     workflowCompanySuggestions(query = '', limit = 30) {
+      const raw = String(query || '').trim();
       const term = this.normalizeOptionName(query);
+      if (!raw || !term) return [];
       const seen = new Set();
       const suggestions = [];
       for (const company of this.designWorkflowOptions.companies || []) {
