@@ -1513,6 +1513,24 @@ function workflowApp() {
       return parts.join(' · ');
     },
 
+    orderResponseText(order) {
+      if (!order || !order.responseStatus) return '';
+      const label = order.responseStatusLabel || this.scheduleNegotiationLabel(order.responseStatus);
+      const parts = [label];
+      if (order.responseAvailableDate) parts.push('가능일 ' + order.responseAvailableDate);
+      const note = String(order.responseNote || '').trim().split(/\r?\n/)[0].slice(0, 80);
+      if (note) parts.push(note);
+      return parts.join(' · ');
+    },
+
+    orderResponseChipClass(order) {
+      const status = order?.responseStatus || '';
+      if (status === 'confirmed') return 'ready';
+      if (status === 'needs_change') return 'high';
+      if (status === 'possible') return 'unread';
+      return '';
+    },
+
     fileReviewLabel(status) {
       return ({ pending: '검토대기', approved: '승인', change_requested: '수정요청' })[status || 'pending'] || '검토대기';
     },
