@@ -23,6 +23,15 @@ function workflowApp() {
     contactOptions: [],
     designWorkflowOptions: { companies: [], projectsByCompany: {}, projectLookup: {}, masterCompanies: [] },
     workflowProjects: [],
+    projectPanelOpen: false,
+    projectQuery: '',
+    projectStatusFilter: 'active',
+    projectForm: {
+      companyName: '',
+      projectName: '',
+      year: String(new Date().getFullYear()),
+      status: 'active',
+    },
     commentText: '',
     handoffText: '',
     uploadStageId: 'design',
@@ -621,6 +630,50 @@ function workflowApp() {
       return parts.filter(Boolean).join(' · ');
     },
 
+    openProjectPanel() {
+      if (!this.projectForm.year) this.projectForm.year = String(new Date().getFullYear());
+      this.projectPanelOpen = true;
+      this.loadDesignWorkflowOptions();
+    },
+
+    closeProjectPanel() {
+      this.projectPanelOpen = false;
+    },
+
+    resetProjectForm(keepCompany = true) {
+      const companyName = keepCompany ? this.projectForm.companyName : '';
+      this.projectForm = {
+        companyName,
+        projectName: '',
+        year: String(new Date().getFullYear()),
+        status: 'active',
+      };
+    },
+
+    filteredWorkflowProjects() {
+      const term = this.normalizeOptionName(this.projectQuery);
+      return (this.workflowProjects || [])
+        .filter(project => {
+          if (this.projectStatusFilter !== 'all' && project.status !== this.projectStatusFilter) return false;
+          if (!term) return true;
+          return [
+            project.companyName,
+            project.projectName,
+            project.storageBucket,
+            project.storageCompanyFolder,
+            project.storageProjectFolder,
+          ].some(value => this.normalizeOptionName(value).includes(term));
+        })
+        .sort((a, b) => {
+          const as = a.status === 'done' ? 1 : 0;
+          const bs = b.status === 'done' ? 1 : 0;
+          if (as !== bs) return as - bs;
+          return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))
+            || String(a.companyName || '').localeCompare(String(b.companyName || ''), 'ko')
+            || String(a.projectName || '').localeCompare(String(b.projectName || ''), 'ko');
+        });
+    },
+
     currentWorkflowProject(companyName, projectName) {
       const companyKey = this.normalizeOptionName(companyName);
       const projectKey = this.normalizeOptionName(projectName);
@@ -638,7 +691,7 @@ function workflowApp() {
       return project?.status || (this.detail.job.status === 'done' ? 'done' : 'active');
     },
 
-    async createWorkflowProjectFolder(companyName, projectName, year, status = 'active') {
+    async createWorkflowProjectFolder(companyName, projectName, year, status = 'active', options = {}) {
       const company = String(companyName || '').trim();
       const project = String(projectName || '').trim();
       const storageYear = /^\d{4}$/.test(String(year || '')) ? String(year) : String(new Date().getFullYear());
@@ -653,8 +706,23 @@ function workflowApp() {
       if (!r.ok || !d.ok) return alert(d.error || '프로젝트 추가에 실패했습니다.');
       await this.loadDesignWorkflowOptions();
       const rel = d.folder?.rel || d.project?.storageBucket || '';
-      alert(rel ? `프로젝트를 준비했습니다.\n${rel}` : '프로젝트를 준비했습니다.');
+      if (!options.quiet) alert(rel ? `프로젝트를 준비했습니다.\n${rel}` : '프로젝트를 준비했습니다.');
       return d.project;
+    },
+
+    async createManagedProject() {
+      const project = await this.createWorkflowProjectFolder(
+        this.projectForm.companyName,
+        this.projectForm.projectName,
+        this.projectForm.year,
+        this.projectForm.status,
+        { quiet: true },
+      );
+      if (project) {
+        this.projectQuery = project.projectName || this.projectForm.projectName;
+        this.projectStatusFilter = 'all';
+        this.resetProjectForm(true);
+      }
     },
 
     async addFormProjectFolder() {
@@ -697,6 +765,26 @@ function workflowApp() {
       await this.loadDesignWorkflowOptions();
       await this.loadJobs();
       await this.refreshDetail(false);
+      return d.project;
+    },
+
+    async saveWorkflowProjectStatus(project, status) {
+      if (!project) return;
+      const r = await fetch('/api/workflow/projects/' + encodeURIComponent(project.id), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyName: project.companyName,
+          projectName: project.projectName,
+          year: project.year || String(new Date().getFullYear()),
+          status,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.ok) return alert(d.error || '프로젝트 상태 저장에 실패했습니다.');
+      await this.loadDesignWorkflowOptions();
+      await this.loadJobs();
+      if (this.detail?.job) await this.refreshDetail(false);
       return d.project;
     },
 

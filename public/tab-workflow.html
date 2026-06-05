@@ -205,6 +205,7 @@
         </select>
         <button class="wf-btn ghost" @click="loadJobs()"><span class="material-symbols-outlined" style="font-size:16px;">search</span>조회</button>
         <div style="flex:1"></div>
+        <button class="wf-btn ghost" @click="openProjectPanel()"><span class="material-symbols-outlined" style="font-size:16px;">folder_managed</span>프로젝트</button>
         <button class="wf-btn primary" @click="openNewJobModal()"><span class="material-symbols-outlined" style="font-size:16px;">add</span>작업</button>
       </div>
 
@@ -781,6 +782,89 @@
         </div>
       </template>
     </aside>
+  </div>
+  <div class="wf-modal" x-show="projectPanelOpen" x-cloak x-transition @click.self="closeProjectPanel()" @keydown.window.escape="closeProjectPanel()">
+    <div class="wf-dialog wide">
+      <div class="wf-dialog-head">
+        <div class="wf-dialog-title">
+          <span class="material-symbols-outlined" style="font-size:17px;">folder_managed</span>
+          프로젝트 관리
+        </div>
+        <button class="wf-btn ghost" style="height:28px;" @click="closeProjectPanel()">닫기</button>
+      </div>
+      <div class="wf-dialog-body" style="max-height:72vh;overflow:auto;">
+        <div class="wf-upload-panel">
+          <div class="wf-modal-grid">
+            <div class="wf-field">
+              <label>회사명</label>
+              <input class="wf-input" list="wfCompanyNames" x-model="projectForm.companyName" placeholder="회사명">
+            </div>
+            <div class="wf-field">
+              <label>프로젝트명</label>
+              <input class="wf-input" x-model="projectForm.projectName" placeholder="프로젝트명">
+            </div>
+            <div class="wf-field">
+              <label>연도</label>
+              <input class="wf-input" x-model="projectForm.year" placeholder="2026">
+            </div>
+            <div class="wf-field">
+              <label>상태</label>
+              <select class="wf-select" x-model="projectForm.status">
+                <option value="active">진행</option>
+                <option value="done">완료</option>
+              </select>
+            </div>
+          </div>
+          <div class="wf-company-picks" x-show="workflowCompanySuggestions(projectForm.companyName, 18).length">
+            <template x-for="company in workflowCompanySuggestions(projectForm.companyName, 18)" :key="'project-company-'+company.name">
+              <button type="button" class="wf-company-pick" @click="projectForm.companyName = company.name">
+                <strong x-text="company.name"></strong>
+                <small x-text="(company.projectCount || 0) + ' 현장'"></small>
+              </button>
+            </template>
+          </div>
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span class="wf-muted" x-text="'저장 경로: ' + workflowStorageLabel(projectForm.companyName, projectForm.projectName, projectForm.year)"></span>
+            <button class="wf-btn primary" @click="createManagedProject()" :disabled="!projectForm.companyName || !projectForm.projectName">프로젝트 추가</button>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) 120px;gap:8px;">
+          <input class="wf-input" x-model="projectQuery" placeholder="회사명 또는 프로젝트명 검색">
+          <select class="wf-select" x-model="projectStatusFilter">
+            <option value="active">진행</option>
+            <option value="done">완료</option>
+            <option value="all">전체</option>
+          </select>
+        </div>
+        <div class="wf-gallery" x-show="filteredWorkflowProjects().length">
+          <template x-for="project in filteredWorkflowProjects()" :key="project.id">
+            <article class="wf-file-card" style="grid-template-columns:minmax(0,1fr);">
+              <div style="display:flex;flex-direction:column;gap:7px;min-width:0;">
+                <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">
+                  <div style="min-width:0;">
+                    <div class="wf-file-name" x-text="project.projectName"></div>
+                    <div class="wf-muted" x-text="project.companyName"></div>
+                  </div>
+                  <span class="wf-chip" :class="project.status === 'done' ? 'done' : 'ready'" x-text="projectStatusLabel(project.status)"></span>
+                </div>
+                <div class="wf-muted" x-show="project.storageBucket" x-text="project.storageBucket"></div>
+                <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">
+                  <span class="wf-chip" x-text="'작업 ' + (project.jobCount || 0)"></span>
+                  <span class="wf-chip unread" x-show="project.activeJobCount" x-text="'진행 ' + project.activeJobCount"></span>
+                  <span class="wf-chip done" x-show="project.doneJobCount" x-text="'완료 ' + project.doneJobCount"></span>
+                  <select class="wf-select" style="height:28px;margin-left:auto;" :value="project.status" @change="saveWorkflowProjectStatus(project, $event.target.value)">
+                    <option value="active">진행</option>
+                    <option value="done">완료</option>
+                  </select>
+                </div>
+              </div>
+            </article>
+          </template>
+        </div>
+        <div class="wf-empty" style="height:120px;" x-show="!filteredWorkflowProjects().length">등록된 프로젝트가 없습니다.</div>
+      </div>
+    </div>
   </div>
   <div class="wf-modal" x-show="newOpen" x-cloak x-transition @click.self="closeNewJobModal()" @keydown.window.escape="closeNewJobModal()">
     <div class="wf-dialog wide">
