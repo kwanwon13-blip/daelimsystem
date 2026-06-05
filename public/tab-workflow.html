@@ -530,10 +530,13 @@
                 <span style="display:flex;align-items:center;gap:6px;">
                   <span class="material-symbols-outlined" style="font-size:16px;">cloud_upload</span>시안 등록
                 </span>
-                <span class="wf-muted" x-text="'등록자 ' + currentUserLabel()"></span>
+                <span style="display:flex;align-items:center;gap:6px;">
+                  <span class="wf-muted" x-text="'등록자 ' + currentUserLabel()"></span>
+                  <button class="wf-btn ghost" style="height:26px;padding:0 8px;" @click="uploadOpen = !uploadOpen" x-text="uploadOpen ? '닫기' : '시안 올리기'"></button>
+                </span>
               </div>
               <div class="wf-section-body">
-                <div class="wf-upload-panel">
+                <div class="wf-upload-panel" x-show="uploadOpen" x-cloak>
                   <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;">
                     <span class="wf-chip unread">관리팀·공장 자동전달</span>
                     <label style="height:28px;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:#b91c1c;">
@@ -627,7 +630,7 @@
                         </div>
                         <div style="display:flex;gap:5px;flex-wrap:wrap;">
                           <span class="wf-chip urgent" x-show="file.urgent">긴급</span>
-                          <span class="wf-chip" :class="file.scheduleNegotiation === 'needs_change' ? 'change_requested' : (file.scheduleNegotiation === 'confirmed' || file.scheduleNegotiation === 'possible' ? 'ready' : '')" x-text="scheduleNegotiationLabel(file.scheduleNegotiation)"></span>
+                          <span class="wf-chip wf-schedule-chip" :class="file.scheduleNegotiation === 'needs_change' ? 'change_requested' : (file.scheduleNegotiation === 'confirmed' || file.scheduleNegotiation === 'possible' ? 'ready' : '')" x-text="scheduleNegotiationLabel(file.scheduleNegotiation)"></span>
                           <span class="wf-chip unread" x-show="file.hasTarget && !file.targetRead">수신대기</span>
                           <span class="wf-chip ready" x-show="file.hasTarget && file.targetRead">수신확인</span>
                           <span class="wf-chip" :class="file.reviewStatus || 'pending'" x-show="canReviewFile(file)" x-text="fileReviewLabel(file.reviewStatus)"></span>
@@ -694,7 +697,7 @@
                         </div>
                         <div style="display:flex;gap:5px;flex-wrap:wrap;">
                           <span class="wf-chip urgent" x-show="file.urgent">긴급</span>
-                          <span class="wf-chip" :class="file.scheduleNegotiation === 'needs_change' ? 'change_requested' : (file.scheduleNegotiation === 'confirmed' || file.scheduleNegotiation === 'possible' ? 'ready' : '')" x-text="scheduleNegotiationLabel(file.scheduleNegotiation)"></span>
+                          <span class="wf-chip wf-schedule-chip" :class="file.scheduleNegotiation === 'needs_change' ? 'change_requested' : (file.scheduleNegotiation === 'confirmed' || file.scheduleNegotiation === 'possible' ? 'ready' : '')" x-text="scheduleNegotiationLabel(file.scheduleNegotiation)"></span>
                           <span class="wf-chip unread" x-show="file.hasTarget && !file.targetRead">수신대기</span>
                           <span class="wf-chip ready" x-show="file.hasTarget && file.targetRead">수신확인</span>
                           <span class="wf-chip overdue" x-show="file.exists === false">서버 파일 없음</span>

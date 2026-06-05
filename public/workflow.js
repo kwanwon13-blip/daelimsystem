@@ -1474,9 +1474,9 @@ function workflowApp() {
         this.detailMoreOpen = false;
         this.orderPanelOpen = false;
         this.historyPanelOpen = false;
+        this.uploadOpen = false;
       }
       this.uploadStageId = 'design';
-      this.uploadOpen = true;
       if (force || !this.uploadCompanyName) this.uploadCompanyName = d.job.companyName || '';
       if (force || !this.uploadProjectName) this.uploadProjectName = d.job.projectName || d.job.title || '';
       if (force || !this.uploadDesignDueDate) this.uploadDesignDueDate = d.job.dueDate || this.defaultWorkDate();
