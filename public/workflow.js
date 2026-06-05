@@ -235,6 +235,14 @@ function workflowApp() {
       } catch (_) {}
     },
 
+    async setWorkflowListFilter(status = 'active', scope = 'all') {
+      this.statusFilter = status || 'active';
+      this.scopeFilter = scope || 'all';
+      this.selectedId = '';
+      this.detail = null;
+      await this.loadJobs();
+    },
+
     async loadJobs() {
       this.loading = true;
       const qs = new URLSearchParams();

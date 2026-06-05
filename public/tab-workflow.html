@@ -15,7 +15,9 @@
   .wf-btn.ghost{background:#f8fafc;}
   .wf-btn:disabled{opacity:.5;cursor:not-allowed;}
   .wf-summary{display:flex;align-items:center;gap:10px;min-height:34px;padding:6px 12px;border-bottom:1px solid #e5e9f1;background:#fff;overflow:auto;}
-  .wf-metric{border-right:1px solid #e5e9f1;padding:0 10px 0 0;background:transparent;min-width:max-content;display:inline-flex;align-items:center;gap:4px;}
+  .wf-metric{appearance:none;border:0;border-right:1px solid #e5e9f1;padding:0 10px 0 0;background:transparent;min-width:max-content;display:inline-flex;align-items:center;gap:4px;text-align:left;}
+  .wf-metric.clickable{cursor:pointer;}
+  .wf-metric.clickable:hover strong{text-decoration:underline;}
   .wf-metric:last-child{border-right:none;}
   .wf-metric strong{display:inline;font-size:13px;line-height:1;color:#111827;}
   .wf-metric span{display:inline;font-size:11px;color:#64748b;margin:0;}
@@ -231,10 +233,14 @@
       </div>
 
       <div class="wf-summary">
-        <div class="wf-metric">
+        <button type="button" class="wf-metric clickable" @click="setWorkflowListFilter('active')">
           <strong x-text="summary.active || 0"></strong>
           <span>진행 작업</span>
-        </div>
+        </button>
+        <button type="button" class="wf-metric clickable" x-show="summary.done > 0" @click="setWorkflowListFilter('done')">
+          <strong x-text="summary.done || 0"></strong>
+          <span>완료 보관</span>
+        </button>
         <div class="wf-metric action" x-show="summary.myActions > 0">
           <strong x-text="summary.myActions || 0"></strong>
           <span>내 담당</span>
