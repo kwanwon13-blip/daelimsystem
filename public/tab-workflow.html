@@ -762,13 +762,15 @@
               </div>
               <div class="wf-section-body" x-show="orderPanelOpen" x-cloak>
                 <div class="wf-upload-panel">
-                  <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;">
+                  <div style="display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;">
                     <input class="wf-input" x-model="publicLinkForm.publicBaseUrl" placeholder="Cloudflare 터널 주소 예: https://xxxx.trycloudflare.com" :disabled="publicLinkSettings.envLocked">
+                    <button class="wf-btn ghost" x-show="canUseCurrentExternalOrigin()" @click="useCurrentExternalOrigin()" :disabled="publicLinkSettings.envLocked">현재주소</button>
                     <button class="wf-btn" @click="savePublicLinkSettings()" :disabled="publicLinkSettings.envLocked || publicLinkForm.saving" x-text="publicLinkForm.saving ? '저장 중' : '외부주소 저장'"></button>
                   </div>
                   <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
                     <span class="wf-chip ready" x-show="publicShareBaseUrl" x-text="'외부 다운로드 링크 사용 중: ' + publicShareBaseUrl"></span>
                     <span class="wf-chip high" x-show="!publicShareBaseUrl">공장 다운로드용 터널 주소가 아직 없습니다</span>
+                    <span class="wf-muted" x-show="publicLinkCurrentOriginHint()" x-text="publicLinkCurrentOriginHint()"></span>
                     <span class="wf-muted" x-show="publicLinkSettings.envLocked">서버 환경변수로 고정됨</span>
                   </div>
                   <div style="display:grid;grid-template-columns:120px 1fr 120px;gap:8px;">

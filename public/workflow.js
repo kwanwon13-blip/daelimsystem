@@ -154,7 +154,7 @@ function workflowApp() {
           body: JSON.stringify({ publicBaseUrl: this.publicLinkForm.publicBaseUrl || '' }),
         });
         const d = await r.json();
-        if (!r.ok || !d.ok) throw new Error(d.error || '외부 공유 주소 저장 실패');
+        if (!r.ok || !d.ok) throw new Error(d.error || '외부 다운로드 주소 저장 실패');
         this.publicShareBaseUrl = d.publicBaseUrl || '';
         this.publicLinkSettings = {
           configuredBaseUrl: d.configuredBaseUrl || '',
@@ -162,12 +162,41 @@ function workflowApp() {
           envLocked: !!d.envLocked,
         };
         this.publicLinkForm.publicBaseUrl = d.configuredBaseUrl || d.publicBaseUrl || '';
-        alert(this.publicShareBaseUrl ? '외부 공유 주소를 저장했습니다.' : '외부 공유 주소를 비웠습니다.');
+        alert(this.publicShareBaseUrl ? '외부 다운로드 주소를 저장했습니다.' : '외부 다운로드 주소를 비웠습니다.');
       } catch (e) {
         alert(e.message);
       } finally {
         this.publicLinkForm.saving = false;
       }
+    },
+
+    currentExternalOrigin() {
+      try {
+        const origin = window.location.origin || '';
+        const host = window.location.hostname || '';
+        if (!origin || origin === 'null' || this.isPrivateWorkflowHost(host)) return '';
+        if (!/^https?:\/\//i.test(origin)) return '';
+        return origin.replace(/\/+$/, '');
+      } catch (_) {
+        return '';
+      }
+    },
+
+    canUseCurrentExternalOrigin() {
+      return !this.publicLinkSettings.envLocked && !!this.currentExternalOrigin();
+    },
+
+    useCurrentExternalOrigin() {
+      const origin = this.currentExternalOrigin();
+      if (!origin) return alert('현재 접속 주소가 외부 터널 주소가 아닙니다.');
+      this.publicLinkForm.publicBaseUrl = origin;
+    },
+
+    publicLinkCurrentOriginHint() {
+      const origin = this.currentExternalOrigin();
+      if (!origin) return '';
+      if (this.publicShareBaseUrl && origin === this.publicShareBaseUrl) return '현재 접속 주소와 외부 다운로드 주소가 같습니다';
+      return '현재 접속 주소: ' + origin;
     },
 
     async loadContacts() {
@@ -1326,72 +1355,6 @@ function workflowApp() {
       return order && order.publicArchiveUrl ? order.publicArchiveUrl : '';
     },
 
-    orderViewUrl(order) {
-      return order && order.publicViewUrl ? order.publicViewUrl : '';
-    },
-
-    async copyOrderViewLink(order) {
-      const url = this.orderViewUrl(order);
-      if (!url) return alert('발주 확인 화면 링크가 없습니다.');
-      const ok = await this.copyText(this.absoluteUrl(url));
-      alert(ok ? '발주 확인 화면 링크를 복사했습니다.' : '링크 복사에 실패했습니다.');
-    },
-
-    async copyOrderArchiveLink(order) {
-      const url = this.orderArchiveUrl(order);
-      if (!url) return alert('발주 묶음 링크가 없습니다.');
-      const ok = await this.copyText(this.absoluteUrl(url));
-      alert(ok ? '발주 묶음 링크를 복사했습니다.' : '링크 복사에 실패했습니다.');
-    },
-
-    orderShareText(order) {
-      if (!order) return;
-      const viewUrl = this.orderViewUrl(order) ? this.absoluteUrl(this.orderViewUrl(order)) : '';
-      const url = this.orderArchiveUrl(order) ? this.absoluteUrl(this.orderArchiveUrl(order)) : '';
-      return [
-        order.mailTo ? '수신: ' + order.mailTo : '',
-        order.mailCc ? '참조: ' + order.mailCc : '',
-        '제목: ' + (order.mailSubject || ''),
-        '',
-        order.mailBody || '',
-        '',
-        viewUrl ? '발주 확인/회신 링크: ' + viewUrl : '',
-        url ? '발주 묶음 링크: ' + url : '',
-      ].filter(v => v !== '').join('\n');
-    },
-
-    factoryOrderShareText(order) {
-      if (!order) return '';
-      const job = this.detail?.job || {};
-      const viewUrl = this.orderViewUrl(order) ? this.absoluteUrl(this.orderViewUrl(order)) : '';
-      const archiveUrl = this.orderArchiveUrl(order) ? this.absoluteUrl(this.orderArchiveUrl(order)) : '';
-      return [
-        `[시안 확인 요청] ${job.title || order.targetName || '워크플로우 작업'}`,
-        [job.companyName, job.projectName].filter(Boolean).join(' / '),
-        order.dueDate ? `희망 납기: ${order.dueDate}` : '',
-        order.fileCount ? `파일: ${order.fileCount}개` : '',
-        '',
-        '아래 링크에서 시안을 확인하고 가능 일정 또는 조정 요청을 회신해주세요.',
-        viewUrl ? `확인/회신: ${viewUrl}` : '',
-        archiveUrl ? `묶음 다운로드: ${archiveUrl}` : '',
-        order.note ? `요청사항: ${order.note}` : '',
-      ].filter(v => v !== '').join('\n');
-    },
-
-    async copyFactoryOrderShare(order) {
-      const text = this.factoryOrderShareText(order);
-      if (!text) return alert('공유할 발주 정보가 없습니다.');
-      const ok = await this.copyText(text);
-      alert(ok ? '공장 공유문을 복사했습니다.' : '공장 공유문 복사에 실패했습니다.');
-    },
-
-    async copyOrderMailDraft(order) {
-      const text = this.orderShareText(order);
-      if (!text) return;
-      const ok = await this.copyText(text);
-      alert(ok ? '공유문을 복사했습니다.' : '공유문 복사에 실패했습니다.');
-    },
-
     fileReviewLabel(status) {
       return ({ pending: '검토대기', approved: '승인', change_requested: '수정요청' })[status || 'pending'] || '검토대기';
     },
@@ -1945,38 +1908,6 @@ function workflowApp() {
       }
     },
 
-    async copyText(text) {
-      const value = String(text || '');
-      if (!value) return false;
-      const api = typeof navigator !== 'undefined' ? navigator.clipboard : null;
-      if (api && typeof api.writeText === 'function') {
-        try {
-          await api.writeText(value);
-          return true;
-        } catch (_) {}
-      }
-      try {
-        const el = document.createElement('textarea');
-        el.value = value;
-        el.setAttribute('readonly', '');
-        el.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;';
-        document.body.appendChild(el);
-        el.select();
-        const ok = document.execCommand && document.execCommand('copy');
-        document.body.removeChild(el);
-        return !!ok;
-      } catch (_) {
-        return false;
-      }
-    },
-
-    async copyFactoryFileLink(file) {
-      const url = this.publicFileUrl(file);
-      if (!url) return alert('공장 다운로드 링크가 없습니다.');
-      const ok = await this.copyText(this.absoluteUrl(url));
-      alert(ok ? '공장 다운로드 링크를 복사했습니다.' : '링크 복사에 실패했습니다.');
-    },
-
     openFilePreview(file) {
       if (!file || !file.isImage) return;
       this.filePreview = { open: true, file, zoom: 1, fit: true };
@@ -2087,13 +2018,6 @@ function workflowApp() {
       if (this.fileKindFilter !== 'all') qs.set('kind', this.fileKindFilter);
       const query = qs.toString();
       return base + (query ? '?' + query : '');
-    },
-
-    async copyFactoryArchiveLink() {
-      const url = this.factoryArchiveUrl();
-      if (!url) return alert('공장 묶음 다운로드 링크가 없습니다.');
-      const ok = await this.copyText(this.absoluteUrl(url));
-      alert(ok ? '공장 묶음 다운로드 링크를 복사했습니다.' : '링크 복사에 실패했습니다.');
     },
 
     eventTime(ts) {
