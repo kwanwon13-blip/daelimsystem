@@ -1096,6 +1096,14 @@ function workflowApp() {
       return this.currentUser.name || this.currentUser.userId || '로그인 사용자';
     },
 
+    isWorkflowJobClosed(job) {
+      return !!job && ['done', 'cancelled'].includes(job.status || '');
+    },
+
+    canUploadToCurrentJob() {
+      return !!this.detail?.job && !this.isWorkflowJobClosed(this.detail.job);
+    },
+
     formatDateInput(date) {
       const y = date.getFullYear();
       const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -2097,6 +2105,11 @@ function workflowApp() {
     async uploadFiles(ev) {
       const files = ev?.target?.files || ev?.dataTransfer?.files || ev;
       if (!this.detail || !files || !files.length) return;
+      if (!this.canUploadToCurrentJob()) {
+        alert('완료/취소된 작업에는 파일을 추가할 수 없습니다.');
+        if (ev?.target) ev.target.value = '';
+        return;
+      }
       this.applyFileGuessToUpload(files);
       const storageCompanyName = String(this.uploadCompanyName || this.detail.job.companyName || '').trim();
       const storageProjectName = String(this.uploadProjectName || this.detail.job.projectName || this.detail.job.title || '').trim();

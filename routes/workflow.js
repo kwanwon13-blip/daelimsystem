@@ -3195,6 +3195,12 @@ router.post('/jobs/:id/files', workflowUploadFiles, (req, res) => {
   const data = loadStore();
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  if (['done', 'cancelled'].includes(job.status || '')) {
+    for (const file of req.files || []) {
+      try { fs.unlinkSync(path.join(FILE_DIR, file.filename)); } catch (_) {}
+    }
+    return res.status(400).json({ error: '완료/취소된 작업에는 파일을 추가할 수 없습니다.' });
+  }
   const stageId = STAGES.some(s => s.id === req.body.stageId) ? req.body.stageId : job.currentStage;
   const kind = ['proof', 'attachment', 'drawing', 'photo'].includes(req.body.kind) ? req.body.kind : 'attachment';
   const stageAssignee = safeText(job.stageChecks?.[stageId]?.assignee, 80);

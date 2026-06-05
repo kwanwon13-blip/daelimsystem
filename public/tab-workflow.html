@@ -551,11 +551,12 @@
                 </span>
                 <span style="display:flex;align-items:center;gap:6px;">
                   <span class="wf-muted" x-text="'등록자 ' + currentUserLabel()"></span>
-                  <button class="wf-btn ghost" style="height:26px;padding:0 8px;" @click="uploadOpen = !uploadOpen" x-text="uploadOpen ? '닫기' : '시안 올리기'"></button>
+                  <span class="wf-muted" x-show="!canUploadToCurrentJob()">보관 완료</span>
+                  <button class="wf-btn ghost" x-show="canUploadToCurrentJob()" style="height:26px;padding:0 8px;" @click="uploadOpen = !uploadOpen" x-text="uploadOpen ? '닫기' : '시안 올리기'"></button>
                 </span>
               </div>
               <div class="wf-section-body">
-                <div class="wf-upload-panel" x-show="uploadOpen" x-cloak>
+                <div class="wf-upload-panel" x-show="uploadOpen && canUploadToCurrentJob()" x-cloak>
                   <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;">
                     <span class="wf-chip unread">관리팀·공장 자동전달</span>
                     <label style="height:28px;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:#b91c1c;">
