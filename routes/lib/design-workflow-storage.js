@@ -362,7 +362,7 @@ function projectFolderForYear(yearDir, projectName, preferredFolderName) {
   return found || preferredFolderName;
 }
 
-function resolveWorkflowStorage({ designRoot = '', designIndex = [], skipDirs = null, companyName = '', projectName = '', year = '', create = true } = {}) {
+function resolveWorkflowStorage({ designRoot = '', designIndex = [], skipDirs = null, companyName = '', projectName = '', year = '', create = true, dryRun = false } = {}) {
   const root = path.resolve(designRoot || 'D:\\');
   const companyRaw = cleanCompanyDisplayName(companyName);
   const projectRaw = cleanProjectDisplayName(projectName);
@@ -373,7 +373,7 @@ function resolveWorkflowStorage({ designRoot = '', designIndex = [], skipDirs = 
   const existingCompany = findCompanyForStorage(options, companyRaw);
   const companyFolderName = existingCompany?.folderName || safePathPart(companyRaw, 'company');
   const companyDir = path.resolve(root, companyFolderName);
-  if (!create && !fs.existsSync(companyDir)) return null;
+  if (!create && !dryRun && !fs.existsSync(companyDir)) return null;
   const storageYear = safeYear(year);
   const existingProject = findProjectForStorage(options, existingCompany || { name: companyRaw, folderName: companyFolderName }, projectRaw);
   const yearFolderName = existingProject?.yearFolder && String(cleanHierarchyPart(existingProject.yearFolder)).startsWith(storageYear)
@@ -390,8 +390,8 @@ function resolveWorkflowStorage({ designRoot = '', designIndex = [], skipDirs = 
     throw new Error('invalid workflow storage path');
   }
   const existedBefore = fs.existsSync(dir);
-  if (!create && !existedBefore) return null;
-  if (create) fs.mkdirSync(dir, { recursive: true });
+  if (!create && !dryRun && !existedBefore) return null;
+  if (create && !dryRun) fs.mkdirSync(dir, { recursive: true });
   return {
     dir,
     rel: path.relative(root, dir),
@@ -404,6 +404,7 @@ function resolveWorkflowStorage({ designRoot = '', designIndex = [], skipDirs = 
     year: storageYear,
     existedBefore,
     created: create && !existedBefore,
+    dryRun: !!dryRun,
   };
 }
 

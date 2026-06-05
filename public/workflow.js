@@ -29,6 +29,8 @@ function workflowApp() {
     contactOptions: [],
     designWorkflowOptions: { companies: [], projectsByCompany: {}, projectLookup: {}, masterCompanies: [] },
     workflowProjects: [],
+    storagePreviewCache: {},
+    storagePreviewTimers: {},
     projectPanelOpen: false,
     autoTitleValue: '',
     projectQuery: '',
@@ -675,7 +677,61 @@ function workflowApp() {
         }) || null;
     },
 
-    workflowStorageLabel(companyName, projectName, yearValue) {
+    storagePreviewKey(companyName, projectName, yearValue) {
+      const company = String(companyName || '').trim();
+      const project = String(projectName || '').trim();
+      const year = /^\d{4}$/.test(String(yearValue || '')) ? String(yearValue) : String(new Date().getFullYear());
+      if (!company || !project) return '';
+      return [this.normalizeOptionName(company), this.normalizeOptionName(project), year].join('|');
+    },
+
+    async fetchStoragePreview(companyName, projectName, yearValue) {
+      const key = this.storagePreviewKey(companyName, projectName, yearValue);
+      if (!key) return null;
+      const qs = new URLSearchParams({
+        companyName: String(companyName || '').trim(),
+        projectName: String(projectName || '').trim(),
+        year: /^\d{4}$/.test(String(yearValue || '')) ? String(yearValue) : String(new Date().getFullYear()),
+      });
+      try {
+        const r = await fetch('/api/workflow/storage/preview?' + qs.toString());
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.ok) {
+          this.storagePreviewCache[key] = { error: d.error || '저장 경로 확인 실패' };
+          return null;
+        }
+        this.storagePreviewCache[key] = {
+          label: d.storage?.rel || '',
+          existedBefore: d.storage?.existedBefore !== false,
+          created: !!d.storage?.created,
+          netPath: d.storage?.netPath || '',
+        };
+        return this.storagePreviewCache[key];
+      } catch (e) {
+        this.storagePreviewCache[key] = { error: e.message || '저장 경로 확인 실패' };
+        return null;
+      }
+    },
+
+    scheduleStoragePreview(companyName, projectName, yearValue) {
+      const key = this.storagePreviewKey(companyName, projectName, yearValue);
+      if (!key || this.storagePreviewCache[key]) return;
+      this.storagePreviewCache[key] = { pending: true };
+      clearTimeout(this.storagePreviewTimers[key]);
+      this.storagePreviewTimers[key] = setTimeout(() => {
+        this.fetchStoragePreview(companyName, projectName, yearValue);
+      }, 250);
+    },
+
+    clearStoragePreview(companyName, projectName, yearValue) {
+      const key = this.storagePreviewKey(companyName, projectName, yearValue);
+      if (!key) return;
+      clearTimeout(this.storagePreviewTimers[key]);
+      delete this.storagePreviewTimers[key];
+      delete this.storagePreviewCache[key];
+    },
+
+    estimatedWorkflowStorageLabel(companyName, projectName, yearValue) {
       const year = /^\d{4}$/.test(String(yearValue || '')) ? String(yearValue) : String(new Date().getFullYear());
       const company = String(companyName || '').trim();
       const project = String(projectName || '').trim();
@@ -693,6 +749,38 @@ function workflowApp() {
       const yearProject = projectOptions.find(p => String(p.yearFolder || '').startsWith(year));
       const yearFolder = exactProject?.yearFolder || yearProject?.yearFolder || `${year}\uB144 \uC2DC\uC548\uC791\uC5C5`;
       return `${companyFolder} / ${yearFolder} / ${project || '프로젝트 미입력'}`;
+    },
+
+    workflowStorageLabel(companyName, projectName, yearValue) {
+      const estimated = this.estimatedWorkflowStorageLabel(companyName, projectName, yearValue);
+      const key = this.storagePreviewKey(companyName, projectName, yearValue);
+      if (!key) return estimated;
+      const cached = this.storagePreviewCache[key];
+      if (!cached) {
+        this.scheduleStoragePreview(companyName, projectName, yearValue);
+        return estimated;
+      }
+      return cached.label || estimated;
+    },
+
+    workflowStorageStateLabel(companyName, projectName, yearValue) {
+      const key = this.storagePreviewKey(companyName, projectName, yearValue);
+      const cached = key ? this.storagePreviewCache[key] : null;
+      if (!cached) {
+        this.scheduleStoragePreview(companyName, projectName, yearValue);
+        return '';
+      }
+      if (cached.error) return '저장 경로 확인 필요';
+      if (cached.pending) return '저장 경로 확인 중';
+      if (cached.created) return '새 폴더 생성 예정';
+      if (cached.existedBefore) return '기존 폴더 사용';
+      return '';
+    },
+
+    workflowStorageText(companyName, projectName, yearValue) {
+      const label = this.workflowStorageLabel(companyName, projectName, yearValue);
+      const state = this.workflowStorageStateLabel(companyName, projectName, yearValue);
+      return state ? `${label} · ${state}` : label;
     },
 
     workflowProjectSuggestions(companyName, limit = 8, query = '') {
@@ -817,6 +905,7 @@ function workflowApp() {
       });
       const d = await r.json();
       if (!r.ok || !d.ok) return alert(d.error || '프로젝트 추가에 실패했습니다.');
+      this.clearStoragePreview(company, project, storageYear);
       await this.loadDesignWorkflowOptions();
       const rel = d.folder?.rel || d.project?.storageBucket || '';
       this.projectNotice = rel ? `프로젝트 준비됨 · ${rel}` : '프로젝트 준비됨';
@@ -1008,7 +1097,7 @@ function workflowApp() {
     },
 
     newStorageLabel() {
-      return this.workflowStorageLabel(this.form.companyName, this.form.projectName, this.newStorageYear());
+      return this.workflowStorageText(this.form.companyName, this.form.projectName, this.newStorageYear());
     },
 
     fileSizeLabel(size) {
@@ -1887,7 +1976,7 @@ function workflowApp() {
         return;
       }
       try {
-        await this.uploadFilesForJob(this.detail.job.id, files, {
+        const result = await this.uploadFilesForJob(this.detail.job.id, files, {
           companyName: storageCompanyName,
           projectName: storageProjectName,
           designDueDate: this.uploadDesignDueDate || '',
@@ -1896,6 +1985,7 @@ function workflowApp() {
           storageYear: this.uploadStorageYear(),
           targetLabel: this.uploadTargetLabel(),
         });
+        this.clearStoragePreview(storageCompanyName, storageProjectName, result?.storage?.year || this.uploadStorageYear());
       } catch (e) {
         alert(e.message);
         return;

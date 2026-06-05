@@ -487,13 +487,14 @@ function absoluteWorkflowPublicUrl(relativePath) {
   return `${base}${String(relativePath || '').startsWith('/') ? '' : '/'}${relativePath || ''}`;
 }
 
-function resolveWorkflowDesignStorage(companyName, projectName, year, create = true) {
+function resolveWorkflowDesignStorage(companyName, projectName, year, create = true, extra = {}) {
   if (!designModule.resolveWorkflowStorage) return null;
   return designModule.resolveWorkflowStorage({
     companyName,
     projectName,
     year,
     create,
+    ...extra,
   });
 }
 
@@ -2482,6 +2483,34 @@ router.post('/settings/public-link', requireAdmin, (req, res) => {
   });
 });
 
+router.get('/storage/preview', (req, res) => {
+  const companyName = safeText(req.query.companyName || req.query.company, 120);
+  const projectName = safeText(req.query.projectName || req.query.project, 160);
+  const year = safeYear(req.query.year);
+  if (!companyName) return res.status(400).json({ ok: false, error: '회사명이 필요합니다.' });
+  if (!projectName) return res.status(400).json({ ok: false, error: '프로젝트명이 필요합니다.' });
+  try {
+    const info = resolveWorkflowDesignStorage(companyName, projectName, year, true, { dryRun: true });
+    if (!info) return res.status(400).json({ ok: false, error: '저장 경로를 계산하지 못했습니다.' });
+    res.json({
+      ok: true,
+      storage: {
+        root: 'design',
+        rel: info.rel,
+        year: info.year,
+        companyFolderName: info.companyFolderName,
+        yearFolderName: info.yearFolderName,
+        projectFolderName: info.projectFolderName,
+        existedBefore: !!info.existedBefore,
+        created: !info.existedBefore,
+        netPath: workflowDesignNetworkPath(info.dir),
+      },
+    });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: '저장 경로를 확인할 수 없습니다: ' + e.message });
+  }
+});
+
 router.get('/summary', (req, res) => {
   const data = loadStore();
   res.json({ ok: true, summary: buildSummary(data, req) });
@@ -3240,6 +3269,10 @@ router.post('/jobs/:id/files', workflowUploadFiles, (req, res) => {
     storage: {
       root: actualStorageRoot,
       rel: actualStorageRelDir,
+      year: actualStorageYearPart,
+      companyFolderName: actualStorageCompanyPart,
+      yearFolderName: actualStorageInfo?.yearFolderName || storageYearPart,
+      projectFolderName: actualStorageProjectPart,
       created: !!actualStorageInfo?.created,
       existedBefore: actualStorageInfo ? !!actualStorageInfo.existedBefore : true,
     },
