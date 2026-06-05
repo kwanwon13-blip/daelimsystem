@@ -1519,7 +1519,10 @@ function nextStageDue(job) {
 
 function changeRequestCount(data, job) {
   if (!job || !data || !Array.isArray(data.files)) return 0;
-  return data.files.filter(f => f.jobId === job.id && f.reviewStatus === 'change_requested').length;
+  return data.files.filter(f => {
+    if (f.jobId !== job.id) return false;
+    return f.reviewStatus === 'change_requested' || f.scheduleNegotiation === 'needs_change';
+  }).length;
 }
 
 function pendingStageCount(job) {
@@ -1564,7 +1567,7 @@ function completionBlockers(data, job) {
   if (pendingChecklist) blockers.push({ key: 'pendingChecklist', label: '미완료 체크', count: pendingChecklist });
   if (blockedStages) blockers.push({ key: 'blockedStages', label: '막힘 단계', count: blockedStages });
   if (pendingReviews) blockers.push({ key: 'pendingReviews', label: '검토대기 파일', count: pendingReviews });
-  if (changeRequests) blockers.push({ key: 'changeRequests', label: '수정요청 파일', count: changeRequests });
+  if (changeRequests) blockers.push({ key: 'changeRequests', label: '수정/조정요청 파일', count: changeRequests });
   if (pendingOrders) blockers.push({ key: 'pendingOrders', label: '미완료 발주', count: pendingOrders });
   return blockers;
 }

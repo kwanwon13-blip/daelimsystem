@@ -373,7 +373,7 @@
                   <div class="wf-card-compact" x-show="job.overdue || job.overdueStageCount || job.blockedStageCount || job.changeRequestCount || job.unreadFileCount || job.dueDate || job.nextStageDue || job.fileCount">
                     <span class="wf-chip overdue" x-show="job.overdue || job.overdueStageCount">지연</span>
                     <span class="wf-chip blocked" x-show="job.blockedStageCount">막힘</span>
-                    <span class="wf-chip change_requested" x-show="job.changeRequestCount">수정요청</span>
+                    <span class="wf-chip change_requested" x-show="job.changeRequestCount">수정/조정</span>
                     <span class="wf-chip urgent" x-show="job.urgentFileCount" x-text="'긴급 ' + job.urgentFileCount"></span>
                     <span class="wf-chip unread" x-show="job.unreadFileCount" x-text="'확인 ' + job.unreadFileCount"></span>
                     <span class="wf-chip" x-show="job.dueDate" x-text="job.dueDate"></span>
@@ -388,7 +388,7 @@
                     <span class="wf-chip" x-show="job.nextStageDue" :class="job.nextStageDue && job.nextStageDue.overdue ? 'overdue' : ''" x-text="job.nextStageDue ? (job.nextStageDue.stageLabel + ' ' + job.nextStageDue.dueDate) : ''"></span>
                     <span class="wf-chip overdue" x-show="job.overdueStageCount" x-text="'단계지연 ' + job.overdueStageCount"></span>
                     <span class="wf-chip blocked" x-show="job.blockedStageCount" x-text="'막힘 ' + job.blockedStageCount"></span>
-                    <span class="wf-chip change_requested" x-show="job.changeRequestCount" x-text="'수정요청 ' + job.changeRequestCount"></span>
+                    <span class="wf-chip change_requested" x-show="job.changeRequestCount" x-text="'수정/조정 ' + job.changeRequestCount"></span>
                     <span class="wf-chip urgent" x-show="job.urgentFileCount" x-text="'긴급시안 ' + job.urgentFileCount"></span>
                     <span class="wf-chip" :class="job.canComplete ? 'ready' : 'not_ready'" x-text="job.canComplete ? '완료가능' : ('완료전 ' + (job.completionBlockers || []).length)"></span>
                     <span class="wf-chip unread" x-show="job.unreadFileCount" x-text="'확인 ' + job.unreadFileCount"></span>
