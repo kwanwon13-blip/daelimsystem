@@ -41,6 +41,8 @@ function workflowApp() {
       targetType: 'internal',
       targetName: '우리공장',
       dueDate: '',
+      mailTo: '',
+      mailCc: '',
       note: '',
     },
     form: {
@@ -625,7 +627,8 @@ function workflowApp() {
       if (!r.ok || !d.ok) return alert(d.error || '발주 패키지 생성 실패');
       this.applyOrderResponse(d);
       await this.loadJobs();
-      alert('발주 패키지를 만들었습니다.');
+      const copied = d.order ? await this.copyText(this.orderShareText(d.order)) : false;
+      alert(copied ? '발주 패키지를 만들고 공유문을 복사했습니다.' : '발주 패키지를 만들었습니다. 화면링크 버튼으로 공유할 수 있습니다.');
     },
 
     async saveOrder(order) {
@@ -663,11 +666,13 @@ function workflowApp() {
       alert(ok ? '발주 묶음 링크를 복사했습니다.' : '링크 복사에 실패했습니다.');
     },
 
-    async copyOrderMailDraft(order) {
+    orderShareText(order) {
       if (!order) return;
       const viewUrl = this.orderViewUrl(order) ? this.absoluteUrl(this.orderViewUrl(order)) : '';
       const url = this.orderArchiveUrl(order) ? this.absoluteUrl(this.orderArchiveUrl(order)) : '';
-      const text = [
+      return [
+        order.mailTo ? '수신: ' + order.mailTo : '',
+        order.mailCc ? '참조: ' + order.mailCc : '',
         '제목: ' + (order.mailSubject || ''),
         '',
         order.mailBody || '',
@@ -675,8 +680,13 @@ function workflowApp() {
         viewUrl ? '발주 확인/회신 링크: ' + viewUrl : '',
         url ? '발주 묶음 링크: ' + url : '',
       ].filter(v => v !== '').join('\n');
+    },
+
+    async copyOrderMailDraft(order) {
+      const text = this.orderShareText(order);
+      if (!text) return;
       const ok = await this.copyText(text);
-      alert(ok ? '메일 초안을 복사했습니다.' : '메일 초안 복사에 실패했습니다.');
+      alert(ok ? '공유문을 복사했습니다.' : '공유문 복사에 실패했습니다.');
     },
 
     fileReviewLabel(status) {

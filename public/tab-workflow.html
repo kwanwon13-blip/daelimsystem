@@ -674,6 +674,10 @@
                     <input class="wf-input" x-model="orderForm.targetName" placeholder="발주 대상">
                     <input class="wf-input" type="date" x-model="orderForm.dueDate" title="희망 납기">
                   </div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                    <input class="wf-input" x-model="orderForm.mailTo" placeholder="수신 메일 또는 담당자">
+                    <input class="wf-input" x-model="orderForm.mailCc" placeholder="참조 메일 또는 담당자">
+                  </div>
                   <textarea class="wf-textarea" x-model="orderForm.note" placeholder="발주 요청사항"></textarea>
                   <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
                     <span class="wf-muted" x-text="'현재 표시 파일 ' + currentOrderFileIds().length + '건으로 패키지 생성'"></span>
@@ -708,7 +712,7 @@
                           <button class="wf-btn" x-show="orderViewUrl(order)" @click="copyOrderViewLink(order)">화면링크</button>
                           <a class="wf-btn" x-show="orderArchiveUrl(order)" :href="orderArchiveUrl(order)">묶음</a>
                           <button class="wf-btn" x-show="orderArchiveUrl(order)" @click="copyOrderArchiveLink(order)">링크</button>
-                          <button class="wf-btn" @click="copyOrderMailDraft(order)">메일초안</button>
+                          <button class="wf-btn" @click="copyOrderMailDraft(order)">공유문</button>
                         </div>
                       </div>
                     </article>
