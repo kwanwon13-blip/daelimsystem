@@ -374,7 +374,7 @@
                     <span x-show="job.projectName">·</span>
                     <span x-show="job.projectName" x-text="job.projectName"></span>
                   </div>
-                  <div class="wf-card-compact" x-show="job.overdue || job.overdueStageCount || job.blockedStageCount || job.changeRequestCount || job.lateScheduleCount || job.unreadFileCount || job.dueDate || job.nextStageDue || job.fileCount">
+                  <div class="wf-card-compact" x-show="job.status === 'done' || job.overdue || job.overdueStageCount || job.blockedStageCount || job.changeRequestCount || job.lateScheduleCount || job.unreadFileCount || job.dueDate || job.nextStageDue || job.fileCount">
                     <span class="wf-chip overdue" x-show="job.overdue || job.overdueStageCount">지연</span>
                     <span class="wf-chip blocked" x-show="job.blockedStageCount">막힘</span>
                     <span class="wf-chip change_requested" x-show="job.changeRequestCount">수정/조정</span>
@@ -385,6 +385,7 @@
                     <span class="wf-chip" x-show="!job.dueDate && job.nextStageDue" x-text="job.nextStageDue ? job.nextStageDue.dueDate : ''"></span>
                     <span class="wf-chip" x-show="job.fileCount" x-text="'파일 ' + job.fileCount"></span>
                     <span class="wf-chip done" x-show="job.status === 'done' && archiveDateLabel(job)" x-text="'보관 ' + archiveDateLabel(job)"></span>
+                    <span class="wf-chip done" x-show="job.status === 'done' && Number(job.archiveFileCount || 0)">발송원본</span>
                   </div>
                   <div class="wf-card-extra">
                     <span class="wf-chip" :class="job.priority" x-text="priorityLabel(job.priority)"></span>
@@ -400,6 +401,7 @@
                     <span class="wf-chip unread" x-show="job.unreadFileCount" x-text="'확인 ' + job.unreadFileCount"></span>
                     <span class="wf-chip" x-show="job.fileCount" x-text="'파일 ' + job.fileCount"></span>
                     <span class="wf-chip done" x-show="job.status === 'done' && archiveDateLabel(job)" x-text="'보관 ' + archiveDateLabel(job)"></span>
+                    <span class="wf-chip done" x-show="job.status === 'done' && Number(job.archiveFileCount || 0)">메일/링크 원본</span>
                   </div>
                 </button>
               </template>
@@ -435,12 +437,12 @@
               <div>
                 <div class="wf-archive-main">
                   <span class="material-symbols-outlined" style="font-size:16px;">inventory_2</span>
-                  <span>완료 보관함</span>
+                  <span>완료 보관함 · 발송 원본</span>
                 </div>
                 <div class="wf-archive-meta" x-text="archiveSummaryText(detail.job)"></div>
               </div>
               <div style="display:flex;gap:5px;flex-wrap:wrap;">
-                <a class="wf-btn" x-show="Number(detail.job.archiveFileCount || 0)" :href="smartArchiveUrl(true)" title="접속 위치에 맞는 파일을 ZIP으로 받습니다">파일 받기</a>
+                <a class="wf-btn" x-show="Number(detail.job.archiveFileCount || 0)" :href="smartArchiveUrl(true)" title="접속 위치에 맞는 파일을 ZIP으로 받습니다">묶음 다운로드</a>
               </div>
             </div>
           </div>
@@ -890,7 +892,7 @@
       <div class="wf-dialog-head">
         <div class="wf-dialog-title">
           <span class="material-symbols-outlined" style="font-size:18px;">mail</span>
-          외부업체 메일 발송
+          업체 메일 발송
         </div>
         <button class="wf-btn ghost" style="height:28px;" @click="closeOrderMail()" title="닫기">
           <span class="material-symbols-outlined">close</span>

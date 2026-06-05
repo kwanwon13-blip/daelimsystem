@@ -1470,6 +1470,7 @@ function workflowApp() {
       const fileIds = this.currentOrderFileIds();
       if (!fileIds.length) return alert('전달할 파일이 없습니다.');
       if (!String(this.orderForm.targetName || '').trim()) return alert('전달 대상을 입력하세요.');
+      const isExternal = this.orderForm.targetType === 'external' || this.orderForm.deliveryMethod === 'email';
       const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1479,7 +1480,7 @@ function workflowApp() {
       if (!r.ok || !d.ok) return alert(d.error || '전달 생성 실패');
       this.applyOrderResponse(d);
       await this.loadJobs();
-      alert('제작 파일 전달을 만들었습니다. 공장은 터널 화면에서 파일을 받을 수 있습니다.');
+      alert(isExternal ? '제작 파일 전달을 만들었습니다. 업체 메일 발송 준비가 완료되었습니다.' : '제작 파일 전달을 만들었습니다. 공장은 터널 화면에서 파일을 받을 수 있습니다.');
     },
 
     async saveOrder(order) {
@@ -1518,7 +1519,7 @@ function workflowApp() {
       const total = Number(order.fileTotalSize || 0);
       const limit = Number(order.mailAttachLimit || (24 * 1024 * 1024));
       const count = Number(order.fileCount || 0);
-      const prefix = `${count}개 파일 · 총 ${this.fileSizeLabel(total)}`;
+      const prefix = `자동저장 원본 ${count}개 · 총 ${this.fileSizeLabel(total)}`;
       if (this.orderMailAttachmentTooLarge(order)) {
         return `${prefix} · 첨부 한도 ${this.fileSizeLabel(limit)} 초과`;
       }
@@ -2337,7 +2338,8 @@ function workflowApp() {
       const count = Number(job.archiveFileCount || 0);
       parts.push(count ? `파일 ${count}개` : '보관 파일 없음');
       const storage = String(job.archiveStorageBucket || job.storageBucket || '').trim();
-      if (storage) parts.push(storage);
+      if (storage) parts.push('저장경로 ' + storage);
+      if (count) parts.push('다운로드/메일 원본');
       return parts.join(' · ');
     },
 
