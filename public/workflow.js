@@ -221,6 +221,28 @@ function workflowApp() {
       return this.publicLinkSettings.configuredProblem || this.publicLinkSettings.envProblem || '';
     },
 
+    publicLinkStatusClass() {
+      if (this.publicLinkProblem()) return 'high';
+      return this.publicShareBaseUrl ? 'ready' : 'high';
+    },
+
+    publicLinkSourceLabel() {
+      const source = this.publicLinkSettings.source || '';
+      if (source === 'env') return '환경변수';
+      if (source === 'settings') return '저장설정';
+      return '';
+    },
+
+    publicLinkStatusText() {
+      const problem = this.publicLinkProblem();
+      if (problem) return '외부주소 확인 필요';
+      if (this.publicShareBaseUrl) {
+        const source = this.publicLinkSourceLabel();
+        return '링크 발송 가능' + (source ? ' · ' + source : '');
+      }
+      return '터널 주소 없음 · 첨부 메일만 가능';
+    },
+
     async loadContacts() {
       try {
         const contacts = await fetch('/api/contacts/all').then(r => r.ok ? r.json() : []);
