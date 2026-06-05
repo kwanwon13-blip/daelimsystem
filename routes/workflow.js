@@ -1198,8 +1198,6 @@ function normalizeOrderPayload(body = {}, existing = {}) {
     status,
     dueDate: safeDate(body.dueDate) || existing.dueDate || '',
     fileIds: normalizeFileIds(body.fileIds || existing.fileIds || []),
-    mailTo: safeText(body.mailTo || existing.mailTo || '', 300),
-    mailCc: safeText(body.mailCc || existing.mailCc || '', 500),
     note: safeText(body.note || existing.note || '', 3000),
   };
 }
@@ -1212,27 +1210,6 @@ function orderFiles(data, order, job = null) {
       const full = fileDiskPath(f);
       return !!(full && fs.existsSync(full));
     });
-}
-
-function makeOrderMailDraft(job, order, files) {
-  const targetName = order.targetName || '발주처';
-  const project = job.projectName || job.title || '';
-  const subject = `[발주] ${job.companyName || '프로젝트'}${project ? ' - ' + project : ''} / ${targetName}`;
-  const lines = [
-    `${targetName} 담당자님,`,
-    '',
-    '아래 건 제작 가능 여부와 납기 확인 부탁드립니다.',
-    '',
-    `- 회사: ${job.companyName || '-'}`,
-    `- 프로젝트/현장: ${project || '-'}`,
-    `- 희망 납기: ${order.dueDate || '협의'}`,
-    `- 첨부/시안: ${files.length}건`,
-  ];
-  if (order.note) {
-    lines.push(`- 요청사항: ${order.note}`);
-  }
-  lines.push('', '첨부 파일은 ERP 발주 묶음 링크 또는 별도 첨부로 전달됩니다.', '확인 후 회신 부탁드립니다.');
-  return { subject, body: lines.join('\n') };
 }
 
 function normalizeOrderResponse(body = {}) {
@@ -1307,9 +1284,13 @@ function decoratePublicOrderFile(file) {
 
 function decorateOrder(data, job, order) {
   const files = orderFiles(data, order, job);
-  const draft = makeOrderMailDraft(job, order, files);
+  const safeOrder = { ...(order || {}) };
+  delete safeOrder.mailTo;
+  delete safeOrder.mailCc;
+  delete safeOrder.mailSubject;
+  delete safeOrder.mailBody;
   return {
-    ...order,
+    ...safeOrder,
     fileCount: files.length,
     fileNames: files.map(f => f.originalName || f.storedName || f.id),
     statusLabel: ORDER_STATUS_LABELS[order.status] || order.status || '초안',
@@ -1317,8 +1298,6 @@ function decorateOrder(data, job, order) {
     responseStatusLabel: ORDER_RESPONSE_LABELS[order.responseStatus] || '',
     publicViewUrl: order.publicToken ? `/workflow/order/${encodeURIComponent(order.publicToken)}` : '',
     publicArchiveUrl: order.publicToken ? `/api/workflow/public/orders/${encodeURIComponent(order.publicToken)}/files.zip` : '',
-    mailSubject: draft.subject,
-    mailBody: draft.body,
   };
 }
 
@@ -2592,7 +2571,7 @@ router.post('/jobs/:id/orders', (req, res) => {
   if (!Object.prototype.hasOwnProperty.call(req.body || {}, 'status')) payload.status = 'requested';
   const validFileIds = new Set(data.files.filter(f => f.jobId === job.id).map(f => f.id));
   payload.fileIds = payload.fileIds.filter(id => validFileIds.has(id));
-  if (!payload.fileIds.length) return res.status(400).json({ error: '발주에 포함할 파일이 필요합니다.' });
+  if (!payload.fileIds.length) return res.status(400).json({ error: '전달할 파일이 필요합니다.' });
   const order = {
     id: makeId('wfo'),
     publicToken: makeUniquePublicToken(data),
@@ -2606,7 +2585,7 @@ router.post('/jobs/:id/orders', (req, res) => {
   data.orders.push(order);
   job.updatedAt = nowIso();
   const targetStageIds = orderTargetStageIds(order);
-  addEvent(data, req, job.id, 'order', `발주 패키지 생성 · ${order.targetName} · 파일 ${order.fileIds.length}건`, {
+  addEvent(data, req, job.id, 'order', `제작 파일 전달 생성 · ${order.targetName} · 파일 ${order.fileIds.length}건`, {
     orderId: order.id,
     targetName: order.targetName,
     targetType: order.targetType,
@@ -2640,7 +2619,7 @@ router.put('/jobs/:id/orders/:orderId', (req, res) => {
     updatedByName: userName(req),
   });
   job.updatedAt = nowIso();
-  addEvent(data, req, job.id, 'order_update', `발주 패키지 ${ORDER_STATUS_LABELS[order.status] || order.status} · ${order.targetName}`, {
+  addEvent(data, req, job.id, 'order_update', `제작 파일 전달 ${ORDER_STATUS_LABELS[order.status] || order.status} · ${order.targetName}`, {
     orderId: order.id,
     targetName: order.targetName,
     status: order.status,

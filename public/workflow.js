@@ -62,8 +62,6 @@ function workflowApp() {
       targetType: 'internal',
       targetName: '우리공장',
       dueDate: '',
-      mailTo: '',
-      mailCc: '',
       note: '',
     },
     form: {
@@ -1320,18 +1318,18 @@ function workflowApp() {
     async createOrderPackage() {
       if (!this.detail || !this.detail.job) return;
       const fileIds = this.currentOrderFileIds();
-      if (!fileIds.length) return alert('발주에 포함할 파일이 없습니다.');
-      if (!String(this.orderForm.targetName || '').trim()) return alert('발주 대상을 입력하세요.');
+      if (!fileIds.length) return alert('전달할 파일이 없습니다.');
+      if (!String(this.orderForm.targetName || '').trim()) return alert('전달 대상을 입력하세요.');
       const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...this.orderForm, status: 'requested', fileIds }),
       });
       const d = await r.json();
-      if (!r.ok || !d.ok) return alert(d.error || '발주 패키지 생성 실패');
+      if (!r.ok || !d.ok) return alert(d.error || '전달 생성 실패');
       this.applyOrderResponse(d);
       await this.loadJobs();
-      alert('발주 패키지를 만들었습니다. 공장은 터널 화면에서 파일을 받을 수 있습니다.');
+      alert('제작 파일 전달을 만들었습니다. 공장은 터널 화면에서 파일을 받을 수 있습니다.');
     },
 
     async saveOrder(order) {

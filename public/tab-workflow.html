@@ -752,7 +752,7 @@
             <section class="wf-section">
               <div class="wf-section-title" style="justify-content:space-between;">
                 <span style="display:flex;align-items:center;gap:6px;">
-                  <span class="material-symbols-outlined" style="font-size:16px;">outbox</span>발주 패키지
+                  <span class="material-symbols-outlined" style="font-size:16px;">outbox</span>제작 파일 전달
                 </span>
                 <span style="display:flex;align-items:center;gap:6px;">
                   <span class="wf-muted" x-text="'진행 ' + (orderSummary().active || 0) + ' / 전체 ' + (orderSummary().total || 0)"></span>
@@ -778,17 +778,13 @@
                         <option :value="target.id" x-text="target.label"></option>
                       </template>
                     </select>
-                    <input class="wf-input" x-model="orderForm.targetName" placeholder="발주 대상">
+                    <input class="wf-input" x-model="orderForm.targetName" placeholder="전달 대상">
                     <input class="wf-input" type="date" x-model="orderForm.dueDate" title="희망 납기">
                   </div>
-                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-                    <input class="wf-input" x-model="orderForm.mailTo" placeholder="수신 메일 또는 담당자">
-                    <input class="wf-input" x-model="orderForm.mailCc" placeholder="참조 메일 또는 담당자">
-                  </div>
-                  <textarea class="wf-textarea" x-model="orderForm.note" placeholder="발주 요청사항"></textarea>
+                  <textarea class="wf-textarea" x-model="orderForm.note" placeholder="제작 요청 메모"></textarea>
                   <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-                    <span class="wf-muted" x-text="'현재 표시 파일 ' + currentOrderFileIds().length + '건으로 패키지 생성'"></span>
-                    <button class="wf-btn primary" @click="createOrderPackage()">발주 패키지 생성</button>
+                    <span class="wf-muted" x-text="'현재 표시 파일 ' + currentOrderFileIds().length + '건 전달'"></span>
+                    <button class="wf-btn primary" @click="createOrderPackage()">전달 생성</button>
                   </div>
                 </div>
 
