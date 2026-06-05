@@ -1633,6 +1633,19 @@ function workflowApp() {
         : '공장/내부 수신자는 ERP에서 파일을 ZIP으로 받습니다';
     },
 
+    orderDeliveryStateText(order) {
+      if (!order) return '';
+      if (this.isExternalOrder(order)) {
+        if (order.mailStatus === 'sent') return '업체 메일 발송 완료';
+        if (this.hasOrderRecipientEmail(order)) return '업체 메일 발송 준비됨';
+        return '업체 메일주소 입력 필요';
+      }
+      if (!this.orderArchiveUrl(order)) return '파일 링크 준비 중';
+      if (this.isExternalWorkflowHost()) return '터널 접속 중 · 바로 다운로드';
+      if (order.publicArchiveAbsoluteUrl) return '터널 다운로드 준비됨';
+      return '내부망 다운로드 · 외부는 터널 주소 필요';
+    },
+
     canOpenOrderDelivery(order) {
       if (!order) return false;
       if (this.isExternalOrder(order)) return true;

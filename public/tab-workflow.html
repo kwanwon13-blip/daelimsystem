@@ -831,6 +831,7 @@
                         <div class="wf-muted" x-show="orderResponseText(order)" x-text="orderResponseText(order)"></div>
                         <div class="wf-muted" x-show="orderMailSentText(order)" x-text="orderMailSentText(order)"></div>
                         <div class="wf-muted" x-show="orderPublicActivityText(order)" x-text="orderPublicActivityText(order)"></div>
+                        <div class="wf-muted" x-show="orderDeliveryStateText(order)" x-text="orderDeliveryStateText(order)"></div>
                         <div style="display:grid;grid-template-columns:1fr 120px;gap:6px;">
                           <select class="wf-select" x-model="order.status">
                             <template x-for="(label, status) in orderStatuses" :key="status">
