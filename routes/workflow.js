@@ -961,6 +961,33 @@ function normalizeOrderResponse(body = {}) {
   };
 }
 
+function normalizePublicFileResponses(value, files, fallback = {}) {
+  const allowedIds = new Set((files || []).map(f => String(f.id || '')));
+  const raw = Array.isArray(value) ? value : [];
+  const out = [];
+  for (const item of raw) {
+    const fileId = safeText(item?.fileId || item?.id, 120);
+    if (!fileId || !allowedIds.has(fileId)) continue;
+    const responseStatus = Object.prototype.hasOwnProperty.call(ORDER_RESPONSE_LABELS, item?.responseStatus)
+      ? item.responseStatus
+      : (fallback.responseStatus || 'possible');
+    out.push({
+      fileId,
+      responseStatus,
+      responseAvailableDate: safeDate(item?.responseAvailableDate || item?.availableDate),
+      responseNote: safeText(item?.responseNote || item?.note, 1000),
+    });
+  }
+  return out;
+}
+
+function aggregateFileResponses(fileResponses, fallback = {}) {
+  if (!fileResponses.length) return fallback.responseStatus || 'possible';
+  if (fileResponses.some(r => r.responseStatus === 'needs_change')) return 'needs_change';
+  if (fileResponses.every(r => r.responseStatus === 'confirmed')) return 'confirmed';
+  return 'possible';
+}
+
 function orderStatusFromResponse(responseStatus) {
   if (responseStatus === 'needs_change') return 'replied';
   return 'confirmed';
@@ -979,6 +1006,7 @@ function decoratePublicOrderFile(file) {
     isAi: isAiFile(file),
     designDueDate: file.designDueDate || '',
     factoryAvailableDate: file.factoryAvailableDate || '',
+    factoryScheduleNote: file.factoryScheduleNote || '',
     urgent: !!file.urgent,
     scheduleNegotiation: file.scheduleNegotiation || 'pending',
     downloadUrl: file.publicToken ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/download` : '',
@@ -1040,11 +1068,25 @@ function decoratePublicOrder(data, job, order) {
   };
 }
 
-function applyOrderResponseToFiles(files, response) {
+function applyOrderResponseToFiles(files, response, fileResponses = []) {
+  const byFileId = new Map(fileResponses.map(item => [item.fileId, item]));
   for (const file of files) {
-    if (response.responseAvailableDate) file.factoryAvailableDate = response.responseAvailableDate;
-    file.scheduleNegotiation = response.responseStatus === 'needs_change' ? 'needs_change' : 'possible';
-    if (response.responseNote) file.factoryScheduleNote = response.responseNote;
+    const fileResponse = byFileId.get(file.id) || {};
+    const responseStatus = fileResponse.responseStatus || response.responseStatus || 'possible';
+    const hasFileDate = Object.prototype.hasOwnProperty.call(fileResponse, 'responseAvailableDate');
+    const hasFileNote = Object.prototype.hasOwnProperty.call(fileResponse, 'responseNote');
+    const nextDate = hasFileDate ? fileResponse.responseAvailableDate : response.responseAvailableDate;
+    const nextNote = hasFileNote ? fileResponse.responseNote : response.responseNote;
+    file.factoryAvailableDate = safeDate(nextDate);
+    file.scheduleNegotiation = responseStatus === 'needs_change'
+      ? 'needs_change'
+      : responseStatus === 'confirmed'
+        ? 'confirmed'
+        : 'possible';
+    file.factoryScheduleNote = safeText(nextNote, 1000);
+    file.scheduleUpdatedAt = nowIso();
+    file.scheduleUpdatedBy = 'public-order';
+    file.scheduleUpdatedByName = response.respondedByName || 'public-order';
     file.updatedAt = nowIso();
   }
 }
@@ -1590,25 +1632,30 @@ router.post('/public/orders/:token/reply', (req, res) => {
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
 
   const response = normalizeOrderResponse(req.body || {});
+  const files = orderFiles(data, order, job);
+  const fileResponses = normalizePublicFileResponses(req.body?.fileResponses, files, response);
+  const aggregateStatus = aggregateFileResponses(fileResponses, response);
+  response.responseStatus = aggregateStatus;
   Object.assign(order, response, {
     status: orderStatusFromResponse(response.responseStatus),
     respondedAt: nowIso(),
     updatedAt: nowIso(),
   });
-  const files = orderFiles(data, order, job);
-  applyOrderResponseToFiles(files, response);
+  applyOrderResponseToFiles(files, response, fileResponses);
   job.updatedAt = nowIso();
 
   const label = ORDER_RESPONSE_LABELS[response.responseStatus] || response.responseStatus;
   const by = response.respondedByName || order.targetName || '외부 회신';
   const dateText = response.responseAvailableDate ? ` · 가능일 ${response.responseAvailableDate}` : '';
   const noteText = response.responseNote ? ` · ${response.responseNote}` : '';
-  addEvent(data, { user: { userId: 'public-order', name: by } }, job.id, 'order_public_reply', `발주 회신 · ${order.targetName} · ${label}${dateText}${noteText}`, {
+  const fileText = fileResponses.length ? ` · 파일별 일정 ${fileResponses.length}건` : '';
+  addEvent(data, { user: { userId: 'public-order', name: by } }, job.id, 'order_public_reply', `발주 회신 · ${order.targetName} · ${label}${dateText}${noteText}${fileText}`, {
     orderId: order.id,
     targetName: order.targetName,
     responseStatus: response.responseStatus,
     responseAvailableDate: response.responseAvailableDate,
     responseNote: response.responseNote,
+    fileResponses,
     targetStageIds: ['design', 'management'],
   });
   saveStore(data);

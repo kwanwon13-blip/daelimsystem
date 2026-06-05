@@ -233,6 +233,21 @@
       margin-top: auto;
       flex-wrap: wrap;
     }
+    .file-schedule {
+      border-top: 1px solid #e2e8f0;
+      padding-top: 8px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+    }
+    .file-schedule label {
+      font-size: 11px;
+    }
+    .file-schedule textarea {
+      grid-column: 1 / -1;
+      min-height: 62px;
+      font-size: 13px;
+    }
     .reply {
       display: grid;
       gap: 10px;
@@ -372,6 +387,7 @@
             <label>메모
               <textarea id="responseNote" placeholder="수량, 납기, 제작 관련 메모"></textarea>
             </label>
+            <button class="btn" id="applyAllBtn" type="button">전체 파일 일정에 적용</button>
             <button class="btn primary" id="submitBtn" type="submit">회신 저장</button>
           </form>
         </div>
@@ -454,6 +470,12 @@
       return 'chip';
     }
 
+    function fileResponseStatus(file, order) {
+      const status = file.scheduleNegotiation || order.responseStatus || 'possible';
+      if (status === 'pending') return 'possible';
+      return status;
+    }
+
     function openViewer(src) {
       if (!src) return;
       $('viewerImg').src = src;
@@ -508,9 +530,52 @@
         view.addEventListener('click', () => openViewer(file.previewUrl));
         actions.appendChild(view);
       }
-      body.append(name, meta, actions);
+
+      const schedule = document.createElement('div');
+      schedule.className = 'file-schedule';
+      schedule.dataset.fileResponse = '1';
+      schedule.dataset.fileId = file.id || '';
+      const order = state.data?.order || {};
+      schedule.innerHTML =
+        '<label>회신' +
+          '<select data-field="responseStatus">' +
+            '<option value="possible">요청 일정 가능</option>' +
+            '<option value="needs_change">일정 조정 필요</option>' +
+            '<option value="confirmed">확정</option>' +
+          '</select>' +
+        '</label>' +
+        '<label>가능일' +
+          '<input data-field="responseAvailableDate" type="date">' +
+        '</label>' +
+        '<textarea data-field="responseNote" placeholder="이 파일의 제작/일정 메모"></textarea>';
+      schedule.querySelector('[data-field="responseStatus"]').value = fileResponseStatus(file, order);
+      schedule.querySelector('[data-field="responseAvailableDate"]').value = file.factoryAvailableDate || file.designDueDate || order.responseAvailableDate || order.dueDate || '';
+      schedule.querySelector('[data-field="responseNote"]').value = file.factoryScheduleNote || '';
+
+      body.append(name, meta, actions, schedule);
       card.append(thumb, body);
       return card;
+    }
+
+    function collectFileResponses() {
+      return Array.from(document.querySelectorAll('[data-file-response="1"]')).map(row => ({
+        fileId: row.dataset.fileId || '',
+        responseStatus: row.querySelector('[data-field="responseStatus"]')?.value || 'possible',
+        responseAvailableDate: row.querySelector('[data-field="responseAvailableDate"]')?.value || '',
+        responseNote: row.querySelector('[data-field="responseNote"]')?.value || '',
+      })).filter(item => item.fileId);
+    }
+
+    function applyGlobalReplyToFiles() {
+      document.querySelectorAll('[data-file-response="1"]').forEach(row => {
+        const status = row.querySelector('[data-field="responseStatus"]');
+        const date = row.querySelector('[data-field="responseAvailableDate"]');
+        const note = row.querySelector('[data-field="responseNote"]');
+        if (status) status.value = $('responseStatus').value;
+        if (date) date.value = $('responseAvailableDate').value;
+        if (note) note.value = $('responseNote').value;
+      });
+      showToast('전체 파일 일정에 반영했습니다.');
     }
 
     function render(data) {
@@ -582,6 +647,7 @@
           responseAvailableDate: $('responseAvailableDate').value,
           respondedByName: $('respondedByName').value,
           responseNote: $('responseNote').value,
+          fileResponses: collectFileResponses(),
         };
         const res = await fetch('/api/workflow/public/orders/' + encodeURIComponent(state.token) + '/reply', {
           method: 'POST',
@@ -604,6 +670,7 @@
       showToast(ok ? '링크를 복사했습니다.' : '복사에 실패했습니다.');
     });
     $('replyForm').addEventListener('submit', submitReply);
+    $('applyAllBtn').addEventListener('click', applyGlobalReplyToFiles);
     $('viewerClose').addEventListener('click', closeViewer);
     $('viewer').addEventListener('click', e => {
       if (e.target === $('viewer')) closeViewer();
