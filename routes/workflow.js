@@ -2080,6 +2080,9 @@ router.post('/public/orders/:token/reply', (req, res) => {
     responseAvailableDate: response.responseAvailableDate,
     responseNote: response.responseNote,
     fileResponses,
+    eventTargetUserId: job.createdBy || '',
+    eventTargetUserName: job.createdByName || '',
+    eventTargetLabel: stageTargetLabels(job, ['design', 'management']).join(', '),
     targetStageIds: ['design', 'management'],
   });
   saveStore(data);
