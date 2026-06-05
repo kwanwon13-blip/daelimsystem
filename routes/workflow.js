@@ -2629,8 +2629,14 @@ router.post('/jobs/:id/files', workflowUploadFiles, (req, res) => {
       : (requestedTargetLabel ? uniqueTexts([requestedTargetLabel]) : autoTargetLabels);
   const targetLabel = targetLabels.join(', ') || targetUserName || stageAssignee;
   const storageYear = safeYear(req.body.storageYear || safeDate(req.body.designDueDate).slice(0, 4));
-  const storageCompanyName = bodyText(req.body, 'storageCompanyName', 120) || safeText(job.companyName, 120) || '미지정업체';
-  const storageProjectName = bodyText(req.body, 'storageProjectName', 160) || safeText(job.projectName || job.title, 160) || '미지정프로젝트';
+  const storageCompanyName = bodyText(req.body, 'storageCompanyName', 120) || safeText(job.companyName, 120);
+  const storageProjectName = bodyText(req.body, 'storageProjectName', 160) || safeText(job.projectName || job.title, 160);
+  if (!storageCompanyName || !storageProjectName) {
+    for (const file of req.files || []) {
+      try { fs.unlinkSync(path.join(FILE_DIR, file.filename)); } catch (_) {}
+    }
+    return res.status(400).json({ error: '회사와 프로젝트를 먼저 선택해주세요.' });
+  }
   const storageYearPart = safeFilePart(storageYear, String(new Date().getFullYear()));
   const storageCompanyPart = safeFilePart(storageCompanyName, '미지정업체');
   const storageProjectPart = safeFilePart(storageProjectName, '미지정프로젝트');
@@ -2644,13 +2650,13 @@ router.post('/jobs/:id/files', workflowUploadFiles, (req, res) => {
   let actualStorageCompanyPart = storageCompanyPart;
   let actualStorageProjectPart = storageProjectPart;
   try {
-    actualStorageInfo = resolveWorkflowDesignStorage(storageCompanyName, storageProjectName, storageYear, false);
+    actualStorageInfo = resolveWorkflowDesignStorage(storageCompanyName, storageProjectName, storageYear, true);
     if (!actualStorageInfo) {
       for (const file of req.files || []) {
         try { fs.unlinkSync(path.join(FILE_DIR, file.filename)); } catch (_) {}
       }
       return res.status(400).json({
-        error: '선택한 회사/프로젝트 폴더를 찾지 못했습니다. 프로젝트 추가에서 폴더를 먼저 만든 뒤 다시 업로드해주세요.',
+        error: '선택한 회사/프로젝트 저장 폴더를 준비하지 못했습니다.',
       });
     }
     if (actualStorageInfo) {
@@ -2748,7 +2754,7 @@ router.post('/jobs/:id/files', workflowUploadFiles, (req, res) => {
         status: workflowProjectStatusFromJobs(data, storageCompanyName, storageProjectName, 'active'),
       }, req, actualStorageInfo);
     }
-    addEvent(data, req, job.id, 'file', `파일 ${uploaded.length}개 업로드${targetLabel ? ' · 확인 대상 ' + targetLabel : ''}`, {
+    addEvent(data, req, job.id, 'file', `파일 ${uploaded.length}개 업로드${actualStorageInfo?.created ? ' · 저장 폴더 자동 준비' : ''}${targetLabel ? ' · 확인 대상 ' + targetLabel : ''}`, {
       stageId,
       fileIds: uploaded.map(f => f.id),
       eventTargetUserId: targetUserId,

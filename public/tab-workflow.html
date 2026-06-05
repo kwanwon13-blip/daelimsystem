@@ -572,16 +572,13 @@
                       </button>
                     </template>
                   </div>
-                  <div style="display:flex;justify-content:flex-end;">
-                    <button type="button" class="wf-btn ghost" style="height:28px;" @click="addUploadProjectFolder()" :disabled="!uploadCompanyName || !uploadProjectName">프로젝트 추가</button>
-                  </div>
                   <label class="wf-dropzone" :class="[uploadDragOver ? 'drag' : '', uploadProgress.active ? 'busy' : '']"
                     @dragover.prevent="uploadDragOver=true"
                     @dragleave.prevent="uploadDragOver=false"
                     @drop="uploadDroppedFiles($event)">
                     <div>
                       <strong>JPG · PNG · AI 파일을 여기에 드래그</strong>
-                      <span x-text="'입력한 폴더: ' + workflowStorageLabel(uploadCompanyName, uploadProjectName, uploadStorageYear())"></span>
+                      <span x-text="'저장 위치: ' + workflowStorageLabel(uploadCompanyName, uploadProjectName, uploadStorageYear())"></span>
                       <small class="wf-upload-hint" x-text="uploadFilesLimitLabel()"></small>
                     </div>
                     <span class="wf-btn">파일 선택</span>

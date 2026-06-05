@@ -822,10 +822,6 @@ function workflowApp() {
       return this.createWorkflowProjectFolder(this.form.companyName, this.form.projectName, this.newStorageYear(), 'active');
     },
 
-    async addUploadProjectFolder() {
-      return this.createWorkflowProjectFolder(this.uploadCompanyName, this.uploadProjectName, this.uploadStorageYear(), 'active');
-    },
-
     async addDetailProjectFolder() {
       if (!this.detail?.job) return null;
       const year = String(this.detail.job.dueDate || '').slice(0, 4);
