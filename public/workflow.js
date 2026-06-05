@@ -1500,9 +1500,17 @@ function workflowApp() {
       });
       const d = await r.json();
       if (!r.ok || !d.ok) return alert(d.error || '전달 생성 실패');
+      const createdOrderId = d.order?.id || '';
       this.applyOrderResponse(d);
       await this.loadJobs();
-      alert(isExternal ? '외부업체 전달건을 만들었습니다. 메일 발송 준비가 완료되었습니다.' : '공장 전달건을 만들었습니다. 공장은 ERP에서 파일 받기만 누르면 됩니다.');
+      if (isExternal) {
+        const createdOrder = (this.detail?.orders || []).find(order => order.id === createdOrderId) || d.order;
+        if (createdOrder) {
+          this.openOrderMail(createdOrder);
+          return;
+        }
+      }
+      alert('공장 전달건을 만들었습니다. 공장은 ERP에서 파일 받기만 누르면 됩니다.');
     },
 
     async saveOrder(order) {
