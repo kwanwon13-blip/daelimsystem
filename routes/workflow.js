@@ -4,17 +4,20 @@ const path = require('path');
 const crypto = require('crypto');
 const multer = require('multer');
 const JSZip = require('jszip');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireAdmin } = require('../middleware/auth');
 const db = require('../db');
 const { notify } = require('../utils/notify');
 const designModule = require('./design');
 const { isPathInside } = require('./lib/design-workflow-storage');
+let sharp;
+try { sharp = require('sharp'); } catch (_) {}
 
 const router = express.Router();
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const STORE_PATH = path.join(DATA_DIR, 'workflow.json');
 const FILE_DIR = path.join(DATA_DIR, 'workflow-files');
+const THUMB_DIR = path.join(DATA_DIR, 'workflow-thumbs');
 const MAX_WORKFLOW_UPLOAD_FILES = 20;
 const MAX_WORKFLOW_UPLOAD_FILE_SIZE = 100 * 1024 * 1024;
 
@@ -96,6 +99,7 @@ const ORDER_RESPONSE_LABELS = {
 function ensureDirs() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(FILE_DIR)) fs.mkdirSync(FILE_DIR, { recursive: true });
+  if (!fs.existsSync(THUMB_DIR)) fs.mkdirSync(THUMB_DIR, { recursive: true });
 }
 
 function emptyStore() {
@@ -222,20 +226,48 @@ function safeFilePart(value, fallback = 'file') {
   return cleaned || fallback;
 }
 
+function allowedWorkflowFilePath(fullPath) {
+  if (!fullPath) return null;
+  const full = path.resolve(fullPath);
+  const workflowRoot = path.resolve(FILE_DIR);
+  if (full !== workflowRoot && isPathInside(workflowRoot, full)) return full;
+  const designRoot = path.resolve(designModule.getDesignRoot ? designModule.getDesignRoot() : 'D:\\');
+  if (full !== designRoot && isPathInside(designRoot, full)) return full;
+  return null;
+}
+
 function fileDiskPath(file) {
   const raw = String(file?.storedPath || file?.storedName || '');
-  if (!raw) return null;
-  if (path.isAbsolute(raw)) {
-    const full = path.resolve(raw);
-    const designRoot = path.resolve(designModule.getDesignRoot ? designModule.getDesignRoot() : 'D:\\');
-    if (isPathInside(designRoot, full)) return full;
-    return null;
+  const candidates = [];
+  if (raw) {
+    if (path.isAbsolute(raw)) {
+      candidates.push(raw);
+    } else {
+      candidates.push(path.resolve(FILE_DIR, raw.replace(/\\/g, '/')));
+    }
   }
-  const rel = raw.replace(/\\/g, '/');
-  const root = path.resolve(FILE_DIR);
-  const full = path.resolve(FILE_DIR, rel);
-  if (full !== root && !full.startsWith(root + path.sep)) return null;
-  return full;
+  if (file?.storagePath) {
+    if (file.storedName) candidates.push(path.join(file.storagePath, file.storedName));
+    if (file.originalName) candidates.push(path.join(file.storagePath, safeFilePart(file.originalName, file.storedName || file.id || 'file')));
+  }
+  if (file?.storageRoot === 'design' && file?.storageBucket) {
+    const designRoot = path.resolve(designModule.getDesignRoot ? designModule.getDesignRoot() : 'D:\\');
+    if (file.storedName) candidates.push(path.resolve(designRoot, file.storageBucket, file.storedName));
+    if (file.originalName) candidates.push(path.resolve(designRoot, file.storageBucket, safeFilePart(file.originalName, file.storedName || file.id || 'file')));
+  }
+  let firstAllowed = null;
+  for (const candidate of candidates) {
+    const allowed = allowedWorkflowFilePath(candidate);
+    if (!allowed) continue;
+    if (!firstAllowed) firstAllowed = allowed;
+    if (fs.existsSync(allowed)) return allowed;
+  }
+  return firstAllowed;
+}
+
+function workflowFileExists(file) {
+  const full = fileDiskPath(file);
+  return !!(full && fs.existsSync(full));
 }
 
 function fileExt(file) {
@@ -286,13 +318,8 @@ function safeYear(v) {
   return /^\d{4}$/.test(s) ? s : String(new Date().getFullYear());
 }
 
-function publicWorkflowBaseUrl() {
-  const raw = safeText(
-    process.env.WORKFLOW_PUBLIC_BASE_URL
-      || process.env.PUBLIC_BASE_URL
-      || process.env.CLOUDFLARE_TUNNEL_URL,
-    300,
-  );
+function normalizePublicBaseUrl(rawValue) {
+  const raw = safeText(rawValue, 300);
   if (!raw) return '';
   try {
     const url = new URL(raw);
@@ -304,6 +331,32 @@ function publicWorkflowBaseUrl() {
   } catch (_) {
     return '';
   }
+}
+
+function envPublicWorkflowBaseUrl() {
+  return normalizePublicBaseUrl(
+    process.env.WORKFLOW_PUBLIC_BASE_URL
+      || process.env.PUBLIC_BASE_URL
+      || process.env.CLOUDFLARE_TUNNEL_URL,
+  );
+}
+
+function storedPublicWorkflowBaseUrl() {
+  try {
+    const settings = db['설정'].load();
+    return normalizePublicBaseUrl(
+      settings.workflow?.publicBaseUrl
+        || settings.general?.workflowPublicBaseUrl
+        || settings.workflowPublicBaseUrl
+        || '',
+    );
+  } catch (_) {
+    return '';
+  }
+}
+
+function publicWorkflowBaseUrl() {
+  return envPublicWorkflowBaseUrl() || storedPublicWorkflowBaseUrl();
 }
 
 function resolveWorkflowDesignStorage(companyName, projectName, year, create = true) {
@@ -332,7 +385,7 @@ function clearWorkflowStorageFields(job) {
   delete job.storageNetPath;
 }
 
-function applyWorkflowDesignStorage(job) {
+function applyWorkflowDesignStorage(job, create = false) {
   if (!job) return { changed: false, info: null };
   if (!job.companyName || !job.projectName) {
     const hadStorage = !!(job.storageRoot || job.storageBucket || job.storagePath || job.storageNetPath);
@@ -343,7 +396,7 @@ function applyWorkflowDesignStorage(job) {
     job.companyName,
     job.projectName,
     safeYear(String(job.dueDate || '').slice(0, 4)),
-    true,
+    create,
   );
   if (!storageInfo) return { changed: false, info: null };
 
@@ -770,6 +823,20 @@ function upsertWorkflowProject(data, payload = {}, req = null, storageInfo = nul
   return project;
 }
 
+function projectStorageInfo(project) {
+  if (!project?.companyName || !project?.projectName) return null;
+  try {
+    return resolveWorkflowDesignStorage(
+      project.companyName,
+      project.projectName,
+      safeYear(project.storageYear || project.year || String(project.updatedAt || project.createdAt || '').slice(0, 4)),
+      false,
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
 function buildWorkflowProjects(data) {
   if (!Array.isArray(data.projects)) data.projects = [];
   const map = new Map();
@@ -785,6 +852,8 @@ function buildWorkflowProjects(data) {
       activeJobCount: 0,
       doneJobCount: 0,
     });
+    const storageInfo = projectStorageInfo(map.get(key));
+    if (storageInfo) applyProjectStorageFields(map.get(key), storageInfo);
   }
   for (const job of data.jobs || []) {
     const key = workflowProjectKey(job.companyName, job.projectName);
@@ -811,6 +880,8 @@ function buildWorkflowProjects(data) {
         activeJobCount: 0,
         doneJobCount: 0,
       });
+      const storageInfo = projectStorageInfo(map.get(key));
+      if (storageInfo) applyProjectStorageFields(map.get(key), storageInfo);
     }
     const project = map.get(key);
     project.jobCount += 1;
@@ -1053,16 +1124,23 @@ function hasTargetRead(file, job = null) {
 }
 
 function decorateWorkflowFile(file, viewerUser, job = null) {
-  const publicDownloadUrl = file.publicToken ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/download` : '';
-  const publicPreviewUrl = file.publicToken && isImageFile(file) ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/preview` : '';
+  const exists = workflowFileExists(file);
+  const image = isImageFile(file);
+  const publicDownloadUrl = exists && file.publicToken ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/download` : '';
+  const publicPreviewUrl = exists && file.publicToken && image ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/preview` : '';
+  const publicThumbUrl = exists && file.publicToken && image ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/thumb` : '';
   return {
     ...file,
-    isImage: isImageFile(file),
+    exists,
+    missing: !exists,
+    isImage: image,
     isAi: isAiFile(file),
-    previewUrl: isImageFile(file) ? `/api/workflow/files/${encodeURIComponent(file.id)}/preview` : '',
-    downloadUrl: `/api/workflow/files/${encodeURIComponent(file.id)}/download`,
+    previewUrl: exists && image ? `/api/workflow/files/${encodeURIComponent(file.id)}/preview` : '',
+    thumbUrl: exists && image ? `/api/workflow/files/${encodeURIComponent(file.id)}/thumb` : '',
+    downloadUrl: exists ? `/api/workflow/files/${encodeURIComponent(file.id)}/download` : '',
     publicDownloadUrl,
     publicPreviewUrl,
+    publicThumbUrl,
     viewerUnread: isUnreadForViewer(file, viewerUser, job),
     hasTarget: hasFileTarget(file),
     targetRead: hasTargetRead(file, job),
@@ -1505,8 +1583,8 @@ function decorateJob(data, job, viewerUser = null) {
   const events = data.events.filter(e => e.jobId === job.id);
   const orderSummary = buildOrderSummary(data, job);
   const blockers = completionBlockers(data, job);
-  const primaryVisualFile = files
-    .filter(isImageFile)
+  const visualFiles = files.filter(f => isImageFile(f) && workflowFileExists(f));
+  const primaryVisualFile = visualFiles
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0] || null;
   return {
     ...job,
@@ -1514,14 +1592,16 @@ function decorateJob(data, job, viewerUser = null) {
     orderCount: orderSummary.total,
     activeOrderCount: orderSummary.active,
     externalOrderCount: orderSummary.external,
-    visualFileCount: files.filter(isImageFile).length,
+    visualFileCount: visualFiles.length,
     urgentFileCount: files.filter(f => f.urgent && (!f.scheduleNegotiation || f.scheduleNegotiation === 'pending' || f.scheduleNegotiation === 'needs_change')).length,
     publicArchiveUrl: job.publicToken ? `/api/workflow/public/jobs/${encodeURIComponent(job.publicToken)}/files.zip` : '',
     primaryVisualFile: primaryVisualFile ? {
       id: primaryVisualFile.id,
       originalName: primaryVisualFile.originalName || '',
       previewUrl: `/api/workflow/files/${encodeURIComponent(primaryVisualFile.id)}/preview`,
+      thumbUrl: `/api/workflow/files/${encodeURIComponent(primaryVisualFile.id)}/thumb`,
       publicPreviewUrl: primaryVisualFile.publicToken ? `/api/workflow/public/files/${encodeURIComponent(primaryVisualFile.publicToken)}/preview` : '',
+      publicThumbUrl: primaryVisualFile.publicToken ? `/api/workflow/public/files/${encodeURIComponent(primaryVisualFile.publicToken)}/thumb` : '',
       publicDownloadUrl: primaryVisualFile.publicToken ? `/api/workflow/public/files/${encodeURIComponent(primaryVisualFile.publicToken)}/download` : '',
       designDueDate: primaryVisualFile.designDueDate || '',
       factoryAvailableDate: primaryVisualFile.factoryAvailableDate || '',
@@ -1683,6 +1763,27 @@ function uploadName(name) {
   return raw;
 }
 
+function safeStoredFileName(name, fallback = 'file.bin') {
+  const decoded = uploadName(name || fallback);
+  const base = safeFilePart(path.basename(decoded), fallback);
+  return base || safeFilePart(fallback, 'file.bin');
+}
+
+function uniqueStoredFileTarget(dir, wantedName) {
+  const safeName = safeStoredFileName(wantedName);
+  const ext = path.extname(safeName);
+  const base = safeName.slice(0, safeName.length - ext.length);
+  let fileName = safeName;
+  let fullPath = path.join(dir, fileName);
+  let idx = 2;
+  while (fs.existsSync(fullPath)) {
+    fileName = `${base} (${idx})${ext}`;
+    fullPath = path.join(dir, fileName);
+    idx += 1;
+  }
+  return { fileName, fullPath };
+}
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     ensureDirs();
@@ -1795,6 +1896,42 @@ function sendWorkflowFile(res, file, inline = false, publicCache = false) {
   return true;
 }
 
+async function sendWorkflowThumb(res, file, publicCache = false) {
+  const full = fileDiskPath(file);
+  if (!full || !fs.existsSync(full) || !isImageFile(file)) return false;
+  res.setHeader('Cache-Control', publicCache ? 'public, max-age=86400' : 'private, max-age=86400');
+  if (sharp) {
+    try {
+      ensureDirs();
+      const stat = fs.statSync(full);
+      const hash = crypto
+        .createHash('md5')
+        .update(`${full}|${stat.size}|${stat.mtimeMs}|320x220`)
+        .digest('hex');
+      const thumbPath = path.join(THUMB_DIR, `${hash}.jpg`);
+      if (!fs.existsSync(thumbPath)) {
+        await sharp(full, { failOn: 'none' })
+          .resize(320, 220, { fit: 'cover', withoutEnlargement: true })
+          .jpeg({ quality: 64, progressive: true })
+          .toFile(thumbPath);
+      }
+      res.type('image/jpeg').sendFile(thumbPath);
+      return true;
+    } catch (_) {
+      // Fall back below for small images.
+    }
+  }
+  try {
+    const stat = fs.statSync(full);
+    if (stat.size > 5 * 1024 * 1024) {
+      res.status(204).end();
+      return true;
+    }
+  } catch (_) {}
+  res.type(file.mime || 'image/jpeg').sendFile(full);
+  return true;
+}
+
 router.get('/public/files/:token/download', (req, res) => {
   const data = loadStore();
   const token = safeText(req.params.token, 120);
@@ -1809,6 +1946,18 @@ router.get('/public/files/:token/preview', (req, res) => {
   const file = data.files.find(f => String(f.publicToken || '') === token);
   if (!file || !isImageFile(file)) return res.status(404).send('not found');
   if (!sendWorkflowFile(res, file, true, true)) return res.status(404).send('not found');
+});
+
+router.get('/public/files/:token/thumb', async (req, res, next) => {
+  try {
+    const data = loadStore();
+    const token = safeText(req.params.token, 120);
+    const file = data.files.find(f => String(f.publicToken || '') === token);
+    if (!file || !isImageFile(file)) return res.status(404).send('not found');
+    if (!await sendWorkflowThumb(res, file, true)) return res.status(404).send('not found');
+  } catch (e) {
+    next(e);
+  }
 });
 
 router.get('/public/jobs/:token/files.zip', async (req, res, next) => {
@@ -1912,6 +2061,36 @@ router.get('/meta', (req, res) => {
       files: MAX_WORKFLOW_UPLOAD_FILES,
       fileSize: MAX_WORKFLOW_UPLOAD_FILE_SIZE,
     },
+  });
+});
+
+router.get('/settings/public-link', (req, res) => {
+  const envUrl = envPublicWorkflowBaseUrl();
+  const storedUrl = storedPublicWorkflowBaseUrl();
+  res.json({
+    ok: true,
+    publicBaseUrl: envUrl || storedUrl,
+    configuredBaseUrl: storedUrl,
+    source: envUrl ? 'env' : (storedUrl ? 'settings' : ''),
+    envLocked: !!envUrl,
+  });
+});
+
+router.post('/settings/public-link', requireAdmin, (req, res) => {
+  const url = normalizePublicBaseUrl(req.body?.publicBaseUrl || req.body?.url || '');
+  if (req.body?.publicBaseUrl || req.body?.url) {
+    if (!url) return res.status(400).json({ ok: false, error: 'http 또는 https 주소를 입력해주세요.' });
+  }
+  const settings = db['설정'].load();
+  if (!settings.workflow || typeof settings.workflow !== 'object') settings.workflow = {};
+  settings.workflow.publicBaseUrl = url;
+  db['설정'].save(settings);
+  res.json({
+    ok: true,
+    publicBaseUrl: publicWorkflowBaseUrl(),
+    configuredBaseUrl: url,
+    source: envPublicWorkflowBaseUrl() ? 'env' : (url ? 'settings' : ''),
+    envLocked: !!envPublicWorkflowBaseUrl(),
   });
 });
 
@@ -2401,7 +2580,15 @@ router.post('/jobs/:id/files', workflowUploadFiles, (req, res) => {
   let actualStorageCompanyPart = storageCompanyPart;
   let actualStorageProjectPart = storageProjectPart;
   try {
-    actualStorageInfo = resolveWorkflowDesignStorage(storageCompanyName, storageProjectName, storageYear, true);
+    actualStorageInfo = resolveWorkflowDesignStorage(storageCompanyName, storageProjectName, storageYear, false);
+    if (!actualStorageInfo) {
+      for (const file of req.files || []) {
+        try { fs.unlinkSync(path.join(FILE_DIR, file.filename)); } catch (_) {}
+      }
+      return res.status(400).json({
+        error: '선택한 회사/프로젝트 폴더를 찾지 못했습니다. 프로젝트 추가에서 폴더를 먼저 만든 뒤 다시 업로드해주세요.',
+      });
+    }
     if (actualStorageInfo) {
       actualStorageDir = actualStorageInfo.dir;
       actualStorageRelDir = actualStorageInfo.rel;
@@ -2414,23 +2601,34 @@ router.post('/jobs/:id/files', workflowUploadFiles, (req, res) => {
     for (const file of req.files || []) {
       try { fs.unlinkSync(path.join(FILE_DIR, file.filename)); } catch (_) {}
     }
-    return res.status(400).json({ error: '시안 저장 폴더를 만들 수 없습니다: ' + e.message });
+    return res.status(400).json({ error: '시안 저장 폴더를 확인할 수 없습니다: ' + e.message });
   }
   const uploaded = [];
+  const movedFiles = [];
   for (const file of req.files || []) {
     const originalName = uploadName(file.originalname || file.filename);
     const version = data.files.filter(f => f.jobId === job.id && f.stageId === stageId && f.originalName === originalName).length + 1;
     let storedPath = file.filename;
+    let storedName = file.filename;
     try {
-      fs.mkdirSync(actualStorageDir, { recursive: true });
+      if (!fs.existsSync(actualStorageDir)) throw new Error('target folder missing');
       const from = path.join(FILE_DIR, file.filename);
-      const to = path.join(actualStorageDir, file.filename);
+      const target = uniqueStoredFileTarget(actualStorageDir, originalName || file.filename);
       if (fs.existsSync(from)) {
-        fs.renameSync(from, to);
-        storedPath = actualStorageInfo ? to : `${actualStorageRelDir}/${file.filename}`;
+        fs.renameSync(from, target.fullPath);
+        if (!fs.existsSync(target.fullPath)) throw new Error('file move failed');
+        storedName = target.fileName;
+        movedFiles.push(target.fullPath);
+        storedPath = actualStorageInfo ? target.fullPath : `${actualStorageRelDir}/${target.fileName}`;
       }
     } catch (e) {
-      storedPath = file.filename;
+      for (const movedPath of movedFiles) {
+        try { fs.unlinkSync(movedPath); } catch (_) {}
+      }
+      for (const pending of req.files || []) {
+        try { fs.unlinkSync(path.join(FILE_DIR, pending.filename)); } catch (_) {}
+      }
+      return res.status(500).json({ error: '파일을 서버 폴더에 저장하지 못했습니다: ' + e.message });
     }
     const rec = {
       id: makeId('wff'),
@@ -2440,7 +2638,7 @@ router.post('/jobs/:id/files', workflowUploadFiles, (req, res) => {
       kind,
       version,
       originalName,
-      storedName: file.filename,
+      storedName,
       storedPath,
       mime: file.mimetype || 'application/octet-stream',
       size: file.size || 0,
@@ -2631,6 +2829,17 @@ router.get('/files/:fileId/download', (req, res) => {
   res.setHeader('Content-Type', file.mime || 'application/octet-stream');
   res.setHeader('Content-Disposition', attachmentDisposition(file.originalName || 'file'));
   res.sendFile(full);
+});
+
+router.get('/files/:fileId/thumb', async (req, res, next) => {
+  try {
+    const data = loadStore();
+    const file = data.files.find(f => f.id === req.params.fileId);
+    if (!file || !isImageFile(file)) return res.status(404).send('not found');
+    if (!await sendWorkflowThumb(res, file)) return res.status(404).send('not found');
+  } catch (e) {
+    next(e);
+  }
 });
 
 router.get('/files/:fileId/preview', (req, res) => {

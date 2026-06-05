@@ -21,6 +21,8 @@ function workflowApp() {
     newUploadDragOver: false,
     currentUser: null,
     publicShareBaseUrl: '',
+    publicLinkSettings: { configuredBaseUrl: '', source: '', envLocked: false },
+    publicLinkForm: { publicBaseUrl: '', saving: false },
     contactOptions: [],
     designWorkflowOptions: { companies: [], projectsByCompany: {}, projectLookup: {}, masterCompanies: [] },
     workflowProjects: [],
@@ -94,6 +96,7 @@ function workflowApp() {
         window.__workflowOpenListenerInstalled = true;
       }
       await Promise.all([this.loadAuth(), this.loadMeta(), this.loadContacts(), this.loadDesignWorkflowOptions()]);
+      await this.loadPublicLinkSettings();
       if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
       await this.loadJobs();
       this.consumeWorkflowDraft();
@@ -120,6 +123,46 @@ function workflowApp() {
       this.orderStatuses = d.orderStatuses || {};
       this.publicShareBaseUrl = d.publicBaseUrl || '';
       this.uploadLimits = d.uploadLimits || this.uploadLimits;
+    },
+
+    async loadPublicLinkSettings() {
+      try {
+        const r = await fetch('/api/workflow/settings/public-link');
+        const d = await r.json();
+        if (!r.ok || !d.ok) return;
+        this.publicShareBaseUrl = d.publicBaseUrl || '';
+        this.publicLinkSettings = {
+          configuredBaseUrl: d.configuredBaseUrl || '',
+          source: d.source || '',
+          envLocked: !!d.envLocked,
+        };
+        this.publicLinkForm.publicBaseUrl = d.configuredBaseUrl || d.publicBaseUrl || '';
+      } catch (_) {}
+    },
+
+    async savePublicLinkSettings() {
+      this.publicLinkForm.saving = true;
+      try {
+        const r = await fetch('/api/workflow/settings/public-link', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ publicBaseUrl: this.publicLinkForm.publicBaseUrl || '' }),
+        });
+        const d = await r.json();
+        if (!r.ok || !d.ok) throw new Error(d.error || '외부 공유 주소 저장 실패');
+        this.publicShareBaseUrl = d.publicBaseUrl || '';
+        this.publicLinkSettings = {
+          configuredBaseUrl: d.configuredBaseUrl || '',
+          source: d.source || '',
+          envLocked: !!d.envLocked,
+        };
+        this.publicLinkForm.publicBaseUrl = d.configuredBaseUrl || d.publicBaseUrl || '';
+        alert(this.publicShareBaseUrl ? '외부 공유 주소를 저장했습니다.' : '외부 공유 주소를 비웠습니다.');
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        this.publicLinkForm.saving = false;
+      }
     },
 
     async loadContacts() {
@@ -1047,11 +1090,11 @@ function workflowApp() {
     },
 
     visualFiles() {
-      return this.filteredFiles().filter(file => file.isImage);
+      return this.filteredFiles().filter(file => file.isImage && file.exists !== false);
     },
 
     sourceFiles() {
-      return this.filteredFiles().filter(file => !file.isImage);
+      return this.filteredFiles().filter(file => !file.isImage || file.exists === false);
     },
 
     orders() {
@@ -1698,12 +1741,20 @@ function workflowApp() {
 
     fileUrl(file) {
       if (!file) return '#';
+      if (file.exists === false) return '#';
       return file.downloadUrl || ('/api/workflow/files/' + encodeURIComponent(file.id) + '/download');
     },
 
     filePreviewUrl(file) {
       if (!file || !file.isImage) return '';
+      if (file.exists === false) return '';
       return file.previewUrl || this.fileUrl(file);
+    },
+
+    fileThumbUrl(file) {
+      if (!file || !file.isImage) return '';
+      if (file.exists === false) return '';
+      return file.thumbUrl || file.previewUrl || this.fileUrl(file);
     },
 
     publicFileUrl(file) {

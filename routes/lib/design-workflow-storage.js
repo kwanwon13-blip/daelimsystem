@@ -310,15 +310,56 @@ function findCompanyForStorage(options, companyName) {
 
 function yearFolderForCompany(companyDir, year) {
   const entries = readDirs(companyDir);
-  const preferredCandidates = [`${year}\uB144 \uC2DC\uC548\uC791\uC5C5`, `${year}\uB144\uC2DC\uC548\uC791\uC5C5`, `${year}`];
+  const preferredCandidates = [`${year} \uC2DC\uC548\uC791\uC5C5`, `${year}\uC2DC\uC548\uC791\uC5C5`, `${year}\uB144 \uC2DC\uC548\uC791\uC5C5`, `${year}\uB144\uC2DC\uC548\uC791\uC5C5`, `${year}`];
   for (const candidate of preferredCandidates) {
     const found = entries.find(name => normalizeKey(name) === normalizeKey(candidate));
     if (found) return found;
   }
-  if (entries.some(name => isYearHierarchyPart(name) && String(cleanHierarchyPart(name)).startsWith(year))) {
-    return `${year}\uB144\uC2DC\uC548\uC791\uC5C5`;
+  const existingYearFolder = entries.find(name => isYearHierarchyPart(name) && String(cleanHierarchyPart(name)).startsWith(year));
+  if (existingYearFolder) {
+    return existingYearFolder;
   }
   return `${year}\uB144 \uC2DC\uC548\uC791\uC5C5`;
+}
+
+function findProjectForStorage(options, company, projectName) {
+  const key = normalizeKey(projectName);
+  if (!key) return null;
+  const companyKeys = [company?.name, company?.folderName]
+    .map(normalizeKey)
+    .filter(Boolean);
+  const projects = [];
+  const seen = new Set();
+  for (const companyKey of companyKeys) {
+    for (const project of options.projectLookup?.[companyKey] || []) {
+      const projectKey = normalizeKey(project.name || project.folderName);
+      if (!projectKey || seen.has(projectKey)) continue;
+      seen.add(projectKey);
+      projects.push(project);
+    }
+  }
+  return projects.find(project => normalizeKey(project.name) === key || normalizeKey(project.folderName) === key)
+    || projects.find(project => {
+      const nameKey = normalizeKey(project.name);
+      const folderKey = normalizeKey(project.folderName);
+      return (nameKey && (nameKey.includes(key) || key.includes(nameKey)))
+        || (folderKey && (folderKey.includes(key) || key.includes(folderKey)));
+    })
+    || null;
+}
+
+function projectFolderForYear(yearDir, projectName, preferredFolderName) {
+  const key = normalizeKey(projectName);
+  const preferredKey = normalizeKey(preferredFolderName);
+  const entries = readDirs(yearDir);
+  const found = entries.find(name => normalizeKey(name) === key)
+    || entries.find(name => preferredKey && normalizeKey(name) === preferredKey)
+    || entries.find(name => {
+      const folderKey = normalizeKey(name);
+      return folderKey && ((key && (folderKey.includes(key) || key.includes(folderKey)))
+        || (preferredKey && (folderKey.includes(preferredKey) || preferredKey.includes(folderKey))));
+    });
+  return found || preferredFolderName;
 }
 
 function resolveWorkflowStorage({ designRoot = '', designIndex = [], skipDirs = null, companyName = '', projectName = '', year = '', create = true } = {}) {
@@ -332,15 +373,24 @@ function resolveWorkflowStorage({ designRoot = '', designIndex = [], skipDirs = 
   const existingCompany = findCompanyForStorage(options, companyRaw);
   const companyFolderName = existingCompany?.folderName || safePathPart(companyRaw, 'company');
   const companyDir = path.resolve(root, companyFolderName);
+  if (!create && !fs.existsSync(companyDir)) return null;
   const storageYear = safeYear(year);
-  const yearFolderName = yearFolderForCompany(companyDir, storageYear);
-  const projectFolderName = safePathPart(projectRaw, 'project');
+  const existingProject = findProjectForStorage(options, existingCompany || { name: companyRaw, folderName: companyFolderName }, projectRaw);
+  const yearFolderName = existingProject?.yearFolder && String(cleanHierarchyPart(existingProject.yearFolder)).startsWith(storageYear)
+    ? existingProject.yearFolder
+    : yearFolderForCompany(companyDir, storageYear);
+  const projectFolderName = projectFolderForYear(
+    path.resolve(companyDir, yearFolderName),
+    projectRaw,
+    existingProject?.folderName || safePathPart(projectRaw, 'project'),
+  );
   const dir = path.resolve(companyDir, yearFolderName, projectFolderName);
 
   if (!isPathInside(root, dir)) {
     throw new Error('invalid workflow storage path');
   }
   const existedBefore = fs.existsSync(dir);
+  if (!create && !existedBefore) return null;
   if (create) fs.mkdirSync(dir, { recursive: true });
   return {
     dir,

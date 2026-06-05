@@ -347,7 +347,7 @@
               <template x-for="job in jobsForStage(stage.id)" :key="job.id">
                 <button class="wf-card text-left" :class="selectedId===job.id && (!selectedWorkStageId || selectedWorkStageId===stage.id)?'active':''" @click="selectJob(job.id, stage.id)">
                   <div class="wf-card-visual" x-show="job.primaryVisualFile">
-                    <img :src="job.primaryVisualFile ? job.primaryVisualFile.previewUrl : ''" :alt="job.primaryVisualFile ? job.primaryVisualFile.originalName : ''">
+                    <img :src="job.primaryVisualFile ? (job.primaryVisualFile.thumbUrl || job.primaryVisualFile.previewUrl) : ''" :alt="job.primaryVisualFile ? job.primaryVisualFile.originalName : ''">
                     <span class="wf-card-visual-urgent" x-show="job.primaryVisualFile && job.primaryVisualFile.urgent">긴급</span>
                     <span class="wf-card-visual-label" x-text="'시안 ' + (job.visualFileCount || 1)"></span>
                     <span class="wf-card-visual-date" x-show="job.primaryVisualFile && job.primaryVisualFile.designDueDate" x-text="job.primaryVisualFile ? job.primaryVisualFile.designDueDate : ''"></span>
@@ -582,7 +582,7 @@
                   <template x-for="file in visualFiles()" :key="file.id">
                     <article class="wf-proof-card" :data-workflow-file-id="file.id" :class="[(isUnreadFile(file) ? 'unread' : ''), (file.urgent ? 'urgent' : ''), (expandedFileId === file.id ? 'active' : '')]">
                       <button class="wf-proof-thumb" @click="openFilePreview(file)">
-                        <img :src="filePreviewUrl(file)" :alt="file.originalName">
+                        <img :src="fileThumbUrl(file)" :alt="file.originalName">
                         <span class="wf-proof-badge" x-text="fileKindLabel(file.kind)"></span>
                       </button>
                       <div class="wf-proof-info">
@@ -672,8 +672,9 @@
                           <span class="wf-chip" :class="file.scheduleNegotiation === 'needs_change' ? 'change_requested' : (file.scheduleNegotiation === 'confirmed' || file.scheduleNegotiation === 'possible' ? 'ready' : '')" x-text="scheduleNegotiationLabel(file.scheduleNegotiation)"></span>
                           <span class="wf-chip unread" x-show="file.hasTarget && !file.targetRead">수신대기</span>
                           <span class="wf-chip ready" x-show="file.hasTarget && file.targetRead">수신확인</span>
+                          <span class="wf-chip overdue" x-show="file.exists === false">서버 파일 없음</span>
                           <span class="wf-chip" :class="file.reviewStatus || 'pending'" x-show="canReviewFile(file)" x-text="fileReviewLabel(file.reviewStatus)"></span>
-                          <a class="wf-btn" :href="fileUrl(file)">받기</a>
+                          <a class="wf-btn" x-show="file.exists !== false" :href="fileUrl(file)">받기</a>
                           <a class="wf-btn" x-show="publicFileUrl(file)" :href="publicFileUrl(file)">공장받기</a>
                           <button class="wf-btn" x-show="publicFileUrl(file)" @click="copyFactoryFileLink(file)">링크</button>
                           <button class="wf-btn" x-show="isUnreadFile(file)" @click="markRead(file)">확인</button>
@@ -722,6 +723,15 @@
               </div>
               <div class="wf-section-body">
                 <div class="wf-upload-panel">
+                  <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;">
+                    <input class="wf-input" x-model="publicLinkForm.publicBaseUrl" placeholder="Cloudflare 터널 주소 예: https://xxxx.trycloudflare.com" :disabled="publicLinkSettings.envLocked">
+                    <button class="wf-btn" @click="savePublicLinkSettings()" :disabled="publicLinkSettings.envLocked || publicLinkForm.saving" x-text="publicLinkForm.saving ? '저장 중' : '외부주소 저장'"></button>
+                  </div>
+                  <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+                    <span class="wf-chip ready" x-show="publicShareBaseUrl" x-text="'외부 다운로드 링크 사용 중: ' + publicShareBaseUrl"></span>
+                    <span class="wf-chip high" x-show="!publicShareBaseUrl">공장 다운로드용 터널 주소가 아직 없습니다</span>
+                    <span class="wf-muted" x-show="publicLinkSettings.envLocked">서버 환경변수로 고정됨</span>
+                  </div>
                   <div style="display:grid;grid-template-columns:120px 1fr 120px;gap:8px;">
                     <select class="wf-select" x-model="orderForm.targetPreset" @change="onOrderTargetPreset()">
                       <template x-for="target in orderTargets" :key="target.id">
@@ -738,8 +748,6 @@
                   <textarea class="wf-textarea" x-model="orderForm.note" placeholder="발주 요청사항"></textarea>
                   <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
                     <span class="wf-muted" x-text="'현재 표시 파일 ' + currentOrderFileIds().length + '건으로 패키지 생성'"></span>
-                    <span class="wf-muted" x-show="publicShareBaseUrl" x-text="'외부 링크 기준: ' + publicShareBaseUrl"></span>
-                    <span class="wf-chip high" x-show="!publicShareBaseUrl">외부 공유 주소 미설정</span>
                     <button class="wf-btn primary" @click="createOrderPackage()">발주 패키지 생성</button>
                   </div>
                 </div>
