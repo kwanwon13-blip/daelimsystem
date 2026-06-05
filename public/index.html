@@ -7635,11 +7635,27 @@ function app() {
     async loadNotificationCenter(showLoading = false) {
       if (showLoading) this.notifCenter.loading = true;
       try {
-        const r = await fetch('/api/notifications');
-        if (!r.ok) return;
-        const d = await r.json();
-        this.notifCenter.items = Array.isArray(d.notifications) ? d.notifications : [];
-        this.notifCenter.unreadCount = Number(d.unreadCount || 0);
+        const [notifResult, workflowResult] = await Promise.allSettled([
+          fetch('/api/notifications'),
+          this.currentTab === 'workflow' ? null : fetch('/api/workflow/summary'),
+        ]);
+        let savedItems = [];
+        if (notifResult.status === 'fulfilled' && notifResult.value && notifResult.value.ok) {
+          const d = await notifResult.value.json();
+          savedItems = Array.isArray(d.notifications) ? d.notifications : [];
+        }
+        let workflowItems = [];
+        if (workflowResult.status === 'fulfilled' && workflowResult.value && workflowResult.value.ok) {
+          const wd = await workflowResult.value.json();
+          workflowItems = this.workflowNotificationItems(wd.summary || {});
+        }
+        const workflowLinks = new Set(workflowItems.map(item => item.link).filter(Boolean));
+        const merged = [
+          ...workflowItems,
+          ...savedItems.filter(item => !(item.type === 'workflow' && workflowLinks.has(item.link))),
+        ].slice(0, 50);
+        this.notifCenter.items = merged;
+        this.notifCenter.unreadCount = merged.filter(item => !item.read).length;
       } catch(e) {
         // 알림함 실패는 업무 화면을 막지 않습니다.
       } finally {
@@ -7672,8 +7688,83 @@ function app() {
       return d.toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
     },
 
+    workflowNotificationItems(summary = {}) {
+      const items = [];
+      const seen = new Set();
+      const coveredFileIds = new Set();
+      const add = (key, message, link, createdAt) => {
+        if (!key || seen.has(key) || !message) return;
+        seen.add(key);
+        items.push({
+          id: 'workflow_live_' + key.replace(/[^a-zA-Z0-9_-]/g, '_'),
+          type: 'workflow',
+          message,
+          link,
+          read: false,
+          synthetic: true,
+          createdAt: createdAt || new Date().toISOString(),
+        });
+      };
+      (summary.urgentFileItems || []).slice(0, 4).forEach(file => {
+        add(
+          `urgent_file_${file.id || file.jobId}`,
+          `긴급 시안 확인 · ${file.originalName || file.jobTitle || '파일'}${file.designDueDate ? ' · 희망 ' + file.designDueDate : ''}`,
+          `workflow:${encodeURIComponent(file.jobId || '')}:${encodeURIComponent(file.id || '')}`,
+          file.createdAt
+        );
+        if (file.id) coveredFileIds.add(String(file.id));
+      });
+      (summary.unreadFileItems || [])
+        .filter(file => !file.id || !coveredFileIds.has(String(file.id)))
+        .slice(0, 4)
+        .forEach(file => {
+          add(
+            `unread_file_${file.id || file.jobId}`,
+            `시안/파일 확인 필요 · ${file.originalName || file.jobTitle || '파일'}`,
+            `workflow:${encodeURIComponent(file.jobId || '')}:${encodeURIComponent(file.id || '')}`,
+            file.createdAt
+          );
+        });
+      (summary.unreadEventItems || []).slice(0, 4).forEach(event => {
+        add(
+          `unread_event_${event.id || event.jobId}`,
+          `메모 확인 필요 · ${event.message || event.jobTitle || '워크플로우'}`,
+          `workflow:${encodeURIComponent(event.jobId || '')}:${encodeURIComponent(event.id || '')}`,
+          event.createdAt
+        );
+      });
+      (summary.scheduleItems || [])
+        .filter(item => item.overdue || item.today)
+        .slice(0, 4)
+        .forEach(item => {
+          add(
+            `schedule_${item.id || item.jobId}`,
+            `${item.overdue ? '일정 지연' : '오늘 일정'} · ${item.title || '워크플로우'}${item.dueDate ? ' · ' + item.dueDate : ''}`,
+            `workflow:${encodeURIComponent(item.jobId || '')}:`,
+            item.dueDate ? item.dueDate + 'T00:00:00.000Z' : ''
+          );
+        });
+      (summary.myActionItems || [])
+        .filter(item => item.overdue || item.blockedStageCount || item.changeRequestCount)
+        .slice(0, 3)
+        .forEach(item => {
+          add(
+            `action_${item.id}`,
+            `내 담당 확인 · ${item.title || '워크플로우'}${item.dueDate ? ' · ' + item.dueDate : ''}`,
+            `workflow:${encodeURIComponent(item.id || '')}:`,
+            item.updatedAt || item.latestFileAt
+          );
+        });
+      return items.slice(0, 12);
+    },
+
     async markNotificationRead(item) {
       if (!item || item.read) return;
+      if (item.synthetic) {
+        item.read = true;
+        this.notifCenter.unreadCount = Math.max(0, Number(this.notifCenter.unreadCount || 0) - 1);
+        return;
+      }
       try {
         await fetch('/api/notifications/' + encodeURIComponent(item.id) + '/read', { method: 'PUT' });
         item.read = true;
