@@ -116,6 +116,10 @@
   .wf-new-file-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;border:1px solid #e1e6ef;border-radius:6px;background:#f8fafc;padding:6px 8px;}
   .wf-new-file-row strong{font-size:12px;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .wf-new-file-row span{font-size:11px;color:#64748b;white-space:nowrap;}
+  .wf-project-picks{display:flex;gap:5px;flex-wrap:wrap;align-items:center;}
+  .wf-project-pick{height:24px;max-width:210px;border:1px solid #dbe3ef;border-radius:999px;background:#fff;color:#334155;padding:0 8px;font-size:11px;font-weight:800;display:inline-flex;align-items:center;gap:5px;cursor:pointer;min-width:0;}
+  .wf-project-pick span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
+  .wf-project-pick small{font-size:10px;color:#64748b;font-weight:800;white-space:nowrap;}
   .wf-preview-modal{position:fixed;inset:0;z-index:9999;background:rgba(3,7,18,.88);display:flex;align-items:center;justify-content:center;padding:10px;}
   .wf-preview-panel{width:calc(100vw - 20px);height:calc(100vh - 20px);background:#0f172a;border-radius:6px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 70px rgba(0,0,0,.45);}
   .wf-preview-head{height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 12px;color:#fff;border-bottom:1px solid rgba(255,255,255,.12);flex:0 0 auto;}
@@ -446,6 +450,14 @@
                     <input class="wf-input" list="wfUploadProjectNames" x-model="uploadProjectName" placeholder="프로젝트">
                     <input class="wf-input" type="date" x-model="uploadDesignDueDate" title="디자인 희망 완료일">
                   </div>
+                  <div class="wf-project-picks" x-show="workflowProjectSuggestions(uploadCompanyName, 8).length">
+                    <template x-for="project in workflowProjectSuggestions(uploadCompanyName, 8)" :key="'upload-project-'+project.name">
+                      <button type="button" class="wf-project-pick" @click="uploadProjectName = project.name">
+                        <span x-text="project.name"></span>
+                        <small x-show="project.yearFolder" x-text="project.yearFolder"></small>
+                      </button>
+                    </template>
+                  </div>
                   <label class="wf-dropzone" :class="uploadDragOver ? 'drag' : ''"
                     @dragover.prevent="uploadDragOver=true"
                     @dragleave.prevent="uploadDragOver=false"
@@ -723,6 +735,14 @@
           <div class="wf-field">
             <label>프로젝트/현장</label>
             <input class="wf-input" list="wfFormProjectNames" x-model="form.projectName" placeholder="프로젝트명">
+            <div class="wf-project-picks" x-show="workflowProjectSuggestions(form.companyName, 8).length">
+              <template x-for="project in workflowProjectSuggestions(form.companyName, 8)" :key="'new-project-'+project.name">
+                <button type="button" class="wf-project-pick" @click="form.projectName = project.name">
+                  <span x-text="project.name"></span>
+                  <small x-show="project.yearFolder" x-text="project.yearFolder"></small>
+                </button>
+              </template>
+            </div>
           </div>
           <div class="wf-field">
             <label>희망 완료일</label>

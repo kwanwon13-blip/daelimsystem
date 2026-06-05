@@ -338,6 +338,22 @@ function workflowApp() {
       return `${companyFolder} / ${yearFolder} / ${project || '프로젝트 미입력'}`;
     },
 
+    workflowProjectSuggestions(companyName, limit = 8) {
+      const seen = new Set();
+      return this.projectOptionsForCompany(companyName)
+        .map(project => ({
+          name: String(project?.name || project || '').trim(),
+          yearFolder: String(project?.yearFolder || '').trim(),
+        }))
+        .filter(project => {
+          const key = this.normalizeOptionName(project.name);
+          if (!key || seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .slice(0, Number(limit || 8));
+    },
+
     workflowProjectNames(companyName = '', currentProjectName = '') {
       const names = [];
       names.push(...this.projectNamesForCompany(companyName));
