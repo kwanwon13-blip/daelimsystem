@@ -79,6 +79,7 @@ function workflowApp() {
       message: '',
       attachFiles: true,
       error: '',
+      linkOnlySuggested: false,
     },
     form: {
       title: '',
@@ -1436,6 +1437,7 @@ function workflowApp() {
         message: order.note || this.defaultOrderMailMessage(order),
         attachFiles: true,
         error: '',
+        linkOnlySuggested: false,
       };
     },
 
@@ -1470,6 +1472,10 @@ function workflowApp() {
         });
         const d = await r.json().catch(() => ({}));
         if (!r.ok || !d.ok) {
+          if (r.status === 413) {
+            modal.attachFiles = false;
+            modal.linkOnlySuggested = true;
+          }
           modal.error = d.error || '메일 발송 실패';
           return;
         }
