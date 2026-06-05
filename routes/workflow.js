@@ -419,6 +419,25 @@ function normalizePublicBaseUrl(rawValue) {
   }
 }
 
+function isPrivateHostname(hostname) {
+  const host = String(hostname || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (!host) return true;
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return true;
+  if (host.startsWith('192.168.') || host.startsWith('10.')) return true;
+  if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) return true;
+  return false;
+}
+
+function isPublicWorkflowBaseUrl(urlValue) {
+  const url = normalizePublicBaseUrl(urlValue);
+  if (!url) return false;
+  try {
+    return !isPrivateHostname(new URL(url).hostname);
+  } catch (_) {
+    return false;
+  }
+}
+
 function envPublicWorkflowBaseUrl() {
   return normalizePublicBaseUrl(
     process.env.WORKFLOW_PUBLIC_BASE_URL
@@ -442,7 +461,17 @@ function storedPublicWorkflowBaseUrl() {
 }
 
 function publicWorkflowBaseUrl() {
-  return envPublicWorkflowBaseUrl() || storedPublicWorkflowBaseUrl();
+  const envUrl = envPublicWorkflowBaseUrl();
+  if (isPublicWorkflowBaseUrl(envUrl)) return envUrl;
+  const storedUrl = storedPublicWorkflowBaseUrl();
+  if (isPublicWorkflowBaseUrl(storedUrl)) return storedUrl;
+  return '';
+}
+
+function absoluteWorkflowPublicUrl(relativePath) {
+  const base = publicWorkflowBaseUrl();
+  if (!base || !isPublicWorkflowBaseUrl(base)) return '';
+  return `${base}${String(relativePath || '').startsWith('/') ? '' : '/'}${relativePath || ''}`;
 }
 
 function resolveWorkflowDesignStorage(companyName, projectName, year, create = true) {
@@ -1421,6 +1450,8 @@ function decorateOrder(data, job, order) {
   delete safeOrder.mailCc;
   delete safeOrder.mailSubject;
   delete safeOrder.mailBody;
+  const publicViewUrl = order.publicToken ? `/workflow/order/${encodeURIComponent(order.publicToken)}` : '';
+  const publicArchiveUrl = order.publicToken ? `/api/workflow/public/orders/${encodeURIComponent(order.publicToken)}/files.zip` : '';
   return {
     ...safeOrder,
     fileCount: files.length,
@@ -1430,8 +1461,10 @@ function decorateOrder(data, job, order) {
     deliveryMethod: order.deliveryMethod || (order.targetType === 'external' ? 'email' : 'download'),
     deliveryMethodLabel: ORDER_DELIVERY_METHOD_LABELS[order.deliveryMethod || (order.targetType === 'external' ? 'email' : 'download')] || 'ERP 다운로드',
     responseStatusLabel: ORDER_RESPONSE_LABELS[order.responseStatus] || '',
-    publicViewUrl: order.publicToken ? `/workflow/order/${encodeURIComponent(order.publicToken)}` : '',
-    publicArchiveUrl: order.publicToken ? `/api/workflow/public/orders/${encodeURIComponent(order.publicToken)}/files.zip` : '',
+    publicViewUrl,
+    publicArchiveUrl,
+    publicViewAbsoluteUrl: absoluteWorkflowPublicUrl(publicViewUrl),
+    publicArchiveAbsoluteUrl: absoluteWorkflowPublicUrl(publicArchiveUrl),
   };
 }
 
@@ -1466,9 +1499,10 @@ function absoluteWorkflowOrderUrl(order, req = null) {
   if (!base && req) {
     const proto = safeText(req.headers['x-forwarded-proto'] || req.protocol || 'http', 20).split(',')[0];
     const host = safeText(req.headers['x-forwarded-host'] || req.get?.('host') || req.headers.host || '', 200).split(',')[0];
-    base = host ? normalizePublicBaseUrl(`${proto}://${host}`) : '';
+    base = host && !isPrivateHostname(host) ? normalizePublicBaseUrl(`${proto}://${host}`) : '';
   }
-  return base ? `${base}${relative}` : relative;
+  if (base && !isPublicWorkflowBaseUrl(base)) return '';
+  return base ? `${base}${relative}` : '';
 }
 
 function defaultWorkflowOrderMailSubject(job, order) {
@@ -2389,12 +2423,13 @@ router.get('/meta', (req, res) => {
 router.get('/settings/public-link', (req, res) => {
   const envUrl = envPublicWorkflowBaseUrl();
   const storedUrl = storedPublicWorkflowBaseUrl();
+  const activeUrl = publicWorkflowBaseUrl();
   res.json({
     ok: true,
-    publicBaseUrl: envUrl || storedUrl,
+    publicBaseUrl: activeUrl,
     configuredBaseUrl: storedUrl,
-    source: envUrl ? 'env' : (storedUrl ? 'settings' : ''),
-    envLocked: !!envUrl,
+    source: activeUrl && envUrl && activeUrl === envUrl ? 'env' : (activeUrl && storedUrl && activeUrl === storedUrl ? 'settings' : ''),
+    envLocked: !!(envUrl && isPublicWorkflowBaseUrl(envUrl)),
   });
 });
 
@@ -2402,17 +2437,21 @@ router.post('/settings/public-link', requireAdmin, (req, res) => {
   const url = normalizePublicBaseUrl(req.body?.publicBaseUrl || req.body?.url || '');
   if (req.body?.publicBaseUrl || req.body?.url) {
     if (!url) return res.status(400).json({ ok: false, error: 'http 또는 https 주소를 입력해주세요.' });
+    if (!isPublicWorkflowBaseUrl(url)) {
+      return res.status(400).json({ ok: false, error: '외부 다운로드 주소는 localhost 또는 사설 IP가 아닌 터널/공개 주소여야 합니다.' });
+    }
   }
   const settings = db['설정'].load();
   if (!settings.workflow || typeof settings.workflow !== 'object') settings.workflow = {};
   settings.workflow.publicBaseUrl = url;
   db['설정'].save(settings);
+  const activeUrl = publicWorkflowBaseUrl();
   res.json({
     ok: true,
-    publicBaseUrl: publicWorkflowBaseUrl(),
+    publicBaseUrl: activeUrl,
     configuredBaseUrl: url,
-    source: envPublicWorkflowBaseUrl() ? 'env' : (url ? 'settings' : ''),
-    envLocked: !!envPublicWorkflowBaseUrl(),
+    source: activeUrl && envPublicWorkflowBaseUrl() && activeUrl === envPublicWorkflowBaseUrl() ? 'env' : (activeUrl && url ? 'settings' : ''),
+    envLocked: !!(envPublicWorkflowBaseUrl() && isPublicWorkflowBaseUrl(envPublicWorkflowBaseUrl())),
   });
 });
 
@@ -2894,17 +2933,23 @@ router.post('/jobs/:id/orders/:orderId/email', async (req, res) => {
     if (!files.length) return res.status(400).json({ error: '발송할 파일이 없습니다.' });
 
     const attachFiles = req.body?.attachFiles !== false;
+    const publicUrl = absoluteWorkflowOrderUrl(order, req);
+    if (!attachFiles && !publicUrl) {
+      return res.status(400).json({ error: '링크만 발송하려면 워크플로우 외부 다운로드 주소를 먼저 저장해주세요.' });
+    }
     const mailFiles = workflowOrderMailAttachments(files, attachFiles);
     if (mailFiles.tooLarge) {
+      if (!publicUrl) {
+        return res.status(400).json({ error: '첨부 용량이 큽니다. 링크 발송을 위해 워크플로우 외부 다운로드 주소를 먼저 저장해주세요.' });
+      }
       return res.status(413).json({
         error: `첨부 용량이 ${Math.round(mailFiles.totalBytes / 1024 / 1024)}MB입니다. 메일 첨부는 ${Math.round(MAX_WORKFLOW_MAIL_ATTACH_BYTES / 1024 / 1024)}MB 이하일 때만 발송합니다.`,
-        publicUrl: absoluteWorkflowOrderUrl(order, req),
+        publicUrl,
       });
     }
 
     const subject = safeText(req.body?.subject, 240) || defaultWorkflowOrderMailSubject(job, order);
     const message = safeText(req.body?.message, 3000);
-    const publicUrl = absoluteWorkflowOrderUrl(order, req);
     const html = buildWorkflowOrderMailHtml(job, order, files, message, publicUrl);
 
     await sendSmtpMail({

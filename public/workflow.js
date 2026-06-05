@@ -1492,7 +1492,8 @@ function workflowApp() {
     },
 
     orderArchiveUrl(order) {
-      return order && order.publicArchiveUrl ? order.publicArchiveUrl : '';
+      if (!order) return '';
+      return order.publicArchiveAbsoluteUrl || this.absoluteUrl(order.publicArchiveUrl || '');
     },
 
     orderMailSentText(order) {
