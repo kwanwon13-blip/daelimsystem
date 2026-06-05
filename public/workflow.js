@@ -1502,6 +1502,17 @@ function workflowApp() {
       return ['메일', at, to].filter(Boolean).join(' · ');
     },
 
+    orderPublicActivityText(order) {
+      if (!order) return '';
+      const parts = [];
+      if (order.lastPublicViewedAt) parts.push('열람 ' + this.eventTime(order.lastPublicViewedAt));
+      if (order.lastPublicDownloadedAt) {
+        const count = Number(order.publicDownloadCount || 0);
+        parts.push('다운로드 ' + this.eventTime(order.lastPublicDownloadedAt) + (count > 1 ? ` ${count}회` : ''));
+      }
+      return parts.join(' · ');
+    },
+
     fileReviewLabel(status) {
       return ({ pending: '검토대기', approved: '승인', change_requested: '수정요청' })[status || 'pending'] || '검토대기';
     },

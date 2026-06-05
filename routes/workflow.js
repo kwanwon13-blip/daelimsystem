@@ -1355,6 +1355,39 @@ function orderTargetStageIds(order) {
   return order.targetType === 'internal' ? ['factory', 'management'] : ['management'];
 }
 
+function markPublicOrderActivity(data, job, order, kind, meta = {}) {
+  if (!data || !job || !order) return false;
+  const at = nowIso();
+  let shouldEvent = true;
+  if (kind === 'view') {
+    const lastViewMs = Date.parse(order.lastPublicViewedAt || '');
+    if (Number.isFinite(lastViewMs) && Date.now() - lastViewMs < 10 * 60 * 1000) shouldEvent = false;
+    order.lastPublicViewedAt = at;
+    if (shouldEvent) order.publicViewCount = Number(order.publicViewCount || 0) + 1;
+  } else if (kind === 'download') {
+    order.lastPublicDownloadedAt = at;
+    order.publicDownloadCount = Number(order.publicDownloadCount || 0) + 1;
+  } else {
+    return false;
+  }
+  order.updatedAt = at;
+  job.updatedAt = at;
+  if (!shouldEvent) return true;
+  const type = kind === 'download' ? 'order_public_download' : 'order_public_view';
+  const label = kind === 'download' ? '파일 다운로드' : '전달 화면 열람';
+  addEvent(data, { user: { userId: 'public-order', name: order.targetName || '외부 확인' } }, job.id, type, `${label} · ${order.targetName || '전달 대상'}`, {
+    orderId: order.id,
+    targetName: order.targetName || '',
+    count: kind === 'download' ? order.publicDownloadCount : order.publicViewCount,
+    ...meta,
+    eventTargetUserId: job.createdBy || '',
+    eventTargetUserName: job.createdByName || '',
+    eventTargetLabel: stageTargetLabels(job, ['design', 'management']).join(', '),
+    targetStageIds: ['design', 'management'],
+  });
+  return true;
+}
+
 function decoratePublicOrderFile(file) {
   return {
     id: file.id,
@@ -2246,6 +2279,8 @@ router.get('/public/orders/:token/files.zip', async (req, res, next) => {
     const files = orderFiles(data, order, job);
     const archive = await buildArchiveFromFiles(job, files, { orderId: order.id, targetName: order.targetName || '' }, `order_${safeFilePart(order.targetName || order.id)}`);
     if (!archive) return res.status(404).send('no files');
+    markPublicOrderActivity(data, job, order, 'download', { fileCount: archive.files.length });
+    saveStore(data);
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', attachmentDisposition(archive.filename));
     res.setHeader('Cache-Control', 'public, max-age=60');
@@ -2262,6 +2297,8 @@ router.get('/public/orders/:token', (req, res) => {
   if (!order) return res.status(404).json({ error: '발주를 찾을 수 없습니다.' });
   const job = data.jobs.find(j => j.id === order.jobId);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  markPublicOrderActivity(data, job, order, 'view');
+  saveStore(data);
   res.json(decoratePublicOrder(data, job, order));
 });
 
