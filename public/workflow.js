@@ -19,6 +19,7 @@ function workflowApp() {
     newFiles: [],
     newUploadDragOver: false,
     currentUser: null,
+    publicShareBaseUrl: '',
     contactOptions: [],
     designWorkflowOptions: { companies: [], projectsByCompany: {}, projectLookup: {}, masterCompanies: [] },
     commentText: '',
@@ -106,6 +107,7 @@ function workflowApp() {
       this.checkStatuses = d.checkStatuses || {};
       this.orderTargets = d.orderTargets || [];
       this.orderStatuses = d.orderStatuses || {};
+      this.publicShareBaseUrl = d.publicBaseUrl || '';
     },
 
     async loadContacts() {
@@ -1311,7 +1313,8 @@ function workflowApp() {
     absoluteUrl(url) {
       if (!url) return '';
       try {
-        return new URL(url, window.location.origin).toString();
+        const base = this.publicShareBaseUrl || window.location.origin;
+        return new URL(url, base).toString();
       } catch (_) {
         return url;
       }

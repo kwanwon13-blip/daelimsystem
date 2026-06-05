@@ -283,6 +283,26 @@ function safeYear(v) {
   return /^\d{4}$/.test(s) ? s : String(new Date().getFullYear());
 }
 
+function publicWorkflowBaseUrl() {
+  const raw = safeText(
+    process.env.WORKFLOW_PUBLIC_BASE_URL
+      || process.env.PUBLIC_BASE_URL
+      || process.env.CLOUDFLARE_TUNNEL_URL,
+    300,
+  );
+  if (!raw) return '';
+  try {
+    const url = new URL(raw);
+    if (!['http:', 'https:'].includes(url.protocol)) return '';
+    url.pathname = url.pathname.replace(/\/+$/, '');
+    url.search = '';
+    url.hash = '';
+    return url.toString().replace(/\/$/, '');
+  } catch (_) {
+    return '';
+  }
+}
+
 function resolveWorkflowDesignStorage(companyName, projectName, year, create = true) {
   if (!designModule.resolveWorkflowStorage) return null;
   return designModule.resolveWorkflowStorage({
@@ -1672,6 +1692,7 @@ router.get('/meta', (req, res) => {
     checkStatuses: CHECK_STATUS_LABELS,
     orderTargets: ORDER_TARGETS,
     orderStatuses: ORDER_STATUS_LABELS,
+    publicBaseUrl: publicWorkflowBaseUrl(),
   });
 });
 
