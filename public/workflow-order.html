@@ -484,16 +484,20 @@
 
       const thumb = document.createElement('div');
       thumb.className = 'thumb';
-      if (file.isImage && file.previewUrl) {
+      if (file.isImage && (file.thumbUrl || file.previewUrl)) {
         const img = document.createElement('img');
-        img.src = file.previewUrl;
+        img.src = file.thumbUrl || file.previewUrl;
         img.alt = file.originalName || '';
         img.addEventListener('error', () => {
+          if (file.previewUrl && img.src !== abs(file.previewUrl)) {
+            img.src = file.previewUrl;
+            return;
+          }
           thumb.innerHTML = '';
           thumb.appendChild(makeFileMark(file));
         });
         thumb.appendChild(img);
-        thumb.addEventListener('click', () => openViewer(file.previewUrl));
+        if (file.previewUrl) thumb.addEventListener('click', () => openViewer(file.previewUrl));
       } else {
         thumb.appendChild(makeFileMark(file));
       }

@@ -1475,6 +1475,7 @@ function decoratePublicOrderFile(file, order = null) {
     scheduleNegotiation: file.scheduleNegotiation || 'pending',
     downloadUrl: file.publicToken ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/download${orderQuery}` : '',
     previewUrl: file.publicToken && isImageFile(file) ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/preview` : '',
+    thumbUrl: file.publicToken && isImageFile(file) ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/thumb` : '',
   };
 }
 
