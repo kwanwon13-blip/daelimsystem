@@ -704,6 +704,22 @@ function workflowProjectId(companyName, projectName) {
   return `prj_${hash}`;
 }
 
+function workflowProjectStatusFromJobs(data, companyName, projectName, fallback = 'active') {
+  const key = workflowProjectKey(companyName, projectName);
+  const fallbackStatus = normalizeProjectStatus(fallback);
+  if (!key) return fallbackStatus;
+  let total = 0;
+  let active = 0;
+  for (const job of data.jobs || []) {
+    if (workflowProjectKey(job.companyName, job.projectName) !== key) continue;
+    total += 1;
+    if (!['done', 'cancelled'].includes(job.status || 'active')) active += 1;
+  }
+  if (active > 0) return 'active';
+  if (total > 0) return 'done';
+  return fallbackStatus;
+}
+
 function applyProjectStorageFields(project, storageInfo) {
   if (!project || !storageInfo) return;
   Object.assign(project, {
@@ -2048,7 +2064,7 @@ router.put('/jobs/:id', (req, res) => {
   }
   upsertWorkflowProject(data, {
     ...job,
-    status: ['done', 'cancelled'].includes(job.status) ? 'done' : 'active',
+    status: workflowProjectStatusFromJobs(data, job.companyName, job.projectName, ['done', 'cancelled'].includes(job.status) ? 'done' : 'active'),
     year: job.storageYear || String(job.dueDate || '').slice(0, 4),
   }, req, storageResult.info);
   if (job.status === 'done') {
@@ -2439,7 +2455,7 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
         companyName: storageCompanyName,
         projectName: storageProjectName,
         year: actualStorageInfo.year || storageYear,
-        status: 'active',
+        status: workflowProjectStatusFromJobs(data, storageCompanyName, storageProjectName, 'active'),
       }, req, actualStorageInfo);
     }
     addEvent(data, req, job.id, 'file', `파일 ${uploaded.length}개 업로드${targetLabel ? ' · 확인 대상 ' + targetLabel : ''}`, {
