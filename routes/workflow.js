@@ -476,6 +476,26 @@ function defaultUploadTargetLabels(job, stageId, kind) {
   return stageTargetLabels(job, [stageId]);
 }
 
+function stageStatusNotifyTargets(job, stageId, status) {
+  if (!job || !stageId) return [];
+  if (status === 'blocked') {
+    if (stageId === 'design') return ['management'];
+    if (stageId === 'management') return ['design'];
+    return ['design', 'management'];
+  }
+  if (status === 'done') {
+    if (stageId === 'design') return DESIGN_PARALLEL_STAGE_IDS;
+    if (stageId === 'management' || stageId === 'factory') {
+      const otherStageId = stageId === 'management' ? 'factory' : 'management';
+      if (job.stageChecks?.[otherStageId]?.status === 'done') return ['delivery'];
+      return [otherStageId];
+    }
+    return [];
+  }
+  if (status === 'ready') return [stageId];
+  return [];
+}
+
 function fileTargetLabels(file) {
   const labels = Array.isArray(file?.targetLabels) ? file.targetLabels : [];
   if (labels.length) return uniqueTexts(labels);
@@ -2049,6 +2069,7 @@ router.post('/jobs/:id/stages/:stageId', (req, res) => {
   if (!job || !stage) return res.status(404).json({ error: '작업 또는 단계를 찾을 수 없습니다.' });
   job.stageChecks = newStageChecks(job.stageChecks || {});
   const check = job.stageChecks[stage.id];
+  const previousStatus = check.status || 'pending';
   const nextStatus = ['pending', 'ready', 'done', 'blocked'].includes(req.body.status) ? req.body.status : check.status;
   check.status = nextStatus;
   check.assignee = safeText(req.body.assignee, 80);
@@ -2063,7 +2084,14 @@ router.post('/jobs/:id/stages/:stageId', (req, res) => {
   const blockers = completionBlockers(data, job);
   job.status = allStagesDone && blockers.length === 0 ? 'done' : (job.status === 'done' ? 'active' : job.status);
   job.updatedAt = nowIso();
-  addEvent(data, req, job.id, 'stage', `${stage.label} ${CHECK_STATUS_LABELS[nextStatus] || nextStatus}`, { stageId: stage.id, status: nextStatus });
+  const targetStageIds = previousStatus !== nextStatus ? stageStatusNotifyTargets(job, stage.id, nextStatus) : [];
+  addEvent(data, req, job.id, 'stage', `${stage.label} ${CHECK_STATUS_LABELS[nextStatus] || nextStatus}`, {
+    stageId: stage.id,
+    status: nextStatus,
+    previousStatus,
+    eventTargetLabel: stageTargetLabels(job, targetStageIds).join(', '),
+    targetStageIds,
+  });
   saveStore(data);
   res.json({ ok: true, job: decorateJob(data, job, req.user) });
 });
