@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
   <title>발주 확인</title>
   <style>
     :root {
@@ -92,7 +93,7 @@
       cursor: not-allowed;
     }
     main {
-      max-width: 1180px;
+      max-width: 1240px;
       margin: 0 auto;
       padding: 16px;
       display: grid;
@@ -168,7 +169,7 @@
     .chip.amber { color: var(--amber); border-color: #fde68a; background: #fffbeb; }
     .file-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
       gap: 12px;
     }
     .file {
@@ -178,10 +179,10 @@
       overflow: hidden;
       display: flex;
       flex-direction: column;
-      min-height: 260px;
+      min-height: 340px;
     }
     .thumb {
-      height: 176px;
+      height: 228px;
       background: #edf2f8;
       border-bottom: 1px solid var(--line);
       display: flex;
@@ -322,7 +323,7 @@
       .info-grid { grid-template-columns: 1fr; }
       main { padding: 10px; }
       .file-grid { grid-template-columns: 1fr; }
-      .thumb { height: 240px; }
+      .thumb { height: 260px; }
     }
   </style>
 </head>
