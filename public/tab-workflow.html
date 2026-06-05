@@ -772,9 +772,11 @@
                     <span class="wf-muted" x-show="publicLinkCurrentOriginHint()" x-text="publicLinkCurrentOriginHint()"></span>
                     <span class="wf-muted" x-show="publicLinkSettings.envLocked">서버 환경변수로 고정됨</span>
                   </div>
-                  <div style="display:grid;grid-template-columns:160px 1fr 120px;gap:8px;">
+                  <div style="display:grid;grid-template-columns:minmax(110px,1fr) 160px minmax(120px,1fr) 120px;gap:8px;">
+                    <input class="wf-input" x-model="orderTargetQuery" @input.debounce.150ms="onOrderTargetQuery()" placeholder="업체 검색">
                     <select class="wf-select" x-model="orderForm.targetPreset" @change="onOrderTargetPreset()">
-                      <template x-for="target in orderTargets" :key="target.id">
+                      <option value="" disabled x-show="!filteredOrderTargets().length">결과 없음</option>
+                      <template x-for="target in filteredOrderTargets()" :key="target.id">
                         <option :value="target.id" x-text="target.label"></option>
                       </template>
                     </select>

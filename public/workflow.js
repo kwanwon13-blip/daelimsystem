@@ -57,6 +57,7 @@ function workflowApp() {
     filePreview: { open: false, file: null, zoom: 1, fit: true },
     expandedFileId: '',
     highlightedEventId: '',
+    orderTargetQuery: '',
     orderForm: {
       targetPreset: 'factory',
       targetType: 'internal',
@@ -1302,6 +1303,29 @@ function workflowApp() {
 
     orderSummary() {
       return this.detail?.orderSummary || this.detail?.job?.orderSummary || {};
+    },
+
+    filteredOrderTargets() {
+      const q = String(this.orderTargetQuery || '').trim().toLowerCase();
+      const targets = this.orderTargets || [];
+      if (!q) return targets.slice(0, 80);
+      return targets.filter(target => {
+        return [
+          target.label,
+          target.recipientEmail,
+          target.recipientName,
+          target.source,
+        ].some(value => String(value || '').toLowerCase().includes(q));
+      }).slice(0, 80);
+    },
+
+    onOrderTargetQuery() {
+      const targets = this.filteredOrderTargets();
+      if (!targets.length) return;
+      if (!targets.some(target => target.id === this.orderForm.targetPreset)) {
+        this.orderForm.targetPreset = targets[0].id;
+        this.onOrderTargetPreset();
+      }
     },
 
     onOrderTargetPreset() {
