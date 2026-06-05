@@ -470,6 +470,13 @@
       $('viewerImg').src = '';
     }
 
+    function makeFileMark(file) {
+      const mark = document.createElement('div');
+      mark.className = 'file-mark' + (file?.isAi ? ' ai' : '');
+      mark.textContent = file?.isAi ? 'AI' : 'FILE';
+      return mark;
+    }
+
     function renderFile(file) {
       const card = document.createElement('article');
       card.className = 'file';
@@ -480,13 +487,14 @@
         const img = document.createElement('img');
         img.src = file.previewUrl;
         img.alt = file.originalName || '';
+        img.addEventListener('error', () => {
+          thumb.innerHTML = '';
+          thumb.appendChild(makeFileMark(file));
+        });
         thumb.appendChild(img);
         thumb.addEventListener('click', () => openViewer(file.previewUrl));
       } else {
-        const mark = document.createElement('div');
-        mark.className = 'file-mark' + (file.isAi ? ' ai' : '');
-        mark.textContent = file.isAi ? 'AI' : 'FILE';
-        thumb.appendChild(mark);
+        thumb.appendChild(makeFileMark(file));
       }
 
       const body = document.createElement('div');

@@ -1887,6 +1887,18 @@ function workflowApp() {
       return file.thumbUrl || file.previewUrl || this.fileUrl(file);
     },
 
+    handleWorkflowImageError(event, fallbackUrl = '') {
+      const img = event?.target;
+      if (!img) return;
+      const fallback = String(fallbackUrl || '').trim();
+      if (fallback && img.dataset.fallbackSrc !== fallback) {
+        img.dataset.fallbackSrc = fallback;
+        img.src = fallback;
+        return;
+      }
+      img.style.visibility = 'hidden';
+    },
+
     publicFileUrl(file) {
       return file && file.publicDownloadUrl ? file.publicDownloadUrl : '';
     },
