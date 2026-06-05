@@ -33,7 +33,7 @@ const STAGES = [
 
 const STAGE_CHECKLISTS = {
   design: ['시안 파일 정리', '승인/수정요청 확인'],
-  management: ['일정 확인', '발주/관리 전달 확인'],
+  management: ['일정 확인', '제작 전달 확인'],
   factory: ['제작 사양 확인', '제작 완료 확인'],
   delivery: ['납품 일정 확인', '납품 완료 확인'],
 };
@@ -195,7 +195,7 @@ function buildWorkflowOrderTargets() {
 
 const ORDER_STATUS_LABELS = {
   draft: '초안',
-  requested: '발주요청',
+  requested: '전달요청',
   sent: '발송',
   replied: '회신',
   confirmed: '확정',
@@ -2426,7 +2426,7 @@ router.get('/public/orders/:token', (req, res) => {
   const data = loadStore();
   const token = safeText(req.params.token, 120);
   const order = (data.orders || []).find(o => String(o.publicToken || '') === token);
-  if (!order) return res.status(404).json({ error: '발주를 찾을 수 없습니다.' });
+  if (!order) return res.status(404).json({ error: '전달건을 찾을 수 없습니다.' });
   const job = data.jobs.find(j => j.id === order.jobId);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
   markPublicOrderActivity(data, job, order, 'view');
@@ -2438,7 +2438,7 @@ router.post('/public/orders/:token/reply', (req, res) => {
   const data = loadStore();
   const token = safeText(req.params.token, 120);
   const order = (data.orders || []).find(o => String(o.publicToken || '') === token);
-  if (!order) return res.status(404).json({ error: '발주를 찾을 수 없습니다.' });
+  if (!order) return res.status(404).json({ error: '전달건을 찾을 수 없습니다.' });
   const job = data.jobs.find(j => j.id === order.jobId);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
 
@@ -2460,7 +2460,7 @@ router.post('/public/orders/:token/reply', (req, res) => {
   const dateText = response.responseAvailableDate ? ` · 가능일 ${response.responseAvailableDate}` : '';
   const noteText = response.responseNote ? ` · ${response.responseNote}` : '';
   const fileText = fileResponses.length ? ` · 파일별 일정 ${fileResponses.length}건` : '';
-  addEvent(data, { user: { userId: 'public-order', name: by } }, job.id, 'order_public_reply', `발주 회신 · ${order.targetName} · ${label}${dateText}${noteText}${fileText}`, {
+  addEvent(data, { user: { userId: 'public-order', name: by } }, job.id, 'order_public_reply', `파일 전달 회신 · ${order.targetName} · ${label}${dateText}${noteText}${fileText}`, {
     orderId: order.id,
     targetName: order.targetName,
     responseStatus: response.responseStatus,
@@ -3006,7 +3006,7 @@ router.put('/jobs/:id/orders/:orderId', (req, res) => {
   const data = loadStore();
   const job = data.jobs.find(j => j.id === req.params.id);
   const order = (data.orders || []).find(o => o.jobId === req.params.id && o.id === req.params.orderId);
-  if (!job || !order) return res.status(404).json({ error: '작업 또는 발주를 찾을 수 없습니다.' });
+  if (!job || !order) return res.status(404).json({ error: '작업 또는 전달건을 찾을 수 없습니다.' });
   const beforeStatus = order.status || 'draft';
   const payload = normalizeOrderPayload(req.body || {}, order);
   const validFileIds = new Set(data.files.filter(f => f.jobId === job.id).map(f => f.id));

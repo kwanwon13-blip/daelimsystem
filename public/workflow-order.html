@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="data:,">
-  <title>발주 확인</title>
+  <title>파일 전달 확인</title>
   <style>
     :root {
       --ink: #111827;
@@ -331,7 +331,7 @@
 <body>
   <header class="top">
     <div class="brand">
-      <strong id="topTitle">발주 확인</strong>
+      <strong id="topTitle">파일 전달 확인</strong>
       <span id="topSub">파일과 납기 요청을 확인해 주세요.</span>
     </div>
     <div class="actions">
@@ -340,13 +340,13 @@
   </header>
 
   <main>
-    <div class="state" id="loading">발주 정보를 불러오는 중입니다.</div>
+    <div class="state" id="loading">파일 전달 정보를 불러오는 중입니다.</div>
     <div class="state" id="error" style="display:none;"></div>
 
     <section class="summary" id="content" style="display:none;">
       <div class="panel">
         <div class="panel-head">
-          <div class="panel-title">발주 내용</div>
+          <div class="panel-title">전달 내용</div>
           <div class="chips">
             <span class="chip" id="statusChip">상태</span>
             <span class="chip amber" id="dueChip">납기</span>
@@ -356,7 +356,7 @@
           <div class="info-grid">
             <div class="info"><b>회사</b><span id="companyName"></span></div>
             <div class="info"><b>프로젝트/현장</b><span id="projectName"></span></div>
-            <div class="info"><b>발주 대상</b><span id="targetName"></span></div>
+            <div class="info"><b>전달 대상</b><span id="targetName"></span></div>
             <div class="info"><b>첨부 파일</b><span id="fileCount"></span></div>
           </div>
           <div class="info" style="margin-top:10px;" id="noteBox">
@@ -599,9 +599,9 @@
       $('content').style.display = '';
       $('filesPanel').style.display = '';
 
-      const title = [job.companyName, job.projectName || job.title].filter(Boolean).join(' · ') || '발주 확인';
+      const title = [job.companyName, job.projectName || job.title].filter(Boolean).join(' · ') || '파일 전달 확인';
       $('topTitle').textContent = title;
-      $('topSub').textContent = `${order.targetName || '발주처'} · 파일 ${order.fileCount || 0}건`;
+      $('topSub').textContent = `${order.targetName || '전달 대상'} · 파일 ${order.fileCount || 0}건`;
       document.title = title;
       $('companyName').textContent = job.companyName || '-';
       $('projectName').textContent = job.projectName || job.title || '-';
@@ -639,14 +639,14 @@
 
     async function loadOrder() {
       state.token = tokenFromLocation();
-      if (!state.token) return showError('발주 링크가 올바르지 않습니다.');
+      if (!state.token) return showError('파일 전달 링크가 올바르지 않습니다.');
       try {
         const res = await fetch('/api/workflow/public/orders/' + encodeURIComponent(state.token));
         const data = await res.json();
-        if (!res.ok || !data.ok) throw new Error(data.error || '발주 정보를 불러오지 못했습니다.');
+        if (!res.ok || !data.ok) throw new Error(data.error || '파일 전달 정보를 불러오지 못했습니다.');
         render(data);
       } catch (e) {
-        showError(e.message || '발주 정보를 불러오지 못했습니다.');
+        showError(e.message || '파일 전달 정보를 불러오지 못했습니다.');
       }
     }
 

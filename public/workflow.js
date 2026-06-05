@@ -1521,7 +1521,7 @@ function workflowApp() {
         body: JSON.stringify(order),
       });
       const d = await r.json();
-      if (!r.ok || !d.ok) return alert(d.error || '발주 저장 실패');
+      if (!r.ok || !d.ok) return alert(d.error || '전달 저장 실패');
       this.applyOrderResponse(d);
       await this.loadJobs();
     },
