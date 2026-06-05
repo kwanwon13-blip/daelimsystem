@@ -257,6 +257,10 @@
           <strong x-text="summary.changeRequests || 0"></strong>
           <span>수정요청</span>
         </div>
+        <div class="wf-metric warn" x-show="summary.lateSchedules > 0">
+          <strong x-text="summary.lateSchedules || 0"></strong>
+          <span>가능일 지연</span>
+        </div>
         <div class="wf-metric action" x-show="summary.readyToComplete > 0">
           <strong x-text="summary.readyToComplete || 0"></strong>
           <span>완료 가능</span>
@@ -309,7 +313,7 @@
                 <span x-show="item.dueDate"> · </span><span x-show="item.dueDate" x-text="item.dueDate"></span>
               </div>
             </button>
-            <span class="wf-chip" :class="(item.overdue || item.blockedStageCount || item.changeRequestCount) ? 'overdue' : 'ready'" x-text="item.overdue ? '위험' : '내 담당'"></span>
+            <span class="wf-chip" :class="(item.overdue || item.blockedStageCount || item.changeRequestCount || item.lateScheduleCount) ? 'overdue' : 'ready'" x-text="(item.overdue || item.lateScheduleCount) ? '위험' : '내 담당'"></span>
           </div>
         </template>
       </div>
@@ -370,10 +374,11 @@
                     <span x-show="job.projectName">·</span>
                     <span x-show="job.projectName" x-text="job.projectName"></span>
                   </div>
-                  <div class="wf-card-compact" x-show="job.overdue || job.overdueStageCount || job.blockedStageCount || job.changeRequestCount || job.unreadFileCount || job.dueDate || job.nextStageDue || job.fileCount">
+                  <div class="wf-card-compact" x-show="job.overdue || job.overdueStageCount || job.blockedStageCount || job.changeRequestCount || job.lateScheduleCount || job.unreadFileCount || job.dueDate || job.nextStageDue || job.fileCount">
                     <span class="wf-chip overdue" x-show="job.overdue || job.overdueStageCount">지연</span>
                     <span class="wf-chip blocked" x-show="job.blockedStageCount">막힘</span>
                     <span class="wf-chip change_requested" x-show="job.changeRequestCount">수정/조정</span>
+                    <span class="wf-chip overdue" x-show="job.lateScheduleCount">가능일지연</span>
                     <span class="wf-chip urgent" x-show="job.urgentFileCount" x-text="'긴급 ' + job.urgentFileCount"></span>
                     <span class="wf-chip unread" x-show="job.unreadFileCount" x-text="'확인 ' + job.unreadFileCount"></span>
                     <span class="wf-chip" x-show="job.dueDate" x-text="job.dueDate"></span>
@@ -389,6 +394,7 @@
                     <span class="wf-chip overdue" x-show="job.overdueStageCount" x-text="'단계지연 ' + job.overdueStageCount"></span>
                     <span class="wf-chip blocked" x-show="job.blockedStageCount" x-text="'막힘 ' + job.blockedStageCount"></span>
                     <span class="wf-chip change_requested" x-show="job.changeRequestCount" x-text="'수정/조정 ' + job.changeRequestCount"></span>
+                    <span class="wf-chip overdue" x-show="job.lateScheduleCount" x-text="'가능일지연 ' + job.lateScheduleCount"></span>
                     <span class="wf-chip urgent" x-show="job.urgentFileCount" x-text="'긴급시안 ' + job.urgentFileCount"></span>
                     <span class="wf-chip" :class="job.canComplete ? 'ready' : 'not_ready'" x-text="job.canComplete ? '완료가능' : ('완료전 ' + (job.completionBlockers || []).length)"></span>
                     <span class="wf-chip unread" x-show="job.unreadFileCount" x-text="'확인 ' + job.unreadFileCount"></span>
@@ -635,7 +641,7 @@
                         </div>
                         <div style="display:flex;gap:5px;flex-wrap:wrap;">
                           <span class="wf-chip urgent" x-show="file.urgent">긴급</span>
-                          <span class="wf-chip wf-schedule-chip" :class="file.scheduleNegotiation === 'needs_change' ? 'change_requested' : (file.scheduleNegotiation === 'confirmed' || file.scheduleNegotiation === 'possible' ? 'ready' : '')" x-text="scheduleNegotiationLabel(file.scheduleNegotiation)"></span>
+                          <span class="wf-chip wf-schedule-chip" :class="fileScheduleChipClass(file)" x-text="fileScheduleChipLabel(file)"></span>
                           <span class="wf-chip unread" x-show="file.hasTarget && !file.targetRead">수신대기</span>
                           <span class="wf-chip ready" x-show="file.hasTarget && file.targetRead">수신확인</span>
                           <span class="wf-chip" :class="file.reviewStatus || 'pending'" x-show="canReviewFile(file)" x-text="fileReviewLabel(file.reviewStatus)"></span>
@@ -702,7 +708,7 @@
                         </div>
                         <div style="display:flex;gap:5px;flex-wrap:wrap;">
                           <span class="wf-chip urgent" x-show="file.urgent">긴급</span>
-                          <span class="wf-chip wf-schedule-chip" :class="file.scheduleNegotiation === 'needs_change' ? 'change_requested' : (file.scheduleNegotiation === 'confirmed' || file.scheduleNegotiation === 'possible' ? 'ready' : '')" x-text="scheduleNegotiationLabel(file.scheduleNegotiation)"></span>
+                          <span class="wf-chip wf-schedule-chip" :class="fileScheduleChipClass(file)" x-text="fileScheduleChipLabel(file)"></span>
                           <span class="wf-chip unread" x-show="file.hasTarget && !file.targetRead">수신대기</span>
                           <span class="wf-chip ready" x-show="file.hasTarget && file.targetRead">수신확인</span>
                           <span class="wf-chip overdue" x-show="file.exists === false">서버 파일 없음</span>

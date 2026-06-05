@@ -1251,6 +1251,14 @@ function hasTargetRead(file, job = null) {
   });
 }
 
+function isFileScheduleLate(file) {
+  const wanted = safeDate(file?.designDueDate);
+  const available = safeDate(file?.factoryAvailableDate);
+  if (!wanted || !available) return false;
+  if (file?.scheduleNegotiation === 'confirmed') return false;
+  return available > wanted;
+}
+
 function decorateWorkflowFile(file, viewerUser, job = null) {
   const exists = workflowFileExists(file);
   const image = isImageFile(file);
@@ -1265,6 +1273,7 @@ function decorateWorkflowFile(file, viewerUser, job = null) {
     missing: !exists,
     isImage: image,
     isAi: isAiFile(file),
+    scheduleLate: isFileScheduleLate(file),
     storedNameChanged: !!(storedName && originalSafeName && storedName !== originalSafeName),
     previewUrl: exists && image ? `/api/workflow/files/${encodeURIComponent(file.id)}/preview` : '',
     thumbUrl: exists && image ? `/api/workflow/files/${encodeURIComponent(file.id)}/thumb` : '',
@@ -1769,6 +1778,11 @@ function changeRequestCount(data, job) {
   }).length;
 }
 
+function lateScheduleCount(data, job) {
+  if (!job || !data || !Array.isArray(data.files)) return 0;
+  return data.files.filter(f => f.jobId === job.id && isFileScheduleLate(f)).length;
+}
+
 function pendingStageCount(job) {
   if (!job || !job.stageChecks) return STAGES.length;
   return STAGES.filter(stage => job.stageChecks[stage.id]?.status !== 'done').length;
@@ -1816,6 +1830,7 @@ function completionBlockers(data, job) {
   const blockedStages = blockedStageCount(job);
   const pendingReviews = pendingReviewCount(data, job);
   const changeRequests = changeRequestCount(data, job);
+  const lateSchedules = lateScheduleCount(data, job);
   const orderChangeRequests = orderChangeRequestCount(data, job);
   const pendingOrders = pendingOrderCount(data, job);
   if (pendingStages) blockers.push({ key: 'pendingStages', label: '미완료 단계', count: pendingStages });
@@ -1823,6 +1838,7 @@ function completionBlockers(data, job) {
   if (blockedStages) blockers.push({ key: 'blockedStages', label: '막힘 단계', count: blockedStages });
   if (pendingReviews) blockers.push({ key: 'pendingReviews', label: '검토대기 파일', count: pendingReviews });
   if (changeRequests) blockers.push({ key: 'changeRequests', label: '수정/조정요청 파일', count: changeRequests });
+  if (lateSchedules) blockers.push({ key: 'lateSchedules', label: '가능일 지연', count: lateSchedules });
   if (orderChangeRequests) blockers.push({ key: 'orderChangeRequests', label: '전달 조정요청', count: orderChangeRequests });
   if (pendingOrders) blockers.push({ key: 'pendingOrders', label: '미확정 전달', count: pendingOrders });
   return blockers;
@@ -1932,6 +1948,7 @@ function decorateJob(data, job, viewerUser = null) {
     blockedStageCount: blockedStageCount(job),
     overdueStageCount: overdueStageCount(job),
     changeRequestCount: changeRequestCount(data, job),
+    lateScheduleCount: lateScheduleCount(data, job),
     canComplete: blockers.length === 0,
     completionBlockers: blockers,
     completedAt: job.completedAt || '',
@@ -2036,6 +2053,7 @@ function buildSummary(data, req) {
         overdue: !!(isOverdueJob(job) || overdueStageCount(job) > 0 || stageOverdue),
         blockedStageCount: blockedStageCount(job),
         changeRequestCount: changeRequestCount(data, job),
+        lateScheduleCount: lateScheduleCount(data, job),
         completionBlockerCount: blockers.length,
         latestFileAt: data.files
           .filter(f => f.jobId === job.id)
@@ -2045,6 +2063,7 @@ function buildSummary(data, req) {
     })
     .sort((a, b) => {
       if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
+      if (b.lateScheduleCount !== a.lateScheduleCount) return b.lateScheduleCount - a.lateScheduleCount;
       const ad = a.dueDate || '9999-99-99';
       const bd = b.dueDate || '9999-99-99';
       const byDue = String(ad).localeCompare(String(bd));
@@ -2053,6 +2072,7 @@ function buildSummary(data, req) {
     })
     .slice(0, 8);
   const changeRequests = activeJobs.reduce((sum, job) => sum + changeRequestCount(data, job), 0);
+  const lateSchedules = activeJobs.reduce((sum, job) => sum + lateScheduleCount(data, job), 0);
   const readyToComplete = activeJobs.filter(job => completionBlockers(data, job).length === 0).length;
   const scheduleItems = buildScheduleItems(data, req);
   return {
@@ -2063,6 +2083,7 @@ function buildSummary(data, req) {
     overdueStages: activeJobs.reduce((sum, job) => sum + overdueStageCount(job), 0),
     blocked: activeJobs.reduce((sum, job) => sum + blockedStageCount(job), 0),
     changeRequests,
+    lateSchedules,
     unreadFiles: unreadFiles.length,
     unreadFileItems: unreadFiles.slice(0, 8),
     unreadEvents: unreadEvents.length,
@@ -3295,7 +3316,7 @@ router.post('/jobs/:id/files/:fileId/schedule', (req, res) => {
   const messageParts = [];
   if (urgentChanged) messageParts.push(file.urgent ? '긴급 요청' : '긴급 해제');
   if (designChanged) messageParts.push(`희망일 ${file.designDueDate || '미정'}`);
-  if (factoryChanged || negotiationChanged) messageParts.push(`공장 ${SCHEDULE_NEGOTIATION_LABELS[file.scheduleNegotiation || 'pending'] || '일정확인'} · 가능일 ${file.factoryAvailableDate || '미정'}${file.factoryScheduleNote ? ' - ' + file.factoryScheduleNote : ''}`);
+  if (factoryChanged || negotiationChanged) messageParts.push(`공장 ${SCHEDULE_NEGOTIATION_LABELS[file.scheduleNegotiation || 'pending'] || '일정확인'} · 가능일 ${file.factoryAvailableDate || '미정'}${isFileScheduleLate(file) ? ' · 가능일 지연' : ''}${file.factoryScheduleNote ? ' - ' + file.factoryScheduleNote : ''}`);
   addEvent(data, req, job.id, 'file_schedule', `${file.originalName} 일정 협의 · ${messageParts.join(' · ') || '일정 확인'}`, {
     fileId: file.id,
     designDueDate: file.designDueDate,

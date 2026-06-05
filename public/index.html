@@ -7757,7 +7757,7 @@ function app() {
           );
         });
       (summary.myActionItems || [])
-        .filter(item => item.overdue || item.blockedStageCount || item.changeRequestCount)
+        .filter(item => item.overdue || item.blockedStageCount || item.changeRequestCount || item.lateScheduleCount)
         .slice(0, 3)
         .forEach(item => {
           add(

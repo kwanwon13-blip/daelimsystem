@@ -495,7 +495,8 @@ function workflowApp() {
         push('unreadFile', '확인', item.originalName, `${item.jobTitle || '-'} · ${item.stageLabel || ''}`, item, 'info');
       });
       this.myActionItems().slice(0, 3).forEach(item => {
-        push('action', item.overdue ? '위험' : '내 담당', item.title, `${item.stageLabel || ''}${item.dueDate ? ' · ' + item.dueDate : ''}`, item, item.overdue ? 'urgent' : 'info');
+        const risky = item.overdue || item.blockedStageCount || item.changeRequestCount || item.lateScheduleCount;
+        push('action', item.overdue || item.lateScheduleCount ? '위험' : '내 담당', item.title, `${item.stageLabel || ''}${item.dueDate ? ' · ' + item.dueDate : ''}`, item, risky ? 'urgent' : 'info');
       });
       this.unreadEventItems().slice(0, 2).forEach(item => {
         push('event', '메모', item.message, `${item.jobTitle || '-'}${item.actorName ? ' · ' + item.actorName : ''}`, item, 'info');
@@ -1543,6 +1544,21 @@ function workflowApp() {
 
     scheduleNegotiationLabel(status) {
       return ({ pending: '일정확인', possible: '가능', needs_change: '조정요청', confirmed: '확정' })[status || 'pending'] || '일정확인';
+    },
+
+    fileScheduleChipClass(file) {
+      if (!file) return '';
+      if (file.scheduleLate) return 'overdue';
+      const status = file.scheduleNegotiation || '';
+      if (status === 'needs_change') return 'change_requested';
+      if (status === 'confirmed' || status === 'possible') return 'ready';
+      return '';
+    },
+
+    fileScheduleChipLabel(file) {
+      if (!file) return '일정확인';
+      if (file.scheduleLate) return '가능일 지연';
+      return this.scheduleNegotiationLabel(file.scheduleNegotiation);
     },
 
     completionBlockerText(job) {
