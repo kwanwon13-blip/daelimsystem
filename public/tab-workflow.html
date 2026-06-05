@@ -391,11 +391,33 @@
                   <span x-text="'담당 ' + currentUserLabel()"></span>
                 </div>
                 <div class="wf-grid-2">
-                  <input class="wf-input" list="wfCompanyNames" x-model="detail.job.companyName" placeholder="업체">
-                  <input class="wf-input" list="wfDetailProjectNames" x-model="detail.job.projectName" placeholder="현장">
+                  <div class="wf-field">
+                    <input class="wf-input" list="wfCompanyNames" x-model="detail.job.companyName" placeholder="업체">
+                    <div class="wf-company-picks" x-show="workflowCompanySuggestions(detail.job.companyName, 8).length">
+                      <template x-for="company in workflowCompanySuggestions(detail.job.companyName, 8)" :key="'detail-company-'+company.name">
+                        <button type="button" class="wf-company-pick" @click="detail.job.companyName = company.name; detail.job.projectName = ''">
+                          <strong x-text="company.name"></strong>
+                          <small x-text="(company.projectCount || 0) + ' 현장'"></small>
+                        </button>
+                      </template>
+                    </div>
+                  </div>
+                  <div class="wf-field">
+                    <input class="wf-input" list="wfDetailProjectNames" x-model="detail.job.projectName" placeholder="현장">
+                    <div class="wf-project-picks" x-show="workflowProjectSuggestions(detail.job.companyName, 8).length">
+                      <template x-for="project in workflowProjectSuggestions(detail.job.companyName, 8)" :key="'detail-project-'+project.name">
+                        <button type="button" class="wf-project-pick" @click="detail.job.projectName = project.name">
+                          <span x-text="project.name"></span>
+                          <small x-show="project.yearFolder" x-text="project.yearFolder"></small>
+                        </button>
+                      </template>
+                    </div>
+                  </div>
                   <input class="wf-input" type="date" x-model="detail.job.dueDate">
                   <input class="wf-input" type="date" x-model="detail.job.deliveryDate">
                 </div>
+                <div class="wf-muted" x-show="detail.job.companyName || detail.job.projectName"
+                  x-text="'저장 경로: ' + (detail.job.storageBucket || workflowStorageLabel(detail.job.companyName, detail.job.projectName, String(detail.job.dueDate || '').slice(0, 4)))"></div>
                 <textarea class="wf-textarea" x-model="detail.job.summary" placeholder="메모"></textarea>
               </div>
             </section>

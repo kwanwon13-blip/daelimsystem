@@ -298,6 +298,47 @@ function workflowDesignNetworkPath(fullPath) {
   return designModule.toNetworkPath(fullPath);
 }
 
+function clearWorkflowStorageFields(job) {
+  delete job.storageRoot;
+  delete job.storageBucket;
+  delete job.storageYear;
+  delete job.storageCompanyFolder;
+  delete job.storageYearFolder;
+  delete job.storageProjectFolder;
+  delete job.storagePath;
+  delete job.storageNetPath;
+}
+
+function applyWorkflowDesignStorage(job) {
+  if (!job) return { changed: false, info: null };
+  if (!job.companyName || !job.projectName) {
+    const hadStorage = !!(job.storageRoot || job.storageBucket || job.storagePath || job.storageNetPath);
+    if (hadStorage) clearWorkflowStorageFields(job);
+    return { changed: hadStorage, info: null };
+  }
+  const storageInfo = resolveWorkflowDesignStorage(
+    job.companyName,
+    job.projectName,
+    safeYear(String(job.dueDate || '').slice(0, 4)),
+    true,
+  );
+  if (!storageInfo) return { changed: false, info: null };
+
+  const next = {
+    storageRoot: 'design',
+    storageBucket: storageInfo.rel,
+    storageYear: storageInfo.year,
+    storageCompanyFolder: storageInfo.companyFolderName,
+    storageYearFolder: storageInfo.yearFolderName,
+    storageProjectFolder: storageInfo.projectFolderName,
+    storagePath: storageInfo.dir,
+    storageNetPath: workflowDesignNetworkPath(storageInfo.dir),
+  };
+  const changed = Object.entries(next).some(([key, value]) => String(job[key] || '') !== String(value || ''));
+  Object.assign(job, next);
+  return { changed, info: storageInfo };
+}
+
 function userName(req) {
   return req.user?.name || req.user?.userId || 'unknown';
 }
@@ -1654,22 +1695,10 @@ router.post('/jobs', (req, res) => {
     createdAt: nowIso(),
     updatedAt: nowIso(),
   };
-  if (job.companyName && job.projectName) {
-    try {
-      const storageInfo = resolveWorkflowDesignStorage(job.companyName, job.projectName, safeYear(String(job.dueDate || '').slice(0, 4)), true);
-      if (storageInfo) {
-        job.storageRoot = 'design';
-        job.storageBucket = storageInfo.rel;
-        job.storageYear = storageInfo.year;
-        job.storageCompanyFolder = storageInfo.companyFolderName;
-        job.storageYearFolder = storageInfo.yearFolderName;
-        job.storageProjectFolder = storageInfo.projectFolderName;
-        job.storagePath = storageInfo.dir;
-        job.storageNetPath = workflowDesignNetworkPath(storageInfo.dir);
-      }
-    } catch (e) {
-      return res.status(400).json({ error: '시안 저장 폴더를 만들 수 없습니다: ' + e.message });
-    }
+  try {
+    applyWorkflowDesignStorage(job);
+  } catch (e) {
+    return res.status(400).json({ error: '시안 저장 폴더를 만들 수 없습니다: ' + e.message });
   }
   job.stageChecks.design.status = 'ready';
   job.stageChecks.design.updatedAt = job.updatedAt;
@@ -1695,6 +1724,12 @@ router.put('/jobs/:id', (req, res) => {
     }
   }
   Object.assign(job, payload, { updatedAt: nowIso() });
+  let storageChanged = false;
+  try {
+    storageChanged = applyWorkflowDesignStorage(job).changed;
+  } catch (e) {
+    return res.status(400).json({ error: '시안 저장 폴더를 만들 수 없습니다: ' + e.message });
+  }
   if (job.status === 'done') {
     for (const stage of STAGES) {
       if (job.stageChecks[stage.id].status !== 'done') {
@@ -1706,7 +1741,7 @@ router.put('/jobs/:id', (req, res) => {
   } else {
     syncWorkflowStageFlow(job);
   }
-  addEvent(data, req, job.id, 'update', '작업 정보 수정');
+  addEvent(data, req, job.id, 'update', storageChanged ? '작업 정보 수정 · 저장 폴더 자동 준비' : '작업 정보 수정');
   saveStore(data);
   res.json({ ok: true, job: decorateJob(data, job, req.user) });
 });
