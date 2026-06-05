@@ -524,9 +524,12 @@ function workflowApp() {
     },
 
     workflowProjectOptionsForCompany(companyName, includeCompleted = false) {
-      const managed = this.managedProjectOptionsForCompany(companyName, includeCompleted);
-      if (managed.length) return managed;
-      return this.currentYearProjectOptionsForCompany(companyName);
+      const managed = this.managedProjectOptionsForCompany(companyName, true);
+      const managedKeys = new Set(managed.map(project => this.normalizeOptionName(project.name)));
+      const visibleManaged = includeCompleted ? managed : managed.filter(project => project.status !== 'done');
+      const unmanagedFolders = this.currentYearProjectOptionsForCompany(companyName)
+        .filter(project => !managedKeys.has(this.normalizeOptionName(project.name)));
+      return [...visibleManaged, ...unmanagedFolders];
     },
 
     projectNamesForCompany(companyName) {
