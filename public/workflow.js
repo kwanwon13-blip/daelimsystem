@@ -2037,6 +2037,33 @@ function workflowApp() {
       return '/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/files/archive' + (query ? '?' + query : '');
     },
 
+    isPrivateWorkflowHost(hostname = '') {
+      const host = String(hostname || '').toLowerCase();
+      return !host
+        || host === 'localhost'
+        || host === '127.0.0.1'
+        || host === '::1'
+        || host.startsWith('192.168.')
+        || host.startsWith('10.')
+        || /^172\.(1[6-9]|2\d|3[0-1])\./.test(host);
+    },
+
+    isExternalWorkflowHost() {
+      try {
+        return !this.isPrivateWorkflowHost(window.location.hostname);
+      } catch (_) {
+        return false;
+      }
+    },
+
+    smartArchiveUrl(preferStoredArchive = false) {
+      const job = this.detail && this.detail.job ? this.detail.job : {};
+      const publicUrl = this.factoryArchiveUrl();
+      if (this.isExternalWorkflowHost() && publicUrl) return publicUrl;
+      if (preferStoredArchive && job.archiveUrl) return job.archiveUrl;
+      return this.jobArchiveUrl();
+    },
+
     factoryArchiveUrl() {
       const base = this.detail && this.detail.job ? (this.detail.job.publicArchiveUrl || '') : '';
       if (!base) return '';

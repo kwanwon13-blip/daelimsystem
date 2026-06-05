@@ -410,25 +410,12 @@
               <span>·</span>
               <span x-text="detail.job.projectName || '-'"></span>
             </div>
-            <div style="display:flex;gap:6px;margin-top:8px;">
-              <select class="wf-select" x-model="detail.job.priority">
-                <option value="urgent">긴급</option>
-                <option value="high">높음</option>
-                <option value="normal">보통</option>
-                <option value="low">낮음</option>
-              </select>
-              <select class="wf-select" x-model="detail.job.status">
-                <option value="active">진행</option>
-                <option value="hold">보류</option>
-                <option value="done">완료</option>
-                <option value="cancelled">취소</option>
-              </select>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px;">
+              <span class="wf-chip" :class="detail.job.priority" x-text="priorityLabel(detail.job.priority)"></span>
+              <span class="wf-chip" :class="detail.job.status === 'done' ? 'done' : (detail.job.status === 'hold' || detail.job.status === 'cancelled' ? 'blocked' : 'ready')" x-text="statuses[detail.job.status] || detail.job.status || '진행'"></span>
+              <span class="wf-chip" :class="detail.job.canComplete ? 'ready' : 'not_ready'" x-text="completionBlockerText(detail.job)"></span>
               <button class="wf-btn ghost" x-show="detail.job.status !== 'done' && detail.job.status !== 'cancelled'" @click="handoffJob()" :disabled="saving">전달</button>
               <button class="wf-btn ghost" @click="detailMoreOpen = !detailMoreOpen" x-text="detailMoreOpen ? '상세 접기' : '상세'"></button>
-              <button class="wf-btn primary" @click="saveJob()" :disabled="saving">저장</button>
-            </div>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
-              <span class="wf-chip" :class="detail.job.canComplete ? 'ready' : 'not_ready'" x-text="completionBlockerText(detail.job)"></span>
             </div>
             <div class="wf-archive-strip" x-show="detail.job.status === 'done'" x-cloak>
               <div>
@@ -439,8 +426,7 @@
                 <div class="wf-archive-meta" x-text="archiveSummaryText(detail.job)"></div>
               </div>
               <div style="display:flex;gap:5px;flex-wrap:wrap;">
-                <a class="wf-btn" x-show="Number(detail.job.archiveFileCount || 0)" :href="detail.job.archiveUrl || jobArchiveUrl()">보관 묶음</a>
-                <button class="wf-btn" x-show="Number(detail.job.archiveFileCount || 0) && factoryArchiveUrl()" @click="copyFactoryArchiveLink()">공장 링크</button>
+                <a class="wf-btn" x-show="Number(detail.job.archiveFileCount || 0)" :href="smartArchiveUrl(true)" title="접속 위치에 맞는 파일을 ZIP으로 받습니다">파일 받기</a>
               </div>
             </div>
           </div>
@@ -452,6 +438,21 @@
                 <div class="wf-creator" title="담당자는 로그인 사용자로 자동 저장됩니다.">
                   <span class="material-symbols-outlined" style="font-size:15px;">person</span>
                   <span x-text="'담당 ' + currentUserLabel()"></span>
+                </div>
+                <div style="display:grid;grid-template-columns:120px 120px auto;gap:8px;align-items:center;">
+                  <select class="wf-select" x-model="detail.job.priority">
+                    <option value="urgent">긴급</option>
+                    <option value="high">높음</option>
+                    <option value="normal">보통</option>
+                    <option value="low">낮음</option>
+                  </select>
+                  <select class="wf-select" x-model="detail.job.status">
+                    <option value="active">진행</option>
+                    <option value="hold">보류</option>
+                    <option value="done">완료</option>
+                    <option value="cancelled">취소</option>
+                  </select>
+                  <button class="wf-btn primary" @click="saveJob()" :disabled="saving">기본 저장</button>
                 </div>
                 <div class="wf-grid-2">
                   <div class="wf-field">
@@ -602,9 +603,7 @@
                 <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
                   <span class="wf-muted" x-text="'시안 ' + visualFiles().length + '개'"></span>
                   <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end;">
-                    <a class="wf-btn" x-show="filteredFiles().length" :href="jobArchiveUrl()">묶음 받기</a>
-                    <a class="wf-btn" x-show="filteredFiles().length && factoryArchiveUrl()" :href="factoryArchiveUrl()">공장 묶음</a>
-                    <button class="wf-btn" x-show="filteredFiles().length && factoryArchiveUrl()" @click="copyFactoryArchiveLink()">공장 링크</button>
+                    <a class="wf-btn" x-show="filteredFiles().length" :href="smartArchiveUrl()" title="접속 위치에 맞는 파일을 ZIP으로 받습니다">파일 받기</a>
                   </div>
                 </div>
                 <div class="wf-gallery proof-strip" x-show="visualFiles().length">
@@ -816,8 +815,8 @@
                           <button class="wf-btn primary" x-show="orderViewUrl(order)" @click="copyFactoryOrderShare(order)">공장공유</button>
                           <a class="wf-btn" x-show="orderViewUrl(order)" :href="orderViewUrl(order)" target="_blank">공장화면</a>
                           <button class="wf-btn" x-show="orderViewUrl(order)" @click="copyOrderViewLink(order)">화면링크</button>
-                          <a class="wf-btn" x-show="orderArchiveUrl(order)" :href="orderArchiveUrl(order)">묶음</a>
-                          <button class="wf-btn" x-show="orderArchiveUrl(order)" @click="copyOrderArchiveLink(order)">링크</button>
+                          <a class="wf-btn" x-show="orderArchiveUrl(order)" :href="orderArchiveUrl(order)">발주 파일 받기</a>
+                          <button class="wf-btn" x-show="orderArchiveUrl(order)" @click="copyOrderArchiveLink(order)">발주 링크 복사</button>
                           <button class="wf-btn" @click="copyOrderMailDraft(order)">공유문</button>
                         </div>
                       </div>
