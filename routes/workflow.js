@@ -1439,6 +1439,41 @@ function aggregateFileResponses(fileResponses, fallback = {}) {
   return 'possible';
 }
 
+function summarizePublicFileResponses(fileResponses) {
+  const summary = {
+    total: Array.isArray(fileResponses) ? fileResponses.length : 0,
+    possible: 0,
+    confirmed: 0,
+    needsChange: 0,
+    dates: [],
+  };
+  if (!summary.total) return summary;
+
+  const dates = new Set();
+  for (const response of fileResponses) {
+    if (response.responseStatus === 'needs_change') summary.needsChange += 1;
+    else if (response.responseStatus === 'confirmed') summary.confirmed += 1;
+    else summary.possible += 1;
+    if (response.responseAvailableDate) dates.add(response.responseAvailableDate);
+  }
+  summary.dates = Array.from(dates).sort();
+  return summary;
+}
+
+function publicFileResponseText(summary) {
+  if (!summary?.total) return '';
+  const parts = [`파일별 회신 ${summary.total}건`];
+  if (summary.needsChange) parts.push(`조정요청 ${summary.needsChange}`);
+  if (summary.confirmed) parts.push(`확정 ${summary.confirmed}`);
+  if (summary.possible) parts.push(`가능 ${summary.possible}`);
+  if (summary.dates?.length === 1) {
+    parts.push(`가능일 ${summary.dates[0]}`);
+  } else if (summary.dates?.length > 1) {
+    parts.push(`가능일 ${summary.dates[0]} 외 ${summary.dates.length - 1}`);
+  }
+  return ` · ${parts.join(' · ')}`;
+}
+
 function orderStatusFromResponse(responseStatus) {
   if (responseStatus === 'needs_change') return 'replied';
   return 'confirmed';
@@ -2446,9 +2481,12 @@ router.post('/public/orders/:token/reply', (req, res) => {
   const files = orderFiles(data, order, job);
   const fileResponses = normalizePublicFileResponses(req.body?.fileResponses, files, response);
   const aggregateStatus = aggregateFileResponses(fileResponses, response);
+  const fileResponseSummary = summarizePublicFileResponses(fileResponses);
   response.responseStatus = aggregateStatus;
   Object.assign(order, response, {
     status: orderStatusFromResponse(response.responseStatus),
+    fileResponseCount: fileResponseSummary.total,
+    fileResponseSummary: fileResponseSummary.total ? fileResponseSummary : null,
     respondedAt: nowIso(),
     updatedAt: nowIso(),
   });
@@ -2459,7 +2497,7 @@ router.post('/public/orders/:token/reply', (req, res) => {
   const by = response.respondedByName || order.targetName || '외부 회신';
   const dateText = response.responseAvailableDate ? ` · 가능일 ${response.responseAvailableDate}` : '';
   const noteText = response.responseNote ? ` · ${response.responseNote}` : '';
-  const fileText = fileResponses.length ? ` · 파일별 일정 ${fileResponses.length}건` : '';
+  const fileText = publicFileResponseText(fileResponseSummary);
   addEvent(data, { user: { userId: 'public-order', name: by } }, job.id, 'order_public_reply', `파일 전달 회신 · ${order.targetName} · ${label}${dateText}${noteText}${fileText}`, {
     orderId: order.id,
     targetName: order.targetName,
@@ -2467,6 +2505,7 @@ router.post('/public/orders/:token/reply', (req, res) => {
     responseAvailableDate: response.responseAvailableDate,
     responseNote: response.responseNote,
     fileResponses,
+    fileResponseSummary,
     eventTargetUserId: job.createdBy || '',
     eventTargetUserName: job.createdByName || '',
     eventTargetLabel: stageTargetLabels(job, ['design', 'management']).join(', '),
