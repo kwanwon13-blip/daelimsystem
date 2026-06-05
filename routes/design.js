@@ -9,6 +9,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const db = require('../db');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
+const designWorkflowStorage = require('./lib/design-workflow-storage');
 
 // 썸네일 캐시 폴더
 const THUMB_DIR = path.join(__dirname, '..', 'data', 'thumbs');
@@ -124,48 +125,26 @@ function hierarchyCandidateFromParts(parts) {
 }
 
 function designWorkflowOptions() {
-  const companyStats = new Map();
-  const projectStats = new Map();
-  for (const item of designIndex || []) {
-    const candidate = hierarchyCandidateFromParts(item.parts || []);
-    if (!candidate) continue;
-    const companyKey = normalizeDesignFilter(candidate.company);
-    const projectKey = normalizeDesignFilter(candidate.project);
-    if (!companyKey || !projectKey) continue;
-    if (!companyStats.has(companyKey)) {
-      companyStats.set(companyKey, {
-        name: candidate.company,
-        folderName: candidate.companyFolder,
-        count: 0,
-      });
-    }
-    const companyStat = companyStats.get(companyKey);
-    companyStat.count += 1;
-    if (!companyStat.folderName && candidate.companyFolder) companyStat.folderName = candidate.companyFolder;
-    if (!projectStats.has(companyKey)) projectStats.set(companyKey, new Map());
-    const projects = projectStats.get(companyKey);
-    if (!projects.has(projectKey)) projects.set(projectKey, { name: candidate.project, count: 0 });
-    projects.get(projectKey).count += 1;
+  const key = `${DESIGN_ROOT}|${designIndex.length}|${designIndexStatus.lastBuilt || ''}`;
+  if (designWorkflowOptionsCache.value && designWorkflowOptionsCache.key === key && Date.now() - designWorkflowOptionsCache.cachedAt < 60 * 1000) {
+    return designWorkflowOptionsCache.value;
   }
-  const companies = Array.from(companyStats.values())
-    .map(company => {
-      const projects = projectStats.get(normalizeDesignFilter(company.name)) || new Map();
-      return { ...company, projectCount: projects.size };
-    })
-    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ko'))
-    .slice(0, 500);
-  const projectsByCompany = {};
-  for (const company of companies) {
-    const key = normalizeDesignFilter(company.name);
-    projectsByCompany[company.name] = Array.from((projectStats.get(key) || new Map()).values())
-      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ko'))
-      .slice(0, 300);
-  }
-  return { companies, projectsByCompany };
+  const value = designWorkflowStorage.buildWorkflowOptions({
+    designIndex,
+    designRoot: DESIGN_ROOT,
+    skipDirs: SKIP_DIRS,
+  });
+  designWorkflowOptionsCache = { key, value, cachedAt: Date.now() };
+  return value;
+}
+
+function invalidateDesignWorkflowOptions() {
+  designWorkflowOptionsCache = { key: '', value: null, cachedAt: 0 };
 }
 
 let designIndex = [];
 let designIndexStatus = { built: false, building: false, count: 0, lastBuilt: null, error: null };
+let designWorkflowOptionsCache = { key: '', value: null, cachedAt: 0 };
 
 // 건너뛸 시스템 폴더
 const SKIP_DIRS = new Set([
@@ -261,6 +240,7 @@ function runDesignIndex() {
   buildDesignIndexAsync(DESIGN_ROOT).then(idx => {
     designIndex = idx;
     designIndexStatus = { built: true, building: false, count: idx.length, lastBuilt: new Date().toISOString(), error: null };
+    invalidateDesignWorkflowOptions();
     console.log(`[시안검색] 완료: ${idx.length}개 파일`);
   }).catch(e => {
     designIndexStatus = { ...designIndexStatus, building: false, error: e.message };
@@ -432,20 +412,51 @@ router.get('/design/status', (req, res) => res.json(designIndexStatus));
 
 router.get('/design/workflow-options', requireAuth, (req, res) => {
   const options = designWorkflowOptions();
-  const companyTerm = normalizeDesignFilter(req.query.company);
+  const companyTerm = designWorkflowStorage.normalizeKey(req.query.company);
   let projects = [];
   if (companyTerm) {
-    const company = options.companies.find(c => normalizeDesignFilter(c.name) === companyTerm || normalizeDesignFilter(c.folderName) === companyTerm)
-      || options.companies.find(c => normalizeDesignFilter(c.name).includes(companyTerm) || normalizeDesignFilter(c.folderName).includes(companyTerm));
-    if (company) projects = options.projectsByCompany[company.name] || [];
+    const company = options.companies.find(c => designWorkflowStorage.normalizeKey(c.name) === companyTerm || designWorkflowStorage.normalizeKey(c.folderName) === companyTerm)
+      || options.companies.find(c => {
+        const nameKey = designWorkflowStorage.normalizeKey(c.name);
+        const folderKey = designWorkflowStorage.normalizeKey(c.folderName);
+        return (nameKey && (nameKey.includes(companyTerm) || companyTerm.includes(nameKey)))
+          || (folderKey && (folderKey.includes(companyTerm) || companyTerm.includes(folderKey)));
+      });
+    if (company) projects = options.projectLookup[designWorkflowStorage.normalizeKey(company.name)] || options.projectsByCompany[company.name] || [];
   }
   res.json({
     ok: true,
     companies: options.companies,
     projectsByCompany: options.projectsByCompany,
+    projectLookup: options.projectLookup,
     projects,
+    totals: options.totals,
     status: designIndexStatus,
   });
+});
+
+router.post('/design/workflow-folder', requireAuth, (req, res) => {
+  try {
+    const info = designWorkflowStorage.resolveWorkflowStorage({
+      designRoot: DESIGN_ROOT,
+      designIndex,
+      skipDirs: SKIP_DIRS,
+      companyName: req.body.companyName,
+      projectName: req.body.projectName,
+      year: req.body.year,
+      create: true,
+    });
+    if (info.created) invalidateDesignWorkflowOptions();
+    res.json({
+      ok: true,
+      folder: {
+        ...info,
+        netPath: toNetworkPath(info.dir),
+      },
+    });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
 });
 
 // 내부망 여부 확인
@@ -800,5 +811,16 @@ router.getDesignIndex = () => designIndex;
 router.getDesignIndexStatus = () => designIndexStatus;
 router.getDesignRoot = () => DESIGN_ROOT;
 router.toNetworkPath = toNetworkPath;
+router.getDesignWorkflowOptions = designWorkflowOptions;
+router.resolveWorkflowStorage = (opts = {}) => {
+  const info = designWorkflowStorage.resolveWorkflowStorage({
+    designRoot: DESIGN_ROOT,
+    designIndex: [],
+    skipDirs: SKIP_DIRS,
+    ...opts,
+  });
+  if (info.created) invalidateDesignWorkflowOptions();
+  return info;
+};
 
 module.exports = router;

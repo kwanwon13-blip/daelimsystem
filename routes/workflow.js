@@ -7,6 +7,8 @@ const JSZip = require('jszip');
 const { requireAuth } = require('../middleware/auth');
 const db = require('../db');
 const { notify } = require('../utils/notify');
+const designModule = require('./design');
+const { isPathInside } = require('./lib/design-workflow-storage');
 
 const router = express.Router();
 
@@ -218,8 +220,15 @@ function safeFilePart(value, fallback = 'file') {
 }
 
 function fileDiskPath(file) {
-  const rel = String(file?.storedPath || file?.storedName || '').replace(/\\/g, '/');
-  if (!rel) return null;
+  const raw = String(file?.storedPath || file?.storedName || '');
+  if (!raw) return null;
+  if (path.isAbsolute(raw)) {
+    const full = path.resolve(raw);
+    const designRoot = path.resolve(designModule.getDesignRoot ? designModule.getDesignRoot() : 'D:\\');
+    if (isPathInside(designRoot, full)) return full;
+    return null;
+  }
+  const rel = raw.replace(/\\/g, '/');
   const root = path.resolve(FILE_DIR);
   const full = path.resolve(FILE_DIR, rel);
   if (full !== root && !full.startsWith(root + path.sep)) return null;
@@ -272,6 +281,21 @@ function safeDate(v) {
 function safeYear(v) {
   const s = safeText(v, 10);
   return /^\d{4}$/.test(s) ? s : String(new Date().getFullYear());
+}
+
+function resolveWorkflowDesignStorage(companyName, projectName, year, create = true) {
+  if (!designModule.resolveWorkflowStorage) return null;
+  return designModule.resolveWorkflowStorage({
+    companyName,
+    projectName,
+    year,
+    create,
+  });
+}
+
+function workflowDesignNetworkPath(fullPath) {
+  if (!fullPath || !designModule.toNetworkPath) return '';
+  return designModule.toNetworkPath(fullPath);
 }
 
 function userName(req) {
@@ -1630,6 +1654,23 @@ router.post('/jobs', (req, res) => {
     createdAt: nowIso(),
     updatedAt: nowIso(),
   };
+  if (job.companyName && job.projectName) {
+    try {
+      const storageInfo = resolveWorkflowDesignStorage(job.companyName, job.projectName, safeYear(String(job.dueDate || '').slice(0, 4)), true);
+      if (storageInfo) {
+        job.storageRoot = 'design';
+        job.storageBucket = storageInfo.rel;
+        job.storageYear = storageInfo.year;
+        job.storageCompanyFolder = storageInfo.companyFolderName;
+        job.storageYearFolder = storageInfo.yearFolderName;
+        job.storageProjectFolder = storageInfo.projectFolderName;
+        job.storagePath = storageInfo.dir;
+        job.storageNetPath = workflowDesignNetworkPath(storageInfo.dir);
+      }
+    } catch (e) {
+      return res.status(400).json({ error: '시안 저장 폴더를 만들 수 없습니다: ' + e.message });
+    }
+  }
   job.stageChecks.design.status = 'ready';
   job.stageChecks.design.updatedAt = job.updatedAt;
   data.jobs.push(job);
@@ -1940,18 +1981,41 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
   const storageProjectPart = safeFilePart(storageProjectName, '미지정프로젝트');
   const storageRelDir = `${storageYearPart}/${storageCompanyPart}/${storageProjectPart}`;
   const storageDir = path.join(FILE_DIR, storageYearPart, storageCompanyPart, storageProjectPart);
+  let actualStorageInfo = null;
+  let actualStorageDir = storageDir;
+  let actualStorageRelDir = storageRelDir;
+  let actualStorageRoot = 'workflow';
+  let actualStorageYearPart = storageYearPart;
+  let actualStorageCompanyPart = storageCompanyPart;
+  let actualStorageProjectPart = storageProjectPart;
+  try {
+    actualStorageInfo = resolveWorkflowDesignStorage(storageCompanyName, storageProjectName, storageYear, true);
+    if (actualStorageInfo) {
+      actualStorageDir = actualStorageInfo.dir;
+      actualStorageRelDir = actualStorageInfo.rel;
+      actualStorageRoot = 'design';
+      actualStorageYearPart = actualStorageInfo.year;
+      actualStorageCompanyPart = actualStorageInfo.companyFolderName;
+      actualStorageProjectPart = actualStorageInfo.projectFolderName;
+    }
+  } catch (e) {
+    for (const file of req.files || []) {
+      try { fs.unlinkSync(path.join(FILE_DIR, file.filename)); } catch (_) {}
+    }
+    return res.status(400).json({ error: '시안 저장 폴더를 만들 수 없습니다: ' + e.message });
+  }
   const uploaded = [];
   for (const file of req.files || []) {
     const originalName = uploadName(file.originalname || file.filename);
     const version = data.files.filter(f => f.jobId === job.id && f.stageId === stageId && f.originalName === originalName).length + 1;
     let storedPath = file.filename;
     try {
-      fs.mkdirSync(storageDir, { recursive: true });
+      fs.mkdirSync(actualStorageDir, { recursive: true });
       const from = path.join(FILE_DIR, file.filename);
-      const to = path.join(storageDir, file.filename);
+      const to = path.join(actualStorageDir, file.filename);
       if (fs.existsSync(from)) {
         fs.renameSync(from, to);
-        storedPath = `${storageRelDir}/${file.filename}`;
+        storedPath = actualStorageInfo ? to : `${actualStorageRelDir}/${file.filename}`;
       }
     } catch (e) {
       storedPath = file.filename;
@@ -1972,10 +2036,14 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
       designDueDate: safeDate(req.body.designDueDate),
       urgent: String(req.body.urgent || '') === '1' || req.body.urgent === true,
       scheduleNegotiation: '',
+      storageRoot: actualStorageRoot,
       storageYear,
       storageCompanyName,
       storageProjectName,
-      storageBucket: `${storageYearPart}/${storageCompanyPart}/${storageProjectPart}`,
+      storageBucket: actualStorageRelDir,
+      storageRelDir: actualStorageRelDir,
+      storagePath: actualStorageDir,
+      storageNetPath: workflowDesignNetworkPath(actualStorageDir),
       factoryAvailableDate: '',
       factoryScheduleNote: '',
       targetUserId,

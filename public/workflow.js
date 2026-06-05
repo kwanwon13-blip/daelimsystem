@@ -20,7 +20,7 @@ function workflowApp() {
     newUploadDragOver: false,
     currentUser: null,
     contactOptions: [],
-    designWorkflowOptions: { companies: [], projectsByCompany: {} },
+    designWorkflowOptions: { companies: [], projectsByCompany: {}, projectLookup: {} },
     commentText: '',
     handoffText: '',
     uploadStageId: 'design',
@@ -123,10 +123,11 @@ function workflowApp() {
           this.designWorkflowOptions = {
             companies: Array.isArray(d.companies) ? d.companies : [],
             projectsByCompany: d.projectsByCompany || {},
+            projectLookup: d.projectLookup || {},
           };
         }
       } catch (_) {
-        this.designWorkflowOptions = { companies: [], projectsByCompany: {} };
+        this.designWorkflowOptions = { companies: [], projectsByCompany: {}, projectLookup: {} };
       }
     },
 
@@ -275,15 +276,17 @@ function workflowApp() {
 
     normalizeOptionName(value) {
       return String(value || '')
-        .replace(/^[★●◆■\s]+/g, '')
-        .replace(/\s*시안작업\s*$/g, '')
+        .replace(/^[\u2605\u2606\u25cf\u25cb\u25a0\u25a1\s]+/gu, '')
         .toLowerCase()
-        .replace(/\s+/g, '');
+        .replace(/[\u2605\u2606\u25cf\u25cb\u25a0\u25a1]/gu, '')
+        .replace(/[\s._\-()（）\[\]{}]/g, '');
     },
 
     projectNamesForCompany(companyName) {
       const key = this.normalizeOptionName(companyName);
       if (!key) return [];
+      const lookup = this.designWorkflowOptions.projectLookup || {};
+      if (Array.isArray(lookup[key])) return lookup[key].map(p => p.name || p).filter(Boolean);
       const entries = Object.entries(this.designWorkflowOptions.projectsByCompany || {});
       const exact = entries.find(([company]) => this.normalizeOptionName(company) === key);
       const fuzzy = exact || entries.find(([company]) => {
