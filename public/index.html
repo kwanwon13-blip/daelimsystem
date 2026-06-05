@@ -7584,6 +7584,7 @@ function app() {
       const jobId = this.workflowNotif?.jobId || '';
       const itemId = this.workflowNotif?.itemId || '';
       if (jobId) sessionStorage.setItem('workflow:openJobId', jobId);
+      if (itemId) sessionStorage.setItem('workflow:openItemId', itemId);
       this.currentTab = 'workflow';
       this.workflowNotif.show = false;
       clearTimeout(this.workflowNotif._timer);

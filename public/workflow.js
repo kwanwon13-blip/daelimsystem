@@ -22,6 +22,7 @@ function workflowApp() {
     publicShareBaseUrl: '',
     contactOptions: [],
     designWorkflowOptions: { companies: [], projectsByCompany: {}, projectLookup: {}, masterCompanies: [] },
+    workflowProjects: [],
     commentText: '',
     handoffText: '',
     uploadStageId: 'design',
@@ -37,6 +38,7 @@ function workflowApp() {
     fileKindFilter: 'all',
     filePreview: { open: false, file: null, zoom: 1, fit: true },
     expandedFileId: '',
+    highlightedEventId: '',
     orderForm: {
       targetPreset: 'factory',
       targetType: 'internal',
@@ -74,10 +76,8 @@ function workflowApp() {
           const app = window.Alpine.$data(root);
           const jobId = e.detail?.jobId || '';
           const itemId = e.detail?.itemId || '';
-          if (jobId && app?.selectJob) {
-            Promise.resolve(app.selectJob(jobId)).then(() => {
-              if (itemId) app.expandedFileId = itemId;
-            });
+          if (jobId && app?.openWorkflowTarget) {
+            Promise.resolve(app.openWorkflowTarget(jobId, itemId));
           }
         });
         window.__workflowOpenListenerInstalled = true;
@@ -126,13 +126,15 @@ function workflowApp() {
 
     async loadDesignWorkflowOptions() {
       try {
-        const [workflowResult, mastersResult] = await Promise.allSettled([
+        const [workflowResult, mastersResult, projectsResult] = await Promise.allSettled([
           fetch('/api/design/workflow-options'),
           fetch('/api/product-design/masters'),
+          fetch('/api/workflow/projects'),
         ]);
         const r = workflowResult.status === 'fulfilled' ? workflowResult.value : null;
         const d = r ? await r.json() : {};
         let masterCompanies = [];
+        let managedProjects = [];
         if (mastersResult.status === 'fulfilled' && mastersResult.value.ok) {
           const md = await mastersResult.value.json().catch(() => ({}));
           masterCompanies = ((md.masters && md.masters.brands) || []).map(company => ({
@@ -143,18 +145,25 @@ function workflowApp() {
             source: 'design-master',
           })).filter(company => company.name);
         }
+        if (projectsResult.status === 'fulfilled' && projectsResult.value.ok) {
+          const pd = await projectsResult.value.json().catch(() => ({}));
+          managedProjects = Array.isArray(pd.projects) ? pd.projects : [];
+        }
+        this.workflowProjects = managedProjects;
+        const projectCompanies = this.workflowCompaniesFromProjects(managedProjects);
         if (r && r.ok && d.ok) {
           const workflowCompanies = Array.isArray(d.companies) ? d.companies : [];
           this.designWorkflowOptions = {
-            companies: this.mergeWorkflowCompanies(workflowCompanies, masterCompanies),
+            companies: this.mergeWorkflowCompanies(projectCompanies, workflowCompanies, masterCompanies),
             projectsByCompany: d.projectsByCompany || {},
             projectLookup: d.projectLookup || {},
             masterCompanies,
           };
-        } else if (masterCompanies.length) {
-          this.designWorkflowOptions = { companies: this.mergeWorkflowCompanies(masterCompanies), projectsByCompany: {}, projectLookup: {}, masterCompanies };
+        } else if (masterCompanies.length || projectCompanies.length) {
+          this.designWorkflowOptions = { companies: this.mergeWorkflowCompanies(projectCompanies, masterCompanies), projectsByCompany: {}, projectLookup: {}, masterCompanies };
         }
       } catch (_) {
+        this.workflowProjects = [];
         this.designWorkflowOptions = { companies: [], projectsByCompany: {}, projectLookup: {}, masterCompanies: [] };
       }
     },
@@ -202,19 +211,65 @@ function workflowApp() {
 
     async consumeWorkflowOpenTarget() {
       let raw = '';
+      let rawItemId = '';
       try {
         raw = sessionStorage.getItem('workflow:openJobId') || '';
         if (raw) sessionStorage.removeItem('workflow:openJobId');
+        rawItemId = sessionStorage.getItem('workflow:openItemId') || '';
+        if (rawItemId) sessionStorage.removeItem('workflow:openItemId');
       } catch (_) {}
       const fromHash = this.workflowOpenTargetFromLocation();
       const jobId = raw || fromHash.jobId || '';
+      const itemId = rawItemId || fromHash.itemId || '';
+      if (!jobId) return;
+      await this.openWorkflowTarget(jobId, itemId);
+    },
+
+    async openWorkflowTarget(jobId, itemId = '') {
       if (!jobId) return;
       this.query = '';
       this.statusFilter = 'all';
       this.scopeFilter = 'all';
       await this.loadJobs();
       await this.selectJob(jobId);
-      if (fromHash.itemId) this.expandedFileId = fromHash.itemId;
+      this.focusWorkflowItem(itemId);
+    },
+
+    focusWorkflowItem(itemId = '') {
+      const id = String(itemId || '').trim();
+      this.highlightedEventId = '';
+      if (!id || !this.detail) return;
+      const files = this.detail.files || [];
+      const events = this.detail.events || [];
+      const file = files.find(f => f.id === id);
+      if (file) {
+        this.expandedFileId = file.id;
+        this.scrollWorkflowDetailTo(`[data-workflow-file-id="${this.cssEscape(file.id)}"]`);
+        return;
+      }
+      const event = events.find(e => e.id === id);
+      if (event) {
+        this.highlightedEventId = event.id;
+        const linkedFileId = event.meta && event.meta.fileId ? String(event.meta.fileId) : '';
+        if (linkedFileId) this.expandedFileId = linkedFileId;
+        this.scrollWorkflowDetailTo(`[data-workflow-event-id="${this.cssEscape(event.id)}"]`);
+      }
+    },
+
+    cssEscape(value) {
+      const raw = String(value || '');
+      if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(raw);
+      return raw.replace(/["\\]/g, '\\$&');
+    },
+
+    scrollWorkflowDetailTo(selector) {
+      if (!selector) return;
+      setTimeout(() => {
+        try {
+          const node = document.querySelector(selector);
+          if (node && typeof node.scrollIntoView === 'function') node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } catch (_) {}
+      }, 80);
     },
 
     jobsForStage(stageId) {
@@ -362,6 +417,27 @@ function workflowApp() {
         .replace(/[\s._\-()（）\[\]{}]/g, '');
     },
 
+    workflowCompaniesFromProjects(projects = []) {
+      const map = new Map();
+      for (const project of projects || []) {
+        const name = String(project?.companyName || '').trim();
+        const key = this.normalizeOptionName(name);
+        if (!name || !key) continue;
+        if (!map.has(key)) {
+          map.set(key, {
+            name,
+            folderName: project.storageCompanyFolder || name,
+            count: 0,
+            projectCount: 0,
+          });
+        }
+        const current = map.get(key);
+        current.projectCount += 1;
+        if (project.status !== 'done') current.count += 1;
+      }
+      return Array.from(map.values());
+    },
+
     mergeWorkflowCompanies(...lists) {
       const map = new Map();
       const put = company => {
@@ -401,18 +477,53 @@ function workflowApp() {
       return 99;
     },
 
+    managedProjectOptionsForCompany(companyName, includeCompleted = false) {
+      const companyKey = this.normalizeOptionName(companyName);
+      if (!companyKey) return [];
+      return (this.workflowProjects || [])
+        .filter(project => {
+          const key = this.normalizeOptionName(project.companyName);
+          if (!key || !(key === companyKey || key.includes(companyKey) || companyKey.includes(key))) return false;
+          if (!includeCompleted && project.status === 'done') return false;
+          return true;
+        })
+        .map(project => ({
+          id: project.id || '',
+          name: String(project.projectName || '').trim(),
+          folderName: project.storageProjectFolder || project.projectName || '',
+          yearFolder: project.storageYearFolder || (project.year ? `${project.year}\uB144 \uC2DC\uC548\uC791\uC5C5` : ''),
+          count: Number(project.jobCount || 0),
+          activeJobCount: Number(project.activeJobCount || 0),
+          status: project.status || 'active',
+          statusLabel: project.statusLabel || this.projectStatusLabel(project.status),
+          storageBucket: project.storageBucket || '',
+          source: project.source || 'project',
+        }))
+        .filter(project => project.name);
+    },
+
+    currentYearProjectOptionsForCompany(companyName) {
+      const year = String(new Date().getFullYear());
+      return this.projectOptionsForCompany(companyName)
+        .filter(project => String(project?.yearFolder || '').startsWith(year))
+        .map(project => ({
+          ...project,
+          status: 'active',
+          statusLabel: '진행',
+          source: 'folder',
+        }));
+    },
+
+    workflowProjectOptionsForCompany(companyName, includeCompleted = false) {
+      const managed = this.managedProjectOptionsForCompany(companyName, includeCompleted);
+      if (managed.length) return managed;
+      return this.currentYearProjectOptionsForCompany(companyName);
+    },
+
     projectNamesForCompany(companyName) {
       const key = this.normalizeOptionName(companyName);
       if (!key) return [];
-      const lookup = this.designWorkflowOptions.projectLookup || {};
-      if (Array.isArray(lookup[key])) return lookup[key].map(p => p.name || p).filter(Boolean);
-      const entries = Object.entries(this.designWorkflowOptions.projectsByCompany || {});
-      const exact = entries.find(([company]) => this.normalizeOptionName(company) === key);
-      const fuzzy = exact || entries.find(([company]) => {
-        const c = this.normalizeOptionName(company);
-        return c && (c.includes(key) || key.includes(c));
-      });
-      return fuzzy ? (fuzzy[1] || []).map(p => p.name || p).filter(Boolean) : [];
+      return this.workflowProjectOptionsForCompany(companyName, false).map(p => p.name || p).filter(Boolean);
     },
 
     projectOptionsForCompany(companyName) {
@@ -448,7 +559,12 @@ function workflowApp() {
       const project = String(projectName || '').trim();
       const companyOption = this.workflowCompanyOption(company);
       const companyFolder = companyOption?.folderName || company || '회사 미입력';
-      const projectOptions = this.projectOptionsForCompany(company);
+      const managedProject = this.currentWorkflowProject(company, project);
+      if (managedProject?.storageBucket) return managedProject.storageBucket;
+      const projectOptions = [
+        ...this.workflowProjectOptionsForCompany(company, true),
+        ...this.projectOptionsForCompany(company),
+      ];
       const projectKey = this.normalizeOptionName(project);
       const exactProject = projectOptions.find(p => this.normalizeOptionName(p.name || p) === projectKey && String(p.yearFolder || '').startsWith(year))
         || projectOptions.find(p => this.normalizeOptionName(p.name || p) === projectKey);
@@ -460,26 +576,128 @@ function workflowApp() {
     workflowProjectSuggestions(companyName, limit = 8, query = '') {
       const seen = new Set();
       const term = this.normalizeOptionName(query);
-      return this.projectOptionsForCompany(companyName)
+      const includeCompleted = !!term;
+      return this.workflowProjectOptionsForCompany(companyName, includeCompleted)
         .map(project => ({
+          id: String(project?.id || '').trim(),
           name: String(project?.name || project || '').trim(),
           yearFolder: String(project?.yearFolder || '').trim(),
           count: Number(project?.count || 0),
+          activeJobCount: Number(project?.activeJobCount || 0),
+          status: project?.status || 'active',
+          statusLabel: project?.statusLabel || this.projectStatusLabel(project?.status),
+          source: project?.source || '',
         }))
         .filter(project => {
           const key = this.normalizeOptionName(project.name);
           if (!key || seen.has(key)) return false;
+          if (!includeCompleted && project.status === 'done') return false;
           if (term && this.optionMatchScore(project.name, term) >= 99) return false;
           seen.add(key);
           return true;
         })
         .sort((a, b) => {
-          if (!term) return 0;
+          const as = a.status === 'done' ? 1 : 0;
+          const bs = b.status === 'done' ? 1 : 0;
+          if (as !== bs) return as - bs;
+          if (!term) return b.activeJobCount - a.activeJobCount || b.count - a.count || a.name.localeCompare(b.name, 'ko');
           return this.optionMatchScore(a.name, term) - this.optionMatchScore(b.name, term)
+            || b.activeJobCount - a.activeJobCount
             || b.count - a.count
             || a.name.localeCompare(b.name, 'ko');
         })
         .slice(0, Number(limit || 8));
+    },
+
+    projectStatusLabel(status) {
+      return status === 'done' ? '완료' : '진행';
+    },
+
+    projectBadge(project) {
+      if (!project) return '';
+      const parts = [this.projectStatusLabel(project.status)];
+      if (project.yearFolder) parts.push(project.yearFolder);
+      if (project.activeJobCount) parts.push(`작업 ${project.activeJobCount}`);
+      return parts.filter(Boolean).join(' · ');
+    },
+
+    currentWorkflowProject(companyName, projectName) {
+      const companyKey = this.normalizeOptionName(companyName);
+      const projectKey = this.normalizeOptionName(projectName);
+      if (!companyKey || !projectKey) return null;
+      return (this.workflowProjects || []).find(project => {
+        const c = this.normalizeOptionName(project.companyName);
+        const p = this.normalizeOptionName(project.projectName);
+        return c === companyKey && p === projectKey;
+      }) || null;
+    },
+
+    detailProjectStatus() {
+      if (!this.detail?.job) return 'active';
+      const project = this.currentWorkflowProject(this.detail.job.companyName, this.detail.job.projectName);
+      return project?.status || (this.detail.job.status === 'done' ? 'done' : 'active');
+    },
+
+    async createWorkflowProjectFolder(companyName, projectName, year, status = 'active') {
+      const company = String(companyName || '').trim();
+      const project = String(projectName || '').trim();
+      const storageYear = /^\d{4}$/.test(String(year || '')) ? String(year) : String(new Date().getFullYear());
+      if (!company) return alert('회사명을 입력하세요.');
+      if (!project) return alert('프로젝트명을 입력하세요.');
+      const r = await fetch('/api/workflow/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyName: company, projectName: project, year: storageYear, status }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.ok) return alert(d.error || '프로젝트 추가에 실패했습니다.');
+      await this.loadDesignWorkflowOptions();
+      const rel = d.folder?.rel || d.project?.storageBucket || '';
+      alert(rel ? `프로젝트를 준비했습니다.\n${rel}` : '프로젝트를 준비했습니다.');
+      return d.project;
+    },
+
+    async addFormProjectFolder() {
+      return this.createWorkflowProjectFolder(this.form.companyName, this.form.projectName, this.newStorageYear(), 'active');
+    },
+
+    async addUploadProjectFolder() {
+      return this.createWorkflowProjectFolder(this.uploadCompanyName, this.uploadProjectName, this.uploadStorageYear(), 'active');
+    },
+
+    async addDetailProjectFolder() {
+      if (!this.detail?.job) return null;
+      const year = String(this.detail.job.dueDate || '').slice(0, 4);
+      return this.createWorkflowProjectFolder(this.detail.job.companyName, this.detail.job.projectName, year, this.detailProjectStatus());
+    },
+
+    async saveDetailProjectStatus(status) {
+      if (!this.detail?.job) return;
+      const companyName = String(this.detail.job.companyName || '').trim();
+      const projectName = String(this.detail.job.projectName || '').trim();
+      if (!companyName) return alert('회사명을 입력하세요.');
+      if (!projectName) return alert('프로젝트명을 입력하세요.');
+      let project = this.currentWorkflowProject(companyName, projectName);
+      if (!project) {
+        project = await this.createWorkflowProjectFolder(companyName, projectName, String(this.detail.job.dueDate || '').slice(0, 4), status);
+        return project;
+      }
+      const r = await fetch('/api/workflow/projects/' + encodeURIComponent(project.id), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyName,
+          projectName,
+          year: project.year || String(this.detail.job.dueDate || '').slice(0, 4),
+          status,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.ok) return alert(d.error || '프로젝트 상태 저장에 실패했습니다.');
+      await this.loadDesignWorkflowOptions();
+      await this.loadJobs();
+      await this.refreshDetail(false);
+      return d.project;
     },
 
     workflowCompanySuggestions(query = '', limit = 30) {
@@ -980,11 +1198,7 @@ function workflowApp() {
 
     async openUnreadFile(item) {
       if (!item || !item.jobId) return;
-      this.query = '';
-      this.statusFilter = 'all';
-      this.scopeFilter = 'all';
-      await this.loadJobs();
-      await this.selectJob(item.jobId);
+      await this.openWorkflowTarget(item.jobId, item.id || '');
     },
 
     async openActionJob(item) {
@@ -1103,11 +1317,7 @@ function workflowApp() {
 
     async openUnreadEvent(item) {
       if (!item || !item.jobId) return;
-      this.query = '';
-      this.statusFilter = 'all';
-      this.scopeFilter = 'all';
-      await this.loadJobs();
-      await this.selectJob(item.jobId);
+      await this.openWorkflowTarget(item.jobId, item.id || '');
     },
 
     async markEventRead(event) {

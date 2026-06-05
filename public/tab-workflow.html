@@ -154,6 +154,7 @@
   .wf-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
   .wf-event{padding:8px;border-left:3px solid #cbd5e1;background:#f8fafc;border-radius:4px;font-size:12px;color:#334155;line-height:1.45;}
   .wf-event.unread{border-left-color:#2563eb;background:#eff6ff;}
+  .wf-event.active{border-left-color:#f59e0b;background:#fffbeb;box-shadow:0 0 0 1px #fde68a inset;}
   .wf-muted{color:#6b7280;font-size:11px;}
   .wf-empty{height:100%;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:13px;}
   @media (max-width:1200px){.wf-shell{grid-template-columns:1fr;height:auto}.wf-detail{min-height:620px}.wf-columns{height:560px}.wf-summary{grid-template-columns:repeat(2,1fr)}.wf-new{grid-template-columns:1fr 1fr}.wf-new .wf-btn.primary{width:100%;justify-content:center;}}
@@ -428,9 +429,16 @@
                       <template x-for="project in workflowProjectSuggestions(detail.job.companyName, 16, detail.job.projectName)" :key="'detail-project-'+project.name">
                         <button type="button" class="wf-project-pick" @click="detail.job.projectName = project.name">
                           <span x-text="project.name"></span>
-                          <small x-show="project.yearFolder" x-text="project.yearFolder"></small>
+                          <small x-show="projectBadge(project)" x-text="projectBadge(project)"></small>
                         </button>
                       </template>
+                    </div>
+                    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                      <button type="button" class="wf-btn ghost" style="height:28px;" @click="addDetailProjectFolder()" :disabled="!detail.job.companyName || !detail.job.projectName">프로젝트 추가</button>
+                      <select class="wf-select" style="height:28px;" :value="detailProjectStatus()" @change="saveDetailProjectStatus($event.target.value)">
+                        <option value="active">진행</option>
+                        <option value="done">완료</option>
+                      </select>
                     </div>
                   </div>
                   <input class="wf-input" type="date" x-model="detail.job.dueDate">
@@ -508,9 +516,12 @@
                     <template x-for="project in workflowProjectSuggestions(uploadCompanyName, 16, uploadProjectName)" :key="'upload-project-'+project.name">
                       <button type="button" class="wf-project-pick" @click="uploadProjectName = project.name">
                         <span x-text="project.name"></span>
-                        <small x-show="project.yearFolder" x-text="project.yearFolder"></small>
+                        <small x-show="projectBadge(project)" x-text="projectBadge(project)"></small>
                       </button>
                     </template>
+                  </div>
+                  <div style="display:flex;justify-content:flex-end;">
+                    <button type="button" class="wf-btn ghost" style="height:28px;" @click="addUploadProjectFolder()" :disabled="!uploadCompanyName || !uploadProjectName">프로젝트 추가</button>
                   </div>
                   <label class="wf-dropzone" :class="uploadDragOver ? 'drag' : ''"
                     @dragover.prevent="uploadDragOver=true"
@@ -543,7 +554,7 @@
                 </div>
                 <div class="wf-gallery proof-strip" x-show="visualFiles().length">
                   <template x-for="file in visualFiles()" :key="file.id">
-                    <article class="wf-proof-card" :class="[(isUnreadFile(file) ? 'unread' : ''), (file.urgent ? 'urgent' : ''), (expandedFileId === file.id ? 'active' : '')]">
+                    <article class="wf-proof-card" :data-workflow-file-id="file.id" :class="[(isUnreadFile(file) ? 'unread' : ''), (file.urgent ? 'urgent' : ''), (expandedFileId === file.id ? 'active' : '')]">
                       <button class="wf-proof-thumb" @click="openFilePreview(file)">
                         <img :src="filePreviewUrl(file)" :alt="file.originalName">
                         <span class="wf-proof-badge" x-text="fileKindLabel(file.kind)"></span>
@@ -615,7 +626,7 @@
                 </div>
                 <div class="wf-gallery" x-show="sourceFiles().length">
                   <template x-for="file in sourceFiles()" :key="file.id">
-                    <article class="wf-file-card" :class="[(isUnreadFile(file) ? 'unread' : ''), (file.urgent ? 'urgent' : ''), (expandedFileId === file.id ? 'active' : '')]">
+                    <article class="wf-file-card" :data-workflow-file-id="file.id" :class="[(isUnreadFile(file) ? 'unread' : ''), (file.urgent ? 'urgent' : ''), (expandedFileId === file.id ? 'active' : '')]">
                       <div class="wf-file-icon" :class="file.isAi ? 'ai' : ''" x-text="fileTypeLabel(file)"></div>
                       <div style="min-width:0;display:flex;flex-direction:column;gap:5px;">
                         <div class="wf-file-name" x-text="file.originalName"></div>
@@ -749,7 +760,7 @@
                   <button class="wf-btn" @click="addComment()">등록</button>
                 </div>
                 <template x-for="event in detail.events.slice().reverse()" :key="event.id">
-                  <div class="wf-event" :class="isUnreadEvent(event) ? 'unread' : ''">
+                  <div class="wf-event" :data-workflow-event-id="event.id" :class="[(isUnreadEvent(event) ? 'unread' : ''), (highlightedEventId === event.id ? 'active' : '')]">
                     <div style="display:flex;justify-content:space-between;gap:8px;">
                       <strong x-text="event.actorName"></strong>
                       <span class="wf-muted" x-text="eventTime(event.createdAt)"></span>
@@ -805,9 +816,12 @@
               <template x-for="project in workflowProjectSuggestions(form.companyName, 16, form.projectName)" :key="'new-project-'+project.name">
                 <button type="button" class="wf-project-pick" @click="form.projectName = project.name">
                   <span x-text="project.name"></span>
-                  <small x-show="project.yearFolder" x-text="project.yearFolder"></small>
+                  <small x-show="projectBadge(project)" x-text="projectBadge(project)"></small>
                 </button>
               </template>
+            </div>
+            <div style="display:flex;justify-content:flex-end;">
+              <button type="button" class="wf-btn ghost" style="height:28px;" @click="addFormProjectFolder()" :disabled="!form.companyName || !form.projectName">프로젝트 추가</button>
             </div>
           </div>
           <div class="wf-field">

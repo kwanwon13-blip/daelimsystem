@@ -97,7 +97,7 @@ function ensureDirs() {
 }
 
 function emptyStore() {
-  return { jobs: [], events: [], files: [], orders: [] };
+  return { jobs: [], events: [], files: [], orders: [], projects: [] };
 }
 
 function loadStore() {
@@ -113,6 +113,7 @@ function loadStore() {
     if (!Array.isArray(data.events)) data.events = [];
     if (!Array.isArray(data.files)) data.files = [];
     if (!Array.isArray(data.orders)) data.orders = [];
+    if (!Array.isArray(data.projects)) data.projects = [];
     if (ensurePublicTokens(data)) saveStore(data);
     return data;
   } catch (e) {
@@ -662,6 +663,155 @@ function normalizeJobPayload(body, existing = null) {
     summary: safeText(body.summary, 3000),
     stageChecks,
   };
+}
+
+function normalizeProjectStatus(value, fallback = 'active') {
+  return ['active', 'done'].includes(value) ? value : fallback;
+}
+
+function workflowProjectKey(companyName, projectName) {
+  const clean = value => safeText(value, 180)
+    .toLowerCase()
+    .replace(/[\s._\-()[\]{}]+/g, '');
+  const companyKey = clean(companyName);
+  const projectKey = clean(projectName);
+  return companyKey && projectKey ? `${companyKey}|${projectKey}` : '';
+}
+
+function workflowProjectId(companyName, projectName) {
+  const key = workflowProjectKey(companyName, projectName);
+  const hash = crypto.createHash('sha1').update(key || `${companyName}|${projectName}`).digest('hex').slice(0, 14);
+  return `prj_${hash}`;
+}
+
+function applyProjectStorageFields(project, storageInfo) {
+  if (!project || !storageInfo) return;
+  Object.assign(project, {
+    storageRoot: 'design',
+    storageBucket: storageInfo.rel,
+    storageYear: storageInfo.year,
+    storageCompanyFolder: storageInfo.companyFolderName,
+    storageYearFolder: storageInfo.yearFolderName,
+    storageProjectFolder: storageInfo.projectFolderName,
+    storagePath: storageInfo.dir,
+    storageNetPath: workflowDesignNetworkPath(storageInfo.dir),
+  });
+}
+
+function upsertWorkflowProject(data, payload = {}, req = null, storageInfo = null) {
+  if (!Array.isArray(data.projects)) data.projects = [];
+  const companyName = safeText(payload.companyName, 120);
+  const projectName = safeText(payload.projectName, 160);
+  const key = workflowProjectKey(companyName, projectName);
+  if (!key) return null;
+  const at = nowIso();
+  let project = data.projects.find(p => workflowProjectKey(p.companyName, p.projectName) === key);
+  if (!project) {
+    project = {
+      id: workflowProjectId(companyName, projectName),
+      companyName,
+      projectName,
+      year: safeYear(payload.year),
+      status: normalizeProjectStatus(payload.status),
+      createdBy: req?.user?.userId || '',
+      createdByName: req ? userName(req) : '',
+      createdAt: at,
+      updatedAt: at,
+    };
+    data.projects.push(project);
+  } else {
+    Object.assign(project, {
+      companyName,
+      projectName,
+      year: safeYear(payload.year || project.year),
+      status: normalizeProjectStatus(payload.status, project.status || 'active'),
+      updatedAt: at,
+    });
+  }
+  if (storageInfo) applyProjectStorageFields(project, storageInfo);
+  return project;
+}
+
+function buildWorkflowProjects(data) {
+  if (!Array.isArray(data.projects)) data.projects = [];
+  const map = new Map();
+  for (const project of data.projects) {
+    const key = workflowProjectKey(project.companyName, project.projectName);
+    if (!key) continue;
+    map.set(key, {
+      ...project,
+      id: project.id || workflowProjectId(project.companyName, project.projectName),
+      status: normalizeProjectStatus(project.status),
+      source: 'project',
+      jobCount: 0,
+      activeJobCount: 0,
+      doneJobCount: 0,
+    });
+  }
+  for (const job of data.jobs || []) {
+    const key = workflowProjectKey(job.companyName, job.projectName);
+    if (!key) continue;
+    if (!map.has(key)) {
+      map.set(key, {
+        id: workflowProjectId(job.companyName, job.projectName),
+        companyName: job.companyName,
+        projectName: job.projectName,
+        year: safeYear(String(job.dueDate || job.createdAt || '').slice(0, 4)),
+        status: 'active',
+        source: 'job',
+        createdAt: job.createdAt || '',
+        updatedAt: job.updatedAt || job.createdAt || '',
+        storageRoot: job.storageRoot || '',
+        storageBucket: job.storageBucket || '',
+        storageYear: job.storageYear || '',
+        storageCompanyFolder: job.storageCompanyFolder || '',
+        storageYearFolder: job.storageYearFolder || '',
+        storageProjectFolder: job.storageProjectFolder || '',
+        storagePath: job.storagePath || '',
+        storageNetPath: job.storageNetPath || '',
+        jobCount: 0,
+        activeJobCount: 0,
+        doneJobCount: 0,
+      });
+    }
+    const project = map.get(key);
+    project.jobCount += 1;
+    if (['done', 'cancelled'].includes(job.status || 'active')) {
+      project.doneJobCount += 1;
+    } else {
+      project.activeJobCount += 1;
+    }
+    if (!project.storageBucket && job.storageBucket) {
+      applyProjectStorageFields(project, {
+        rel: job.storageBucket,
+        year: job.storageYear,
+        companyFolderName: job.storageCompanyFolder,
+        yearFolderName: job.storageYearFolder,
+        projectFolderName: job.storageProjectFolder,
+        dir: job.storagePath,
+      });
+    }
+    if (job.updatedAt && String(job.updatedAt).localeCompare(String(project.updatedAt || '')) > 0) {
+      project.updatedAt = job.updatedAt;
+    }
+  }
+  return Array.from(map.values()).map(project => {
+    const status = project.source === 'job' && project.activeJobCount <= 0 && project.jobCount > 0
+      ? 'done'
+      : normalizeProjectStatus(project.status);
+    return {
+      ...project,
+      status,
+      statusLabel: status === 'done' ? '완료' : '진행',
+    };
+  }).sort((a, b) => {
+    const ap = a.status === 'done' ? 1 : 0;
+    const bp = b.status === 'done' ? 1 : 0;
+    if (ap !== bp) return ap - bp;
+    return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))
+      || String(a.companyName || '').localeCompare(String(b.companyName || ''), 'ko')
+      || String(a.projectName || '').localeCompare(String(b.projectName || ''), 'ko');
+  });
 }
 
 function addEvent(data, req, jobId, type, message, meta = {}) {
@@ -1701,6 +1851,77 @@ router.get('/summary', (req, res) => {
   res.json({ ok: true, summary: buildSummary(data, req) });
 });
 
+router.get('/projects', (req, res) => {
+  const data = loadStore();
+  const company = safeText(req.query.company, 120).toLowerCase();
+  const status = safeText(req.query.status, 30);
+  let projects = buildWorkflowProjects(data);
+  if (company) {
+    projects = projects.filter(project => String(project.companyName || '').toLowerCase().includes(company));
+  }
+  if (status && status !== 'all') {
+    projects = projects.filter(project => project.status === status);
+  }
+  res.json({ ok: true, projects });
+});
+
+router.post('/projects', (req, res) => {
+  const data = loadStore();
+  const companyName = safeText(req.body?.companyName, 120);
+  const projectName = safeText(req.body?.projectName, 160);
+  if (!companyName) return res.status(400).json({ error: '회사명이 필요합니다.' });
+  if (!projectName) return res.status(400).json({ error: '프로젝트명이 필요합니다.' });
+  let storageInfo = null;
+  try {
+    storageInfo = resolveWorkflowDesignStorage(companyName, projectName, safeYear(req.body?.year), true);
+  } catch (e) {
+    return res.status(400).json({ error: '프로젝트 폴더를 만들 수 없습니다: ' + e.message });
+  }
+  const project = upsertWorkflowProject(data, {
+    companyName,
+    projectName,
+    year: storageInfo?.year || req.body?.year,
+    status: normalizeProjectStatus(req.body?.status),
+  }, req, storageInfo);
+  saveStore(data);
+  res.json({
+    ok: true,
+    project: buildWorkflowProjects(data).find(p => p.id === project.id) || project,
+    folder: storageInfo ? {
+      ...storageInfo,
+      netPath: workflowDesignNetworkPath(storageInfo.dir),
+    } : null,
+  });
+});
+
+router.put('/projects/:id', (req, res) => {
+  const data = loadStore();
+  const projects = buildWorkflowProjects(data);
+  const current = projects.find(project => project.id === req.params.id)
+    || projects.find(project => workflowProjectKey(project.companyName, project.projectName) === workflowProjectKey(req.body?.companyName, req.body?.projectName));
+  const companyName = safeText(req.body?.companyName || current?.companyName, 120);
+  const projectName = safeText(req.body?.projectName || current?.projectName, 160);
+  if (!companyName) return res.status(400).json({ error: '회사명이 필요합니다.' });
+  if (!projectName) return res.status(400).json({ error: '프로젝트명이 필요합니다.' });
+  let storageInfo = null;
+  try {
+    storageInfo = resolveWorkflowDesignStorage(companyName, projectName, safeYear(req.body?.year || current?.year), true);
+  } catch (e) {
+    return res.status(400).json({ error: '프로젝트 폴더를 만들 수 없습니다: ' + e.message });
+  }
+  const project = upsertWorkflowProject(data, {
+    companyName,
+    projectName,
+    year: storageInfo?.year || req.body?.year || current?.year,
+    status: normalizeProjectStatus(req.body?.status, current?.status || 'active'),
+  }, req, storageInfo);
+  saveStore(data);
+  res.json({
+    ok: true,
+    project: buildWorkflowProjects(data).find(p => p.id === project.id) || project,
+  });
+});
+
 router.get('/jobs', (req, res) => {
   const data = loadStore();
   const q = safeText(req.query.q, 100).toLowerCase();
@@ -1763,11 +1984,13 @@ router.post('/jobs', (req, res) => {
     createdAt: nowIso(),
     updatedAt: nowIso(),
   };
+  let storageInfo = null;
   try {
-    applyWorkflowDesignStorage(job);
+    storageInfo = applyWorkflowDesignStorage(job).info;
   } catch (e) {
     return res.status(400).json({ error: '시안 저장 폴더를 만들 수 없습니다: ' + e.message });
   }
+  upsertWorkflowProject(data, { ...job, status: 'active', year: job.storageYear || String(job.dueDate || '').slice(0, 4) }, req, storageInfo);
   job.stageChecks.design.status = 'ready';
   job.stageChecks.design.updatedAt = job.updatedAt;
   data.jobs.push(job);
@@ -1792,12 +2015,17 @@ router.put('/jobs/:id', (req, res) => {
     }
   }
   Object.assign(job, payload, { updatedAt: nowIso() });
-  let storageChanged = false;
+  let storageResult = { changed: false, info: null };
   try {
-    storageChanged = applyWorkflowDesignStorage(job).changed;
+    storageResult = applyWorkflowDesignStorage(job);
   } catch (e) {
     return res.status(400).json({ error: '시안 저장 폴더를 만들 수 없습니다: ' + e.message });
   }
+  upsertWorkflowProject(data, {
+    ...job,
+    status: ['done', 'cancelled'].includes(job.status) ? 'done' : 'active',
+    year: job.storageYear || String(job.dueDate || '').slice(0, 4),
+  }, req, storageResult.info);
   if (job.status === 'done') {
     for (const stage of STAGES) {
       if (job.stageChecks[stage.id].status !== 'done') {
@@ -1809,7 +2037,7 @@ router.put('/jobs/:id', (req, res) => {
   } else {
     syncWorkflowStageFlow(job);
   }
-  addEvent(data, req, job.id, 'update', storageChanged ? '작업 정보 수정 · 저장 폴더 자동 준비' : '작업 정보 수정');
+  addEvent(data, req, job.id, 'update', storageResult.changed ? '작업 정보 수정 · 저장 폴더 자동 준비' : '작업 정보 수정');
   saveStore(data);
   res.json({ ok: true, job: decorateJob(data, job, req.user) });
 });
