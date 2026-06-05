@@ -1943,7 +1943,8 @@ function workflowApp() {
               reject(new Error(data.error || '파일 업로드 실패'));
               return;
             }
-            this.uploadProgress = { active: true, percent: 100, text: `${this.fileBatchLabel(list)} 업로드 완료` };
+            const storageText = data.storage?.created ? ' · 새 폴더 준비' : (data.storage?.rel ? ' · 저장 완료' : '');
+            this.uploadProgress = { active: true, percent: 100, text: `${this.fileBatchLabel(list)} 업로드 완료${storageText}` };
             resolve(data);
           };
           xhr.send(fd);
@@ -2109,6 +2110,7 @@ function workflowApp() {
       const parts = [file.originalName || 'file'];
       if (file.storedNameChanged && file.storedName) parts.push('저장명: ' + file.storedName);
       if (file.storageBucket) parts.push('저장경로: ' + file.storageBucket);
+      if (file.storageFolderCreated) parts.push('새 폴더 자동 준비');
       return parts.join('\n');
     },
 

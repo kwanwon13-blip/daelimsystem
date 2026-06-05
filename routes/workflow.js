@@ -3095,6 +3095,8 @@ router.post('/jobs/:id/files', workflowUploadFiles, (req, res) => {
       storageRelDir: actualStorageRelDir,
       storagePath: actualStorageDir,
       storageNetPath: workflowDesignNetworkPath(actualStorageDir),
+      storageFolderCreated: !!actualStorageInfo?.created,
+      storageFolderExistedBefore: actualStorageInfo ? !!actualStorageInfo.existedBefore : true,
       factoryAvailableDate: '',
       factoryScheduleNote: '',
       targetUserId,
@@ -3139,6 +3141,12 @@ router.post('/jobs/:id/files', workflowUploadFiles, (req, res) => {
     ok: true,
     files: uploaded.map(f => decorateWorkflowFile(f, req.user, job)),
     job: decorateJob(data, job, req.user),
+    storage: {
+      root: actualStorageRoot,
+      rel: actualStorageRelDir,
+      created: !!actualStorageInfo?.created,
+      existedBefore: actualStorageInfo ? !!actualStorageInfo.existedBefore : true,
+    },
   });
 });
 
