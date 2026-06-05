@@ -815,7 +815,7 @@ router.getDesignWorkflowOptions = designWorkflowOptions;
 router.resolveWorkflowStorage = (opts = {}) => {
   const info = designWorkflowStorage.resolveWorkflowStorage({
     designRoot: DESIGN_ROOT,
-    designIndex: [],
+    designIndex,
     skipDirs: SKIP_DIRS,
     ...opts,
   });

@@ -908,6 +908,7 @@ function workflowApp() {
         this.resetForm();
         this.clearNewFiles();
         this.newOpen = false;
+        await this.loadDesignWorkflowOptions();
         await this.loadJobs();
         await this.selectJob(d.job.id);
         if (uploadError) alert('작업은 등록됐지만 파일 업로드에 실패했습니다: ' + uploadError.message);
@@ -1033,6 +1034,7 @@ function workflowApp() {
         });
         const d = await r.json();
         if (!r.ok || !d.ok) throw new Error(d.error || '저장 실패');
+        await this.loadDesignWorkflowOptions();
         await this.loadJobs();
         await this.refreshDetail(false);
       } catch (e) {
@@ -1155,6 +1157,7 @@ function workflowApp() {
       this.uploadNote = '';
       this.uploadDesignDueDate = this.detail?.job?.dueDate || this.defaultWorkDate();
       this.uploadUrgent = false;
+      await this.loadDesignWorkflowOptions();
       await this.loadJobs();
       await this.refreshDetail(false);
     },
