@@ -769,6 +769,7 @@
                   <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
                     <span class="wf-chip ready" x-show="publicShareBaseUrl" x-text="'외부 다운로드 링크 사용 중: ' + publicShareBaseUrl"></span>
                     <span class="wf-chip high" x-show="!publicShareBaseUrl">공장 다운로드용 터널 주소가 아직 없습니다</span>
+                    <span class="wf-chip high" x-show="publicLinkProblem()" :title="publicLinkProblem()">외부주소 확인</span>
                     <span class="wf-muted" x-show="publicLinkCurrentOriginHint()" x-text="publicLinkCurrentOriginHint()"></span>
                     <span class="wf-muted" x-show="publicLinkSettings.envLocked">서버 환경변수로 고정됨</span>
                   </div>

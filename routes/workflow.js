@@ -461,11 +461,24 @@ function storedPublicWorkflowBaseUrl() {
 }
 
 function publicWorkflowBaseUrl() {
+  return publicWorkflowLinkState().publicBaseUrl;
+}
+
+function publicWorkflowLinkState() {
   const envUrl = envPublicWorkflowBaseUrl();
-  if (isPublicWorkflowBaseUrl(envUrl)) return envUrl;
   const storedUrl = storedPublicWorkflowBaseUrl();
-  if (isPublicWorkflowBaseUrl(storedUrl)) return storedUrl;
-  return '';
+  const envValid = isPublicWorkflowBaseUrl(envUrl);
+  const storedValid = isPublicWorkflowBaseUrl(storedUrl);
+  const publicBaseUrl = envValid ? envUrl : (storedValid ? storedUrl : '');
+  return {
+    publicBaseUrl,
+    configuredBaseUrl: storedUrl,
+    source: envValid ? 'env' : (storedValid ? 'settings' : ''),
+    envLocked: envValid,
+    configuredValid: !storedUrl || storedValid,
+    configuredProblem: storedUrl && !storedValid ? '저장된 외부주소가 localhost 또는 사설 IP라서 공장/외부업체 링크로 사용할 수 없습니다.' : '',
+    envProblem: envUrl && !envValid ? '서버 환경변수 외부주소가 localhost 또는 사설 IP라서 무시됩니다.' : '',
+  };
 }
 
 function absoluteWorkflowPublicUrl(relativePath) {
@@ -2405,6 +2418,7 @@ router.post('/public/orders/:token/reply', (req, res) => {
 router.use(requireAuth);
 
 router.get('/meta', (req, res) => {
+  const publicLink = publicWorkflowLinkState();
   res.json({
     ok: true,
     stages: STAGES,
@@ -2412,7 +2426,8 @@ router.get('/meta', (req, res) => {
     checkStatuses: CHECK_STATUS_LABELS,
     orderTargets: buildWorkflowOrderTargets(),
     orderStatuses: ORDER_STATUS_LABELS,
-    publicBaseUrl: publicWorkflowBaseUrl(),
+    publicBaseUrl: publicLink.publicBaseUrl,
+    publicLink,
     uploadLimits: {
       files: MAX_WORKFLOW_UPLOAD_FILES,
       fileSize: MAX_WORKFLOW_UPLOAD_FILE_SIZE,
@@ -2421,15 +2436,9 @@ router.get('/meta', (req, res) => {
 });
 
 router.get('/settings/public-link', (req, res) => {
-  const envUrl = envPublicWorkflowBaseUrl();
-  const storedUrl = storedPublicWorkflowBaseUrl();
-  const activeUrl = publicWorkflowBaseUrl();
   res.json({
     ok: true,
-    publicBaseUrl: activeUrl,
-    configuredBaseUrl: storedUrl,
-    source: activeUrl && envUrl && activeUrl === envUrl ? 'env' : (activeUrl && storedUrl && activeUrl === storedUrl ? 'settings' : ''),
-    envLocked: !!(envUrl && isPublicWorkflowBaseUrl(envUrl)),
+    ...publicWorkflowLinkState(),
   });
 });
 
@@ -2445,13 +2454,10 @@ router.post('/settings/public-link', requireAdmin, (req, res) => {
   if (!settings.workflow || typeof settings.workflow !== 'object') settings.workflow = {};
   settings.workflow.publicBaseUrl = url;
   db['설정'].save(settings);
-  const activeUrl = publicWorkflowBaseUrl();
   res.json({
     ok: true,
-    publicBaseUrl: activeUrl,
+    ...publicWorkflowLinkState(),
     configuredBaseUrl: url,
-    source: activeUrl && envPublicWorkflowBaseUrl() && activeUrl === envPublicWorkflowBaseUrl() ? 'env' : (activeUrl && url ? 'settings' : ''),
-    envLocked: !!(envPublicWorkflowBaseUrl() && isPublicWorkflowBaseUrl(envPublicWorkflowBaseUrl())),
   });
 });
 

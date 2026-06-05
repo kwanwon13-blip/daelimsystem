@@ -24,7 +24,7 @@ function workflowApp() {
     newUploadDragOver: false,
     currentUser: null,
     publicShareBaseUrl: '',
-    publicLinkSettings: { configuredBaseUrl: '', source: '', envLocked: false },
+    publicLinkSettings: { configuredBaseUrl: '', source: '', envLocked: false, configuredValid: true, configuredProblem: '', envProblem: '' },
     publicLinkForm: { publicBaseUrl: '', saving: false },
     contactOptions: [],
     designWorkflowOptions: { companies: [], projectsByCompany: {}, projectLookup: {}, masterCompanies: [] },
@@ -141,8 +141,21 @@ function workflowApp() {
       this.checkStatuses = d.checkStatuses || {};
       this.orderTargets = d.orderTargets || [];
       this.orderStatuses = d.orderStatuses || {};
-      this.publicShareBaseUrl = d.publicBaseUrl || '';
+      this.applyPublicLinkSettings(d.publicLink || d);
       this.uploadLimits = d.uploadLimits || this.uploadLimits;
+    },
+
+    applyPublicLinkSettings(data = {}) {
+      this.publicShareBaseUrl = data.publicBaseUrl || '';
+      this.publicLinkSettings = {
+        configuredBaseUrl: data.configuredBaseUrl || '',
+        source: data.source || '',
+        envLocked: !!data.envLocked,
+        configuredValid: data.configuredValid !== false,
+        configuredProblem: data.configuredProblem || '',
+        envProblem: data.envProblem || '',
+      };
+      this.publicLinkForm.publicBaseUrl = this.publicLinkSettings.configuredBaseUrl || this.publicShareBaseUrl || '';
     },
 
     async loadPublicLinkSettings() {
@@ -150,13 +163,7 @@ function workflowApp() {
         const r = await fetch('/api/workflow/settings/public-link');
         const d = await r.json();
         if (!r.ok || !d.ok) return;
-        this.publicShareBaseUrl = d.publicBaseUrl || '';
-        this.publicLinkSettings = {
-          configuredBaseUrl: d.configuredBaseUrl || '',
-          source: d.source || '',
-          envLocked: !!d.envLocked,
-        };
-        this.publicLinkForm.publicBaseUrl = d.configuredBaseUrl || d.publicBaseUrl || '';
+        this.applyPublicLinkSettings(d);
       } catch (_) {}
     },
 
@@ -170,13 +177,7 @@ function workflowApp() {
         });
         const d = await r.json();
         if (!r.ok || !d.ok) throw new Error(d.error || '외부 다운로드 주소 저장 실패');
-        this.publicShareBaseUrl = d.publicBaseUrl || '';
-        this.publicLinkSettings = {
-          configuredBaseUrl: d.configuredBaseUrl || '',
-          source: d.source || '',
-          envLocked: !!d.envLocked,
-        };
-        this.publicLinkForm.publicBaseUrl = d.configuredBaseUrl || d.publicBaseUrl || '';
+        this.applyPublicLinkSettings(d);
         alert(this.publicShareBaseUrl ? '외부 다운로드 주소를 저장했습니다.' : '외부 다운로드 주소를 비웠습니다.');
       } catch (e) {
         alert(e.message);
@@ -212,6 +213,10 @@ function workflowApp() {
       if (!origin) return '';
       if (this.publicShareBaseUrl && origin === this.publicShareBaseUrl) return '현재 접속 주소와 외부 다운로드 주소가 같습니다';
       return '현재 접속 주소: ' + origin;
+    },
+
+    publicLinkProblem() {
+      return this.publicLinkSettings.configuredProblem || this.publicLinkSettings.envProblem || '';
     },
 
     async loadContacts() {
