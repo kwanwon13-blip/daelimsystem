@@ -1606,6 +1606,20 @@ function workflowApp() {
         : '링크 발송에는 워크플로우 외부 다운로드 주소가 필요합니다.';
     },
 
+    orderMailModeText() {
+      const modal = this.orderMailModal || {};
+      if (!modal.open || !modal.order) return '';
+      if (modal.attachFiles) return '발송 방식: 파일 첨부';
+      if (this.publicShareBaseUrl) return '발송 방식: 터널 링크';
+      return '발송 방식: 터널 주소 필요';
+    },
+
+    orderMailSubmitLabel() {
+      const modal = this.orderMailModal || {};
+      if (modal.sending) return '발송 중';
+      return modal.attachFiles ? '첨부 메일 발송' : '링크 메일 발송';
+    },
+
     canSendOrderMail() {
       const modal = this.orderMailModal;
       if (!modal.open || modal.sending) return false;
