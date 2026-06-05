@@ -3021,12 +3021,14 @@ router.post('/jobs/:id/orders', (req, res) => {
     updatedAt: nowIso(),
   };
   data.orders.push(order);
+  const recipientSavedToVendor = rememberWorkflowVendorEmail(order, order.recipientEmail);
   job.updatedAt = nowIso();
   const targetStageIds = orderTargetStageIds(order);
   addEvent(data, req, job.id, 'order', `제작 파일 전달 생성 · ${order.targetName} · 파일 ${order.fileIds.length}건`, {
     orderId: order.id,
     targetName: order.targetName,
     targetType: order.targetType,
+    recipientSavedToVendor,
     fileIds: order.fileIds,
     eventTargetLabel: stageTargetLabels(job, targetStageIds).join(', '),
     targetStageIds,
@@ -3038,6 +3040,7 @@ router.post('/jobs/:id/orders', (req, res) => {
     orders: data.orders.filter(o => o.jobId === job.id).map(o => decorateOrder(data, job, o)),
     orderSummary: buildOrderSummary(data, job),
     job: decorateJob(data, job, req.user),
+    recipientSavedToVendor,
   });
 });
 
@@ -3056,6 +3059,7 @@ router.put('/jobs/:id/orders/:orderId', (req, res) => {
     updatedBy: req.user?.userId || '',
     updatedByName: userName(req),
   });
+  const recipientSavedToVendor = rememberWorkflowVendorEmail(order, order.recipientEmail);
   job.updatedAt = nowIso();
   const targetStageIds = orderTargetStageIds(order);
   addEvent(data, req, job.id, 'order_update', `제작 파일 전달 ${ORDER_STATUS_LABELS[order.status] || order.status} · ${order.targetName}`, {
@@ -3063,6 +3067,7 @@ router.put('/jobs/:id/orders/:orderId', (req, res) => {
     targetName: order.targetName,
     status: order.status,
     previousStatus: beforeStatus,
+    recipientSavedToVendor,
     eventTargetLabel: stageTargetLabels(job, targetStageIds).join(', '),
     targetStageIds,
   });
@@ -3073,6 +3078,7 @@ router.put('/jobs/:id/orders/:orderId', (req, res) => {
     orders: data.orders.filter(o => o.jobId === job.id).map(o => decorateOrder(data, job, o)),
     orderSummary: buildOrderSummary(data, job),
     job: decorateJob(data, job, req.user),
+    recipientSavedToVendor,
   });
 });
 

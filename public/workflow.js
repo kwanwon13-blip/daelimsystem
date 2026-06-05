@@ -1476,6 +1476,18 @@ function workflowApp() {
       return this.orderForm.targetType === 'external' || this.orderForm.deliveryMethod === 'email';
     },
 
+    orderTargetHint() {
+      if (!this.orderForm.targetPreset && !this.orderForm.targetName) return '';
+      if (!this.orderFormIsExternal()) return '공장/내부는 ERP에서 바로 파일을 받습니다.';
+      return String(this.orderForm.recipientEmail || '').trim()
+        ? '메일주소 자동 입력됨 · 발송 전에 확인할 수 있습니다.'
+        : '메일주소 없음 · 아래 입력하면 업체에 저장됩니다.';
+    },
+
+    createOrderButtonLabel() {
+      return this.orderFormIsExternal() ? '업체 메일 준비' : '파일 받기 준비';
+    },
+
     currentOrderFileIds() {
       return this.filteredFiles().map(file => file.id).filter(Boolean);
     },
@@ -1502,6 +1514,7 @@ function workflowApp() {
       if (!r.ok || !d.ok) return alert(d.error || '전달 생성 실패');
       const createdOrderId = d.order?.id || '';
       this.applyOrderResponse(d);
+      if (d.recipientSavedToVendor) await this.loadMeta();
       await this.loadJobs();
       if (isExternal) {
         const createdOrder = (this.detail?.orders || []).find(order => order.id === createdOrderId) || d.order;
@@ -1523,6 +1536,7 @@ function workflowApp() {
       const d = await r.json();
       if (!r.ok || !d.ok) return alert(d.error || '전달 저장 실패');
       this.applyOrderResponse(d);
+      if (d.recipientSavedToVendor) await this.loadMeta();
       await this.loadJobs();
     },
 
