@@ -61,6 +61,7 @@ function workflowApp() {
     expandedFileId: '',
     highlightedEventId: '',
     orderTargetQuery: '',
+    orderSelectedFileIds: [],
     orderForm: {
       targetPreset: 'factory',
       targetType: 'internal',
@@ -1517,8 +1518,45 @@ function workflowApp() {
       return this.orderFormIsExternal() ? '업체 메일 준비' : '파일 받기 준비';
     },
 
+    orderSelectableFiles() {
+      return this.filteredFiles().filter(file => file.id && file.exists !== false);
+    },
+
+    selectedOrderFileIds() {
+      const available = new Set((this.detail?.files || []).filter(file => file.id && file.exists !== false).map(file => file.id));
+      return (this.orderSelectedFileIds || []).filter(id => available.has(id));
+    },
+
+    isOrderFileSelected(file) {
+      return !!(file && file.id && this.selectedOrderFileIds().includes(file.id));
+    },
+
+    toggleOrderFileSelection(file) {
+      if (!file?.id || file.exists === false) return;
+      const selected = new Set(this.selectedOrderFileIds());
+      if (selected.has(file.id)) selected.delete(file.id);
+      else selected.add(file.id);
+      this.orderSelectedFileIds = Array.from(selected);
+    },
+
+    selectVisibleOrderFiles() {
+      this.orderSelectedFileIds = this.orderSelectableFiles().map(file => file.id);
+    },
+
+    clearOrderFileSelection() {
+      this.orderSelectedFileIds = [];
+    },
+
     currentOrderFileIds() {
-      return this.filteredFiles().map(file => file.id).filter(Boolean);
+      const selected = this.selectedOrderFileIds();
+      if (selected.length) return selected;
+      return this.orderSelectableFiles().map(file => file.id).filter(Boolean);
+    },
+
+    orderFileSelectionText() {
+      const selected = this.selectedOrderFileIds();
+      if (selected.length) return `선택 파일 ${selected.length}건 전달`;
+      return `현재 표시 파일 ${this.orderSelectableFiles().length}건 전달`;
     },
 
     applyOrderResponse(d) {
@@ -1543,6 +1581,7 @@ function workflowApp() {
       if (!r.ok || !d.ok) return alert(d.error || '전달 생성 실패');
       const createdOrderId = d.order?.id || '';
       this.applyOrderResponse(d);
+      this.clearOrderFileSelection();
       if (d.recipientSavedToVendor) await this.loadMeta();
       await this.loadJobs();
       if (isExternal) {
@@ -2039,6 +2078,7 @@ function workflowApp() {
         this.orderPanelOpen = false;
         this.historyPanelOpen = false;
         this.uploadOpen = false;
+        this.orderSelectedFileIds = [];
       }
       this.uploadStageId = 'design';
       if (force || !this.uploadCompanyName) this.uploadCompanyName = d.job.companyName || '';

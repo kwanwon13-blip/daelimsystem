@@ -657,6 +657,7 @@
                         </div>
                         <div style="display:flex;gap:5px;flex-wrap:wrap;">
                           <a class="wf-btn" x-show="file.exists !== false" :href="smartFileUrl(file)" title="접속 위치에 맞는 파일을 받습니다">파일 받기</a>
+                          <button class="wf-btn" x-show="file.exists !== false" :class="isOrderFileSelected(file) ? 'primary' : ''" @click="toggleOrderFileSelection(file)" x-text="isOrderFileSelected(file) ? '전달 선택됨' : '전달 선택'"></button>
                           <button class="wf-btn" x-show="isUnreadFile(file)" @click="markRead(file)">확인</button>
                           <button class="wf-btn" @click="toggleFileCollab(file)" x-text="expandedFileId === file.id ? '접기' : '협의'"></button>
                         </div>
@@ -723,6 +724,7 @@
                           <span class="wf-chip overdue" x-show="file.exists === false">서버 파일 없음</span>
                           <span class="wf-chip" :class="file.reviewStatus || 'pending'" x-show="canReviewFile(file)" x-text="fileReviewLabel(file.reviewStatus)"></span>
                           <a class="wf-btn" x-show="file.exists !== false" :href="smartFileUrl(file)" title="접속 위치에 맞는 파일을 받습니다">파일 받기</a>
+                          <button class="wf-btn" x-show="file.exists !== false" :class="isOrderFileSelected(file) ? 'primary' : ''" @click="toggleOrderFileSelection(file)" x-text="isOrderFileSelected(file) ? '전달 선택됨' : '전달 선택'"></button>
                           <button class="wf-btn" x-show="isUnreadFile(file)" @click="markRead(file)">확인</button>
                           <button class="wf-btn" @click="toggleFileCollab(file)" x-text="expandedFileId === file.id ? '접기' : '협의'"></button>
                         </div>
@@ -806,8 +808,12 @@
                   <span class="wf-muted" x-show="orderTargetHint()" x-text="orderTargetHint()"></span>
                   <textarea class="wf-textarea" x-model="orderForm.note" placeholder="제작 요청 메모"></textarea>
                   <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-                    <span class="wf-muted" x-text="'현재 표시 파일 ' + currentOrderFileIds().length + '건 전달'"></span>
-                    <button class="wf-btn primary" @click="createOrderPackage()" x-text="createOrderButtonLabel()"></button>
+                    <span class="wf-muted" x-text="orderFileSelectionText()"></span>
+                    <div style="display:flex;gap:5px;flex-wrap:wrap;">
+                      <button class="wf-btn ghost" x-show="orderSelectableFiles().length" @click="selectVisibleOrderFiles()">표시 전체</button>
+                      <button class="wf-btn ghost" x-show="selectedOrderFileIds().length" @click="clearOrderFileSelection()">선택 해제</button>
+                      <button class="wf-btn primary" @click="createOrderPackage()" x-text="createOrderButtonLabel()"></button>
+                    </div>
                   </div>
                 </div>
 
