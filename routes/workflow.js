@@ -1468,6 +1468,7 @@ function decoratePublicOrderFile(file, order = null) {
 
 function decorateOrder(data, job, order) {
   const files = orderFiles(data, order, job);
+  const fileTotalSize = files.reduce((sum, file) => sum + Number(file.size || 0), 0);
   const safeOrder = { ...(order || {}) };
   delete safeOrder.mailTo;
   delete safeOrder.mailCc;
@@ -1478,6 +1479,9 @@ function decorateOrder(data, job, order) {
   return {
     ...safeOrder,
     fileCount: files.length,
+    fileTotalSize,
+    mailAttachLimit: MAX_WORKFLOW_MAIL_ATTACH_BYTES,
+    mailAttachmentTooLarge: fileTotalSize > MAX_WORKFLOW_MAIL_ATTACH_BYTES,
     fileNames: files.map(f => f.originalName || f.storedName || f.id),
     statusLabel: ORDER_STATUS_LABELS[order.status] || order.status || '초안',
     targetTypeLabel: order.targetType === 'external' ? '외주/업체' : '우리공장',

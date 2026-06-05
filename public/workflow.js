@@ -1496,6 +1496,39 @@ function workflowApp() {
       return !!this.orderRecipientEmail(order);
     },
 
+    orderMailAttachmentTooLarge(order) {
+      const total = Number(order?.fileTotalSize || 0);
+      const limit = Number(order?.mailAttachLimit || (24 * 1024 * 1024));
+      return total > 0 && limit > 0 && total > limit;
+    },
+
+    orderMailAttachmentText(order) {
+      if (!order) return '';
+      const total = Number(order.fileTotalSize || 0);
+      const limit = Number(order.mailAttachLimit || (24 * 1024 * 1024));
+      const count = Number(order.fileCount || 0);
+      const prefix = `${count}개 파일 · 총 ${this.fileSizeLabel(total)}`;
+      if (this.orderMailAttachmentTooLarge(order)) {
+        return `${prefix} · 첨부 한도 ${this.fileSizeLabel(limit)} 초과`;
+      }
+      return `${prefix} · 첨부 가능`;
+    },
+
+    orderMailLinkStateText() {
+      if (!this.orderMailModal.open || this.orderMailModal.attachFiles) return '';
+      return this.publicShareBaseUrl
+        ? '터널 다운로드 링크가 본문에 포함됩니다.'
+        : '링크 발송에는 워크플로우 외부 다운로드 주소가 필요합니다.';
+    },
+
+    canSendOrderMail() {
+      const modal = this.orderMailModal;
+      if (!modal.open || modal.sending) return false;
+      if (!String(modal.toEmail || '').trim()) return false;
+      if (!modal.attachFiles && !this.publicShareBaseUrl) return false;
+      return true;
+    },
+
     orderMailButtonLabel(order) {
       if (!this.isExternalOrder(order)) return '다운로드';
       return this.hasOrderRecipientEmail(order) ? '메일 보내기' : '메일주소 입력';
@@ -1522,6 +1555,7 @@ function workflowApp() {
       if (!this.detail || !this.detail.job || !order) return;
       if (!this.isExternalOrder(order)) return alert('메일 발송은 외부업체 전달건에서 사용합니다.');
       const recipient = this.orderRecipientEmail(order);
+      const tooLarge = this.orderMailAttachmentTooLarge(order);
       this.orderMailModal = {
         open: true,
         sending: false,
@@ -1530,9 +1564,9 @@ function workflowApp() {
         ccEmail: order.recipientCc || '',
         subject: order.mailSubject || this.defaultOrderMailSubject(order),
         message: order.note || this.defaultOrderMailMessage(order),
-        attachFiles: true,
+        attachFiles: !tooLarge,
         error: '',
-        linkOnlySuggested: false,
+        linkOnlySuggested: tooLarge,
       };
     },
 
@@ -1549,6 +1583,10 @@ function workflowApp() {
       if (!this.detail || !this.detail.job || !order) return;
       if (!String(modal.toEmail || '').trim()) {
         modal.error = '받는 이메일을 입력하세요.';
+        return;
+      }
+      if (!modal.attachFiles && !this.publicShareBaseUrl) {
+        modal.error = '링크만 발송하려면 워크플로우 외부 다운로드 주소를 먼저 저장하세요.';
         return;
       }
       modal.sending = true;
