@@ -1853,6 +1853,14 @@ function lateScheduleCount(data, job) {
   return data.files.filter(f => f.jobId === job.id && isFileScheduleLate(f)).length;
 }
 
+function urgentOpenFileCount(data, job) {
+  if (!job || ['done', 'cancelled'].includes(job.status || 'active') || !data || !Array.isArray(data.files)) return 0;
+  return data.files.filter(f => {
+    if (f.jobId !== job.id || !f.urgent) return false;
+    return !f.scheduleNegotiation || f.scheduleNegotiation === 'pending' || f.scheduleNegotiation === 'needs_change';
+  }).length;
+}
+
 function pendingStageCount(job) {
   if (!job || !job.stageChecks) return STAGES.length;
   return STAGES.filter(stage => job.stageChecks[stage.id]?.status !== 'done').length;
@@ -2679,6 +2687,8 @@ router.get('/jobs', (req, res) => {
     jobs = jobs.filter(j => isUserJob(j, req));
   } else if (scope === 'unread') {
     jobs = jobs.filter(j => decorateJob(data, j, req.user).unreadCount > 0);
+  } else if (scope === 'urgent') {
+    jobs = jobs.filter(j => urgentOpenFileCount(data, j) > 0);
   } else if (scope === 'risk') {
     jobs = jobs.filter(j => isOverdueJob(j) || overdueStageCount(j) > 0 || blockedStageCount(j) > 0 || changeRequestCount(data, j) > 0);
   }
