@@ -66,11 +66,21 @@ router.get('/notifications', requireAuth, (req, res) => {
   try {
     const notifs = db.알림.load();
     const userId = req.user.userId;
-    const mine = (notifs.notifications || [])
-      .filter(n => n.대상 === userId)
+    const allMine = (notifs.notifications || [])
+      .filter(n => n.대상 === userId);
+    const unreadCount = allMine.filter(n => !n.읽음).length;
+    const mine = allMine
       .reverse()
-      .slice(0, 50);
-    const unreadCount = mine.filter(n => !n.읽음).length;
+      .slice(0, 50)
+      .map(n => ({
+        id: n.id,
+        target: n.대상 || '',
+        type: n.유형 || '',
+        message: n.메시지 || '',
+        link: n.링크 || '',
+        read: !!n.읽음,
+        createdAt: n.생성시간 || '',
+      }));
     res.json({ unreadCount, notifications: mine });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -78,7 +88,7 @@ router.get('/notifications', requireAuth, (req, res) => {
 router.put('/notifications/:id/read', requireAuth, (req, res) => {
   try {
     const notifs = db.알림.load();
-    const n = notifs.notifications.find(n => n.id === req.params.id);
+    const n = notifs.notifications.find(n => n.id === req.params.id && n.대상 === req.user.userId);
     if (n) { n.읽음 = true; db.알림.save(notifs); }
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }

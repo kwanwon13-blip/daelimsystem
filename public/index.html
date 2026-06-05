@@ -429,6 +429,49 @@
   </div>
 </div>
 
+<!-- 알림함 -->
+<div x-show="notifCenter.open" x-cloak @click.self="notifCenter.open=false"
+  style="position:fixed;inset:0;z-index:9991;background:rgba(15,23,42,.12);">
+  <aside style="position:absolute;right:22px;top:74px;width:min(380px,calc(100vw - 32px));max-height:calc(100vh - 98px);background:#fff;border:1px solid #dbe3ef;border-radius:10px;box-shadow:0 18px 60px rgba(15,23,42,.18);overflow:hidden;display:flex;flex-direction:column;">
+    <div style="height:46px;padding:0 12px;border-bottom:1px solid #edf0f5;display:flex;align-items:center;justify-content:space-between;gap:8px;">
+      <strong style="font-size:14px;color:#111827;">알림</strong>
+      <div style="display:flex;align-items:center;gap:5px;">
+        <button @click="markAllNotificationsRead()"
+          style="height:28px;border:1px solid #dbe3ef;border-radius:6px;background:#f8fafc;color:#475569;font-size:11px;font-weight:800;padding:0 8px;cursor:pointer;">모두 읽음</button>
+        <button @click="notifCenter.open=false"
+          style="width:28px;height:28px;border:0;border-radius:6px;background:#f1f5f9;color:#475569;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+          <span class="material-symbols-outlined" style="font-size:17px;">close</span>
+        </button>
+      </div>
+    </div>
+    <div style="overflow:auto;padding:8px;display:flex;flex-direction:column;gap:7px;">
+      <div x-show="notifCenter.loading" style="padding:24px;text-align:center;color:#94a3b8;font-size:12px;">불러오는 중</div>
+      <template x-if="!notifCenter.loading && !notifCenter.items.length">
+        <div style="padding:30px 10px;text-align:center;color:#94a3b8;font-size:12px;">
+          <span class="material-symbols-outlined" style="font-size:34px;display:block;margin-bottom:6px;color:#cbd5e1;">notifications_none</span>
+          확인할 알림이 없습니다
+        </div>
+      </template>
+      <template x-for="item in notifCenter.items" :key="item.id">
+        <button @click="openNotificationItem(item)"
+          style="width:100%;border:1px solid #e2e8f0;border-radius:8px;background:#fff;text-align:left;padding:9px 10px;display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;cursor:pointer;"
+          :style="!item.read ? 'border-color:#bfdbfe;background:#eff6ff;' : 'border-color:#e2e8f0;background:#fff;'">
+          <span class="material-symbols-outlined"
+            style="font-size:17px;color:#2563eb;margin-top:1px;"
+            x-text="notificationIcon(item)"></span>
+          <span style="min-width:0;">
+            <span style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
+              <strong style="font-size:12px;color:#111827;" x-text="notificationTypeLabel(item.type)"></strong>
+              <small style="font-size:10.5px;color:#94a3b8;white-space:nowrap;" x-text="notificationTime(item.createdAt)"></small>
+            </span>
+            <span style="display:block;font-size:11.5px;line-height:1.4;color:#475569;margin-top:2px;white-space:normal;word-break:keep-all;" x-text="item.message"></span>
+          </span>
+        </button>
+      </template>
+    </div>
+  </aside>
+</div>
+
 <div x-show="quoteImagePreview" @click="quoteImagePreview = ''"
   class="fixed inset-0 z-[100] bg-black/70 flex items-center justify-center cursor-pointer" style="backdrop-filter:blur(4px);">
   <img :src="quoteImagePreview" class="max-w-[90vw] max-h-[85vh] rounded-xl shadow-2xl object-contain">
@@ -1816,6 +1859,14 @@
       </div>
       <div class="flex items-center gap-3">
         <!-- 배포 버전 표시 (사장님이 새 코드 적용 여부 한눈에 확인) -->
+        <button @click="openNotificationCenter()"
+          title="알림"
+          style="position:relative;width:32px;height:32px;border:1px solid #dbe3ef;border-radius:8px;background:#fff;color:#475569;display:flex;align-items:center;justify-content:center;cursor:pointer;">
+          <span class="material-symbols-outlined" style="font-size:18px;">notifications</span>
+          <span x-show="notifCenter.unreadCount > 0"
+            style="position:absolute;right:-5px;top:-5px;min-width:17px;height:17px;padding:0 4px;border-radius:999px;background:#dc2626;color:#fff;font-size:10px;font-weight:900;line-height:17px;text-align:center;"
+            x-text="notifCenter.unreadCount > 99 ? '99+' : notifCenter.unreadCount"></span>
+        </button>
         <span x-show="buildInfo.commitShort"
               title="version"
               style="font-family:monospace;font-size:10px;color:#9ca3af;cursor:help;letter-spacing:0;"
@@ -6941,6 +6992,7 @@ function app() {
     // 결재 요청 인앱 팝업 알림
     approvalNotif: { show: false, count: 0, items: [], _timer: null },
     workflowNotif: { show: false, count: 0, message: '', jobId: '', itemId: '', _timer: null },
+    notifCenter: { open: false, loading: false, unreadCount: 0, items: [] },
 
     // 업체별 단가
     pricingVendorId: '', vendorPrices: [],
@@ -7580,6 +7632,89 @@ function app() {
     },
 
     // ── 알림 폴링 (사이드바 뱃지 + 브라우저 알림) ───────────────
+    async loadNotificationCenter(showLoading = false) {
+      if (showLoading) this.notifCenter.loading = true;
+      try {
+        const r = await fetch('/api/notifications');
+        if (!r.ok) return;
+        const d = await r.json();
+        this.notifCenter.items = Array.isArray(d.notifications) ? d.notifications : [];
+        this.notifCenter.unreadCount = Number(d.unreadCount || 0);
+      } catch(e) {
+        // 알림함 실패는 업무 화면을 막지 않습니다.
+      } finally {
+        if (showLoading) this.notifCenter.loading = false;
+      }
+    },
+
+    async openNotificationCenter() {
+      this.notifCenter.open = true;
+      await this.loadNotificationCenter(true);
+    },
+
+    notificationIcon(item) {
+      const type = item?.type || '';
+      if (type === 'workflow') return 'account_tree';
+      if (type === 'approval') return 'approval';
+      if (type === 'notice') return 'campaign';
+      if (type === 'quote') return 'request_quote';
+      return 'notifications';
+    },
+
+    notificationTypeLabel(type) {
+      return ({ workflow: '워크플로우', approval: '결재', notice: '공지', quote: '견적' })[type || ''] || '알림';
+    },
+
+    notificationTime(value) {
+      if (!value) return '';
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return String(value).slice(0, 16);
+      return d.toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    },
+
+    async markNotificationRead(item) {
+      if (!item || item.read) return;
+      try {
+        await fetch('/api/notifications/' + encodeURIComponent(item.id) + '/read', { method: 'PUT' });
+        item.read = true;
+        this.notifCenter.unreadCount = Math.max(0, Number(this.notifCenter.unreadCount || 0) - 1);
+      } catch(e) {}
+    },
+
+    async markAllNotificationsRead() {
+      try {
+        await fetch('/api/notifications/read-all', { method: 'PUT' });
+        this.notifCenter.items.forEach(item => item.read = true);
+        this.notifCenter.unreadCount = 0;
+      } catch(e) {}
+    },
+
+    async openNotificationItem(item) {
+      if (!item) return;
+      await this.markNotificationRead(item);
+      const link = String(item.link || '').trim();
+      this.notifCenter.open = false;
+      if (link.startsWith('workflow:')) {
+        const [, jobId = '', itemId = ''] = link.split(':');
+        this.workflowNotif.jobId = decodeURIComponent(jobId || '');
+        this.workflowNotif.itemId = decodeURIComponent(itemId || '');
+        this.openWorkflowNotification();
+        return;
+      }
+      if (link.startsWith('workflow?')) {
+        const qs = new URLSearchParams(link.slice('workflow?'.length));
+        this.workflowNotif.jobId = qs.get('job') || '';
+        this.workflowNotif.itemId = qs.get('file') || qs.get('event') || '';
+        this.openWorkflowNotification();
+        return;
+      }
+      if (['approval', 'notices', 'history', 'workflow'].includes(link)) {
+        this.currentTab = link;
+        return;
+      }
+      if (link && this.tabs.find(t => t.id === link)) this.currentTab = link;
+    },
+
     openWorkflowNotification() {
       const jobId = this.workflowNotif?.jobId || '';
       const itemId = this.workflowNotif?.itemId || '';
@@ -7606,6 +7741,7 @@ function app() {
       }
     },
     async _pollNotifications() {
+      await this.loadNotificationCenter(false);
       try {
         // ── 결재 미처리 건수 ──
         const r1 = await fetch('/api/approvals?status=pending');
