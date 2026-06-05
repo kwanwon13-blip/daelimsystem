@@ -1392,6 +1392,19 @@ function workflowApp() {
       return !!order && (order.deliveryMethod === 'email' || order.targetType === 'external');
     },
 
+    orderRecipientEmail(order) {
+      return String(order?.recipientEmail || order?.mailTo || '').trim();
+    },
+
+    hasOrderRecipientEmail(order) {
+      return !!this.orderRecipientEmail(order);
+    },
+
+    orderMailButtonLabel(order) {
+      if (!this.isExternalOrder(order)) return '메일';
+      return this.hasOrderRecipientEmail(order) ? '메일' : '메일주소 입력';
+    },
+
     defaultOrderMailSubject(order) {
       const job = this.detail?.job || {};
       const project = job.projectName || job.title || '';
@@ -1412,11 +1425,12 @@ function workflowApp() {
     openOrderMail(order) {
       if (!this.detail || !this.detail.job || !order) return;
       if (!this.isExternalOrder(order)) return alert('메일 발송은 외부업체 전달건에서 사용합니다.');
+      const recipient = this.orderRecipientEmail(order);
       this.orderMailModal = {
         open: true,
         sending: false,
         order,
-        toEmail: order.recipientEmail || '',
+        toEmail: recipient,
         ccEmail: order.recipientCc || '',
         subject: order.mailSubject || this.defaultOrderMailSubject(order),
         message: order.note || this.defaultOrderMailMessage(order),
@@ -1478,7 +1492,7 @@ function workflowApp() {
     orderMailSentText(order) {
       if (!order || order.mailStatus !== 'sent') return '';
       const at = order.mailSentAt ? this.eventTime(order.mailSentAt) : '';
-      const to = String(order.recipientEmail || order.mailTo || '').trim();
+      const to = this.orderRecipientEmail(order);
       return ['메일', at, to].filter(Boolean).join(' · ');
     },
 

@@ -816,8 +816,9 @@
                         <div style="display:flex;gap:5px;flex-wrap:wrap;">
                           <a class="wf-btn primary" x-show="orderArchiveUrl(order)" :href="orderArchiveUrl(order)" title="발주 파일을 ZIP으로 받습니다">파일 받기</a>
                           <button class="wf-btn" x-show="isExternalOrder(order)" @click="openOrderMail(order)" title="외부업체에 실제 메일로 발송합니다">
-                            <span class="material-symbols-outlined" style="font-size:15px;">mail</span>메일
+                            <span class="material-symbols-outlined" style="font-size:15px;">mail</span><span x-text="orderMailButtonLabel(order)"></span>
                           </button>
+                          <span class="wf-chip high" x-show="isExternalOrder(order) && !hasOrderRecipientEmail(order)">메일주소 없음</span>
                           <span class="wf-chip ready" x-show="order.mailStatus === 'sent'">메일발송</span>
                         </div>
                       </div>
@@ -879,6 +880,7 @@
       </div>
       <div class="wf-dialog-body">
         <input class="wf-input" x-model="orderMailModal.toEmail" placeholder="받는 이메일">
+        <p class="wf-muted" style="margin:0;" x-show="!String(orderMailModal.toEmail || '').trim()">업체/연락처에 이메일을 등록하면 다음 발송부터 자동으로 들어옵니다.</p>
         <input class="wf-input" x-model="orderMailModal.ccEmail" placeholder="참조 이메일">
         <input class="wf-input" x-model="orderMailModal.subject" placeholder="제목">
         <textarea class="wf-textarea" rows="6" x-model="orderMailModal.message" placeholder="본문"></textarea>
