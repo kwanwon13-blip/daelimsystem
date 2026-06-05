@@ -120,6 +120,10 @@
   .wf-project-pick{height:24px;max-width:210px;border:1px solid #dbe3ef;border-radius:999px;background:#fff;color:#334155;padding:0 8px;font-size:11px;font-weight:800;display:inline-flex;align-items:center;gap:5px;cursor:pointer;min-width:0;}
   .wf-project-pick span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
   .wf-project-pick small{font-size:10px;color:#64748b;font-weight:800;white-space:nowrap;}
+  .wf-company-picks{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:5px;max-height:98px;overflow:auto;border:1px solid #e1e6ef;border-radius:6px;background:#f8fafc;padding:6px;}
+  .wf-company-pick{height:28px;border:1px solid #dbe3ef;border-radius:6px;background:#fff;color:#334155;padding:0 8px;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:pointer;min-width:0;}
+  .wf-company-pick strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;font-size:11px;}
+  .wf-company-pick small{font-size:10px;color:#64748b;font-weight:800;white-space:nowrap;}
   .wf-preview-modal{position:fixed;inset:0;z-index:9999;background:rgba(3,7,18,.88);display:flex;align-items:center;justify-content:center;padding:10px;}
   .wf-preview-panel{width:calc(100vw - 20px);height:calc(100vh - 20px);background:#0f172a;border-radius:6px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 70px rgba(0,0,0,.45);}
   .wf-preview-head{height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 12px;color:#fff;border-bottom:1px solid rgba(255,255,255,.12);flex:0 0 auto;}
@@ -450,6 +454,14 @@
                     <input class="wf-input" list="wfUploadProjectNames" x-model="uploadProjectName" placeholder="프로젝트">
                     <input class="wf-input" type="date" x-model="uploadDesignDueDate" title="디자인 희망 완료일">
                   </div>
+                  <div class="wf-company-picks" x-show="workflowCompanySuggestions(uploadCompanyName, 12).length">
+                    <template x-for="company in workflowCompanySuggestions(uploadCompanyName, 12)" :key="'upload-company-'+company.name">
+                      <button type="button" class="wf-company-pick" @click="uploadCompanyName = company.name; uploadProjectName = ''">
+                        <strong x-text="company.name"></strong>
+                        <small x-text="(company.projectCount || 0) + ' 현장'"></small>
+                      </button>
+                    </template>
+                  </div>
                   <div class="wf-project-picks" x-show="workflowProjectSuggestions(uploadCompanyName, 8).length">
                     <template x-for="project in workflowProjectSuggestions(uploadCompanyName, 8)" :key="'upload-project-'+project.name">
                       <button type="button" class="wf-project-pick" @click="uploadProjectName = project.name">
@@ -731,6 +743,14 @@
           <div class="wf-field">
             <label>회사명</label>
             <input class="wf-input" list="wfCompanyNames" x-model="form.companyName" placeholder="직접 입력 또는 선택">
+            <div class="wf-company-picks" x-show="workflowCompanySuggestions(form.companyName, 12).length">
+              <template x-for="company in workflowCompanySuggestions(form.companyName, 12)" :key="'new-company-'+company.name">
+                <button type="button" class="wf-company-pick" @click="form.companyName = company.name; form.projectName = ''">
+                  <strong x-text="company.name"></strong>
+                  <small x-text="(company.projectCount || 0) + ' 현장'"></small>
+                </button>
+              </template>
+            </div>
           </div>
           <div class="wf-field">
             <label>프로젝트/현장</label>

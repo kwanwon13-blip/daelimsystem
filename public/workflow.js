@@ -70,7 +70,12 @@ function workflowApp() {
           if (!root || !window.Alpine) return;
           const app = window.Alpine.$data(root);
           const jobId = e.detail?.jobId || '';
-          if (jobId && app?.selectJob) app.selectJob(jobId);
+          const itemId = e.detail?.itemId || '';
+          if (jobId && app?.selectJob) {
+            Promise.resolve(app.selectJob(jobId)).then(() => {
+              if (itemId) app.expandedFileId = itemId;
+            });
+          }
         });
         window.__workflowOpenListenerInstalled = true;
       }
@@ -352,6 +357,29 @@ function workflowApp() {
           return true;
         })
         .slice(0, Number(limit || 8));
+    },
+
+    workflowCompanySuggestions(query = '', limit = 12) {
+      const term = this.normalizeOptionName(query);
+      const seen = new Set();
+      const suggestions = [];
+      for (const company of this.designWorkflowOptions.companies || []) {
+        const name = String(company?.name || '').trim();
+        const folderName = String(company?.folderName || '').trim();
+        const key = this.normalizeOptionName(name);
+        const folderKey = this.normalizeOptionName(folderName);
+        if (!name || seen.has(key)) continue;
+        if (term && !key.includes(term) && !term.includes(key) && !folderKey.includes(term) && !term.includes(folderKey)) continue;
+        seen.add(key);
+        suggestions.push({
+          name,
+          folderName,
+          count: Number(company?.count || 0),
+          projectCount: Number(company?.projectCount || 0),
+        });
+        if (suggestions.length >= Number(limit || 12)) break;
+      }
+      return suggestions;
     },
 
     workflowProjectNames(companyName = '', currentProjectName = '') {

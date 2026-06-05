@@ -402,6 +402,33 @@
 </div>
 
 <!-- ═══ 시안 이미지 미리보기 모달 ═══ -->
+<div x-show="workflowNotif.show" x-transition:enter="transition ease-out duration-300"
+  x-transition:enter-start="opacity-0 translate-y-4"
+  x-transition:enter-end="opacity-100 translate-y-0"
+  style="position:fixed;bottom:118px;right:24px;z-index:9990;width:320px;background:#fff;border-radius:14px;box-shadow:0 10px 40px rgba(0,0,0,.18);border:1px solid #bfdbfe;overflow:hidden;"
+  x-cloak>
+  <div style="background:linear-gradient(135deg,#2563eb,#0891b2);padding:12px 16px;display:flex;align-items:center;gap:8px;justify-content:space-between;">
+    <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+      <span class="material-symbols-outlined" style="font-size:20px;color:#fff;">account_tree</span>
+      <div style="min-width:0;">
+        <p style="font-size:13px;font-weight:800;color:#fff;margin:0;">워크플로우 확인 필요</p>
+        <p style="font-size:11px;color:rgba(255,255,255,.8);margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" x-text="workflowNotif.message"></p>
+      </div>
+    </div>
+    <button @click="workflowNotif.show=false;clearTimeout(workflowNotif._timer)"
+      style="background:rgba(255,255,255,.2);border:none;color:#fff;width:24px;height:24px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;line-height:1;">×</button>
+  </div>
+  <div style="padding:12px 16px;">
+    <p style="font-size:12px;color:#334155;margin:0 0 10px;line-height:1.45;" x-text="workflowNotif.message"></p>
+    <button @click="openWorkflowNotification()"
+      style="width:100%;padding:9px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;"
+      onmouseover="this.style.opacity='.9'" onmouseout="this.style.opacity='1'">
+      <span class="material-symbols-outlined" style="font-size:15px;">open_in_new</span>
+      작업 열기
+    </button>
+  </div>
+</div>
+
 <div x-show="quoteImagePreview" @click="quoteImagePreview = ''"
   class="fixed inset-0 z-[100] bg-black/70 flex items-center justify-center cursor-pointer" style="backdrop-filter:blur(4px);">
   <img :src="quoteImagePreview" class="max-w-[90vw] max-h-[85vh] rounded-xl shadow-2xl object-contain">
@@ -6913,6 +6940,7 @@ function app() {
     _notifLastWorkflow: 0,
     // 결재 요청 인앱 팝업 알림
     approvalNotif: { show: false, count: 0, items: [], _timer: null },
+    workflowNotif: { show: false, count: 0, message: '', jobId: '', itemId: '', _timer: null },
 
     // 업체별 단가
     pricingVendorId: '', vendorPrices: [],
@@ -7552,6 +7580,20 @@ function app() {
     },
 
     // ── 알림 폴링 (사이드바 뱃지 + 브라우저 알림) ───────────────
+    openWorkflowNotification() {
+      const jobId = this.workflowNotif?.jobId || '';
+      const itemId = this.workflowNotif?.itemId || '';
+      if (jobId) sessionStorage.setItem('workflow:openJobId', jobId);
+      this.currentTab = 'workflow';
+      this.workflowNotif.show = false;
+      clearTimeout(this.workflowNotif._timer);
+      if (jobId) {
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('workflow:open', { detail: { jobId, itemId } }));
+        }, 50);
+      }
+    },
+
     startNotificationPolling() {
       // 즉시 1회 실행
       this._pollNotifications();
@@ -7627,10 +7669,14 @@ function app() {
           const urgentFiles = Number(s.urgentFiles || 0);
           const count = unreadFiles + unreadEvents + overdueSchedules + urgentFiles;
           if (count > this._notifLastWorkflow && this._notifLastWorkflow >= 0 && this.currentTab !== 'workflow') {
-            const firstWorkflowItem = (s.unreadFiles && s.unreadFiles[0])
-              || (s.unreadEvents && s.unreadEvents[0])
-              || (s.urgentFiles && s.urgentFiles[0])
-              || (s.scheduleItems && s.scheduleItems[0])
+            const unreadFileItems = Array.isArray(s.unreadFileItems) ? s.unreadFileItems : [];
+            const unreadEventItems = Array.isArray(s.unreadEventItems) ? s.unreadEventItems : [];
+            const urgentFileItems = Array.isArray(s.urgentFileItems) ? s.urgentFileItems : [];
+            const scheduleItems = Array.isArray(s.scheduleItems) ? s.scheduleItems : [];
+            const firstWorkflowItem = unreadFileItems[0]
+              || unreadEventItems[0]
+              || urgentFileItems[0]
+              || scheduleItems[0]
               || null;
             const parts = [];
             if (unreadFiles) parts.push(`시안/파일 ${unreadFiles}건`);
@@ -7639,21 +7685,22 @@ function app() {
             if (overdueSchedules) parts.push(`지연일정 ${overdueSchedules}건`);
             const msg = parts.length ? parts.join(', ') : `확인 ${count}건`;
             this.showToast('워크플로우 확인 필요: ' + msg, 'info');
+            clearTimeout(this.workflowNotif._timer);
+            this.workflowNotif = {
+              show: true,
+              count,
+              message: msg,
+              jobId: firstWorkflowItem?.jobId || '',
+              itemId: firstWorkflowItem?.id || '',
+              _timer: setTimeout(() => { this.workflowNotif.show = false; }, 12000)
+            };
             if ('Notification' in window && Notification.permission === 'granted') {
               const n = new Notification('워크플로우 확인 필요', {
                 body: msg,
                 icon: '/favicon.ico'
               });
               n.onclick = () => {
-                if (firstWorkflowItem && firstWorkflowItem.jobId) {
-                  sessionStorage.setItem('workflow:openJobId', firstWorkflowItem.jobId);
-                }
-                this.currentTab = 'workflow';
-                if (firstWorkflowItem && firstWorkflowItem.jobId) {
-                  setTimeout(() => {
-                    window.dispatchEvent(new CustomEvent('workflow:open', { detail: { jobId: firstWorkflowItem.jobId } }));
-                  }, 50);
-                }
+                this.openWorkflowNotification();
                 window.focus();
                 n.close();
               };
