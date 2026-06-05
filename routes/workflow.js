@@ -88,6 +88,84 @@ const ORDER_DELIVERY_METHOD_LABELS = {
   email: '메일 발송',
 };
 
+function vendorListForWorkflowTargets() {
+  try {
+    if (db.sql) return db.sql.vendors.getAll() || [];
+    if (db['업체관리']) return db['업체관리'].load().vendors || [];
+    return db.load().vendors || [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function contactTargetsForWorkflow() {
+  try {
+    const data = db.loadContacts();
+    const companies = new Map((data.contactCompanies || []).map(c => [c.id, c.name]));
+    return (data.contacts || [])
+      .map(contact => {
+        const email = normalizeEmailList(contact.email || '')[0] || '';
+        if (!email) return null;
+        const companyName = safeText(contact.company || companies.get(contact.companyId) || '', 120);
+        const personName = safeText(contact.name || '', 80);
+        const label = companyName && personName ? `${companyName} / ${personName}` : (companyName || personName);
+        if (!label) return null;
+        return {
+          id: `contact:${contact.id || crypto.createHash('sha1').update(`${label}:${email}`).digest('hex').slice(0, 12)}`,
+          label,
+          type: 'external',
+          deliveryMethod: 'email',
+          recipientEmail: email,
+          recipientName: personName,
+          source: 'contacts',
+        };
+      })
+      .filter(Boolean);
+  } catch (_) {
+    return [];
+  }
+}
+
+function buildWorkflowOrderTargets() {
+  const targets = ORDER_TARGETS.map(t => ({ ...t }));
+  const byLabel = new Map(targets.map(t => [String(t.label || '').trim().toLowerCase(), t]).filter(([key]) => key));
+  for (const vendor of vendorListForWorkflowTargets()) {
+    const label = safeText(vendor.name, 120);
+    const email = normalizeEmailList(vendor.email || '')[0] || '';
+    if (!label || !email) continue;
+    const key = label.toLowerCase();
+    const existing = byLabel.get(key);
+    if (existing) {
+      existing.recipientEmail = existing.recipientEmail || email;
+      existing.deliveryMethod = existing.deliveryMethod || 'email';
+      existing.source = existing.source || 'vendors';
+      continue;
+    }
+    const target = {
+      id: `vendor:${vendor.id || crypto.createHash('sha1').update(`${label}:${email}`).digest('hex').slice(0, 12)}`,
+      label,
+      type: 'external',
+      deliveryMethod: 'email',
+      recipientEmail: email,
+      source: 'vendors',
+    };
+    targets.push({
+      ...target,
+    });
+    byLabel.set(key, target);
+  }
+  const seenContacts = new Set();
+  const contactTargets = contactTargetsForWorkflow()
+    .filter(target => {
+      const key = `${String(target.label || '').toLowerCase()}|${String(target.recipientEmail || '').toLowerCase()}`;
+      if (seenContacts.has(key)) return false;
+      seenContacts.add(key);
+      return true;
+    })
+    .slice(0, 300);
+  return targets.concat(contactTargets);
+}
+
 const ORDER_STATUS_LABELS = {
   draft: '초안',
   requested: '발주요청',
@@ -1191,7 +1269,7 @@ function normalizeFileIds(value) {
 }
 
 function normalizeOrderPayload(body = {}, existing = {}) {
-  const targetPreset = ORDER_TARGETS.find(t => t.id === body.targetPreset || t.label === body.targetName);
+  const targetPreset = buildWorkflowOrderTargets().find(t => t.id === body.targetPreset || t.label === body.targetName);
   const targetType = ['internal', 'external'].includes(body.targetType)
     ? body.targetType
     : (targetPreset?.type || existing.targetType || 'internal');
@@ -1211,6 +1289,9 @@ function normalizeOrderPayload(body = {}, existing = {}) {
     status,
     dueDate: safeDate(body.dueDate) || existing.dueDate || '',
     fileIds: normalizeFileIds(body.fileIds || existing.fileIds || []),
+    recipientEmail: safeText(body.recipientEmail || targetPreset?.recipientEmail || existing.recipientEmail || '', 300),
+    recipientCc: safeText(body.recipientCc || existing.recipientCc || '', 500),
+    recipientName: safeText(body.recipientName || targetPreset?.recipientName || existing.recipientName || '', 120),
     note: safeText(body.note || existing.note || '', 3000),
   };
 }
@@ -2234,7 +2315,7 @@ router.get('/meta', (req, res) => {
     stages: STAGES,
     statuses: STATUS_LABELS,
     checkStatuses: CHECK_STATUS_LABELS,
-    orderTargets: ORDER_TARGETS,
+    orderTargets: buildWorkflowOrderTargets(),
     orderStatuses: ORDER_STATUS_LABELS,
     publicBaseUrl: publicWorkflowBaseUrl(),
     uploadLimits: {

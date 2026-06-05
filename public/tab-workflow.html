@@ -772,7 +772,7 @@
                     <span class="wf-muted" x-show="publicLinkCurrentOriginHint()" x-text="publicLinkCurrentOriginHint()"></span>
                     <span class="wf-muted" x-show="publicLinkSettings.envLocked">서버 환경변수로 고정됨</span>
                   </div>
-                  <div style="display:grid;grid-template-columns:120px 1fr 120px;gap:8px;">
+                  <div style="display:grid;grid-template-columns:160px 1fr 120px;gap:8px;">
                     <select class="wf-select" x-model="orderForm.targetPreset" @change="onOrderTargetPreset()">
                       <template x-for="target in orderTargets" :key="target.id">
                         <option :value="target.id" x-text="target.label"></option>

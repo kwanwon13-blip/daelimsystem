@@ -62,6 +62,9 @@ function workflowApp() {
       targetType: 'internal',
       targetName: '우리공장',
       deliveryMethod: 'download',
+      recipientEmail: '',
+      recipientCc: '',
+      recipientName: '',
       dueDate: '',
       note: '',
     },
@@ -1307,6 +1310,9 @@ function workflowApp() {
       this.orderForm.targetName = target.label || this.orderForm.targetName;
       this.orderForm.targetType = target.type || this.orderForm.targetType || 'internal';
       this.orderForm.deliveryMethod = target.deliveryMethod || (this.orderForm.targetType === 'external' ? 'email' : 'download');
+      this.orderForm.recipientEmail = target.recipientEmail || '';
+      this.orderForm.recipientCc = target.recipientCc || '';
+      this.orderForm.recipientName = target.recipientName || '';
     },
 
     orderStatusLabel(status) {
