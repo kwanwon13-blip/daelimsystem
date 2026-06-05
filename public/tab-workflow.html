@@ -76,7 +76,12 @@
   .wf-chip.ready{background:#dcfce7;color:#15803d;border-color:#bbf7d0;}
   .wf-chip.not_ready{background:#fef3c7;color:#92400e;border-color:#fde68a;}
   .wf-detail-head{padding:12px;border-bottom:1px solid #e5e9f1;background:#fbfcfe;}
-  .wf-detail-body{height:calc(100% - 70px);overflow:auto;padding:12px;display:flex;flex-direction:column;gap:12px;}
+  .wf-detail-title{font-size:14px;font-weight:900;color:#111827;line-height:1.35;word-break:break-word;}
+  .wf-detail-subtitle{margin-top:3px;display:flex;gap:6px;flex-wrap:wrap;color:#64748b;font-size:11px;line-height:1.3;}
+  .wf-archive-strip{margin-top:8px;border:1px solid #bbf7d0;border-radius:7px;background:#f0fdf4;padding:8px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;}
+  .wf-archive-main{display:flex;align-items:center;gap:5px;color:#166534;font-size:12px;font-weight:900;}
+  .wf-archive-meta{color:#475569;font-size:11px;line-height:1.35;min-width:0;word-break:break-word;}
+  .wf-detail-body{flex:1;min-height:0;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:12px;}
   .wf-detail-body .wf-section:nth-of-type(1){order:2;}
   .wf-detail-body .wf-section:nth-of-type(2){order:3;}
   .wf-detail-body .wf-section:nth-of-type(3){order:1;}
@@ -398,7 +403,12 @@
       <template x-if="detail && detail.job">
         <div style="height:100%;display:flex;flex-direction:column;">
           <div class="wf-detail-head">
-            <input class="wf-input" style="width:100%;font-size:14px;font-weight:800;" x-model="detail.job.title">
+            <div class="wf-detail-title" x-text="detail.job.title || '워크플로우 작업'"></div>
+            <div class="wf-detail-subtitle">
+              <span x-text="detail.job.companyName || '-'"></span>
+              <span>·</span>
+              <span x-text="detail.job.projectName || '-'"></span>
+            </div>
             <div style="display:flex;gap:6px;margin-top:8px;">
               <select class="wf-select" x-model="detail.job.priority">
                 <option value="urgent">긴급</option>
@@ -418,6 +428,19 @@
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
               <span class="wf-chip" :class="detail.job.canComplete ? 'ready' : 'not_ready'" x-text="completionBlockerText(detail.job)"></span>
+            </div>
+            <div class="wf-archive-strip" x-show="detail.job.status === 'done'" x-cloak>
+              <div>
+                <div class="wf-archive-main">
+                  <span class="material-symbols-outlined" style="font-size:16px;">inventory_2</span>
+                  <span>완료 보관함</span>
+                </div>
+                <div class="wf-archive-meta" x-text="archiveSummaryText(detail.job)"></div>
+              </div>
+              <div style="display:flex;gap:5px;flex-wrap:wrap;">
+                <a class="wf-btn" x-show="Number(detail.job.archiveFileCount || 0)" :href="detail.job.archiveUrl || jobArchiveUrl()">보관 묶음</a>
+                <button class="wf-btn" x-show="Number(detail.job.archiveFileCount || 0) && factoryArchiveUrl()" @click="copyFactoryArchiveLink()">공장 링크</button>
+              </div>
             </div>
           </div>
 

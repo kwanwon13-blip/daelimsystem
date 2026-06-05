@@ -1893,6 +1893,19 @@ function workflowApp() {
       return m ? m[1].toUpperCase().slice(0, 5) : 'FILE';
     },
 
+    archiveSummaryText(job) {
+      if (!job) return '';
+      const parts = [];
+      const at = this.eventTime(job.completedAt || job.archiveUpdatedAt || job.updatedAt || '');
+      const who = String(job.completedByName || '').trim();
+      if (at) parts.push((who ? who + ' · ' : '') + at + ' 완료');
+      const count = Number(job.archiveFileCount || 0);
+      parts.push(count ? `파일 ${count}개` : '보관 파일 없음');
+      const storage = String(job.archiveStorageBucket || job.storageBucket || '').trim();
+      if (storage) parts.push(storage);
+      return parts.join(' · ');
+    },
+
     jobArchiveUrl() {
       if (!this.detail || !this.detail.job) return '#';
       const qs = new URLSearchParams();

@@ -1583,6 +1583,8 @@ function decorateJob(data, job, viewerUser = null) {
   const events = data.events.filter(e => e.jobId === job.id);
   const orderSummary = buildOrderSummary(data, job);
   const blockers = completionBlockers(data, job);
+  const storedArchiveCount = Number(job.archiveFileCount);
+  const archiveFileCount = Number.isFinite(storedArchiveCount) ? storedArchiveCount : files.length;
   const visualFiles = files.filter(f => isImageFile(f) && workflowFileExists(f));
   const primaryVisualFile = visualFiles
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0] || null;
@@ -1594,7 +1596,12 @@ function decorateJob(data, job, viewerUser = null) {
     externalOrderCount: orderSummary.external,
     visualFileCount: visualFiles.length,
     urgentFileCount: files.filter(f => f.urgent && (!f.scheduleNegotiation || f.scheduleNegotiation === 'pending' || f.scheduleNegotiation === 'needs_change')).length,
+    archiveUrl: `/api/workflow/jobs/${encodeURIComponent(job.id)}/files/archive`,
     publicArchiveUrl: job.publicToken ? `/api/workflow/public/jobs/${encodeURIComponent(job.publicToken)}/files.zip` : '',
+    archiveFileCount,
+    archiveStatus: job.archiveStatus || (job.status === 'done' ? 'ready' : ''),
+    archiveUpdatedAt: job.archiveUpdatedAt || job.completedAt || '',
+    archiveStorageBucket: job.archiveStorageBucket || job.storageBucket || '',
     primaryVisualFile: primaryVisualFile ? {
       id: primaryVisualFile.id,
       originalName: primaryVisualFile.originalName || '',
@@ -1618,6 +1625,8 @@ function decorateJob(data, job, viewerUser = null) {
     changeRequestCount: changeRequestCount(data, job),
     canComplete: blockers.length === 0,
     completionBlockers: blockers,
+    completedAt: job.completedAt || '',
+    completedByName: job.completedByName || '',
     overdue: isOverdueJob(job),
     nextStageDue: nextStageDue(job),
     latestFileAt: files.reduce((max, f) => !max || f.createdAt > max ? f.createdAt : max, ''),
@@ -1884,6 +1893,37 @@ async function buildJobArchive(data, job, filters = {}) {
   const files = jobArchiveFiles(data, job, filters);
   const suffix = [stageId, kind].filter(Boolean).join('_') || 'all';
   return buildArchiveFromFiles(job, files, { stageId, kind }, suffix);
+}
+
+function completeWorkflowJob(data, req, job, at = nowIso()) {
+  const firstComplete = !job.completedAt;
+  const files = jobArchiveFiles(data, job, {});
+  job.status = 'done';
+  job.completedAt = job.completedAt || at;
+  job.completedBy = job.completedBy || req.user?.userId || '';
+  job.completedByName = job.completedByName || userName(req);
+  job.archiveStatus = 'ready';
+  job.archiveUpdatedAt = at;
+  job.archiveFileCount = files.length;
+  job.archiveStorageBucket = job.storageBucket || '';
+  job.currentStage = 'delivery';
+  if (firstComplete) {
+    addEvent(data, req, job.id, 'complete', '완료 보관함 저장', {
+      archiveFileCount: files.length,
+      archiveStorageBucket: job.archiveStorageBucket,
+    });
+  }
+  return files.length;
+}
+
+function clearWorkflowCompletion(job) {
+  job.completedAt = '';
+  job.completedBy = '';
+  job.completedByName = '';
+  job.archiveStatus = '';
+  job.archiveUpdatedAt = '';
+  job.archiveFileCount = 0;
+  job.archiveStorageBucket = '';
 }
 
 function sendWorkflowFile(res, file, inline = false, publicCache = false) {
@@ -2254,6 +2294,7 @@ router.put('/jobs/:id', (req, res) => {
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
   const payload = normalizeJobPayload(req.body || {}, job);
+  const at = nowIso();
   if (payload.status === 'done') {
     const nextJob = { ...job, ...payload };
     const blockers = completionBlockers(data, nextJob);
@@ -2264,7 +2305,7 @@ router.put('/jobs/:id', (req, res) => {
       });
     }
   }
-  Object.assign(job, payload, { updatedAt: nowIso() });
+  Object.assign(job, payload, { updatedAt: at });
   let storageResult = { changed: false, info: null };
   try {
     storageResult = applyWorkflowDesignStorage(job);
@@ -2280,11 +2321,12 @@ router.put('/jobs/:id', (req, res) => {
     for (const stage of STAGES) {
       if (job.stageChecks[stage.id].status !== 'done') {
         job.stageChecks[stage.id].status = 'done';
-        job.stageChecks[stage.id].completedAt = job.stageChecks[stage.id].completedAt || nowIso();
+        job.stageChecks[stage.id].completedAt = job.stageChecks[stage.id].completedAt || at;
       }
     }
-    job.currentStage = 'delivery';
+    completeWorkflowJob(data, req, job, at);
   } else {
+    clearWorkflowCompletion(job);
     syncWorkflowStageFlow(job);
   }
   addEvent(data, req, job.id, 'update', storageResult.changed ? '작업 정보 수정 · 저장 폴더 자동 준비' : '작업 정보 수정');
@@ -2301,19 +2343,25 @@ router.post('/jobs/:id/stages/:stageId', (req, res) => {
   const check = job.stageChecks[stage.id];
   const previousStatus = check.status || 'pending';
   const nextStatus = ['pending', 'ready', 'done', 'blocked'].includes(req.body.status) ? req.body.status : check.status;
+  const at = nowIso();
   check.status = nextStatus;
   check.assignee = safeText(req.body.assignee, 80);
   check.dueDate = safeDate(req.body.dueDate);
   check.note = safeText(req.body.note, 1000);
   check.checklist = normalizeChecklist(stage.id, req.body.checklist);
-  check.updatedAt = nowIso();
-  if (nextStatus === 'done') check.completedAt = check.completedAt || nowIso();
+  check.updatedAt = at;
+  if (nextStatus === 'done') check.completedAt = check.completedAt || at;
   if (nextStatus !== 'done') check.completedAt = '';
   syncWorkflowStageFlow(job);
   const allStagesDone = Object.values(job.stageChecks).every(c => c.status === 'done');
   const blockers = completionBlockers(data, job);
   job.status = allStagesDone && blockers.length === 0 ? 'done' : (job.status === 'done' ? 'active' : job.status);
-  job.updatedAt = nowIso();
+  job.updatedAt = at;
+  if (job.status === 'done') {
+    completeWorkflowJob(data, req, job, at);
+  } else {
+    clearWorkflowCompletion(job);
+  }
   const targetStageIds = previousStatus !== nextStatus ? stageStatusNotifyTargets(job, stage.id, nextStatus) : [];
   addEvent(data, req, job.id, 'stage', `${stage.label} ${CHECK_STATUS_LABELS[nextStatus] || nextStatus}`, {
     stageId: stage.id,
@@ -2407,6 +2455,7 @@ router.post('/jobs/:id/handoff', (req, res) => {
       fromStageId: current.id,
       toStageId: '',
     });
+    completeWorkflowJob(data, req, job, at);
   }
 
   job.updatedAt = at;
