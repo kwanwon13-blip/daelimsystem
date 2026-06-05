@@ -1454,6 +1454,10 @@ function workflowApp() {
       return type === 'external' ? '외주/업체' : '우리공장';
     },
 
+    orderFormIsExternal() {
+      return this.orderForm.targetType === 'external' || this.orderForm.deliveryMethod === 'email';
+    },
+
     currentOrderFileIds() {
       return this.filteredFiles().map(file => file.id).filter(Boolean);
     },
@@ -1470,7 +1474,7 @@ function workflowApp() {
       const fileIds = this.currentOrderFileIds();
       if (!fileIds.length) return alert('전달할 파일이 없습니다.');
       if (!String(this.orderForm.targetName || '').trim()) return alert('전달 대상을 입력하세요.');
-      const isExternal = this.orderForm.targetType === 'external' || this.orderForm.deliveryMethod === 'email';
+      const isExternal = this.orderFormIsExternal();
       const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

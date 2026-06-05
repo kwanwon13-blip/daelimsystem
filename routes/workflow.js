@@ -132,7 +132,7 @@ function buildWorkflowOrderTargets() {
   for (const vendor of vendorListForWorkflowTargets()) {
     const label = safeText(vendor.name, 120);
     const email = normalizeEmailList(vendor.email || '')[0] || '';
-    if (!label || !email) continue;
+    if (!label) continue;
     const key = label.toLowerCase();
     const existing = byLabel.get(key);
     if (existing) {

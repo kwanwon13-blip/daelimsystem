@@ -792,6 +792,7 @@
                     <input class="wf-input" x-model="orderForm.targetName" placeholder="전달 대상">
                     <input class="wf-input" type="date" x-model="orderForm.dueDate" title="희망 납기">
                   </div>
+                  <input class="wf-input" x-show="orderFormIsExternal()" x-cloak x-model="orderForm.recipientEmail" placeholder="받는 이메일 · 비어 있으면 메일 발송 때 입력">
                   <textarea class="wf-textarea" x-model="orderForm.note" placeholder="제작 요청 메모"></textarea>
                   <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
                     <span class="wf-muted" x-text="'현재 표시 파일 ' + currentOrderFileIds().length + '건 전달'"></span>
