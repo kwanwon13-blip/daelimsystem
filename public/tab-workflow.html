@@ -16,7 +16,6 @@
   .wf-btn:disabled{opacity:.5;cursor:not-allowed;}
   .wf-summary{display:flex;align-items:center;gap:10px;min-height:34px;padding:6px 12px;border-bottom:1px solid #e5e9f1;background:#fff;overflow:auto;}
   .wf-metric{border-right:1px solid #e5e9f1;padding:0 10px 0 0;background:transparent;min-width:max-content;display:inline-flex;align-items:center;gap:4px;}
-  .wf-metric:nth-child(6),.wf-metric:nth-child(8){display:none;}
   .wf-metric:last-child{border-right:none;}
   .wf-metric strong{display:inline;font-size:13px;line-height:1;color:#111827;}
   .wf-metric span{display:inline;font-size:11px;color:#64748b;margin:0;}
@@ -104,6 +103,8 @@
   .wf-proof-thumb:hover img{transform:scale(1.02);}
   .wf-proof-badge{position:absolute;top:7px;left:7px;height:20px;border-radius:999px;background:rgba(15,23,42,.82);color:#fff;font-size:10px;font-weight:800;padding:3px 7px;}
   .wf-proof-info{padding:8px;display:flex;flex-direction:column;gap:6px;}
+  .wf-proof-meta{display:none;}
+  .wf-proof-card.active .wf-proof-meta,.wf-file-card.active .wf-proof-meta{display:block;}
   .wf-file-card{display:grid;grid-template-columns:48px minmax(0,1fr);gap:8px;align-items:center;padding:8px;}
   .wf-file-icon{height:48px;border-radius:8px;background:#f1f5f9;color:#475569;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;border:1px solid #e2e8f0;}
   .wf-file-icon.ai{background:#111827;color:#fff;border-color:#111827;}
@@ -216,31 +217,31 @@
           <strong x-text="summary.active || 0"></strong>
           <span>진행 작업</span>
         </div>
-        <div class="wf-metric action">
+        <div class="wf-metric action" x-show="summary.myActions > 0">
           <strong x-text="summary.myActions || 0"></strong>
           <span>내 담당</span>
         </div>
-        <div class="wf-metric warn">
+        <div class="wf-metric warn" x-show="summary.overdue > 0">
           <strong x-text="summary.overdue || 0"></strong>
           <span>일정 지연</span>
         </div>
-        <div class="wf-metric warn">
+        <div class="wf-metric warn" x-show="summary.blocked > 0">
           <strong x-text="summary.blocked || 0"></strong>
           <span>막힘 체크</span>
         </div>
-        <div class="wf-metric warn">
+        <div class="wf-metric warn" x-show="summary.changeRequests > 0">
           <strong x-text="summary.changeRequests || 0"></strong>
           <span>수정요청</span>
         </div>
-        <div class="wf-metric action">
+        <div class="wf-metric action" x-show="summary.readyToComplete > 0">
           <strong x-text="summary.readyToComplete || 0"></strong>
           <span>완료 가능</span>
         </div>
-        <div class="wf-metric action">
+        <div class="wf-metric action" x-show="summary.unreadFiles > 0">
           <strong x-text="summary.unreadFiles || 0"></strong>
           <span>확인 필요 파일</span>
         </div>
-        <div class="wf-metric" :class="summary.scheduleOverdue ? 'warn' : 'action'">
+        <div class="wf-metric" x-show="summary.scheduleCount > 0" :class="summary.scheduleOverdue ? 'warn' : 'action'">
           <strong x-text="summary.scheduleCount || 0"></strong>
           <span>이번주 일정</span>
         </div>
@@ -564,7 +565,7 @@
                       </button>
                       <div class="wf-proof-info">
                         <div class="wf-file-name" x-text="file.originalName"></div>
-                        <div class="wf-muted">
+                        <div class="wf-muted wf-proof-meta">
                           <span x-text="stageLabel(file.stageId)"></span>
                           <span> · v</span><span x-text="file.version"></span>
                           <span> · </span><span x-text="file.uploadedByName"></span>
@@ -633,7 +634,7 @@
                       <div class="wf-file-icon" :class="file.isAi ? 'ai' : ''" x-text="fileTypeLabel(file)"></div>
                       <div style="min-width:0;display:flex;flex-direction:column;gap:5px;">
                         <div class="wf-file-name" x-text="file.originalName"></div>
-                        <div class="wf-muted">
+                        <div class="wf-muted wf-proof-meta">
                           <span x-text="stageLabel(file.stageId)"></span>
                           <span> · </span><span x-text="fileKindLabel(file.kind)"></span>
                           <span> · v</span><span x-text="file.version"></span>
