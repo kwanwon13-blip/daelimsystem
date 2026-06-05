@@ -1425,6 +1425,11 @@ function buildScheduleItems(data, req) {
   function pushItem(job, item) {
     const dueDate = safeDate(item.dueDate);
     if (!dueDate || !isScheduleVisible(dueDate, endDate)) return;
+    if (!isWorkflowAdmin(req)) {
+      const stageId = safeText(item.stageId, 30);
+      const mine = stageId ? viewerMatchesStageTarget(job, stageId, req.user) || isUserJob(job, req) : isUserJob(job, req);
+      if (!mine) return;
+    }
     items.push({
       id: `${job.id}:${item.kind}:${item.stageId || 'job'}:${dueDate}`,
       jobId: job.id,
@@ -1568,6 +1573,10 @@ function userMatchTokens(req) {
   return [req.user?.userId, req.user?.name]
     .map(v => String(v || '').trim().toLowerCase())
     .filter(Boolean);
+}
+
+function isWorkflowAdmin(req) {
+  return req?.user?.role === 'admin';
 }
 
 function textMatchesToken(text, tokens) {
@@ -1724,6 +1733,12 @@ function buildSummary(data, req) {
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
   const urgentFiles = data.files
     .filter(f => f.urgent && (!f.scheduleNegotiation || f.scheduleNegotiation === 'pending' || f.scheduleNegotiation === 'needs_change'))
+    .filter(f => {
+      const job = data.jobs.find(j => j.id === f.jobId);
+      if (!job || ['done', 'cancelled'].includes(job.status || 'active')) return false;
+      if (isWorkflowAdmin(req)) return true;
+      return isTargetViewer(f, req.user, job) || isUserJob(job, req);
+    })
     .map(file => {
       const job = data.jobs.find(j => j.id === file.jobId);
       return {
