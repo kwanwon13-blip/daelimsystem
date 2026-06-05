@@ -1943,6 +1943,8 @@ function decorateJob(data, job, viewerUser = null) {
   const events = data.events.filter(e => e.jobId === job.id);
   const orderSummary = buildOrderSummary(data, job);
   const blockers = completionBlockers(data, job);
+  const unreadFileCount = files.filter(f => isUnreadForViewer(f, viewerUser, job)).length;
+  const unreadEventCount = events.filter(e => isUnreadEventForViewer(e, viewerUser, job)).length;
   const storedArchiveCount = Number(job.archiveFileCount);
   const archiveFileCount = Number.isFinite(storedArchiveCount) ? storedArchiveCount : files.length;
   const visualFiles = files.filter(f => isImageFile(f) && workflowFileExists(f));
@@ -1975,7 +1977,9 @@ function decorateJob(data, job, viewerUser = null) {
       urgent: !!primaryVisualFile.urgent,
       scheduleNegotiation: primaryVisualFile.scheduleNegotiation || 'pending',
     } : null,
-    unreadFileCount: files.filter(f => isUnreadForViewer(f, viewerUser, job)).length,
+    unreadFileCount,
+    unreadEventCount,
+    unreadCount: unreadFileCount + unreadEventCount,
     activeStageIds: activeStageIds(job),
     pendingStageCount: pendingStageCount(job),
     pendingChecklistCount: pendingChecklistCount(job),
@@ -2634,7 +2638,7 @@ router.get('/jobs', (req, res) => {
   if (scope === 'mine') {
     jobs = jobs.filter(j => isUserJob(j, req));
   } else if (scope === 'unread') {
-    jobs = jobs.filter(j => decorateJob(data, j, req.user).unreadFileCount > 0);
+    jobs = jobs.filter(j => decorateJob(data, j, req.user).unreadCount > 0);
   } else if (scope === 'risk') {
     jobs = jobs.filter(j => isOverdueJob(j) || overdueStageCount(j) > 0 || blockedStageCount(j) > 0 || changeRequestCount(data, j) > 0);
   }
@@ -3013,11 +3017,14 @@ router.put('/jobs/:id/orders/:orderId', (req, res) => {
     updatedByName: userName(req),
   });
   job.updatedAt = nowIso();
+  const targetStageIds = orderTargetStageIds(order);
   addEvent(data, req, job.id, 'order_update', `제작 파일 전달 ${ORDER_STATUS_LABELS[order.status] || order.status} · ${order.targetName}`, {
     orderId: order.id,
     targetName: order.targetName,
     status: order.status,
     previousStatus: beforeStatus,
+    eventTargetLabel: stageTargetLabels(job, targetStageIds).join(', '),
+    targetStageIds,
   });
   saveStore(data);
   res.json({
