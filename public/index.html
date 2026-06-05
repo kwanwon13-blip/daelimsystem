@@ -7917,7 +7917,8 @@ function app() {
           const unreadEvents = Number(s.unreadEvents || 0);
           const overdueSchedules = Number(s.scheduleOverdue || 0);
           const urgentFiles = Number(s.urgentFiles || 0);
-          const count = unreadFiles + unreadEvents + overdueSchedules + urgentFiles;
+          const lateSchedules = Number(s.lateSchedules || 0);
+          const count = unreadFiles + unreadEvents + overdueSchedules + urgentFiles + lateSchedules;
           if (count > this._notifLastWorkflow && this._notifLastWorkflow >= 0 && this.currentTab !== 'workflow') {
             const unreadFileItems = Array.isArray(s.unreadFileItems) ? s.unreadFileItems : [];
             const unreadEventItems = Array.isArray(s.unreadEventItems) ? s.unreadEventItems : [];
@@ -7933,6 +7934,7 @@ function app() {
             if (unreadEvents) parts.push(`메모 ${unreadEvents}건`);
             if (urgentFiles) parts.push(`긴급시안 ${urgentFiles}건`);
             if (overdueSchedules) parts.push(`지연일정 ${overdueSchedules}건`);
+            if (lateSchedules) parts.push(`가능일 지연 ${lateSchedules}건`);
             const msg = parts.length ? parts.join(', ') : `확인 ${count}건`;
             this.showToast('워크플로우 확인 필요: ' + msg, 'info');
             clearTimeout(this.workflowNotif._timer);

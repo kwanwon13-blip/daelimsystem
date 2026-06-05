@@ -470,6 +470,17 @@ function workflowApp() {
       return this.summary?.scheduleItems || [];
     },
 
+    workflowEventFocusLabel(event = {}) {
+      const type = event.type || '';
+      if (type === 'order_public_reply') return '전달 회신';
+      if (type === 'order_public_download') return '다운로드';
+      if (type === 'order_public_view') return '열람';
+      if (type === 'file_schedule') return '일정';
+      if (type === 'review') return '검토';
+      if (type === 'handoff' || type === 'stage') return '전달';
+      return '메모';
+    },
+
     workflowFocusItems() {
       const items = [];
       const push = (kind, label, title, meta, source, level = 'info') => {
@@ -501,7 +512,7 @@ function workflowApp() {
         push('action', item.overdue || item.lateScheduleCount ? '위험' : '내 담당', item.title, `${item.stageLabel || ''}${item.dueDate ? ' · ' + item.dueDate : ''}`, item, risky ? 'urgent' : 'info');
       });
       this.unreadEventItems().slice(0, 2).forEach(item => {
-        push('event', '메모', item.message, `${item.jobTitle || '-'}${item.actorName ? ' · ' + item.actorName : ''}`, item, 'info');
+        push('event', this.workflowEventFocusLabel(item), item.message, `${item.jobTitle || '-'}${item.actorName ? ' · ' + item.actorName : ''}`, item, item.type === 'order_public_reply' ? 'warn' : 'info');
       });
       return items.slice(0, 8);
     },
