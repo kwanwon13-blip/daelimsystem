@@ -43,6 +43,7 @@ function workflowApp() {
     uploadUrgent: false,
     uploadDragOver: false,
     uploadOpen: false,
+    uploadProgress: { active: false, percent: 0, text: '' },
     fileStageFilter: 'all',
     fileKindFilter: 'all',
     filePreview: { open: false, file: null, zoom: 1, fit: true },
@@ -1493,13 +1494,39 @@ function workflowApp() {
       fd.append('targetUserName', '');
       fd.append('targetLabel', options.targetLabel || '');
       fd.append('targetLabelEncoded', encodeField(options.targetLabel || ''));
-      const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(jobId) + '/files', {
-        method: 'POST',
-        body: fd,
-      });
-      const d = await r.json();
-      if (!r.ok || !d.ok) throw new Error(d.error || '파일 업로드 실패');
-      return d;
+      this.uploadProgress = { active: true, percent: 0, text: `${list.length}개 파일 업로드 준비 중` };
+      try {
+        const d = await new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', '/api/workflow/jobs/' + encodeURIComponent(jobId) + '/files');
+          xhr.upload.onprogress = event => {
+            if (!event.lengthComputable) {
+              this.uploadProgress = { active: true, percent: 0, text: `${list.length}개 파일 업로드 중` };
+              return;
+            }
+            const percent = Math.max(1, Math.min(99, Math.round((event.loaded / event.total) * 100)));
+            this.uploadProgress = { active: true, percent, text: `${list.length}개 파일 업로드 중 · ${percent}%` };
+          };
+          xhr.onerror = () => reject(new Error('파일 업로드 중 네트워크 오류가 발생했습니다.'));
+          xhr.onload = () => {
+            let data = {};
+            try { data = JSON.parse(xhr.responseText || '{}'); }
+            catch (_) { data = {}; }
+            if (xhr.status < 200 || xhr.status >= 300 || !data.ok) {
+              reject(new Error(data.error || '파일 업로드 실패'));
+              return;
+            }
+            this.uploadProgress = { active: true, percent: 100, text: `${list.length}개 파일 업로드 완료` };
+            resolve(data);
+          };
+          xhr.send(fd);
+        });
+        return d;
+      } finally {
+        setTimeout(() => {
+          this.uploadProgress = { active: false, percent: 0, text: '' };
+        }, 900);
+      }
     },
 
     async uploadDroppedFiles(ev) {

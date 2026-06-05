@@ -38,12 +38,16 @@
   .wf-new{display:grid;grid-template-columns:minmax(170px,1.5fr) minmax(120px,.9fr) minmax(130px,1fr) minmax(120px,.75fr) minmax(120px,.7fr) auto;gap:8px;padding:10px 12px;border-bottom:1px solid #e5e9f1;background:#f8fafc;}
   .wf-creator{height:34px;display:flex;align-items:center;gap:5px;border:1px solid #e1e6ef;border-radius:6px;background:#fff;padding:0 9px;color:#475569;font-size:11px;font-weight:800;min-width:0;}
   .wf-creator span:last-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  .wf-columns{flex:1;min-height:0;display:grid;grid-template-columns:repeat(4,minmax(260px,1fr));overflow:auto;background:#eef2f7;}
-  .wf-col{min-width:260px;border-right:1px solid #dfe4ed;display:flex;flex-direction:column;}
+  .wf-columns{flex:1;min-height:0;display:flex;overflow:auto;background:#eef2f7;}
+  .wf-col{flex:1 0 300px;min-width:280px;border-right:1px solid #dfe4ed;display:flex;flex-direction:column;}
+  .wf-col.is-empty{flex:0 0 86px;min-width:86px;background:#f8fafc;}
   .wf-col:last-child{border-right:none;}
   .wf-col-head{height:42px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;background:#f8fafc;border-bottom:1px solid #dfe4ed;font-size:12px;font-weight:800;color:#374151;}
+  .wf-col.is-empty .wf-col-head{height:100%;flex-direction:column;justify-content:flex-start;gap:8px;padding:10px 6px;border-bottom:none;}
+  .wf-col.is-empty .wf-col-head > span:first-child{flex-direction:column;text-align:center;line-height:1.2;}
+  .wf-col.is-empty .wf-col-list{display:none;}
   .wf-col-list{padding:8px;display:flex;flex-direction:column;gap:6px;overflow:auto;}
-  .wf-card{border:1px solid #d8dee9;border-radius:8px;background:#fff;padding:7px 8px;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.04);transition:border-color .16s ease,box-shadow .16s ease,padding .16s ease;}
+  .wf-card{border:1px solid #d8dee9;border-radius:8px;background:#fff;padding:8px 9px;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.04);transition:border-color .16s ease,box-shadow .16s ease,padding .16s ease;}
   .wf-card.active{border-color:#2563eb;box-shadow:0 0 0 2px rgba(37,99,235,.12);padding:10px;}
   .wf-card-title{font-size:13px;font-weight:800;color:#111827;line-height:1.32;margin-bottom:4px;word-break:break-word;}
   .wf-card:not(.active) .wf-card-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -54,7 +58,8 @@
   .wf-card-extra{display:none;gap:5px;flex-wrap:wrap;margin-top:8px;}
   .wf-card.active .wf-card-extra{display:flex;}
   .wf-card:not(.active) .wf-chip{height:18px;padding:0 6px;font-size:10px;}
-  .wf-card-visual{position:relative;display:block;aspect-ratio:16/11;margin:-2px -3px 8px -3px;border-radius:6px;overflow:hidden;background:#e2e8f0;}
+  .wf-card:not(.active) .wf-card-visual{display:none!important;}
+  .wf-card-visual{position:relative;display:block;aspect-ratio:16/10;margin:-2px -3px 8px -3px;border-radius:6px;overflow:hidden;background:#e2e8f0;}
   .wf-card-visual img{width:100%;height:100%;object-fit:cover;display:block;}
   .wf-card-visual-label{position:absolute;left:6px;bottom:6px;height:19px;border-radius:999px;background:rgba(15,23,42,.82);color:#fff;font-size:10px;font-weight:900;padding:2px 7px;}
   .wf-card-visual-urgent{position:absolute;top:6px;left:6px;height:19px;border-radius:999px;background:#dc2626;color:#fff;font-size:10px;font-weight:900;padding:2px 7px;}
@@ -124,6 +129,10 @@
   .wf-dropzone.drag{border-color:#2563eb;background:#eff6ff;}
   .wf-dropzone strong{font-size:12px;color:#111827;}
   .wf-dropzone span{font-size:11px;color:#64748b;}
+  .wf-upload-progress{border:1px solid #bfdbfe;border-radius:7px;background:#eff6ff;padding:8px;display:flex;flex-direction:column;gap:6px;}
+  .wf-upload-progress-row{display:flex;justify-content:space-between;gap:10px;font-size:11px;font-weight:800;color:#1d4ed8;}
+  .wf-upload-progress-track{height:7px;border-radius:999px;background:#dbeafe;overflow:hidden;}
+  .wf-upload-progress-bar{height:100%;border-radius:999px;background:#2563eb;transition:width .18s ease;}
   .wf-modal-dropzone{min-height:96px;padding:12px;}
   .wf-new-file-list{display:flex;flex-direction:column;gap:6px;}
   .wf-new-file-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;border:1px solid #e1e6ef;border-radius:6px;background:#f8fafc;padding:6px 8px;}
@@ -323,7 +332,7 @@
 
       <div class="wf-columns">
         <template x-for="stage in stages" :key="stage.id">
-          <div class="wf-col">
+          <div class="wf-col" :class="jobsForStage(stage.id).length ? 'has-jobs' : 'is-empty'">
             <div class="wf-col-head">
               <span style="display:flex;align-items:center;gap:5px;">
                 <span class="material-symbols-outlined" style="font-size:16px;" x-text="stage.icon"></span>
@@ -538,6 +547,15 @@
                     <span class="wf-btn">파일 선택</span>
                     <input type="file" multiple style="display:none;" @change="uploadFiles($event)">
                   </label>
+                  <div class="wf-upload-progress" x-show="uploadProgress.active" x-cloak>
+                    <div class="wf-upload-progress-row">
+                      <span x-text="uploadProgress.text || '파일 업로드 중'"></span>
+                      <span x-text="(uploadProgress.percent || 0) + '%'"></span>
+                    </div>
+                    <div class="wf-upload-progress-track">
+                      <div class="wf-upload-progress-bar" :style="'width:' + (uploadProgress.percent || 0) + '%'"></div>
+                    </div>
+                  </div>
                   <div class="wf-delivery" x-show="deliverySummary().totalFiles">
                     <span class="wf-chip" x-text="'파일 ' + (deliverySummary().totalFiles || 0)"></span>
                     <span class="wf-chip unread" x-show="deliverySummary().targetPendingFiles" x-text="'수신대기 ' + deliverySummary().targetPendingFiles"></span>
@@ -946,6 +964,15 @@
                 <button class="wf-btn ghost" style="height:26px;padding:0 8px;" @click="removeNewFile(idx)">삭제</button>
               </div>
             </template>
+          </div>
+          <div class="wf-upload-progress" x-show="uploadProgress.active" x-cloak>
+            <div class="wf-upload-progress-row">
+              <span x-text="uploadProgress.text || '파일 업로드 중'"></span>
+              <span x-text="(uploadProgress.percent || 0) + '%'"></span>
+            </div>
+            <div class="wf-upload-progress-track">
+              <div class="wf-upload-progress-bar" :style="'width:' + (uploadProgress.percent || 0) + '%'"></div>
+            </div>
           </div>
         </div>
         <div class="wf-field">
