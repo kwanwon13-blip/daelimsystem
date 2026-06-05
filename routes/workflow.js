@@ -1183,6 +1183,11 @@ function orderStatusFromResponse(responseStatus) {
   return 'confirmed';
 }
 
+function orderTargetStageIds(order) {
+  if (!order) return [];
+  return order.targetType === 'internal' ? ['factory', 'management'] : ['management'];
+}
+
 function decoratePublicOrderFile(file) {
   return {
     id: file.id,
@@ -2245,6 +2250,7 @@ router.post('/jobs/:id/orders', (req, res) => {
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
   const payload = normalizeOrderPayload(req.body || {});
+  if (!Object.prototype.hasOwnProperty.call(req.body || {}, 'status')) payload.status = 'requested';
   const validFileIds = new Set(data.files.filter(f => f.jobId === job.id).map(f => f.id));
   payload.fileIds = payload.fileIds.filter(id => validFileIds.has(id));
   if (!payload.fileIds.length) return res.status(400).json({ error: '발주에 포함할 파일이 필요합니다.' });
@@ -2260,11 +2266,14 @@ router.post('/jobs/:id/orders', (req, res) => {
   };
   data.orders.push(order);
   job.updatedAt = nowIso();
+  const targetStageIds = orderTargetStageIds(order);
   addEvent(data, req, job.id, 'order', `발주 패키지 생성 · ${order.targetName} · 파일 ${order.fileIds.length}건`, {
     orderId: order.id,
     targetName: order.targetName,
     targetType: order.targetType,
     fileIds: order.fileIds,
+    eventTargetLabel: stageTargetLabels(job, targetStageIds).join(', '),
+    targetStageIds,
   });
   saveStore(data);
   res.json({

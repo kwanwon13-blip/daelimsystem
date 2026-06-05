@@ -1055,7 +1055,7 @@ function workflowApp() {
       const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...this.orderForm, fileIds }),
+        body: JSON.stringify({ ...this.orderForm, status: 'requested', fileIds }),
       });
       const d = await r.json();
       if (!r.ok || !d.ok) return alert(d.error || '발주 패키지 생성 실패');
