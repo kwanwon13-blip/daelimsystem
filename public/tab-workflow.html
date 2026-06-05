@@ -804,6 +804,7 @@
                           <span x-show="order.dueDate"> · 납기 </span><span x-show="order.dueDate" x-text="order.dueDate"></span>
                         </div>
                         <div class="wf-muted" x-show="order.fileNames && order.fileNames.length" x-text="order.fileNames.slice(0, 3).join(', ') + ((order.fileNames.length > 3) ? ' 외 ' + (order.fileNames.length - 3) + '건' : '')"></div>
+                        <div class="wf-muted" x-show="orderMailSentText(order)" x-text="orderMailSentText(order)"></div>
                         <div style="display:grid;grid-template-columns:1fr 120px;gap:6px;">
                           <select class="wf-select" x-model="order.status">
                             <template x-for="(label, status) in orderStatuses" :key="status">

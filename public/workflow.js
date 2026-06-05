@@ -1475,6 +1475,13 @@ function workflowApp() {
       return order && order.publicArchiveUrl ? order.publicArchiveUrl : '';
     },
 
+    orderMailSentText(order) {
+      if (!order || order.mailStatus !== 'sent') return '';
+      const at = order.mailSentAt ? this.eventTime(order.mailSentAt) : '';
+      const to = String(order.recipientEmail || order.mailTo || '').trim();
+      return ['메일', at, to].filter(Boolean).join(' · ');
+    },
+
     fileReviewLabel(status) {
       return ({ pending: '검토대기', approved: '승인', change_requested: '수정요청' })[status || 'pending'] || '검토대기';
     },
