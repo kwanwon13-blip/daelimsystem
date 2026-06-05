@@ -987,6 +987,118 @@ function workflowApp() {
       return name.replace(/\.[^.\\\/]{1,12}$/i, '').trim() || name;
     },
 
+    fileNameSearchText(files = []) {
+      return Array.from(files || [])
+        .filter(Boolean)
+        .slice(0, 6)
+        .map(file => this.fileTitlePart(file.name || file.originalName || ''))
+        .join(' ');
+    },
+
+    optionKeys(option = {}, fields = ['name']) {
+      if (typeof option === 'string') {
+        const key = this.normalizeOptionName(option);
+        return key && key.length >= 2 ? [key] : [];
+      }
+      return fields
+        .map(field => this.normalizeOptionName(option?.[field]))
+        .filter(key => key && key.length >= 2);
+    },
+
+    optionDisplayName(option) {
+      return typeof option === 'string' ? option : (option?.name || option?.projectName || '');
+    },
+
+    bestNameMatch(options = [], haystack = '', fields = ['name']) {
+      const hay = this.normalizeOptionName(haystack);
+      if (!hay) return null;
+      let best = null;
+      for (const option of options || []) {
+        const keys = this.optionKeys(option, fields);
+        const hit = keys
+          .filter(key => hay.includes(key))
+          .sort((a, b) => b.length - a.length)[0];
+        if (!hit) continue;
+        const score = hit.length * 1000 + Number(option?.projectCount || option?.activeJobCount || option?.count || 0);
+        if (!best || score > best.score) best = { option, score, key: hit };
+      }
+      return best?.option || null;
+    },
+
+    inferWorkflowTargetFromFiles(files = []) {
+      const text = this.fileNameSearchText(files);
+      if (!text) return {};
+      const companies = this.mergeWorkflowCompanies(
+        this.designWorkflowOptions.companies || [],
+        (this.workflowProjects || []).map(project => ({
+          name: project.companyName || '',
+          folderName: project.storageCompanyFolder || project.companyName || '',
+          projectCount: 1,
+        })),
+        (this.jobs || []).map(job => ({
+          name: job.companyName || '',
+          folderName: job.companyName || '',
+          projectCount: 1,
+        }))
+      );
+      const matchedCompany = this.bestNameMatch(companies, text, ['name', 'folderName']);
+      let companyName = matchedCompany?.name || '';
+      let projectName = '';
+      const projectPool = companyName
+        ? [
+            ...this.workflowProjectOptionsForCompany(companyName, true),
+            ...this.projectOptionsForCompany(companyName),
+          ]
+        : (this.workflowProjects || []).map(project => ({
+            name: project.projectName || '',
+            folderName: project.storageProjectFolder || project.projectName || '',
+            companyName: project.companyName || '',
+            activeJobCount: Number(project.activeJobCount || 0),
+          }));
+      const matchedProject = this.bestNameMatch(projectPool, text, ['name', 'folderName']);
+      if (matchedProject) {
+        projectName = this.optionDisplayName(matchedProject);
+        if (!companyName && matchedProject.companyName) companyName = matchedProject.companyName;
+      }
+      return { companyName, projectName };
+    },
+
+    applyFileGuessToNewForm(files = this.newFiles) {
+      const guess = this.inferWorkflowTargetFromFiles(files);
+      if (guess.companyName && !String(this.form.companyName || '').trim()) {
+        this.form.companyName = guess.companyName;
+      }
+      if (!guess.projectName && String(this.form.companyName || '').trim()) {
+        const matched = this.bestNameMatch([
+          ...this.workflowProjectOptionsForCompany(this.form.companyName, true),
+          ...this.projectOptionsForCompany(this.form.companyName),
+        ], this.fileNameSearchText(files), ['name', 'folderName']);
+        if (matched) guess.projectName = this.optionDisplayName(matched);
+      }
+      if (guess.projectName && !String(this.form.projectName || '').trim()) {
+        this.form.projectName = guess.projectName;
+      }
+      if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
+    },
+
+    applyFileGuessToUpload(files = []) {
+      const guess = this.inferWorkflowTargetFromFiles(files);
+      if (guess.companyName && !String(this.uploadCompanyName || '').trim()) {
+        this.uploadCompanyName = guess.companyName;
+      }
+      if (!guess.projectName && String(this.uploadCompanyName || '').trim()) {
+        const matched = this.bestNameMatch([
+          ...this.workflowProjectOptionsForCompany(this.uploadCompanyName, true),
+          ...this.projectOptionsForCompany(this.uploadCompanyName),
+        ], this.fileNameSearchText(files), ['name', 'folderName']);
+        if (matched) guess.projectName = this.optionDisplayName(matched);
+      }
+      if (guess.projectName && !String(this.uploadProjectName || '').trim()) {
+        this.uploadProjectName = guess.projectName;
+      }
+      if (!this.uploadDesignDueDate) this.uploadDesignDueDate = this.defaultWorkDate();
+    },
+
     autoJobTitle(files = this.newFiles, form = this.form) {
       const list = Array.from(files || []).filter(Boolean);
       if (list.length) {
@@ -1032,6 +1144,7 @@ function workflowApp() {
           seen.add(key);
         }
       }
+      this.applyFileGuessToNewForm(this.newFiles);
       this.syncAutoJobTitle();
     },
 
@@ -1589,6 +1702,7 @@ function workflowApp() {
     async uploadFiles(ev) {
       const files = ev?.target?.files || ev?.dataTransfer?.files || ev;
       if (!this.detail || !files || !files.length) return;
+      this.applyFileGuessToUpload(files);
       const storageCompanyName = String(this.uploadCompanyName || this.detail.job.companyName || '').trim();
       const storageProjectName = String(this.uploadProjectName || this.detail.job.projectName || this.detail.job.title || '').trim();
       if (!storageCompanyName || !storageProjectName) {
