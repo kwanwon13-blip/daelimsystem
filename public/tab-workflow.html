@@ -266,9 +266,9 @@
           <strong x-text="summary.readyToComplete || 0"></strong>
           <span>완료 가능</span>
         </div>
-        <div class="wf-metric action" x-show="summary.unreadFiles > 0">
-          <strong x-text="summary.unreadFiles || 0"></strong>
-          <span>확인 필요 파일</span>
+        <div class="wf-metric action" x-show="(summary.unreadTotal || summary.unreadFiles || summary.unreadEvents || 0) > 0">
+          <strong x-text="summary.unreadTotal || ((summary.unreadFiles || 0) + (summary.unreadEvents || 0))"></strong>
+          <span>확인 필요</span>
         </div>
         <div class="wf-metric" x-show="summary.scheduleCount > 0" :class="summary.scheduleOverdue ? 'warn' : 'action'">
           <strong x-text="summary.scheduleCount || 0"></strong>

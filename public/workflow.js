@@ -9,7 +9,7 @@ function workflowApp() {
     orderTargets: [],
     orderStatuses: {},
     uploadLimits: { files: 20, fileSize: 100 * 1024 * 1024 },
-    summary: { active: 0, overdue: 0, blocked: 0, unreadFiles: 0, unreadEvents: 0, scheduleCount: 0, myActions: 0, byStage: {} },
+    summary: { active: 0, overdue: 0, blocked: 0, unreadTotal: 0, unreadFiles: 0, unreadEvents: 0, scheduleCount: 0, myActions: 0, byStage: {} },
     selectedId: '',
     selectedWorkStageId: '',
     detail: null,

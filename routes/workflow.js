@@ -2123,6 +2123,7 @@ function buildSummary(data, req) {
     blocked: activeJobs.reduce((sum, job) => sum + blockedStageCount(job), 0),
     changeRequests,
     lateSchedules,
+    unreadTotal: unreadFiles.length + unreadEvents.length,
     unreadFiles: unreadFiles.length,
     unreadFileItems: unreadFiles.slice(0, 8),
     unreadEvents: unreadEvents.length,
