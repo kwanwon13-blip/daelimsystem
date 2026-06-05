@@ -619,7 +619,7 @@
                         <span class="wf-proof-badge" x-text="fileKindLabel(file.kind)"></span>
                       </button>
                       <div class="wf-proof-info">
-                        <div class="wf-file-name" x-text="file.originalName"></div>
+                        <div class="wf-file-name" x-text="file.originalName" :title="fileStorageTitle(file)"></div>
                         <div class="wf-muted wf-proof-meta">
                           <span x-text="stageLabel(file.stageId)"></span>
                           <span> · v</span><span x-text="file.version"></span>
@@ -688,7 +688,7 @@
                     <article class="wf-file-card" :data-workflow-file-id="file.id" :class="[(isUnreadFile(file) ? 'unread' : ''), (file.urgent ? 'urgent' : ''), (expandedFileId === file.id ? 'active' : '')]">
                       <div class="wf-file-icon" :class="file.isAi ? 'ai' : ''" x-text="fileTypeLabel(file)"></div>
                       <div style="min-width:0;display:flex;flex-direction:column;gap:5px;">
-                        <div class="wf-file-name" x-text="file.originalName"></div>
+                        <div class="wf-file-name" x-text="file.originalName" :title="fileStorageTitle(file)"></div>
                         <div class="wf-muted wf-proof-meta">
                           <span x-text="stageLabel(file.stageId)"></span>
                           <span> · </span><span x-text="fileKindLabel(file.kind)"></span>

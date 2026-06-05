@@ -1212,6 +1212,8 @@ function hasTargetRead(file, job = null) {
 function decorateWorkflowFile(file, viewerUser, job = null) {
   const exists = workflowFileExists(file);
   const image = isImageFile(file);
+  const originalSafeName = safeStoredFileName(file.originalName || file.storedName || file.id || 'file');
+  const storedName = String(file.storedName || '').trim();
   const publicDownloadUrl = exists && file.publicToken ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/download` : '';
   const publicPreviewUrl = exists && file.publicToken && image ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/preview` : '';
   const publicThumbUrl = exists && file.publicToken && image ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/thumb` : '';
@@ -1221,6 +1223,7 @@ function decorateWorkflowFile(file, viewerUser, job = null) {
     missing: !exists,
     isImage: image,
     isAi: isAiFile(file),
+    storedNameChanged: !!(storedName && originalSafeName && storedName !== originalSafeName),
     previewUrl: exists && image ? `/api/workflow/files/${encodeURIComponent(file.id)}/preview` : '',
     thumbUrl: exists && image ? `/api/workflow/files/${encodeURIComponent(file.id)}/thumb` : '',
     downloadUrl: exists ? `/api/workflow/files/${encodeURIComponent(file.id)}/download` : '',
@@ -2223,16 +2226,10 @@ async function sendWorkflowThumb(res, file, publicCache = false) {
       res.type('image/jpeg').sendFile(thumbPath);
       return true;
     } catch (_) {
-      // Fall back below for small images.
+      // Fall back below. It is better to show the real image than an empty tile.
     }
   }
-  try {
-    const stat = fs.statSync(full);
-    if (stat.size > 5 * 1024 * 1024) {
-      res.status(204).end();
-      return true;
-    }
-  } catch (_) {}
+  res.setHeader('X-Workflow-Thumb-Fallback', 'original');
   res.type(file.mime || 'image/jpeg').sendFile(full);
   return true;
 }

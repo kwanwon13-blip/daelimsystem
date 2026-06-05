@@ -2104,6 +2104,14 @@ function workflowApp() {
       }
     },
 
+    fileStorageTitle(file) {
+      if (!file) return '';
+      const parts = [file.originalName || 'file'];
+      if (file.storedNameChanged && file.storedName) parts.push('저장명: ' + file.storedName);
+      if (file.storageBucket) parts.push('저장경로: ' + file.storageBucket);
+      return parts.join('\n');
+    },
+
     openFilePreview(file) {
       if (!file || !file.isImage) return;
       this.filePreview = { open: true, file, zoom: 1, fit: true };
