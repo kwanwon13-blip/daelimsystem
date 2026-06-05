@@ -228,6 +228,15 @@
       font-size: 12px;
       line-height: 1.5;
     }
+    .file-response {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      align-items: center;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
     .file-actions {
       display: flex;
       gap: 6px;
@@ -454,10 +463,30 @@
       return 'chip';
     }
 
+    function responseClass(status) {
+      if (status === 'confirmed' || status === 'possible') return 'chip green';
+      if (status === 'needs_change') return 'chip amber';
+      return 'chip';
+    }
+
+    function responseLabel(status) {
+      const labels = state.data?.responseLabels || {};
+      return labels[status] || (status === 'possible' ? '가능' : status === 'needs_change' ? '조정요청' : status === 'confirmed' ? '확정' : '일정확인');
+    }
+
     function fileResponseStatus(file, order) {
       const status = file.scheduleNegotiation || order.responseStatus || 'possible';
       if (status === 'pending') return 'possible';
       return status;
+    }
+
+    function fileResponseText(file, order) {
+      const availableDate = file.factoryAvailableDate || order.responseAvailableDate || '';
+      const note = file.factoryScheduleNote || '';
+      return [
+        availableDate ? `가능일 ${availableDate}` : '',
+        note,
+      ].filter(Boolean).join(' · ') || '가능일 협의';
     }
 
     function openViewer(src) {
@@ -510,6 +539,16 @@
       const meta = document.createElement('div');
       meta.className = 'file-meta';
       meta.textContent = `${labelKind(file)} · v${file.version || 1} · 희망 ${formatDate(file.designDueDate)} · 공장 ${formatDate(file.factoryAvailableDate)}`;
+      const order = state.data?.order || {};
+      const responseStatus = fileResponseStatus(file, order);
+      const response = document.createElement('div');
+      response.className = 'file-response';
+      const responseChip = document.createElement('span');
+      responseChip.className = responseClass(responseStatus);
+      responseChip.textContent = responseLabel(responseStatus);
+      const responseText = document.createElement('span');
+      responseText.textContent = fileResponseText(file, order);
+      response.append(responseChip, responseText);
       const actions = document.createElement('div');
       actions.className = 'file-actions';
       const down = document.createElement('a');
@@ -540,7 +579,6 @@
       if (state.fileSchedulesOpen) schedule.classList.add('open');
       schedule.dataset.fileResponse = '1';
       schedule.dataset.fileId = file.id || '';
-      const order = state.data?.order || {};
       schedule.innerHTML =
         '<label>회신' +
           '<select data-field="responseStatus">' +
@@ -557,7 +595,7 @@
       schedule.querySelector('[data-field="responseAvailableDate"]').value = file.factoryAvailableDate || file.designDueDate || order.responseAvailableDate || order.dueDate || '';
       schedule.querySelector('[data-field="responseNote"]').value = file.factoryScheduleNote || '';
 
-      body.append(name, meta, actions, schedule);
+      body.append(name, meta, response, actions, schedule);
       card.append(thumb, body);
       return card;
     }
