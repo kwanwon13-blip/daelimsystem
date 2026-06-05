@@ -8,9 +8,11 @@ const { requireAuth, requireAdmin } = require('../middleware/auth');
 const db = require('../db');
 const { notify } = require('../utils/notify');
 const designModule = require('./design');
+const mailRoute = require('./mail');
 const { isPathInside } = require('./lib/design-workflow-storage');
 let sharp;
 try { sharp = require('sharp'); } catch (_) {}
+const { sendSmtpMail, normalizeEmailList } = mailRoute;
 
 const router = express.Router();
 
@@ -20,6 +22,7 @@ const FILE_DIR = path.join(DATA_DIR, 'workflow-files');
 const THUMB_DIR = path.join(DATA_DIR, 'workflow-thumbs');
 const MAX_WORKFLOW_UPLOAD_FILES = 20;
 const MAX_WORKFLOW_UPLOAD_FILE_SIZE = 100 * 1024 * 1024;
+const MAX_WORKFLOW_MAIL_ATTACH_BYTES = 24 * 1024 * 1024;
 
 const STAGES = [
   { id: 'design', label: '디자인팀', icon: 'design_services' },
@@ -72,13 +75,18 @@ const SCHEDULE_NEGOTIATION_LABELS = {
 };
 
 const ORDER_TARGETS = [
-  { id: 'factory', label: '우리공장', type: 'internal' },
-  { id: 'lacoss', label: '라코스', type: 'external' },
-  { id: 'isangtech', label: '이상테크', type: 'external' },
-  { id: 'kep', label: 'KEP', type: 'external' },
-  { id: 'space-etching', label: '공간부식', type: 'external' },
-  { id: 'other', label: '기타', type: 'external' },
+  { id: 'factory', label: '우리공장', type: 'internal', deliveryMethod: 'download' },
+  { id: 'lacoss', label: '라코스', type: 'external', deliveryMethod: 'email' },
+  { id: 'isangtech', label: '이상테크', type: 'external', deliveryMethod: 'email' },
+  { id: 'kep', label: 'KEP', type: 'external', deliveryMethod: 'email' },
+  { id: 'space-etching', label: '공간부식', type: 'external', deliveryMethod: 'email' },
+  { id: 'other', label: '기타', type: 'external', deliveryMethod: 'email' },
 ];
+
+const ORDER_DELIVERY_METHOD_LABELS = {
+  download: 'ERP 다운로드',
+  email: '메일 발송',
+};
 
 const ORDER_STATUS_LABELS = {
   draft: '초안',
@@ -1187,6 +1195,10 @@ function normalizeOrderPayload(body = {}, existing = {}) {
   const targetType = ['internal', 'external'].includes(body.targetType)
     ? body.targetType
     : (targetPreset?.type || existing.targetType || 'internal');
+  let deliveryMethod = ['download', 'email'].includes(body.deliveryMethod)
+    ? body.deliveryMethod
+    : (targetPreset?.deliveryMethod || existing.deliveryMethod || (targetType === 'external' ? 'email' : 'download'));
+  if (targetType === 'internal') deliveryMethod = 'download';
   const targetName = safeText(body.targetName || targetPreset?.label || existing.targetName || '우리공장', 120);
   const status = Object.prototype.hasOwnProperty.call(ORDER_STATUS_LABELS, body.status)
     ? body.status
@@ -1195,6 +1207,7 @@ function normalizeOrderPayload(body = {}, existing = {}) {
     targetPreset: safeText(body.targetPreset || targetPreset?.id || existing.targetPreset || '', 80),
     targetType,
     targetName,
+    deliveryMethod,
     status,
     dueDate: safeDate(body.dueDate) || existing.dueDate || '',
     fileIds: normalizeFileIds(body.fileIds || existing.fileIds || []),
@@ -1295,10 +1308,96 @@ function decorateOrder(data, job, order) {
     fileNames: files.map(f => f.originalName || f.storedName || f.id),
     statusLabel: ORDER_STATUS_LABELS[order.status] || order.status || '초안',
     targetTypeLabel: order.targetType === 'external' ? '외주/업체' : '우리공장',
+    deliveryMethod: order.deliveryMethod || (order.targetType === 'external' ? 'email' : 'download'),
+    deliveryMethodLabel: ORDER_DELIVERY_METHOD_LABELS[order.deliveryMethod || (order.targetType === 'external' ? 'email' : 'download')] || 'ERP 다운로드',
     responseStatusLabel: ORDER_RESPONSE_LABELS[order.responseStatus] || '',
     publicViewUrl: order.publicToken ? `/workflow/order/${encodeURIComponent(order.publicToken)}` : '',
     publicArchiveUrl: order.publicToken ? `/api/workflow/public/orders/${encodeURIComponent(order.publicToken)}/files.zip` : '',
   };
+}
+
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function loadWorkflowSmtpSettings() {
+  const settingsPath = path.join(DATA_DIR, 'settings.json');
+  if (!fs.existsSync(settingsPath)) return null;
+  const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+  const smtp = settings.smtp || {};
+  if (!smtp.user || !smtp.pass) return null;
+  return {
+    host: smtp.host || 'smtp.naver.com',
+    port: Number(smtp.port) || 465,
+    user: smtp.user || '',
+    pass: smtp.pass || '',
+    from: smtp.from || smtp.user || '',
+  };
+}
+
+function absoluteWorkflowOrderUrl(order, req = null) {
+  if (!order?.publicToken) return '';
+  const relative = `/workflow/order/${encodeURIComponent(order.publicToken)}`;
+  let base = publicWorkflowBaseUrl();
+  if (!base && req) {
+    const proto = safeText(req.headers['x-forwarded-proto'] || req.protocol || 'http', 20).split(',')[0];
+    const host = safeText(req.headers['x-forwarded-host'] || req.get?.('host') || req.headers.host || '', 200).split(',')[0];
+    base = host ? normalizePublicBaseUrl(`${proto}://${host}`) : '';
+  }
+  return base ? `${base}${relative}` : relative;
+}
+
+function defaultWorkflowOrderMailSubject(job, order) {
+  const project = job.projectName || job.title || '';
+  return `[제작요청] ${job.companyName || '프로젝트'}${project ? ' - ' + project : ''} / ${order.targetName || '업체'}`;
+}
+
+function buildWorkflowOrderMailHtml(job, order, files, message, publicUrl) {
+  const project = job.projectName || job.title || '';
+  const rows = [
+    ['회사', job.companyName || '-'],
+    ['프로젝트/현장', project || '-'],
+    ['희망 납기', order.dueDate || '협의'],
+    ['파일', `${files.length}건`],
+  ];
+  const memo = message || order.note || '제작 가능 여부와 납기 확인 부탁드립니다.';
+  return `<!doctype html><html><body style="margin:0;padding:0;font-family:'Malgun Gothic','맑은 고딕',Arial,sans-serif;color:#222;">
+    <div style="font-size:14px;line-height:1.8;">
+      <p style="margin:0 0 14px;">${escapeHtml(order.targetName || '담당자')} 담당자님,</p>
+      <p style="margin:0 0 16px;">${escapeHtml(memo).replace(/\n/g, '<br>')}</p>
+      <table style="border-collapse:collapse;margin:0 0 16px;font-size:13px;">
+        ${rows.map(([k, v]) => `<tr><th style="text-align:left;background:#f3f4f6;border:1px solid #d1d5db;padding:6px 10px;">${escapeHtml(k)}</th><td style="border:1px solid #d1d5db;padding:6px 10px;">${escapeHtml(v)}</td></tr>`).join('')}
+      </table>
+      ${publicUrl ? `<p style="margin:0 0 14px;">ERP 확인/다운로드: <a href="${escapeHtml(publicUrl)}">${escapeHtml(publicUrl)}</a></p>` : ''}
+      <p style="margin:0;">확인 후 회신 부탁드립니다.</p>
+    </div>
+  </body></html>`;
+}
+
+function workflowOrderMailAttachments(files, attachFiles) {
+  if (!attachFiles) return { attachments: [], totalBytes: 0, skipped: files.length };
+  const attachments = [];
+  let totalBytes = 0;
+  for (const file of files) {
+    const full = fileDiskPath(file);
+    if (!full || !fs.existsSync(full)) continue;
+    const stat = fs.statSync(full);
+    totalBytes += stat.size;
+    if (totalBytes > MAX_WORKFLOW_MAIL_ATTACH_BYTES) {
+      return { attachments, totalBytes, tooLarge: true, skipped: files.length - attachments.length };
+    }
+    attachments.push({
+      filename: file.originalName || file.storedName || file.id || 'workflow-file',
+      contentType: file.mime || 'application/octet-stream',
+      content: fs.readFileSync(full),
+    });
+  }
+  return { attachments, totalBytes, skipped: files.length - attachments.length };
 }
 
 function decoratePublicOrder(data, job, order) {
@@ -2633,6 +2732,103 @@ router.put('/jobs/:id/orders/:orderId', (req, res) => {
     orderSummary: buildOrderSummary(data, job),
     job: decorateJob(data, job, req.user),
   });
+});
+
+router.post('/jobs/:id/orders/:orderId/email', async (req, res) => {
+  try {
+    const data = loadStore();
+    const job = data.jobs.find(j => j.id === req.params.id);
+    const order = (data.orders || []).find(o => o.jobId === req.params.id && o.id === req.params.orderId);
+    if (!job || !order) return res.status(404).json({ error: '작업 또는 전달건을 찾을 수 없습니다.' });
+
+    const toList = normalizeEmailList(req.body?.toEmail || req.body?.recipientEmail || order.recipientEmail || order.mailTo || '');
+    const ccList = normalizeEmailList(req.body?.ccEmail || req.body?.recipientCc || order.recipientCc || order.mailCc || '');
+    if (!toList.length) return res.status(400).json({ error: '수신 이메일이 필요합니다.' });
+
+    const smtp = loadWorkflowSmtpSettings();
+    if (!smtp) return res.status(400).json({ error: 'SMTP 설정이 완료되지 않았습니다.' });
+
+    const files = orderFiles(data, order, job);
+    if (!files.length) return res.status(400).json({ error: '발송할 파일이 없습니다.' });
+
+    const attachFiles = req.body?.attachFiles !== false;
+    const mailFiles = workflowOrderMailAttachments(files, attachFiles);
+    if (mailFiles.tooLarge) {
+      return res.status(413).json({
+        error: `첨부 용량이 ${Math.round(mailFiles.totalBytes / 1024 / 1024)}MB입니다. 메일 첨부는 ${Math.round(MAX_WORKFLOW_MAIL_ATTACH_BYTES / 1024 / 1024)}MB 이하일 때만 발송합니다.`,
+        publicUrl: absoluteWorkflowOrderUrl(order, req),
+      });
+    }
+
+    const subject = safeText(req.body?.subject, 240) || defaultWorkflowOrderMailSubject(job, order);
+    const message = safeText(req.body?.message, 3000);
+    const publicUrl = absoluteWorkflowOrderUrl(order, req);
+    const html = buildWorkflowOrderMailHtml(job, order, files, message, publicUrl);
+
+    await sendSmtpMail({
+      smtpHost: smtp.host,
+      smtpPort: smtp.port,
+      smtpUser: smtp.user,
+      smtpPass: smtp.pass,
+      from: smtp.from,
+      to: toList,
+      cc: ccList,
+      subject,
+      html,
+      attachments: mailFiles.attachments,
+    });
+
+    const sentAt = nowIso();
+    order.deliveryMethod = 'email';
+    order.mailStatus = 'sent';
+    order.mailSentAt = sentAt;
+    order.mailSentBy = req.user?.userId || '';
+    order.mailSentByName = userName(req);
+    order.mailTo = toList.join(', ');
+    order.mailCc = ccList.join(', ');
+    order.mailSubject = subject;
+    if (!Array.isArray(order.mailHistory)) order.mailHistory = [];
+    order.mailHistory.push({
+      to: toList,
+      cc: ccList,
+      subject,
+      sentAt,
+      sentBy: req.user?.userId || '',
+      sentByName: userName(req),
+      fileCount: files.length,
+      attachedCount: mailFiles.attachments.length,
+      publicUrl,
+    });
+    if (['draft', 'requested'].includes(order.status || 'draft')) order.status = 'sent';
+    order.updatedAt = sentAt;
+    order.updatedBy = req.user?.userId || '';
+    order.updatedByName = userName(req);
+    job.updatedAt = sentAt;
+
+    addEvent(data, req, job.id, 'order_email', `제작 파일 메일 발송 · ${order.targetName} · ${toList.join(', ')}`, {
+      orderId: order.id,
+      targetName: order.targetName,
+      to: toList,
+      cc: ccList,
+      fileCount: files.length,
+      attachedCount: mailFiles.attachments.length,
+      publicUrl,
+      targetStageIds: ['management'],
+      eventTargetLabel: stageTargetLabels(job, ['management']).join(', '),
+    });
+    saveStore(data);
+    res.json({
+      ok: true,
+      order: decorateOrder(data, job, order),
+      orders: data.orders.filter(o => o.jobId === job.id).map(o => decorateOrder(data, job, o)),
+      orderSummary: buildOrderSummary(data, job),
+      job: decorateJob(data, job, req.user),
+      message: `${toList.join(', ')}로 발송 완료`,
+    });
+  } catch (e) {
+    console.error('[workflow-mail] send failed:', e);
+    res.status(500).json({ error: '메일 발송 실패: ' + e.message });
+  }
 });
 
 router.post('/jobs/:id/files', workflowUploadFiles, (req, res) => {

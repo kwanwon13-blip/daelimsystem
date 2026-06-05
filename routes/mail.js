@@ -19,9 +19,22 @@ router.use(requireAuth);
 
 // ── 네이버 SMTP 메일 발송 ────────────────────────────────
 // nodemailer 없이 직접 SMTP 구현
-function sendSmtpMail({ smtpHost, smtpPort, smtpUser, smtpPass, from, to, subject, html, attachments }) {
+function normalizeEmailList(value) {
+  const raw = Array.isArray(value) ? value.join(',') : String(value || '');
+  return raw
+    .split(/[;,]+/)
+    .map(v => v.trim())
+    .filter(Boolean);
+}
+
+function sendSmtpMail({ smtpHost, smtpPort, smtpUser, smtpPass, from, to, cc, subject, html, attachments }) {
   return new Promise((resolve, reject) => {
     const useSSL = (smtpPort === 465);
+    const toList = normalizeEmailList(to);
+    const ccList = normalizeEmailList(cc);
+    const recipients = [...toList, ...ccList];
+    if (!recipients.length) return reject(new Error('수신 이메일이 없습니다'));
+    let recipientIndex = 0;
 
     function handleSmtp(socket) {
       let step = useSSL ? 'connect' : 'greeting';
@@ -85,14 +98,19 @@ function sendSmtpMail({ smtpHost, smtpPort, smtpUser, smtpPass, from, to, subjec
         } else if (step === 'auth' && code === 235) {
           sock.write(`MAIL FROM:<${from}>\r\n`); step = 'from';
         } else if (step === 'from' && code === 250) {
-          sock.write(`RCPT TO:<${to}>\r\n`); step = 'rcpt';
+          sock.write(`RCPT TO:<${recipients[recipientIndex++]}>\r\n`); step = 'rcpt';
         } else if (step === 'rcpt' && code === 250) {
-          sock.write('DATA\r\n'); step = 'data';
+          if (recipientIndex < recipients.length) {
+            sock.write(`RCPT TO:<${recipients[recipientIndex++]}>\r\n`);
+          } else {
+            sock.write('DATA\r\n'); step = 'data';
+          }
         } else if (step === 'data' && code === 354) {
           const boundary = 'BOUNDARY_' + crypto.randomBytes(16).toString('hex');
           let msg = '';
           msg += `From: ${from}\r\n`;
-          msg += `To: ${to}\r\n`;
+          msg += `To: ${toList.join(', ')}\r\n`;
+          if (ccList.length) msg += `Cc: ${ccList.join(', ')}\r\n`;
           msg += `Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=\r\n`;
           msg += `MIME-Version: 1.0\r\n`;
           msg += `Content-Type: multipart/mixed; boundary="${boundary}"\r\n\r\n`;
@@ -309,3 +327,5 @@ router.post('/mail/send', async (req, res) => {
 
 
 module.exports = router;
+module.exports.sendSmtpMail = sendSmtpMail;
+module.exports.normalizeEmailList = normalizeEmailList;

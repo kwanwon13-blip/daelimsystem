@@ -61,6 +61,7 @@ function workflowApp() {
       targetPreset: 'factory',
       targetType: 'internal',
       targetName: '우리공장',
+      deliveryMethod: 'download',
       dueDate: '',
       note: '',
     },
@@ -1294,6 +1295,7 @@ function workflowApp() {
       if (!target) return;
       this.orderForm.targetName = target.label || this.orderForm.targetName;
       this.orderForm.targetType = target.type || this.orderForm.targetType || 'internal';
+      this.orderForm.deliveryMethod = target.deliveryMethod || (this.orderForm.targetType === 'external' ? 'email' : 'download');
     },
 
     orderStatusLabel(status) {
