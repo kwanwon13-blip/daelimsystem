@@ -2434,6 +2434,14 @@ router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
   }
   if (uploaded.length) {
     job.updatedAt = nowIso();
+    if (actualStorageInfo) {
+      upsertWorkflowProject(data, {
+        companyName: storageCompanyName,
+        projectName: storageProjectName,
+        year: actualStorageInfo.year || storageYear,
+        status: 'active',
+      }, req, actualStorageInfo);
+    }
     addEvent(data, req, job.id, 'file', `파일 ${uploaded.length}개 업로드${targetLabel ? ' · 확인 대상 ' + targetLabel : ''}`, {
       stageId,
       fileIds: uploaded.map(f => f.id),
