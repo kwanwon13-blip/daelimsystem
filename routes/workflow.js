@@ -2220,7 +2220,9 @@ router.get('/jobs/:id', (req, res) => {
 router.post('/jobs', (req, res) => {
   const data = loadStore();
   const payload = normalizeJobPayload(req.body || {});
-  if (!payload.title) return res.status(400).json({ error: '작업명이 필요합니다.' });
+  if (!payload.title) {
+    payload.title = payload.projectName || (payload.companyName ? `${payload.companyName} 작업` : '워크플로우 작업');
+  }
   const job = {
     id: makeId('wf'),
     publicToken: makeUniquePublicToken(data),

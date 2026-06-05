@@ -209,7 +209,7 @@
         <select class="wf-select" x-model="statusFilter" @change="loadJobs()">
           <option value="active">진행</option>
           <option value="hold">보류</option>
-          <option value="done">완료</option>
+          <option value="done">완료 보관함</option>
           <option value="all">전체</option>
         </select>
         <select class="wf-select" x-model="scopeFilter" @change="loadJobs()">
@@ -412,6 +412,8 @@
                 <option value="done">완료</option>
                 <option value="cancelled">취소</option>
               </select>
+              <button class="wf-btn ghost" x-show="detail.job.status !== 'done' && detail.job.status !== 'cancelled'" @click="handoffJob()" :disabled="saving">전달</button>
+              <button class="wf-btn ghost" @click="detailMoreOpen = !detailMoreOpen" x-text="detailMoreOpen ? '상세 접기' : '상세'"></button>
               <button class="wf-btn primary" @click="saveJob()" :disabled="saving">저장</button>
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
@@ -420,7 +422,7 @@
           </div>
 
           <div class="wf-detail-body">
-            <section class="wf-section">
+            <section class="wf-section" x-show="detailMoreOpen" x-cloak>
               <div class="wf-section-title"><span class="material-symbols-outlined" style="font-size:16px;">business</span>기본</div>
               <div class="wf-section-body">
                 <div class="wf-creator" title="담당자는 로그인 사용자로 자동 저장됩니다.">
@@ -466,7 +468,7 @@
               </div>
             </section>
 
-            <section class="wf-section">
+            <section class="wf-section" x-show="detailMoreOpen" x-cloak>
               <div class="wf-section-title"><span class="material-symbols-outlined" style="font-size:16px;">task_alt</span>단계</div>
               <div class="wf-section-body">
                 <div class="wf-handoff" x-show="detail.job.status !== 'done' && detail.job.status !== 'cancelled'">
@@ -912,17 +914,13 @@
         <button class="wf-btn ghost" style="height:28px;" @click="closeNewJobModal()">닫기</button>
       </div>
       <div class="wf-dialog-body">
-        <div class="wf-field">
-          <label>작업명</label>
-          <input class="wf-input" x-ref="newJobTitle" x-model="form.title" @keydown.enter="createJob()" placeholder="작업명을 입력">
-        </div>
         <div class="wf-modal-grid">
           <div class="wf-field">
             <label>회사명</label>
-            <input class="wf-input" list="wfCompanyNames" x-model="form.companyName" placeholder="직접 입력 또는 선택">
+            <input class="wf-input" x-ref="newJobCompany" list="wfCompanyNames" x-model="form.companyName" @change="syncAutoJobTitle()" placeholder="직접 입력 또는 선택">
             <div class="wf-company-picks" x-show="workflowCompanySuggestions(form.companyName, 36).length">
               <template x-for="company in workflowCompanySuggestions(form.companyName, 36)" :key="'new-company-'+company.name">
-                <button type="button" class="wf-company-pick" @click="form.companyName = company.name; form.projectName = ''">
+                        <button type="button" class="wf-company-pick" @click="form.companyName = company.name; form.projectName = ''; syncAutoJobTitle(true)">
                   <strong x-text="company.name"></strong>
                   <small x-text="(company.projectCount || 0) + ' 현장'"></small>
                 </button>
@@ -931,10 +929,10 @@
           </div>
           <div class="wf-field">
             <label>프로젝트/현장</label>
-            <input class="wf-input" list="wfFormProjectNames" x-model="form.projectName" placeholder="프로젝트명">
+            <input class="wf-input" list="wfFormProjectNames" x-model="form.projectName" @change="syncAutoJobTitle()" placeholder="프로젝트명">
             <div class="wf-project-picks" x-show="workflowProjectSuggestions(form.companyName, 16, form.projectName).length">
               <template x-for="project in workflowProjectSuggestions(form.companyName, 16, form.projectName)" :key="'new-project-'+project.name">
-                <button type="button" class="wf-project-pick" @click="form.projectName = project.name">
+                <button type="button" class="wf-project-pick" @click="form.projectName = project.name; syncAutoJobTitle(true)">
                   <span x-text="project.name"></span>
                   <small x-show="projectBadge(project)" x-text="projectBadge(project)"></small>
                 </button>

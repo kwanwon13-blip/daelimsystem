@@ -13,6 +13,7 @@ function workflowApp() {
     selectedId: '',
     selectedWorkStageId: '',
     detail: null,
+    detailMoreOpen: false,
     query: '',
     statusFilter: 'active',
     scopeFilter: 'all',
@@ -27,6 +28,7 @@ function workflowApp() {
     designWorkflowOptions: { companies: [], projectsByCompany: {}, projectLookup: {}, masterCompanies: [] },
     workflowProjects: [],
     projectPanelOpen: false,
+    autoTitleValue: '',
     projectQuery: '',
     projectStatusFilter: 'active',
     projectForm: {
@@ -976,6 +978,34 @@ function workflowApp() {
       return names.join(', ') + more;
     },
 
+    fileTitlePart(fileName) {
+      const name = String(fileName || '').trim();
+      if (!name) return '';
+      return name.replace(/\.[^.\\\/]{1,12}$/i, '').trim() || name;
+    },
+
+    autoJobTitle(files = this.newFiles, form = this.form) {
+      const list = Array.from(files || []).filter(Boolean);
+      if (list.length) {
+        const first = this.fileTitlePart(list[0].name || '');
+        return first + (list.length > 1 ? ` 외 ${list.length - 1}개` : '');
+      }
+      const project = String(form?.projectName || '').trim();
+      const company = String(form?.companyName || '').trim();
+      if (project) return project;
+      if (company) return `${company} 작업`;
+      return '';
+    },
+
+    syncAutoJobTitle(force = false) {
+      const next = this.autoJobTitle();
+      const current = String(this.form.title || '').trim();
+      if (force || !current || current === this.autoTitleValue) {
+        this.form.title = next;
+        this.autoTitleValue = next;
+      }
+    },
+
     validateUploadFileList(files) {
       const list = Array.from(files || []).filter(Boolean);
       const maxFiles = Number(this.uploadLimits.files || 20);
@@ -999,6 +1029,7 @@ function workflowApp() {
           seen.add(key);
         }
       }
+      this.syncAutoJobTitle();
     },
 
     handleNewFiles(ev) {
@@ -1014,11 +1045,13 @@ function workflowApp() {
 
     removeNewFile(idx) {
       this.newFiles.splice(idx, 1);
+      this.syncAutoJobTitle(true);
     },
 
     clearNewFiles() {
       this.newFiles = [];
       this.newUploadDragOver = false;
+      this.autoTitleValue = '';
     },
 
     findContact(name) {
@@ -1294,17 +1327,19 @@ function workflowApp() {
     },
 
     async createJob() {
-      if (!this.form.title.trim()) return alert('작업명을 입력하세요.');
       if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
       if (this.newFiles.length && (!String(this.form.companyName || '').trim() || !String(this.form.projectName || '').trim())) {
         return alert('시안 파일을 같이 올릴 때는 회사명과 프로젝트명을 입력하세요.');
       }
+      const payload = { ...this.form };
+      payload.title = String(payload.title || '').trim() || this.autoJobTitle(this.newFiles, payload) || '워크플로우 작업';
+      payload.dueDate = this.form.dueDate;
       this.saving = true;
       try {
         const r = await fetch('/api/workflow/jobs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(this.form),
+          body: JSON.stringify(payload),
         });
         const d = await r.json();
         if (!r.ok || !d.ok) throw new Error(d.error || '작업 생성 실패');
@@ -1355,9 +1390,10 @@ function workflowApp() {
 
     openNewJobModal() {
       if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
+      this.syncAutoJobTitle();
       this.newOpen = true;
       setTimeout(() => {
-        try { this.$refs?.newJobTitle?.focus(); } catch (_) {}
+        try { this.$refs?.newJobCompany?.focus(); } catch (_) {}
       }, 50);
     },
 
@@ -1431,6 +1467,7 @@ function workflowApp() {
         return;
       }
       this.detail = d;
+      if (force) this.detailMoreOpen = false;
       this.uploadStageId = 'design';
       this.uploadOpen = true;
       if (force || !this.uploadCompanyName) this.uploadCompanyName = d.job.companyName || '';
