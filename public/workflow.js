@@ -296,6 +296,48 @@ function workflowApp() {
       return fuzzy ? (fuzzy[1] || []).map(p => p.name || p).filter(Boolean) : [];
     },
 
+    projectOptionsForCompany(companyName) {
+      const key = this.normalizeOptionName(companyName);
+      if (!key) return [];
+      const lookup = this.designWorkflowOptions.projectLookup || {};
+      if (Array.isArray(lookup[key])) return lookup[key];
+      const entries = Object.entries(this.designWorkflowOptions.projectsByCompany || {});
+      const exact = entries.find(([company]) => this.normalizeOptionName(company) === key);
+      const fuzzy = exact || entries.find(([company]) => {
+        const c = this.normalizeOptionName(company);
+        return c && (c.includes(key) || key.includes(c));
+      });
+      return fuzzy ? (fuzzy[1] || []) : [];
+    },
+
+    workflowCompanyOption(companyName) {
+      const key = this.normalizeOptionName(companyName);
+      if (!key) return null;
+      const companies = this.designWorkflowOptions.companies || [];
+      return companies.find(c => this.normalizeOptionName(c.name) === key || this.normalizeOptionName(c.folderName) === key)
+        || companies.find(c => {
+          const nameKey = this.normalizeOptionName(c.name);
+          const folderKey = this.normalizeOptionName(c.folderName);
+          return (nameKey && (nameKey.includes(key) || key.includes(nameKey)))
+            || (folderKey && (folderKey.includes(key) || key.includes(folderKey)));
+        }) || null;
+    },
+
+    workflowStorageLabel(companyName, projectName, yearValue) {
+      const year = /^\d{4}$/.test(String(yearValue || '')) ? String(yearValue) : String(new Date().getFullYear());
+      const company = String(companyName || '').trim();
+      const project = String(projectName || '').trim();
+      const companyOption = this.workflowCompanyOption(company);
+      const companyFolder = companyOption?.folderName || company || '회사 미입력';
+      const projectOptions = this.projectOptionsForCompany(company);
+      const projectKey = this.normalizeOptionName(project);
+      const exactProject = projectOptions.find(p => this.normalizeOptionName(p.name || p) === projectKey && String(p.yearFolder || '').startsWith(year))
+        || projectOptions.find(p => this.normalizeOptionName(p.name || p) === projectKey);
+      const yearProject = projectOptions.find(p => String(p.yearFolder || '').startsWith(year));
+      const yearFolder = exactProject?.yearFolder || yearProject?.yearFolder || `${year} 시안작업`;
+      return `${companyFolder} / ${yearFolder} / ${project || '프로젝트 미입력'}`;
+    },
+
     workflowProjectNames(companyName = '', currentProjectName = '') {
       const names = [];
       names.push(...this.projectNamesForCompany(companyName));
@@ -305,23 +347,30 @@ function workflowApp() {
       for (const job of this.jobs || []) {
         if (job.projectName && (!companyKey || this.normalizeOptionName(job.companyName) === companyKey)) names.push(job.projectName);
       }
-      return Array.from(new Set(names.filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b), 'ko'));
+      return Array.from(new Set(names.filter(Boolean)));
     },
 
     workflowCompanyNames() {
       const names = [];
+      const seen = new Set();
+      const add = value => {
+        const name = String(value || '').trim();
+        const key = this.normalizeOptionName(name);
+        if (!name || seen.has(key)) return;
+        seen.add(key);
+        names.push(name);
+      };
       for (const company of this.designWorkflowOptions.companies || []) {
-        if (company?.name) names.push(company.name);
+        if (company?.name) add(company.name);
       }
-      if (this.detail?.job?.companyName) names.push(this.detail.job.companyName);
+      if (this.detail?.job?.companyName) add(this.detail.job.companyName);
       for (const job of this.jobs || []) {
-        if (job.companyName) names.push(job.companyName);
+        if (job.companyName) add(job.companyName);
       }
       for (const contact of this.contactOptions || []) {
-        if (contact.company) names.push(contact.company);
+        if (contact.company) add(contact.company);
       }
-      return Array.from(new Set(names.map(v => String(v || '').trim()).filter(Boolean)))
-        .sort((a, b) => a.localeCompare(b, 'ko'));
+      return names;
     },
 
     currentUserLabel() {
@@ -365,9 +414,7 @@ function workflowApp() {
     },
 
     newStorageLabel() {
-      const company = String(this.form.companyName || '').trim() || '회사 미입력';
-      const project = String(this.form.projectName || '').trim() || '프로젝트 미입력';
-      return `${this.newStorageYear()} / ${company} / ${project}`;
+      return this.workflowStorageLabel(this.form.companyName, this.form.projectName, this.newStorageYear());
     },
 
     fileSizeLabel(size) {

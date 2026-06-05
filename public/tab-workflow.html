@@ -452,7 +452,7 @@
                     @drop="uploadDroppedFiles($event)">
                     <div>
                       <strong>JPG · PNG · AI 파일을 여기에 드래그</strong>
-                      <span x-text="'입력한 폴더: ' + uploadStorageYear() + ' / ' + (uploadCompanyName || '회사 미입력') + ' / ' + (uploadProjectName || '프로젝트 미입력')"></span>
+                      <span x-text="'입력한 폴더: ' + workflowStorageLabel(uploadCompanyName, uploadProjectName, uploadStorageYear())"></span>
                     </div>
                     <span class="wf-btn">파일 선택</span>
                     <input type="file" multiple style="display:none;" @change="uploadFiles($event)">
