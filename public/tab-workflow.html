@@ -738,6 +738,8 @@
                   <textarea class="wf-textarea" x-model="orderForm.note" placeholder="발주 요청사항"></textarea>
                   <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
                     <span class="wf-muted" x-text="'현재 표시 파일 ' + currentOrderFileIds().length + '건으로 패키지 생성'"></span>
+                    <span class="wf-muted" x-show="publicShareBaseUrl" x-text="'외부 링크 기준: ' + publicShareBaseUrl"></span>
+                    <span class="wf-chip high" x-show="!publicShareBaseUrl">외부 공유 주소 미설정</span>
                     <button class="wf-btn primary" @click="createOrderPackage()">발주 패키지 생성</button>
                   </div>
                 </div>
@@ -765,6 +767,7 @@
                           <button class="wf-btn" @click="saveOrder(order)">상태 저장</button>
                         </div>
                         <div style="display:flex;gap:5px;flex-wrap:wrap;">
+                          <button class="wf-btn primary" x-show="orderViewUrl(order)" @click="copyFactoryOrderShare(order)">공장공유</button>
                           <a class="wf-btn" x-show="orderViewUrl(order)" :href="orderViewUrl(order)" target="_blank">공장화면</a>
                           <button class="wf-btn" x-show="orderViewUrl(order)" @click="copyOrderViewLink(order)">화면링크</button>
                           <a class="wf-btn" x-show="orderArchiveUrl(order)" :href="orderArchiveUrl(order)">묶음</a>

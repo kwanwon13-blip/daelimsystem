@@ -1102,8 +1102,11 @@ function workflowApp() {
       if (!r.ok || !d.ok) return alert(d.error || '발주 패키지 생성 실패');
       this.applyOrderResponse(d);
       await this.loadJobs();
-      const copied = d.order ? await this.copyText(this.orderShareText(d.order)) : false;
-      alert(copied ? '발주 패키지를 만들고 공유문을 복사했습니다.' : '발주 패키지를 만들었습니다. 화면링크 버튼으로 공유할 수 있습니다.');
+      const shareText = d.order && d.order.targetType === 'internal'
+        ? this.factoryOrderShareText(d.order)
+        : this.orderShareText(d.order);
+      const copied = shareText ? await this.copyText(shareText) : false;
+      alert(copied ? '발주 패키지를 만들고 공유문을 복사했습니다.' : '발주 패키지를 만들었습니다. 공장공유 버튼으로 공유할 수 있습니다.');
     },
 
     async saveOrder(order) {
@@ -1155,6 +1158,31 @@ function workflowApp() {
         viewUrl ? '발주 확인/회신 링크: ' + viewUrl : '',
         url ? '발주 묶음 링크: ' + url : '',
       ].filter(v => v !== '').join('\n');
+    },
+
+    factoryOrderShareText(order) {
+      if (!order) return '';
+      const job = this.detail?.job || {};
+      const viewUrl = this.orderViewUrl(order) ? this.absoluteUrl(this.orderViewUrl(order)) : '';
+      const archiveUrl = this.orderArchiveUrl(order) ? this.absoluteUrl(this.orderArchiveUrl(order)) : '';
+      return [
+        `[시안 확인 요청] ${job.title || order.targetName || '워크플로우 작업'}`,
+        [job.companyName, job.projectName].filter(Boolean).join(' / '),
+        order.dueDate ? `희망 납기: ${order.dueDate}` : '',
+        order.fileCount ? `파일: ${order.fileCount}개` : '',
+        '',
+        '아래 링크에서 시안을 확인하고 가능 일정 또는 조정 요청을 회신해주세요.',
+        viewUrl ? `확인/회신: ${viewUrl}` : '',
+        archiveUrl ? `묶음 다운로드: ${archiveUrl}` : '',
+        order.note ? `요청사항: ${order.note}` : '',
+      ].filter(v => v !== '').join('\n');
+    },
+
+    async copyFactoryOrderShare(order) {
+      const text = this.factoryOrderShareText(order);
+      if (!text) return alert('공유할 발주 정보가 없습니다.');
+      const ok = await this.copyText(text);
+      alert(ok ? '공장 공유문을 복사했습니다.' : '공장 공유문 복사에 실패했습니다.');
     },
 
     async copyOrderMailDraft(order) {
