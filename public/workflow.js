@@ -2269,6 +2269,8 @@ function workflowApp() {
         img.src = fallback;
         return;
       }
+      const holder = img.closest ? img.closest('.wf-proof-thumb, .wf-card-visual') : null;
+      if (holder) holder.classList.add('image-failed');
       img.style.visibility = 'hidden';
     },
 

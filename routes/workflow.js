@@ -366,6 +366,18 @@ function isImageFile(file) {
   return ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].includes(fileExt(file));
 }
 
+function workflowImageMime(file) {
+  const mime = String(file?.mime || '').toLowerCase();
+  if (mime.startsWith('image/')) return mime;
+  const ext = fileExt(file);
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.png') return 'image/png';
+  if (ext === '.gif') return 'image/gif';
+  if (ext === '.webp') return 'image/webp';
+  if (ext === '.bmp') return 'image/bmp';
+  return 'image/jpeg';
+}
+
 function isAiFile(file) {
   return fileExt(file) === '.ai';
 }
@@ -2270,7 +2282,7 @@ function clearWorkflowCompletion(job) {
 function sendWorkflowFile(res, file, inline = false, publicCache = false) {
   const full = fileDiskPath(file);
   if (!full || !fs.existsSync(full)) return false;
-  res.setHeader('Content-Type', file.mime || 'application/octet-stream');
+  res.setHeader('Content-Type', inline && isImageFile(file) ? workflowImageMime(file) : (file.mime || 'application/octet-stream'));
   res.setHeader('Content-Disposition', inline ? 'inline' : attachmentDisposition(file.originalName || 'file'));
   res.setHeader('Cache-Control', publicCache ? 'public, max-age=300' : 'private, max-age=300');
   res.sendFile(full);
@@ -2303,7 +2315,7 @@ async function sendWorkflowThumb(res, file, publicCache = false) {
     }
   }
   res.setHeader('X-Workflow-Thumb-Fallback', 'original');
-  res.type(file.mime || 'image/jpeg').sendFile(full);
+  res.type(workflowImageMime(file)).sendFile(full);
   return true;
 }
 
@@ -3430,7 +3442,7 @@ router.get('/files/:fileId/preview', (req, res) => {
   if (!file || !isImageFile(file)) return res.status(404).send('not found');
   const full = fileDiskPath(file);
   if (!full || !fs.existsSync(full)) return res.status(404).send('not found');
-  res.setHeader('Content-Type', file.mime || 'image/jpeg');
+  res.setHeader('Content-Type', workflowImageMime(file));
   res.setHeader('Content-Disposition', 'inline');
   res.setHeader('Cache-Control', 'private, max-age=300');
   res.sendFile(full);
