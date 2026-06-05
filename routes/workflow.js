@@ -98,6 +98,33 @@ function vendorListForWorkflowTargets() {
   }
 }
 
+function rememberWorkflowVendorEmail(order, email) {
+  const vendorId = String(order?.targetPreset || '').startsWith('vendor:')
+    ? String(order.targetPreset).slice('vendor:'.length)
+    : '';
+  const nextEmail = normalizeEmailList(email || '')[0] || '';
+  if (!vendorId || !nextEmail) return false;
+  try {
+    if (db.sql?.vendors) {
+      const vendor = db.sql.vendors.getById(vendorId);
+      if (!vendor || String(vendor.email || '').trim()) return false;
+      db.sql.vendors.update(vendorId, { ...vendor, email: nextEmail });
+      return true;
+    }
+    const store = db['업체관리'] ? db['업체관리'].load() : db.load();
+    const vendors = store.vendors || [];
+    const vendor = vendors.find(v => String(v.id || '') === vendorId);
+    if (!vendor || String(vendor.email || '').trim()) return false;
+    vendor.email = nextEmail;
+    if (db['업체관리']) db['업체관리'].save(store);
+    else db.save(store);
+    return true;
+  } catch (e) {
+    console.warn('[workflow-mail] vendor email remember failed:', e.message);
+    return false;
+  }
+}
+
 function contactTargetsForWorkflow() {
   try {
     const data = db.loadContacts();
@@ -3063,6 +3090,7 @@ router.post('/jobs/:id/orders/:orderId/email', async (req, res) => {
     order.recipientEmail = toList.join(', ');
     order.recipientCc = ccList.join(', ');
     order.mailSubject = subject;
+    const recipientSavedToVendor = rememberWorkflowVendorEmail(order, toList[0]);
     if (!Array.isArray(order.mailHistory)) order.mailHistory = [];
     order.mailHistory.push({
       to: toList,
@@ -3074,6 +3102,7 @@ router.post('/jobs/:id/orders/:orderId/email', async (req, res) => {
       fileCount: files.length,
       attachedCount: mailFiles.attachments.length,
       publicUrl,
+      recipientSavedToVendor,
     });
     if (['draft', 'requested'].includes(order.status || 'draft')) order.status = 'sent';
     order.updatedAt = sentAt;
@@ -3089,6 +3118,7 @@ router.post('/jobs/:id/orders/:orderId/email', async (req, res) => {
       fileCount: files.length,
       attachedCount: mailFiles.attachments.length,
       publicUrl,
+      recipientSavedToVendor,
       targetStageIds: ['management'],
       eventTargetLabel: stageTargetLabels(job, ['management']).join(', '),
     });
@@ -3099,7 +3129,8 @@ router.post('/jobs/:id/orders/:orderId/email', async (req, res) => {
       orders: data.orders.filter(o => o.jobId === job.id).map(o => decorateOrder(data, job, o)),
       orderSummary: buildOrderSummary(data, job),
       job: decorateJob(data, job, req.user),
-      message: `${toList.join(', ')}로 발송 완료`,
+      recipientSavedToVendor,
+      message: `${toList.join(', ')}로 발송 완료${recipientSavedToVendor ? ' · 업체 메일 저장' : ''}`,
     });
   } catch (e) {
     console.error('[workflow-mail] send failed:', e);

@@ -1689,6 +1689,7 @@ function workflowApp() {
           return;
         }
         this.applyOrderResponse(d);
+        if (d.recipientSavedToVendor) await this.loadMeta();
         await this.loadJobs();
         modal.sending = false;
         this.closeOrderMail();
