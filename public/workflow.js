@@ -24,6 +24,7 @@ function workflowApp() {
     newUploadDragOver: false,
     currentUser: null,
     publicShareBaseUrl: '',
+    publicLinkPanelOpen: false,
     publicLinkSettings: { configuredBaseUrl: '', source: '', envLocked: false, configuredValid: true, configuredProblem: '', envProblem: '' },
     publicLinkForm: { publicBaseUrl: '', saving: false },
     contactOptions: [],
@@ -1501,7 +1502,7 @@ function workflowApp() {
       if (!r.ok || !d.ok) return alert(d.error || '전달 생성 실패');
       this.applyOrderResponse(d);
       await this.loadJobs();
-      alert(isExternal ? '제작 파일 전달을 만들었습니다. 업체 메일 발송 준비가 완료되었습니다.' : '제작 파일 전달을 만들었습니다. 공장은 터널 화면에서 파일을 받을 수 있습니다.');
+      alert(isExternal ? '외부업체 전달건을 만들었습니다. 메일 발송 준비가 완료되었습니다.' : '공장 전달건을 만들었습니다. 공장은 ERP에서 파일 받기만 누르면 됩니다.');
     },
 
     async saveOrder(order) {
@@ -1563,8 +1564,42 @@ function workflowApp() {
     },
 
     orderMailButtonLabel(order) {
-      if (!this.isExternalOrder(order)) return '다운로드';
+      if (!this.isExternalOrder(order)) return '파일 받기';
       return this.hasOrderRecipientEmail(order) ? '메일 보내기' : '메일주소 입력';
+    },
+
+    orderActionLabel(order) {
+      return this.orderMailButtonLabel(order);
+    },
+
+    orderActionIcon(order) {
+      return this.isExternalOrder(order) ? 'mail' : 'download';
+    },
+
+    orderActionTitle(order) {
+      return this.isExternalOrder(order)
+        ? '외부업체에는 메일로 첨부 또는 다운로드 링크를 보냅니다'
+        : '공장/내부 수신자는 ERP에서 파일을 ZIP으로 받습니다';
+    },
+
+    canOpenOrderDelivery(order) {
+      if (!order) return false;
+      if (this.isExternalOrder(order)) return true;
+      return !!this.orderArchiveUrl(order);
+    },
+
+    openOrderDelivery(order) {
+      if (!order) return;
+      if (this.isExternalOrder(order)) {
+        this.openOrderMail(order);
+        return;
+      }
+      const url = this.orderArchiveUrl(order);
+      if (!url) {
+        alert('받을 파일 링크가 아직 준비되지 않았습니다.');
+        return;
+      }
+      window.location.href = url;
     },
 
     defaultOrderMailSubject(order) {
