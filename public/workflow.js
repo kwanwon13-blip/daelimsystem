@@ -33,6 +33,7 @@ function workflowApp() {
     autoTitleValue: '',
     projectQuery: '',
     projectStatusFilter: 'active',
+    projectNotice: '',
     projectForm: {
       companyName: '',
       projectName: '',
@@ -768,6 +769,7 @@ function workflowApp() {
       if (!r.ok || !d.ok) return alert(d.error || '프로젝트 추가에 실패했습니다.');
       await this.loadDesignWorkflowOptions();
       const rel = d.folder?.rel || d.project?.storageBucket || '';
+      this.projectNotice = rel ? `프로젝트 준비됨 · ${rel}` : '프로젝트 준비됨';
       if (!options.quiet) alert(rel ? `프로젝트를 준비했습니다.\n${rel}` : '프로젝트를 준비했습니다.');
       return d.project;
     },
@@ -824,6 +826,7 @@ function workflowApp() {
       });
       const d = await r.json();
       if (!r.ok || !d.ok) return alert(d.error || '프로젝트 상태 저장에 실패했습니다.');
+      this.projectNotice = `프로젝트 상태 저장 · ${this.projectStatusLabel(status)} · ${d.project?.storageBucket || d.project?.projectName || projectName}`;
       await this.loadDesignWorkflowOptions();
       await this.loadJobs();
       await this.refreshDetail(false);
@@ -844,6 +847,7 @@ function workflowApp() {
       });
       const d = await r.json();
       if (!r.ok || !d.ok) return alert(d.error || '프로젝트 상태 저장에 실패했습니다.');
+      this.projectNotice = `프로젝트 상태 저장 · ${this.projectStatusLabel(status)} · ${d.project?.storageBucket || d.project?.projectName || project.projectName}`;
       await this.loadDesignWorkflowOptions();
       await this.loadJobs();
       if (this.detail?.job) await this.refreshDetail(false);

@@ -905,6 +905,7 @@
             <span class="wf-muted" x-text="'저장 경로: ' + workflowStorageLabel(projectForm.companyName, projectForm.projectName, projectForm.year)"></span>
             <button class="wf-btn primary" @click="createManagedProject()" :disabled="!projectForm.companyName || !projectForm.projectName">프로젝트 추가</button>
           </div>
+          <div class="wf-muted" x-show="projectNotice" x-text="projectNotice"></div>
         </div>
 
         <div style="display:grid;grid-template-columns:minmax(0,1fr) 120px;gap:8px;">
