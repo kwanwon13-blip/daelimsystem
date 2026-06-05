@@ -744,9 +744,12 @@
                 <span style="display:flex;align-items:center;gap:6px;">
                   <span class="material-symbols-outlined" style="font-size:16px;">outbox</span>발주 패키지
                 </span>
-                <span class="wf-muted" x-text="'진행 ' + (orderSummary().active || 0) + ' / 전체 ' + (orderSummary().total || 0)"></span>
+                <span style="display:flex;align-items:center;gap:6px;">
+                  <span class="wf-muted" x-text="'진행 ' + (orderSummary().active || 0) + ' / 전체 ' + (orderSummary().total || 0)"></span>
+                  <button class="wf-btn ghost" style="height:26px;padding:0 8px;" @click="orderPanelOpen = !orderPanelOpen" x-text="orderPanelOpen ? '접기' : '열기'"></button>
+                </span>
               </div>
-              <div class="wf-section-body">
+              <div class="wf-section-body" x-show="orderPanelOpen" x-cloak>
                 <div class="wf-upload-panel">
                   <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;">
                     <input class="wf-input" x-model="publicLinkForm.publicBaseUrl" placeholder="Cloudflare 터널 주소 예: https://xxxx.trycloudflare.com" :disabled="publicLinkSettings.envLocked">
@@ -815,8 +818,16 @@
             </section>
 
             <section class="wf-section">
-              <div class="wf-section-title"><span class="material-symbols-outlined" style="font-size:16px;">forum</span>기록</div>
-              <div class="wf-section-body">
+              <div class="wf-section-title" style="justify-content:space-between;">
+                <span style="display:flex;align-items:center;gap:6px;">
+                  <span class="material-symbols-outlined" style="font-size:16px;">forum</span>기록
+                </span>
+                <span style="display:flex;align-items:center;gap:6px;">
+                  <span class="wf-muted" x-text="(detail.events || []).length + '개'"></span>
+                  <button class="wf-btn ghost" style="height:26px;padding:0 8px;" @click="historyPanelOpen = !historyPanelOpen" x-text="historyPanelOpen ? '접기' : '열기'"></button>
+                </span>
+              </div>
+              <div class="wf-section-body" x-show="historyPanelOpen" x-cloak>
                 <div style="display:grid;grid-template-columns:1fr auto;gap:8px;">
                   <input class="wf-input" x-model="commentText" @keydown.enter="addComment()" placeholder="댓글">
                   <button class="wf-btn" @click="addComment()">등록</button>

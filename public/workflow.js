@@ -14,6 +14,8 @@ function workflowApp() {
     selectedWorkStageId: '',
     detail: null,
     detailMoreOpen: false,
+    orderPanelOpen: false,
+    historyPanelOpen: false,
     query: '',
     statusFilter: 'active',
     scopeFilter: 'all',
@@ -306,6 +308,7 @@ function workflowApp() {
       }
       const event = events.find(e => e.id === id);
       if (event) {
+        this.historyPanelOpen = true;
         this.highlightedEventId = event.id;
         const linkedFileId = event.meta && event.meta.fileId ? String(event.meta.fileId) : '';
         if (linkedFileId) this.expandedFileId = linkedFileId;
@@ -1467,7 +1470,11 @@ function workflowApp() {
         return;
       }
       this.detail = d;
-      if (force) this.detailMoreOpen = false;
+      if (force) {
+        this.detailMoreOpen = false;
+        this.orderPanelOpen = false;
+        this.historyPanelOpen = false;
+      }
       this.uploadStageId = 'design';
       this.uploadOpen = true;
       if (force || !this.uploadCompanyName) this.uploadCompanyName = d.job.companyName || '';
@@ -1548,6 +1555,7 @@ function workflowApp() {
       const d = await r.json();
       if (!r.ok || !d.ok) return alert(d.error || '댓글 저장 실패');
       this.commentText = '';
+      this.historyPanelOpen = true;
       await this.refreshDetail(false);
       await this.loadSummary();
     },
