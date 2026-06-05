@@ -1374,7 +1374,8 @@ function markPublicOrderActivity(data, job, order, kind, meta = {}) {
   job.updatedAt = at;
   if (!shouldEvent) return true;
   const type = kind === 'download' ? 'order_public_download' : 'order_public_view';
-  const label = kind === 'download' ? '파일 다운로드' : '전달 화면 열람';
+  const filePart = kind === 'download' && meta.fileName ? ` · ${meta.fileName}` : '';
+  const label = kind === 'download' ? `파일 다운로드${filePart}` : '전달 화면 열람';
   addEvent(data, { user: { userId: 'public-order', name: order.targetName || '외부 확인' } }, job.id, type, `${label} · ${order.targetName || '전달 대상'}`, {
     orderId: order.id,
     targetName: order.targetName || '',
@@ -1388,7 +1389,8 @@ function markPublicOrderActivity(data, job, order, kind, meta = {}) {
   return true;
 }
 
-function decoratePublicOrderFile(file) {
+function decoratePublicOrderFile(file, order = null) {
+  const orderQuery = order?.publicToken ? `?order=${encodeURIComponent(order.publicToken)}` : '';
   return {
     id: file.id,
     originalName: file.originalName || file.storedName || file.id,
@@ -1404,7 +1406,7 @@ function decoratePublicOrderFile(file) {
     factoryScheduleNote: file.factoryScheduleNote || '',
     urgent: !!file.urgent,
     scheduleNegotiation: file.scheduleNegotiation || 'pending',
-    downloadUrl: file.publicToken ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/download` : '',
+    downloadUrl: file.publicToken ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/download${orderQuery}` : '',
     previewUrl: file.publicToken && isImageFile(file) ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/preview` : '',
   };
 }
@@ -1546,7 +1548,7 @@ function decoratePublicOrder(data, job, order) {
       respondedAt: order.respondedAt || '',
       publicArchiveUrl: decorated.publicArchiveUrl,
     },
-    files: files.map(decoratePublicOrderFile),
+    files: files.map(file => decoratePublicOrderFile(file, order)),
     responseLabels: ORDER_RESPONSE_LABELS,
   };
 }
@@ -2228,6 +2230,19 @@ router.get('/public/files/:token/download', (req, res) => {
   const token = safeText(req.params.token, 120);
   const file = data.files.find(f => String(f.publicToken || '') === token);
   if (!file) return res.status(404).send('not found');
+  const orderToken = safeText(req.query.order || req.query.orderToken, 120);
+  if (orderToken) {
+    const order = (data.orders || []).find(o => String(o.publicToken || '') === orderToken);
+    const ids = new Set(normalizeFileIds(order?.fileIds || []));
+    const job = order && ids.has(file.id) ? data.jobs.find(j => j.id === order.jobId) : null;
+    if (order && job) {
+      markPublicOrderActivity(data, job, order, 'download', {
+        fileId: file.id,
+        fileName: file.originalName || file.storedName || file.id,
+      });
+      saveStore(data);
+    }
+  }
   if (!sendWorkflowFile(res, file, false, true)) return res.status(404).send('not found');
 });
 
