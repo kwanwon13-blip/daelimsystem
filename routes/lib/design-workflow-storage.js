@@ -47,6 +47,11 @@ function isPathInside(rootPath, targetPath) {
 
 function isYearHierarchyPart(value) {
   const s = cleanHierarchyPart(value);
+  const compact = s.replace(/\s+/g, '');
+  const yearText = '\uB144';
+  const designWorkText = '\uC2DC\uC548\uC791\uC5C5';
+  if (/^20\d{2}$/.test(compact) || /^\d{2}$/.test(compact)) return true;
+  if (/^(20\d{2}|\d{2})/.test(compact) && (compact.includes(yearText) || compact.includes(designWorkText))) return true;
   return /^20\d{2}(\s*년)?(\s*시안\s*작업)?$/i.test(s)
     || /^\d{2}\s*년(\s*시안\s*작업)?$/i.test(s)
     || /^\d{2}\s*시안\s*작업$/i.test(s);
@@ -245,7 +250,7 @@ function addIndexOptions(companyStats, projectStats, designIndex, skipDirs) {
   }
 }
 
-function buildWorkflowOptions({ designIndex = [], designRoot = '', skipDirs = null, companyLimit = 1000, projectLimit = 500 } = {}) {
+function buildWorkflowOptions({ designIndex = [], designRoot = '', skipDirs = null, companyLimit = 5000, projectLimit = 1000 } = {}) {
   const companyStats = new Map();
   const projectStats = new Map();
   const currentYear = String(new Date().getFullYear());
@@ -305,15 +310,15 @@ function findCompanyForStorage(options, companyName) {
 
 function yearFolderForCompany(companyDir, year) {
   const entries = readDirs(companyDir);
-  const candidates = [`${year} 시안작업`, `${year}년 시안작업`, `${year}`];
-  for (const candidate of candidates) {
+  const preferredCandidates = [`${year}\uB144 \uC2DC\uC548\uC791\uC5C5`, `${year}\uB144\uC2DC\uC548\uC791\uC5C5`, `${year}`];
+  for (const candidate of preferredCandidates) {
     const found = entries.find(name => normalizeKey(name) === normalizeKey(candidate));
     if (found) return found;
   }
-  if (entries.some(name => /^20\d{2}년\s*시안\s*작업$/i.test(cleanHierarchyPart(name)))) {
-    return `${year}년 시안작업`;
+  if (entries.some(name => isYearHierarchyPart(name) && String(cleanHierarchyPart(name)).startsWith(year))) {
+    return `${year}\uB144\uC2DC\uC548\uC791\uC5C5`;
   }
-  return `${year} 시안작업`;
+  return `${year}\uB144 \uC2DC\uC548\uC791\uC5C5`;
 }
 
 function resolveWorkflowStorage({ designRoot = '', designIndex = [], skipDirs = null, companyName = '', projectName = '', year = '', create = true } = {}) {

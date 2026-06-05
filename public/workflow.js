@@ -20,7 +20,7 @@ function workflowApp() {
     newUploadDragOver: false,
     currentUser: null,
     contactOptions: [],
-    designWorkflowOptions: { companies: [], projectsByCompany: {}, projectLookup: {} },
+    designWorkflowOptions: { companies: [], projectsByCompany: {}, projectLookup: {}, masterCompanies: [] },
     commentText: '',
     handoffText: '',
     uploadStageId: 'design',
@@ -124,17 +124,36 @@ function workflowApp() {
 
     async loadDesignWorkflowOptions() {
       try {
-        const r = await fetch('/api/design/workflow-options');
-        const d = await r.json();
-        if (r.ok && d.ok) {
+        const [workflowResult, mastersResult] = await Promise.allSettled([
+          fetch('/api/design/workflow-options'),
+          fetch('/api/product-design/masters'),
+        ]);
+        const r = workflowResult.status === 'fulfilled' ? workflowResult.value : null;
+        const d = r ? await r.json() : {};
+        let masterCompanies = [];
+        if (mastersResult.status === 'fulfilled' && mastersResult.value.ok) {
+          const md = await mastersResult.value.json().catch(() => ({}));
+          masterCompanies = ((md.masters && md.masters.brands) || []).map(company => ({
+            name: company.name || '',
+            folderName: company.name || '',
+            count: Number(company.count || 0),
+            projectCount: 0,
+            source: 'design-master',
+          })).filter(company => company.name);
+        }
+        if (r && r.ok && d.ok) {
+          const workflowCompanies = Array.isArray(d.companies) ? d.companies : [];
           this.designWorkflowOptions = {
-            companies: Array.isArray(d.companies) ? d.companies : [],
+            companies: this.mergeWorkflowCompanies(workflowCompanies, masterCompanies),
             projectsByCompany: d.projectsByCompany || {},
             projectLookup: d.projectLookup || {},
+            masterCompanies,
           };
+        } else if (masterCompanies.length) {
+          this.designWorkflowOptions = { companies: this.mergeWorkflowCompanies(masterCompanies), projectsByCompany: {}, projectLookup: {}, masterCompanies };
         }
       } catch (_) {
-        this.designWorkflowOptions = { companies: [], projectsByCompany: {}, projectLookup: {} };
+        this.designWorkflowOptions = { companies: [], projectsByCompany: {}, projectLookup: {}, masterCompanies: [] };
       }
     },
 
@@ -262,12 +281,64 @@ function workflowApp() {
       return this.summary?.unreadEventItems || [];
     },
 
+    urgentFileItems() {
+      return this.summary?.urgentFileItems || [];
+    },
+
     myActionItems() {
       return this.summary?.myActionItems || [];
     },
 
     scheduleItems() {
       return this.summary?.scheduleItems || [];
+    },
+
+    workflowFocusItems() {
+      const items = [];
+      const push = (kind, label, title, meta, source, level = 'info') => {
+        if (!source) return;
+        items.push({
+          key: `${kind}:${source.id || source.jobId || title}:${items.length}`,
+          kind,
+          label,
+          title: title || '-',
+          meta: meta || '',
+          level,
+          source,
+        });
+      };
+      this.urgentFileItems().slice(0, 3).forEach(item => {
+        push('urgentFile', '긴급', item.originalName, `${item.jobTitle || '-'} · 희망 ${item.designDueDate || '미정'}`, item, 'urgent');
+      });
+      this.scheduleItems()
+        .filter(item => item.overdue || item.today)
+        .slice(0, 3)
+        .forEach(item => {
+          push('schedule', item.overdue ? '지연' : '오늘', item.title, `${item.label || '일정'} · ${item.dueDate || ''}`, item, item.overdue ? 'urgent' : 'warn');
+        });
+      this.unreadFileItems().slice(0, 3).forEach(item => {
+        push('unreadFile', '확인', item.originalName, `${item.jobTitle || '-'} · ${item.stageLabel || ''}`, item, 'info');
+      });
+      this.myActionItems().slice(0, 3).forEach(item => {
+        push('action', item.overdue ? '위험' : '내 담당', item.title, `${item.stageLabel || ''}${item.dueDate ? ' · ' + item.dueDate : ''}`, item, item.overdue ? 'urgent' : 'info');
+      });
+      this.unreadEventItems().slice(0, 2).forEach(item => {
+        push('event', '메모', item.message, `${item.jobTitle || '-'}${item.actorName ? ' · ' + item.actorName : ''}`, item, 'info');
+      });
+      return items.slice(0, 8);
+    },
+
+    focusItemClass(item) {
+      if (!item) return 'info';
+      return item.level === 'urgent' ? 'urgent' : item.level === 'warn' ? 'warn' : 'info';
+    },
+
+    async openFocusItem(item) {
+      if (!item || !item.source) return;
+      if (item.kind === 'schedule') return this.openScheduleItem(item.source);
+      if (item.kind === 'action') return this.openActionJob(item.source);
+      if (item.kind === 'event') return this.openUnreadEvent(item.source);
+      return this.openUnreadFile(item.source);
     },
 
     deliverySummary() {
@@ -287,6 +358,45 @@ function workflowApp() {
         .toLowerCase()
         .replace(/[\u2605\u2606\u25cf\u25cb\u25a0\u25a1]/gu, '')
         .replace(/[\s._\-()（）\[\]{}]/g, '');
+    },
+
+    mergeWorkflowCompanies(...lists) {
+      const map = new Map();
+      const put = company => {
+        const name = String(company?.name || '').trim();
+        const folderName = String(company?.folderName || name).trim();
+        const key = this.normalizeOptionName(name || folderName);
+        if (!key) return;
+        const current = map.get(key);
+        if (!current) {
+          map.set(key, {
+            name: name || folderName,
+            folderName,
+            count: Number(company?.count || 0),
+            folderCount: Number(company?.folderCount || 0),
+            projectCount: Number(company?.projectCount || 0),
+          });
+          return;
+        }
+        current.count = Math.max(Number(current.count || 0), Number(company?.count || 0));
+        current.folderCount = Math.max(Number(current.folderCount || 0), Number(company?.folderCount || 0));
+        current.projectCount = Math.max(Number(current.projectCount || 0), Number(company?.projectCount || 0));
+        if (!current.folderName && folderName) current.folderName = folderName;
+      };
+      lists.flat().forEach(put);
+      return Array.from(map.values())
+        .sort((a, b) => b.count - a.count || b.projectCount - a.projectCount || a.name.localeCompare(b.name, 'ko'));
+    },
+
+    optionMatchScore(value, term) {
+      const key = this.normalizeOptionName(value);
+      if (!term) return 0;
+      if (!key) return 99;
+      if (key === term) return 0;
+      if (key.startsWith(term)) return 1;
+      if (key.includes(term)) return 2;
+      if (term.includes(key)) return 3;
+      return 99;
     },
 
     projectNamesForCompany(companyName) {
@@ -341,27 +451,36 @@ function workflowApp() {
       const exactProject = projectOptions.find(p => this.normalizeOptionName(p.name || p) === projectKey && String(p.yearFolder || '').startsWith(year))
         || projectOptions.find(p => this.normalizeOptionName(p.name || p) === projectKey);
       const yearProject = projectOptions.find(p => String(p.yearFolder || '').startsWith(year));
-      const yearFolder = exactProject?.yearFolder || yearProject?.yearFolder || `${year} 시안작업`;
+      const yearFolder = exactProject?.yearFolder || yearProject?.yearFolder || `${year}\uB144 \uC2DC\uC548\uC791\uC5C5`;
       return `${companyFolder} / ${yearFolder} / ${project || '프로젝트 미입력'}`;
     },
 
-    workflowProjectSuggestions(companyName, limit = 8) {
+    workflowProjectSuggestions(companyName, limit = 8, query = '') {
       const seen = new Set();
+      const term = this.normalizeOptionName(query);
       return this.projectOptionsForCompany(companyName)
         .map(project => ({
           name: String(project?.name || project || '').trim(),
           yearFolder: String(project?.yearFolder || '').trim(),
+          count: Number(project?.count || 0),
         }))
         .filter(project => {
           const key = this.normalizeOptionName(project.name);
           if (!key || seen.has(key)) return false;
+          if (term && this.optionMatchScore(project.name, term) >= 99) return false;
           seen.add(key);
           return true;
+        })
+        .sort((a, b) => {
+          if (!term) return 0;
+          return this.optionMatchScore(a.name, term) - this.optionMatchScore(b.name, term)
+            || b.count - a.count
+            || a.name.localeCompare(b.name, 'ko');
         })
         .slice(0, Number(limit || 8));
     },
 
-    workflowCompanySuggestions(query = '', limit = 12) {
+    workflowCompanySuggestions(query = '', limit = 30) {
       const term = this.normalizeOptionName(query);
       const seen = new Set();
       const suggestions = [];
@@ -371,17 +490,24 @@ function workflowApp() {
         const key = this.normalizeOptionName(name);
         const folderKey = this.normalizeOptionName(folderName);
         if (!name || seen.has(key)) continue;
-        if (term && !key.includes(term) && !term.includes(key) && !folderKey.includes(term) && !term.includes(folderKey)) continue;
+        const score = Math.min(this.optionMatchScore(name, term), this.optionMatchScore(folderName, term));
+        if (term && score >= 99) continue;
         seen.add(key);
         suggestions.push({
           name,
           folderName,
           count: Number(company?.count || 0),
           projectCount: Number(company?.projectCount || 0),
+          score,
         });
-        if (suggestions.length >= Number(limit || 12)) break;
       }
-      return suggestions;
+      if (term) {
+        suggestions.sort((a, b) => a.score - b.score
+          || b.count - a.count
+          || b.projectCount - a.projectCount
+          || a.name.localeCompare(b.name, 'ko'));
+      }
+      return suggestions.slice(0, Number(limit || 30));
     },
 
     workflowProjectNames(companyName = '', currentProjectName = '') {
