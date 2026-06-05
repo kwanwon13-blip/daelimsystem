@@ -1365,6 +1365,14 @@ function workflowApp() {
       return blockers.map(b => `${b.label} ${b.count}`).join(' · ');
     },
 
+    archiveDateLabel(job) {
+      const ts = job?.completedAt || job?.archiveUpdatedAt || '';
+      if (!ts) return '';
+      const d = new Date(ts);
+      if (Number.isNaN(d.getTime())) return String(ts).slice(0, 10);
+      return d.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' });
+    },
+
     canReviewFile(file) {
       return !!file && ['proof', 'drawing'].includes(file.kind || 'attachment');
     },

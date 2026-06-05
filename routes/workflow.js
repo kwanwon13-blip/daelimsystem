@@ -1588,6 +1588,37 @@ function isUserJob(job, req) {
   });
 }
 
+function workflowJobSearchText(data, job) {
+  const files = (data.files || []).filter(f => f.jobId === job.id);
+  const orders = (data.orders || []).filter(o => o.jobId === job.id);
+  return [
+    job.title,
+    job.companyName,
+    job.projectName,
+    job.contactName,
+    job.contactPhone,
+    job.summary,
+    job.storageBucket,
+    job.storageCompanyFolder,
+    job.storageProjectFolder,
+    job.archiveStorageBucket,
+    files.map(f => [
+      f.originalName,
+      f.storedName,
+      f.storageBucket,
+      f.storageCompanyName,
+      f.storageProjectName,
+      f.targetLabel,
+      f.note,
+    ].join(' ')).join(' '),
+    orders.map(o => [
+      o.targetName,
+      o.note,
+      o.fileNames,
+    ].join(' ')).join(' '),
+  ].join(' ').toLowerCase();
+}
+
 function decorateJob(data, job, viewerUser = null) {
   const files = data.files.filter(f => f.jobId === job.id);
   const events = data.events.filter(e => e.jobId === job.id);
@@ -2231,9 +2262,7 @@ router.get('/jobs', (req, res) => {
   let jobs = data.jobs.slice();
   if (status && status !== 'all') jobs = jobs.filter(j => j.status === status);
   if (q) {
-    jobs = jobs.filter(j => [
-      j.title, j.companyName, j.projectName, j.contactName, j.summary,
-    ].join(' ').toLowerCase().includes(q));
+    jobs = jobs.filter(j => workflowJobSearchText(data, j).includes(q));
   }
   if (scope === 'mine') {
     jobs = jobs.filter(j => isUserJob(j, req));
@@ -2243,6 +2272,11 @@ router.get('/jobs', (req, res) => {
     jobs = jobs.filter(j => isOverdueJob(j) || overdueStageCount(j) > 0 || blockedStageCount(j) > 0 || changeRequestCount(data, j) > 0);
   }
   jobs.sort((a, b) => {
+    if (status === 'done') {
+      return String(b.archiveUpdatedAt || b.completedAt || b.updatedAt || '').localeCompare(String(a.archiveUpdatedAt || a.completedAt || a.updatedAt || ''))
+        || String(a.companyName || '').localeCompare(String(b.companyName || ''), 'ko')
+        || String(a.projectName || '').localeCompare(String(b.projectName || ''), 'ko');
+    }
     const ap = { urgent: 0, high: 1, normal: 2, low: 3 }[a.priority] ?? 2;
     const bp = { urgent: 0, high: 1, normal: 2, low: 3 }[b.priority] ?? 2;
     if (ap !== bp) return ap - bp;
