@@ -65,6 +65,17 @@ function workflowApp() {
       dueDate: '',
       note: '',
     },
+    orderMailModal: {
+      open: false,
+      sending: false,
+      order: null,
+      toEmail: '',
+      ccEmail: '',
+      subject: '',
+      message: '',
+      attachFiles: true,
+      error: '',
+    },
     form: {
       title: '',
       companyName: '',
@@ -1345,6 +1356,89 @@ function workflowApp() {
       if (!r.ok || !d.ok) return alert(d.error || '발주 저장 실패');
       this.applyOrderResponse(d);
       await this.loadJobs();
+    },
+
+    isExternalOrder(order) {
+      return !!order && (order.deliveryMethod === 'email' || order.targetType === 'external');
+    },
+
+    defaultOrderMailSubject(order) {
+      const job = this.detail?.job || {};
+      const project = job.projectName || job.title || '';
+      return `[제작요청] ${job.companyName || '프로젝트'}${project ? ' - ' + project : ''} / ${order?.targetName || '업체'}`;
+    },
+
+    defaultOrderMailMessage(order) {
+      return [
+        `${order?.targetName || '업체'} 담당자님,`,
+        '',
+        '제작 가능 여부와 납기 확인 부탁드립니다.',
+        order?.dueDate ? `희망 납기: ${order.dueDate}` : '',
+        '',
+        '확인 후 회신 부탁드립니다.',
+      ].filter(line => line !== '').join('\n');
+    },
+
+    openOrderMail(order) {
+      if (!this.detail || !this.detail.job || !order) return;
+      if (!this.isExternalOrder(order)) return alert('메일 발송은 외부업체 전달건에서 사용합니다.');
+      this.orderMailModal = {
+        open: true,
+        sending: false,
+        order,
+        toEmail: order.recipientEmail || '',
+        ccEmail: order.recipientCc || '',
+        subject: order.mailSubject || this.defaultOrderMailSubject(order),
+        message: order.note || this.defaultOrderMailMessage(order),
+        attachFiles: true,
+        error: '',
+      };
+    },
+
+    closeOrderMail() {
+      if (this.orderMailModal.sending) return;
+      this.orderMailModal.open = false;
+      this.orderMailModal.order = null;
+      this.orderMailModal.error = '';
+    },
+
+    async sendOrderMail() {
+      const modal = this.orderMailModal;
+      const order = modal.order;
+      if (!this.detail || !this.detail.job || !order) return;
+      if (!String(modal.toEmail || '').trim()) {
+        modal.error = '받는 이메일을 입력하세요.';
+        return;
+      }
+      modal.sending = true;
+      modal.error = '';
+      try {
+        const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/orders/' + encodeURIComponent(order.id) + '/email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            toEmail: modal.toEmail,
+            ccEmail: modal.ccEmail,
+            subject: modal.subject,
+            message: modal.message,
+            attachFiles: !!modal.attachFiles,
+          }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.ok) {
+          modal.error = d.error || '메일 발송 실패';
+          return;
+        }
+        this.applyOrderResponse(d);
+        await this.loadJobs();
+        modal.sending = false;
+        this.closeOrderMail();
+        alert(d.message || '메일 발송 완료');
+      } catch (e) {
+        modal.error = e.message || '메일 발송 실패';
+      } finally {
+        modal.sending = false;
+      }
     },
 
     orderArchiveUrl(order) {

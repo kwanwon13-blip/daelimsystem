@@ -812,6 +812,10 @@
                         </div>
                         <div style="display:flex;gap:5px;flex-wrap:wrap;">
                           <a class="wf-btn primary" x-show="orderArchiveUrl(order)" :href="orderArchiveUrl(order)" title="발주 파일을 ZIP으로 받습니다">파일 받기</a>
+                          <button class="wf-btn" x-show="isExternalOrder(order)" @click="openOrderMail(order)" title="외부업체에 실제 메일로 발송합니다">
+                            <span class="material-symbols-outlined" style="font-size:15px;">mail</span>메일
+                          </button>
+                          <span class="wf-chip ready" x-show="order.mailStatus === 'sent'">메일발송</span>
                         </div>
                       </div>
                     </article>
@@ -858,6 +862,37 @@
       </template>
     </aside>
   </div>
+
+  <div class="wf-modal" x-show="orderMailModal.open" x-cloak x-transition @click.self="closeOrderMail()" @keydown.window.escape="closeOrderMail()">
+    <div class="wf-dialog">
+      <div class="wf-dialog-head">
+        <div class="wf-dialog-title">
+          <span class="material-symbols-outlined" style="font-size:18px;">mail</span>
+          외부업체 메일 발송
+        </div>
+        <button class="wf-btn ghost" style="height:28px;" @click="closeOrderMail()" title="닫기">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <div class="wf-dialog-body">
+        <input class="wf-input" x-model="orderMailModal.toEmail" placeholder="받는 이메일">
+        <input class="wf-input" x-model="orderMailModal.ccEmail" placeholder="참조 이메일">
+        <input class="wf-input" x-model="orderMailModal.subject" placeholder="제목">
+        <textarea class="wf-textarea" rows="6" x-model="orderMailModal.message" placeholder="본문"></textarea>
+        <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:#334155;">
+          <input type="checkbox" x-model="orderMailModal.attachFiles">
+          파일 첨부
+        </label>
+        <p class="wf-muted" style="margin:0;">첨부 용량이 큰 경우 체크를 끄면 터널 다운로드 링크만 발송합니다.</p>
+        <p x-show="orderMailModal.error" x-text="orderMailModal.error" style="margin:0;color:#dc2626;font-size:12px;font-weight:800;"></p>
+      </div>
+      <div class="wf-dialog-foot">
+        <span class="wf-muted" x-text="orderMailModal.order ? ((orderMailModal.order.fileCount || 0) + '개 파일') : ''"></span>
+        <button class="wf-btn primary" @click="sendOrderMail()" :disabled="orderMailModal.sending" x-text="orderMailModal.sending ? '발송 중' : '메일 발송'"></button>
+      </div>
+    </div>
+  </div>
+
   <div class="wf-modal" x-show="projectPanelOpen" x-cloak x-transition @click.self="closeProjectPanel()" @keydown.window.escape="closeProjectPanel()">
     <div class="wf-dialog wide">
       <div class="wf-dialog-head">

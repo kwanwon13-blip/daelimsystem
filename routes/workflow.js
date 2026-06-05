@@ -2786,6 +2786,8 @@ router.post('/jobs/:id/orders/:orderId/email', async (req, res) => {
     order.mailSentByName = userName(req);
     order.mailTo = toList.join(', ');
     order.mailCc = ccList.join(', ');
+    order.recipientEmail = toList.join(', ');
+    order.recipientCc = ccList.join(', ');
     order.mailSubject = subject;
     if (!Array.isArray(order.mailHistory)) order.mailHistory = [];
     order.mailHistory.push({
