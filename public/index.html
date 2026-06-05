@@ -7792,6 +7792,15 @@ function app() {
       } catch(e) {}
     },
 
+    async markWorkflowLinkedItemRead(jobId = '', itemId = '') {
+      if (!jobId || !itemId) return;
+      try {
+        await fetch('/api/workflow/jobs/' + encodeURIComponent(jobId) + '/items/' + encodeURIComponent(itemId) + '/read', {
+          method: 'POST',
+        });
+      } catch(e) {}
+    },
+
     async openNotificationItem(item) {
       if (!item) return;
       await this.markNotificationRead(item);
@@ -7818,9 +7827,10 @@ function app() {
       if (link && this.tabs.find(t => t.id === link)) this.currentTab = link;
     },
 
-    openWorkflowNotification() {
+    async openWorkflowNotification() {
       const jobId = this.workflowNotif?.jobId || '';
       const itemId = this.workflowNotif?.itemId || '';
+      await this.markWorkflowLinkedItemRead(jobId, itemId);
       if (jobId) sessionStorage.setItem('workflow:openJobId', jobId);
       if (itemId) sessionStorage.setItem('workflow:openItemId', itemId);
       this.currentTab = 'workflow';

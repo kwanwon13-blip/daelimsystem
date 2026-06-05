@@ -2824,6 +2824,30 @@ router.post('/jobs/:id/events/:eventId/read', (req, res) => {
   res.json({ ok: true, event: decorateWorkflowEvent(event, req.user, job) });
 });
 
+router.post('/jobs/:id/items/:itemId/read', (req, res) => {
+  const data = loadStore();
+  const job = data.jobs.find(j => j.id === req.params.id) || null;
+  if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  const itemId = safeText(req.params.itemId, 120);
+  const file = data.files.find(f => f.jobId === job.id && f.id === itemId);
+  if (file) {
+    if (markFileReadBy(file, req)) {
+      addEvent(data, req, file.jobId, 'read', `${file.originalName} 확인`, { fileId: file.id });
+      saveStore(data);
+    }
+    return res.json({ ok: true, kind: 'file', file: decorateWorkflowFile(file, req.user, job) });
+  }
+  const event = data.events.find(e => e.jobId === job.id && e.id === itemId);
+  if (event) {
+    if (markEventReadBy(event, req)) {
+      addEvent(data, req, event.jobId, 'event_read', `${event.message || '기록'} 확인`, { eventId: event.id });
+      saveStore(data);
+    }
+    return res.json({ ok: true, kind: 'event', event: decorateWorkflowEvent(event, req.user, job) });
+  }
+  return res.status(404).json({ error: '확인할 항목을 찾을 수 없습니다.' });
+});
+
 router.get('/jobs/:id/files', (req, res) => {
   const data = loadStore();
   const job = data.jobs.find(j => j.id === req.params.id);
