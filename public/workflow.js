@@ -1185,6 +1185,14 @@ function workflowApp() {
         .join(' ');
     },
 
+    fileGuessTokens(text = '') {
+      const stopwords = new Set(['시안', '발주', '공장', '디자인', '작업', '견적', '마감', '내역서', '최종', '수정', '완료', '납품', '파일', '원본', '확인', '요청', 'ai', 'jpg', 'jpeg', 'png', 'pdf', 'psd', 'xls', 'xlsx', 'doc', 'docx']);
+      return Array.from(new Set(String(text || '')
+        .split(/[^\p{L}\p{N}]+/gu)
+        .map(token => this.normalizeOptionName(token))
+        .filter(token => token.length >= 2 && !stopwords.has(token))));
+    },
+
     optionKeys(option = {}, fields = ['name']) {
       if (typeof option === 'string') {
         const key = this.normalizeOptionName(option);
@@ -1202,14 +1210,27 @@ function workflowApp() {
     bestNameMatch(options = [], haystack = '', fields = ['name']) {
       const hay = this.normalizeOptionName(haystack);
       if (!hay) return null;
+      const tokens = this.fileGuessTokens(haystack);
       let best = null;
       for (const option of options || []) {
         const keys = this.optionKeys(option, fields);
-        const hit = keys
+        const exactHit = keys
           .filter(key => hay.includes(key))
           .sort((a, b) => b.length - a.length)[0];
+        const prefixHit = exactHit ? '' : keys
+          .map(key => {
+            const token = tokens
+              .filter(item => item.length >= 2 && (key.startsWith(item) || item.startsWith(key)))
+              .sort((a, b) => b.length - a.length)[0];
+            return token ? { key, token } : null;
+          })
+          .filter(Boolean)
+          .sort((a, b) => b.token.length - a.token.length || a.key.length - b.key.length)[0];
+        const hit = exactHit || prefixHit?.token;
         if (!hit) continue;
-        const score = hit.length * 1000 + Number(option?.projectCount || option?.activeJobCount || option?.count || 0);
+        const score = (exactHit ? 100000 : 50000)
+          + hit.length * 1000
+          + Number(option?.projectCount || option?.activeJobCount || option?.count || 0);
         if (!best || score > best.score) best = { option, score, key: hit };
       }
       return best?.option || null;
