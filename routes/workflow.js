@@ -15,6 +15,8 @@ const router = express.Router();
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const STORE_PATH = path.join(DATA_DIR, 'workflow.json');
 const FILE_DIR = path.join(DATA_DIR, 'workflow-files');
+const MAX_WORKFLOW_UPLOAD_FILES = 20;
+const MAX_WORKFLOW_UPLOAD_FILE_SIZE = 100 * 1024 * 1024;
 
 const STAGES = [
   { id: 'design', label: '디자인팀', icon: 'design_services' },
@@ -1691,7 +1693,29 @@ const storage = multer.diskStorage({
     cb(null, `${Date.now()}_${Math.random().toString(36).slice(2, 10)}${ext || '.bin'}`);
   },
 });
-const upload = multer({ storage, limits: { fileSize: 100 * 1024 * 1024, files: 20 } });
+const upload = multer({ storage, limits: { fileSize: MAX_WORKFLOW_UPLOAD_FILE_SIZE, files: MAX_WORKFLOW_UPLOAD_FILES } });
+
+function workflowUploadFiles(req, res, next) {
+  upload.array('files', MAX_WORKFLOW_UPLOAD_FILES)(req, res, err => {
+    if (!err) return next();
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({
+          ok: false,
+          error: `파일당 최대 ${Math.round(MAX_WORKFLOW_UPLOAD_FILE_SIZE / 1024 / 1024)}MB까지만 업로드할 수 있습니다.`,
+        });
+      }
+      if (err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_UNEXPECTED_FILE') {
+        return res.status(413).json({
+          ok: false,
+          error: `한 번에 최대 ${MAX_WORKFLOW_UPLOAD_FILES}개 파일까지만 업로드할 수 있습니다.`,
+        });
+      }
+      return res.status(400).json({ ok: false, error: `파일 업로드 제한에 걸렸습니다: ${err.message}` });
+    }
+    return res.status(400).json({ ok: false, error: `파일 업로드 처리에 실패했습니다: ${err.message || err}` });
+  });
+}
 
 function archiveFilters(query = {}) {
   const stageId = STAGES.some(s => s.id === query.stageId) ? query.stageId : '';
@@ -1884,6 +1908,10 @@ router.get('/meta', (req, res) => {
     orderTargets: ORDER_TARGETS,
     orderStatuses: ORDER_STATUS_LABELS,
     publicBaseUrl: publicWorkflowBaseUrl(),
+    uploadLimits: {
+      files: MAX_WORKFLOW_UPLOAD_FILES,
+      fileSize: MAX_WORKFLOW_UPLOAD_FILE_SIZE,
+    },
   });
 });
 
@@ -2333,7 +2361,7 @@ router.put('/jobs/:id/orders/:orderId', (req, res) => {
   });
 });
 
-router.post('/jobs/:id/files', upload.array('files', 20), (req, res) => {
+router.post('/jobs/:id/files', workflowUploadFiles, (req, res) => {
   const data = loadStore();
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });

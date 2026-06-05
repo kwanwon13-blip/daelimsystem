@@ -127,14 +127,17 @@
   .wf-proof-card.active .wf-proof-secondary,.wf-file-card.active .wf-proof-secondary{display:block;}
   .wf-dropzone{min-height:118px;border:1px dashed #9db4d8;border-radius:8px;background:#fff;padding:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;color:#334155;text-align:center;cursor:pointer;}
   .wf-dropzone.drag{border-color:#2563eb;background:#eff6ff;}
+  .wf-dropzone.busy{opacity:.68;pointer-events:none;}
   .wf-dropzone strong{font-size:12px;color:#111827;}
   .wf-dropzone span{font-size:11px;color:#64748b;}
+  .wf-upload-hint{font-size:11px;color:#64748b;font-weight:800;}
   .wf-upload-progress{border:1px solid #bfdbfe;border-radius:7px;background:#eff6ff;padding:8px;display:flex;flex-direction:column;gap:6px;}
   .wf-upload-progress-row{display:flex;justify-content:space-between;gap:10px;font-size:11px;font-weight:800;color:#1d4ed8;}
   .wf-upload-progress-track{height:7px;border-radius:999px;background:#dbeafe;overflow:hidden;}
   .wf-upload-progress-bar{height:100%;border-radius:999px;background:#2563eb;transition:width .18s ease;}
   .wf-modal-dropzone{min-height:96px;padding:12px;}
   .wf-new-file-list{display:flex;flex-direction:column;gap:6px;}
+  .wf-new-file-summary{border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;color:#1d4ed8;font-size:11px;font-weight:900;padding:6px 8px;display:flex;justify-content:space-between;gap:8px;}
   .wf-new-file-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;border:1px solid #e1e6ef;border-radius:6px;background:#f8fafc;padding:6px 8px;}
   .wf-new-file-row strong{font-size:12px;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .wf-new-file-row span{font-size:11px;color:#64748b;white-space:nowrap;}
@@ -536,13 +539,14 @@
                   <div style="display:flex;justify-content:flex-end;">
                     <button type="button" class="wf-btn ghost" style="height:28px;" @click="addUploadProjectFolder()" :disabled="!uploadCompanyName || !uploadProjectName">프로젝트 추가</button>
                   </div>
-                  <label class="wf-dropzone" :class="uploadDragOver ? 'drag' : ''"
+                  <label class="wf-dropzone" :class="[uploadDragOver ? 'drag' : '', uploadProgress.active ? 'busy' : '']"
                     @dragover.prevent="uploadDragOver=true"
                     @dragleave.prevent="uploadDragOver=false"
                     @drop="uploadDroppedFiles($event)">
                     <div>
                       <strong>JPG · PNG · AI 파일을 여기에 드래그</strong>
                       <span x-text="'입력한 폴더: ' + workflowStorageLabel(uploadCompanyName, uploadProjectName, uploadStorageYear())"></span>
+                      <small class="wf-upload-hint" x-text="uploadFilesLimitLabel()"></small>
                     </div>
                     <span class="wf-btn">파일 선택</span>
                     <input type="file" multiple style="display:none;" @change="uploadFiles($event)">
@@ -945,18 +949,23 @@
         </div>
         <div class="wf-field">
           <label>시안 파일</label>
-          <label class="wf-dropzone wf-modal-dropzone" :class="newUploadDragOver ? 'drag' : ''"
+          <label class="wf-dropzone wf-modal-dropzone" :class="[newUploadDragOver ? 'drag' : '', uploadProgress.active ? 'busy' : '']"
             @dragover.prevent="newUploadDragOver=true"
             @dragleave.prevent="newUploadDragOver=false"
             @drop="handleNewDrop($event)">
             <div>
               <strong>JPG · PNG · AI 파일을 여러 개 올릴 수 있습니다</strong>
               <span x-text="'저장 경로: ' + newStorageLabel()"></span>
+              <small class="wf-upload-hint" x-text="uploadFilesLimitLabel()"></small>
             </div>
             <span class="wf-btn">파일 선택</span>
             <input type="file" multiple style="display:none;" @change="handleNewFiles($event)">
           </label>
           <div class="wf-new-file-list" x-show="newFiles.length">
+            <div class="wf-new-file-summary">
+              <span x-text="fileBatchLabel(newFiles)"></span>
+              <span x-text="fileBatchPreview(newFiles)"></span>
+            </div>
             <template x-for="(file, idx) in newFiles" :key="file.name + file.size + file.lastModified + idx">
               <div class="wf-new-file-row">
                 <strong x-text="file.name"></strong>

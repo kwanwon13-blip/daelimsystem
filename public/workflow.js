@@ -8,6 +8,7 @@ function workflowApp() {
     checkStatuses: {},
     orderTargets: [],
     orderStatuses: {},
+    uploadLimits: { files: 20, fileSize: 100 * 1024 * 1024 },
     summary: { active: 0, overdue: 0, blocked: 0, unreadFiles: 0, unreadEvents: 0, scheduleCount: 0, myActions: 0, byStage: {} },
     selectedId: '',
     selectedWorkStageId: '',
@@ -118,6 +119,7 @@ function workflowApp() {
       this.orderTargets = d.orderTargets || [];
       this.orderStatuses = d.orderStatuses || {};
       this.publicShareBaseUrl = d.publicBaseUrl || '';
+      this.uploadLimits = d.uploadLimits || this.uploadLimits;
     },
 
     async loadContacts() {
@@ -910,9 +912,42 @@ function workflowApp() {
       return `${n} B`;
     },
 
+    uploadFilesLimitLabel() {
+      return `최대 ${this.uploadLimits.files || 20}개 · 파일당 ${this.fileSizeLabel(this.uploadLimits.fileSize || (100 * 1024 * 1024))}`;
+    },
+
+    fileListTotalSize(files) {
+      return Array.from(files || []).reduce((sum, file) => sum + Number(file?.size || 0), 0);
+    },
+
+    fileBatchLabel(files) {
+      const list = Array.from(files || []).filter(Boolean);
+      if (!list.length) return this.uploadFilesLimitLabel();
+      return `${list.length}개 · 총 ${this.fileSizeLabel(this.fileListTotalSize(list))}`;
+    },
+
+    fileBatchPreview(files, limit = 3) {
+      const list = Array.from(files || []).filter(Boolean);
+      const names = list.slice(0, Number(limit || 3)).map(file => file.name || 'file');
+      const more = list.length > names.length ? ` 외 ${list.length - names.length}개` : '';
+      return names.join(', ') + more;
+    },
+
+    validateUploadFileList(files) {
+      const list = Array.from(files || []).filter(Boolean);
+      const maxFiles = Number(this.uploadLimits.files || 20);
+      const maxFileSize = Number(this.uploadLimits.fileSize || (100 * 1024 * 1024));
+      if (list.length > maxFiles) return `한 번에 최대 ${maxFiles}개 파일까지만 업로드할 수 있습니다.`;
+      const oversized = list.find(file => Number(file?.size || 0) > maxFileSize);
+      if (oversized) return `${oversized.name || '파일'}이 너무 큽니다. 파일당 최대 ${this.fileSizeLabel(maxFileSize)}까지 업로드할 수 있습니다.`;
+      return '';
+    },
+
     setNewFiles(files) {
       const incoming = Array.from(files || []).filter(Boolean);
       if (!incoming.length) return;
+      const error = this.validateUploadFileList([...this.newFiles, ...incoming]);
+      if (error) return alert(error);
       const seen = new Set(this.newFiles.map(f => `${f.name}:${f.size}:${f.lastModified}`));
       for (const file of incoming) {
         const key = `${file.name}:${file.size}:${file.lastModified}`;
@@ -1471,6 +1506,8 @@ function workflowApp() {
     async uploadFilesForJob(jobId, files, options = {}) {
       const list = Array.from(files || []).filter(Boolean);
       if (!jobId || !list.length) return null;
+      const validationError = this.validateUploadFileList(list);
+      if (validationError) throw new Error(validationError);
       const storageCompanyName = String(options.companyName || '').trim();
       const storageProjectName = String(options.projectName || '').trim();
       if (!storageCompanyName || !storageProjectName) {
@@ -1494,18 +1531,23 @@ function workflowApp() {
       fd.append('targetUserName', '');
       fd.append('targetLabel', options.targetLabel || '');
       fd.append('targetLabelEncoded', encodeField(options.targetLabel || ''));
-      this.uploadProgress = { active: true, percent: 0, text: `${list.length}개 파일 업로드 준비 중` };
+      const totalSize = this.fileListTotalSize(list);
+      this.uploadProgress = { active: true, percent: 0, text: `${this.fileBatchLabel(list)} 업로드 준비 중` };
       try {
         const d = await new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();
           xhr.open('POST', '/api/workflow/jobs/' + encodeURIComponent(jobId) + '/files');
           xhr.upload.onprogress = event => {
             if (!event.lengthComputable) {
-              this.uploadProgress = { active: true, percent: 0, text: `${list.length}개 파일 업로드 중` };
+              this.uploadProgress = { active: true, percent: 0, text: `${this.fileBatchLabel(list)} 업로드 중` };
               return;
             }
             const percent = Math.max(1, Math.min(99, Math.round((event.loaded / event.total) * 100)));
-            this.uploadProgress = { active: true, percent, text: `${list.length}개 파일 업로드 중 · ${percent}%` };
+            this.uploadProgress = {
+              active: true,
+              percent,
+              text: `${this.fileSizeLabel(event.loaded)} / ${this.fileSizeLabel(event.total || totalSize)} 업로드 중`,
+            };
           };
           xhr.onerror = () => reject(new Error('파일 업로드 중 네트워크 오류가 발생했습니다.'));
           xhr.onload = () => {
@@ -1516,7 +1558,7 @@ function workflowApp() {
               reject(new Error(data.error || '파일 업로드 실패'));
               return;
             }
-            this.uploadProgress = { active: true, percent: 100, text: `${list.length}개 파일 업로드 완료` };
+            this.uploadProgress = { active: true, percent: 100, text: `${this.fileBatchLabel(list)} 업로드 완료` };
             resolve(data);
           };
           xhr.send(fd);
