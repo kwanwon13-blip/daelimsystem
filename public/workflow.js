@@ -1408,8 +1408,8 @@ function workflowApp() {
     },
 
     orderMailButtonLabel(order) {
-      if (!this.isExternalOrder(order)) return '메일';
-      return this.hasOrderRecipientEmail(order) ? '메일' : '메일주소 입력';
+      if (!this.isExternalOrder(order)) return '다운로드';
+      return this.hasOrderRecipientEmail(order) ? '메일 보내기' : '메일주소 입력';
     },
 
     defaultOrderMailSubject(order) {

@@ -826,10 +826,16 @@
                           <button class="wf-btn" @click="saveOrder(order)">상태 저장</button>
                         </div>
                         <div style="display:flex;gap:5px;flex-wrap:wrap;">
-                          <a class="wf-btn primary" x-show="orderArchiveUrl(order)" :href="orderArchiveUrl(order)" title="발주 파일을 ZIP으로 받습니다">파일 받기</a>
-                          <button class="wf-btn" x-show="isExternalOrder(order)" @click="openOrderMail(order)" title="외부업체에 실제 메일로 발송합니다">
-                            <span class="material-symbols-outlined" style="font-size:15px;">mail</span><span x-text="orderMailButtonLabel(order)"></span>
-                          </button>
+                          <template x-if="!isExternalOrder(order)">
+                            <a class="wf-btn primary" x-show="orderArchiveUrl(order)" :href="orderArchiveUrl(order)" title="공장은 터널 화면에서 파일을 ZIP으로 받습니다">
+                              <span class="material-symbols-outlined" style="font-size:15px;">download</span>다운로드
+                            </a>
+                          </template>
+                          <template x-if="isExternalOrder(order)">
+                            <button class="wf-btn primary" @click="openOrderMail(order)" title="외부업체에는 메일로 첨부 또는 다운로드 링크를 보냅니다">
+                              <span class="material-symbols-outlined" style="font-size:15px;">mail</span><span x-text="orderMailButtonLabel(order)"></span>
+                            </button>
+                          </template>
                           <span class="wf-chip high" x-show="isExternalOrder(order) && !hasOrderRecipientEmail(order)">메일주소 없음</span>
                           <span class="wf-chip ready" x-show="order.mailStatus === 'sent'">메일발송</span>
                         </div>
