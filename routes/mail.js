@@ -17,6 +17,67 @@ const { escHtml, generateQuotePdf } = require('../utils/pdf');
 // ── 메일 API는 모두 로그인 필수 ──
 router.use(requireAuth);
 
+const MAIL_SETTINGS_PATH = path.join(__dirname, '..', 'data', 'settings.json');
+
+function readJsonObject(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return {};
+    return JSON.parse(fs.readFileSync(filePath, 'utf8')) || {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function loadDbSettings() {
+  try {
+    return db['설정']?.load?.() || {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function mergeSettings(primary = {}, fallback = {}) {
+  const smtp = { ...(fallback.smtp || {}), ...(primary.smtp || {}) };
+  return {
+    ...fallback,
+    ...primary,
+    smtp,
+  };
+}
+
+function loadMailSettings() {
+  const dbSettings = loadDbSettings();
+  const fileSettings = readJsonObject(MAIL_SETTINGS_PATH);
+  return mergeSettings(fileSettings, dbSettings);
+}
+
+function saveMailSettings(settings) {
+  fs.writeFileSync(MAIL_SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf8');
+  try {
+    const current = loadDbSettings();
+    db['설정'].save(mergeSettings(settings, current));
+  } catch (_) {}
+}
+
+function maskMailSettings(settings) {
+  const safe = JSON.parse(JSON.stringify(settings || {}));
+  if (safe.smtp && safe.smtp.pass) safe.smtp.pass = '****';
+  return safe;
+}
+
+function getConfiguredSmtpSettings() {
+  const settings = loadMailSettings();
+  const smtp = settings.smtp || {};
+  if (!smtp.user || !smtp.pass) return null;
+  return {
+    host: smtp.host || 'smtp.naver.com',
+    port: Number(smtp.port) || 465,
+    user: smtp.user || '',
+    pass: smtp.pass || '',
+    from: smtp.from || smtp.user || '',
+  };
+}
+
 // ── 네이버 SMTP 메일 발송 ────────────────────────────────
 // nodemailer 없이 직접 SMTP 구현
 function normalizeEmailList(value) {
@@ -162,22 +223,13 @@ function sendSmtpMail({ smtpHost, smtpPort, smtpUser, smtpPass, from, to, cc, su
 // SMTP 설정 저장 (관리자 전용 — SMTP 크레덴셜 보호)
 router.get('/mail/settings', requireAdmin, (req, res) => {
   try {
-    const settingsPath = path.join(__dirname, '..', 'data', 'settings.json');
-    if (!fs.existsSync(settingsPath)) return res.json({});
-    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-    // 비밀번호는 마스킹
-    if (settings.smtp && settings.smtp.pass) {
-      settings.smtp.pass = '****';
-    }
-    res.json(settings);
+    res.json(maskMailSettings(loadMailSettings()));
   } catch (e) { res.json({}); }
 });
 
 router.post('/mail/settings', requireAdmin, (req, res) => {
   try {
-    const settingsPath = path.join(__dirname, '..', 'data', 'settings.json');
-    let settings = {};
-    if (fs.existsSync(settingsPath)) settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    const settings = loadMailSettings();
     settings.smtp = {
       host: req.body.host || 'smtp.naver.com',
       port: Number(req.body.port) || 465,
@@ -185,7 +237,7 @@ router.post('/mail/settings', requireAdmin, (req, res) => {
       pass: req.body.pass === '****' ? (settings.smtp?.pass || '') : (req.body.pass || ''),
       from: req.body.from || req.body.user || ''
     };
-    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+    saveMailSettings(settings);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -196,11 +248,8 @@ router.post('/mail/send', async (req, res) => {
     const { quoteId, toEmail, subject, message } = req.body;
     if (!toEmail) return res.status(400).json({ error: '수신 이메일을 입력해주세요' });
 
-    // SMTP 설정 로드
-    const settingsPath = path.join(__dirname, '..', 'data', 'settings.json');
-    if (!fs.existsSync(settingsPath)) return res.status(400).json({ error: 'SMTP 설정을 먼저 해주세요' });
-    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-    if (!settings.smtp || !settings.smtp.user || !settings.smtp.pass) {
+    const smtp = getConfiguredSmtpSettings();
+    if (!smtp) {
       return res.status(400).json({ error: 'SMTP 설정이 완료되지 않았습니다 (설정 탭에서 메일 설정)' });
     }
 
@@ -276,11 +325,11 @@ router.post('/mail/send', async (req, res) => {
     </body></html>`;
 
     await sendSmtpMail({
-      smtpHost: settings.smtp.host,
-      smtpPort: settings.smtp.port,
-      smtpUser: settings.smtp.user,
-      smtpPass: settings.smtp.pass,
-      from: settings.smtp.from || settings.smtp.user,
+      smtpHost: smtp.host,
+      smtpPort: smtp.port,
+      smtpUser: smtp.user,
+      smtpPass: smtp.pass,
+      from: smtp.from,
       to: toEmail,
       subject: subject || `[견적서] ${quoteData.siteName || ''} - ${quoteData.quoteName || ''}`,
       html,
@@ -329,3 +378,5 @@ router.post('/mail/send', async (req, res) => {
 module.exports = router;
 module.exports.sendSmtpMail = sendSmtpMail;
 module.exports.normalizeEmailList = normalizeEmailList;
+module.exports.loadMailSettings = loadMailSettings;
+module.exports.getConfiguredSmtpSettings = getConfiguredSmtpSettings;

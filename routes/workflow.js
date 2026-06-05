@@ -1518,18 +1518,8 @@ function escapeHtml(value) {
 }
 
 function loadWorkflowSmtpSettings() {
-  const settingsPath = path.join(DATA_DIR, 'settings.json');
-  if (!fs.existsSync(settingsPath)) return null;
-  const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-  const smtp = settings.smtp || {};
-  if (!smtp.user || !smtp.pass) return null;
-  return {
-    host: smtp.host || 'smtp.naver.com',
-    port: Number(smtp.port) || 465,
-    user: smtp.user || '',
-    pass: smtp.pass || '',
-    from: smtp.from || smtp.user || '',
-  };
+  if (typeof mailRoute.getConfiguredSmtpSettings !== 'function') return null;
+  return mailRoute.getConfiguredSmtpSettings();
 }
 
 function absoluteWorkflowOrderUrl(order, req = null) {
