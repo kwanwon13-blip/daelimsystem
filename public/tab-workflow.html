@@ -636,9 +636,7 @@
                           <span class="wf-chip" :class="file.reviewStatus || 'pending'" x-show="canReviewFile(file)" x-text="fileReviewLabel(file.reviewStatus)"></span>
                         </div>
                         <div style="display:flex;gap:5px;flex-wrap:wrap;">
-                          <a class="wf-btn" :href="fileUrl(file)">원본</a>
-                          <a class="wf-btn" x-show="publicFileUrl(file)" :href="publicFileUrl(file)">공장받기</a>
-                          <button class="wf-btn" x-show="publicFileUrl(file)" @click="copyFactoryFileLink(file)">링크</button>
+                          <a class="wf-btn" x-show="file.exists !== false" :href="smartFileUrl(file)" title="접속 위치에 맞는 파일을 받습니다">파일 받기</a>
                           <button class="wf-btn" x-show="isUnreadFile(file)" @click="markRead(file)">확인</button>
                           <button class="wf-btn" @click="toggleFileCollab(file)" x-text="expandedFileId === file.id ? '접기' : '협의'"></button>
                         </div>
@@ -704,9 +702,7 @@
                           <span class="wf-chip ready" x-show="file.hasTarget && file.targetRead">수신확인</span>
                           <span class="wf-chip overdue" x-show="file.exists === false">서버 파일 없음</span>
                           <span class="wf-chip" :class="file.reviewStatus || 'pending'" x-show="canReviewFile(file)" x-text="fileReviewLabel(file.reviewStatus)"></span>
-                          <a class="wf-btn" x-show="file.exists !== false" :href="fileUrl(file)">받기</a>
-                          <a class="wf-btn" x-show="publicFileUrl(file)" :href="publicFileUrl(file)">공장받기</a>
-                          <button class="wf-btn" x-show="publicFileUrl(file)" @click="copyFactoryFileLink(file)">링크</button>
+                          <a class="wf-btn" x-show="file.exists !== false" :href="smartFileUrl(file)" title="접속 위치에 맞는 파일을 받습니다">파일 받기</a>
                           <button class="wf-btn" x-show="isUnreadFile(file)" @click="markRead(file)">확인</button>
                           <button class="wf-btn" @click="toggleFileCollab(file)" x-text="expandedFileId === file.id ? '접기' : '협의'"></button>
                         </div>
@@ -812,12 +808,7 @@
                           <button class="wf-btn" @click="saveOrder(order)">상태 저장</button>
                         </div>
                         <div style="display:flex;gap:5px;flex-wrap:wrap;">
-                          <button class="wf-btn primary" x-show="orderViewUrl(order)" @click="copyFactoryOrderShare(order)">공장공유</button>
-                          <a class="wf-btn" x-show="orderViewUrl(order)" :href="orderViewUrl(order)" target="_blank">공장화면</a>
-                          <button class="wf-btn" x-show="orderViewUrl(order)" @click="copyOrderViewLink(order)">화면링크</button>
-                          <a class="wf-btn" x-show="orderArchiveUrl(order)" :href="orderArchiveUrl(order)">발주 파일 받기</a>
-                          <button class="wf-btn" x-show="orderArchiveUrl(order)" @click="copyOrderArchiveLink(order)">발주 링크 복사</button>
-                          <button class="wf-btn" @click="copyOrderMailDraft(order)">공유문</button>
+                          <a class="wf-btn primary" x-show="orderArchiveUrl(order)" :href="orderArchiveUrl(order)" title="발주 파일을 ZIP으로 받습니다">파일 받기</a>
                         </div>
                       </div>
                     </article>

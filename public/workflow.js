@@ -1294,11 +1294,7 @@ function workflowApp() {
       if (!r.ok || !d.ok) return alert(d.error || '발주 패키지 생성 실패');
       this.applyOrderResponse(d);
       await this.loadJobs();
-      const shareText = d.order && d.order.targetType === 'internal'
-        ? this.factoryOrderShareText(d.order)
-        : this.orderShareText(d.order);
-      const copied = shareText ? await this.copyText(shareText) : false;
-      alert(copied ? '발주 패키지를 만들고 공유문을 복사했습니다.' : '발주 패키지를 만들었습니다. 공장공유 버튼으로 공유할 수 있습니다.');
+      alert('발주 패키지를 만들었습니다. 공장은 터널 화면에서 파일을 받을 수 있습니다.');
     },
 
     async saveOrder(order) {
@@ -1918,6 +1914,13 @@ function workflowApp() {
 
     publicFileUrl(file) {
       return file && file.publicDownloadUrl ? file.publicDownloadUrl : '';
+    },
+
+    smartFileUrl(file) {
+      if (!file || file.exists === false) return '#';
+      const publicUrl = this.publicFileUrl(file);
+      if (this.isExternalWorkflowHost() && publicUrl) return publicUrl;
+      return this.fileUrl(file);
     },
 
     absoluteUrl(url) {
