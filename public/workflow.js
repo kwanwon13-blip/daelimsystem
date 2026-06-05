@@ -1061,6 +1061,7 @@ function workflowApp() {
       const companyKey = this.normalizeOptionName(companyName);
       if (this.detail?.job?.projectName && (!companyKey || this.normalizeOptionName(this.detail.job.companyName) === companyKey)) names.push(this.detail.job.projectName);
       for (const job of this.jobs || []) {
+        if (['done', 'cancelled'].includes(job.status || 'active')) continue;
         if (job.projectName && (!companyKey || this.normalizeOptionName(job.companyName) === companyKey)) names.push(job.projectName);
       }
       return Array.from(new Set(names.filter(Boolean)));
@@ -1225,16 +1226,16 @@ function workflowApp() {
       let companyName = matchedCompany?.name || '';
       let projectName = '';
       const projectPool = companyName
-        ? [
-            ...this.workflowProjectOptionsForCompany(companyName, true),
-            ...this.projectOptionsForCompany(companyName),
-          ]
+        ? this.workflowProjectOptionsForCompany(companyName, false)
         : (this.workflowProjects || []).map(project => ({
             name: project.projectName || '',
             folderName: project.storageProjectFolder || project.projectName || '',
             companyName: project.companyName || '',
             activeJobCount: Number(project.activeJobCount || 0),
-          }));
+            status: project.status || 'active',
+          })).filter(project => {
+            return project.status !== 'done';
+          });
       const matchedProject = this.bestNameMatch(projectPool, text, ['name', 'folderName']);
       if (matchedProject) {
         projectName = this.optionDisplayName(matchedProject);
@@ -1249,10 +1250,7 @@ function workflowApp() {
         this.form.companyName = guess.companyName;
       }
       if (!guess.projectName && String(this.form.companyName || '').trim()) {
-        const matched = this.bestNameMatch([
-          ...this.workflowProjectOptionsForCompany(this.form.companyName, true),
-          ...this.projectOptionsForCompany(this.form.companyName),
-        ], this.fileNameSearchText(files), ['name', 'folderName']);
+        const matched = this.bestNameMatch(this.workflowProjectOptionsForCompany(this.form.companyName, false), this.fileNameSearchText(files), ['name', 'folderName']);
         if (matched) guess.projectName = this.optionDisplayName(matched);
       }
       if (guess.projectName && !String(this.form.projectName || '').trim()) {
@@ -1267,10 +1265,7 @@ function workflowApp() {
         this.uploadCompanyName = guess.companyName;
       }
       if (!guess.projectName && String(this.uploadCompanyName || '').trim()) {
-        const matched = this.bestNameMatch([
-          ...this.workflowProjectOptionsForCompany(this.uploadCompanyName, true),
-          ...this.projectOptionsForCompany(this.uploadCompanyName),
-        ], this.fileNameSearchText(files), ['name', 'folderName']);
+        const matched = this.bestNameMatch(this.workflowProjectOptionsForCompany(this.uploadCompanyName, false), this.fileNameSearchText(files), ['name', 'folderName']);
         if (matched) guess.projectName = this.optionDisplayName(matched);
       }
       if (guess.projectName && !String(this.uploadProjectName || '').trim()) {
