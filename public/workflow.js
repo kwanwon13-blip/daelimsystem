@@ -27,6 +27,11 @@ function workflowApp() {
     publicLinkPanelOpen: false,
     publicLinkSettings: { configuredBaseUrl: '', source: '', envLocked: false, configuredValid: true, configuredProblem: '', envProblem: '' },
     publicLinkForm: { publicBaseUrl: '', saving: false },
+    departmentMappingPanelOpen: false,
+    workflowDepartments: [],
+    stageDepartmentMap: {},
+    stageDepartmentMissingIds: [],
+    stageDepartmentSaving: false,
     contactOptions: [],
     designWorkflowOptions: { companies: [], projectsByCompany: {}, projectLookup: {}, masterCompanies: [] },
     workflowProjects: [],
@@ -145,8 +150,65 @@ function workflowApp() {
       this.checkStatuses = d.checkStatuses || {};
       this.orderTargets = d.orderTargets || [];
       this.orderStatuses = d.orderStatuses || {};
+      this.workflowDepartments = d.departments || [];
+      this.stageDepartmentMap = { ...(d.stageDepartmentMap || {}) };
+      this.stageDepartmentMissingIds = d.stageDepartmentMissingIds || [];
       this.applyPublicLinkSettings(d.publicLink || d);
       this.uploadLimits = d.uploadLimits || this.uploadLimits;
+    },
+
+    missingDepartmentMappings() {
+      return (this.stages || []).filter(stage => !this.stageDepartmentMap?.[stage.id]);
+    },
+
+    stageDepartmentName(stageId) {
+      const deptId = this.stageDepartmentMap?.[stageId] || '';
+      const dept = (this.workflowDepartments || []).find(d => d.id === deptId);
+      return dept?.name || '';
+    },
+
+    departmentMappingSummary() {
+      const missing = this.missingDepartmentMappings();
+      if (!this.workflowDepartments.length) return '조직도 부서를 먼저 등록해주세요.';
+      if (missing.length) return `팀 매칭 필요 ${missing.length}개`;
+      return '팀 매칭 완료';
+    },
+
+    async loadDepartmentMappingSettings() {
+      try {
+        const r = await fetch('/api/workflow/settings/departments');
+        const d = await r.json();
+        if (!r.ok || !d.ok) throw new Error(d.error || '팀 매칭 조회 실패');
+        this.stages = d.stages || this.stages || [];
+        this.workflowDepartments = d.departments || [];
+        this.stageDepartmentMap = { ...(d.stageDepartmentMap || {}) };
+        this.stageDepartmentMissingIds = d.stageDepartmentMissingIds || [];
+      } catch (e) {
+        alert(e.message);
+      }
+    },
+
+    async saveDepartmentMappingSettings() {
+      this.stageDepartmentSaving = true;
+      try {
+        const r = await fetch('/api/workflow/settings/departments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stageDepartmentMap: this.stageDepartmentMap || {} }),
+        });
+        const d = await r.json();
+        if (!r.ok || !d.ok) throw new Error(d.error || '팀 매칭 저장 실패');
+        this.stages = d.stages || this.stages || [];
+        this.workflowDepartments = d.departments || [];
+        this.stageDepartmentMap = { ...(d.stageDepartmentMap || {}) };
+        this.stageDepartmentMissingIds = d.stageDepartmentMissingIds || [];
+        await this.loadJobs();
+        alert('워크플로우 팀 매칭을 저장했습니다.');
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        this.stageDepartmentSaving = false;
+      }
     },
 
     applyPublicLinkSettings(data = {}) {
@@ -1499,7 +1561,7 @@ function workflowApp() {
     },
 
     orderTargetTypeLabel(type) {
-      return type === 'external' ? '외주/업체' : '우리공장';
+      return type === 'external' ? '외주/업체' : this.stageLabel('factory', '우리공장');
     },
 
     orderFormIsExternal() {
@@ -1508,7 +1570,7 @@ function workflowApp() {
 
     orderTargetHint() {
       if (!this.orderForm.targetPreset && !this.orderForm.targetName) return '';
-      if (!this.orderFormIsExternal()) return '공장/내부는 ERP에서 바로 파일을 받습니다.';
+      if (!this.orderFormIsExternal()) return `${this.stageLabel('factory', '공장')}/내부는 ERP에서 바로 파일을 받습니다.`;
       return String(this.orderForm.recipientEmail || '').trim()
         ? '메일주소 자동 입력됨 · 발송 전에 확인할 수 있습니다.'
         : '메일주소 없음 · 아래 입력하면 업체에 저장됩니다.';
@@ -1591,7 +1653,7 @@ function workflowApp() {
           return;
         }
       }
-      alert('공장 전달건을 만들었습니다. 공장은 ERP에서 파일 받기만 누르면 됩니다.');
+      alert(`${this.stageLabel('factory', '공장')} 전달건을 만들었습니다. ERP에서 파일 받기만 누르면 됩니다.`);
     },
 
     async saveOrder(order) {
@@ -1683,7 +1745,7 @@ function workflowApp() {
     orderActionTitle(order) {
       return this.isExternalOrder(order)
         ? '외부업체에는 메일로 첨부 또는 다운로드 링크를 보냅니다'
-        : '공장/내부 수신자는 ERP에서 파일을 ZIP으로 받습니다';
+        : `${this.stageLabel('factory', '공장')}/내부 수신자는 ERP에서 파일을 ZIP으로 받습니다`;
     },
 
     orderDeliveryStateText(order) {
@@ -1903,10 +1965,19 @@ function workflowApp() {
       return this.stages.find(s => s.id === id) || this.stages[0] || null;
     },
 
+    stageLabel(stageId, fallback = '') {
+      const stage = (this.stages || []).find(s => s.id === stageId);
+      return stage?.label || fallback || stageId || '';
+    },
+
+    parallelStageLabel(separator = '/') {
+      return ['management', 'factory'].map(id => this.stageLabel(id)).filter(Boolean).join(separator);
+    },
+
     nextStage() {
       const current = this.currentStage();
       if (!current) return null;
-      if (current.id === 'design') return { id: 'parallel', label: '관리팀/공장' };
+      if (current.id === 'design') return { id: 'parallel', label: this.parallelStageLabel('/') };
       if (current.id === 'management' || current.id === 'factory') {
         const otherId = current.id === 'management' ? 'factory' : 'management';
         const otherCheck = this.detail?.job?.stageChecks?.[otherId] || {};
@@ -1921,12 +1992,12 @@ function workflowApp() {
       const current = this.currentStage();
       const next = this.nextStage();
       if (!current) return '전달';
-      if (current.id === 'design') return `${current.label} 완료 · 관리팀/공장 전달`;
+      if (current.id === 'design') return `${current.label} 완료 · ${this.parallelStageLabel('/')} 전달`;
       if (current.id === 'management' || current.id === 'factory') {
         const otherId = current.id === 'management' ? 'factory' : 'management';
         const otherCheck = this.detail?.job?.stageChecks?.[otherId] || {};
         if (otherCheck.status !== 'done') return `${current.label} 완료`;
-        return `${current.label} 완료 · 납품팀 전달`;
+        return `${current.label} 완료 · ${this.stageLabel('delivery', '납품팀')} 전달`;
       }
       if (!next) return '작업 완료';
       return `${current.label} 완료 · ${next.label} 전달`;

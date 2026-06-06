@@ -43,8 +43,8 @@ const DESIGN_PARALLEL_STAGE_IDS = ['management', 'factory'];
 const STAGE_DEPARTMENT_ALIASES = {
   design: ['디자인팀', '디자인'],
   management: ['경영관리팀', '관리팀', '관리'],
-  factory: ['공장', '공장팀', '생산팀'],
-  delivery: ['납품팀', '납품'],
+  factory: ['공장', '공장팀', '생산팀', '제작팀'],
+  delivery: ['납품팀', '납품', '배송팀', '배송'],
 };
 
 const STATUS_LABELS = {
@@ -499,6 +499,42 @@ function storedPublicWorkflowBaseUrl() {
   }
 }
 
+function loadWorkflowSettings() {
+  try {
+    const settings = db['설정'].load() || {};
+    return {
+      root: settings,
+      workflow: settings.workflow && typeof settings.workflow === 'object' ? settings.workflow : {},
+    };
+  } catch (_) {
+    return { root: {}, workflow: {} };
+  }
+}
+
+function storedWorkflowStageDepartmentMap() {
+  const { workflow, root } = loadWorkflowSettings();
+  const raw = workflow.stageDepartmentMap || root.workflowStageDepartmentMap || {};
+  const out = {};
+  for (const stage of STAGES) {
+    const value = safeText(raw[stage.id], 120);
+    if (value) out[stage.id] = value;
+  }
+  return out;
+}
+
+function saveWorkflowStageDepartmentMap(stageDepartmentMap = {}) {
+  const settings = db['설정'].load() || {};
+  if (!settings.workflow || typeof settings.workflow !== 'object') settings.workflow = {};
+  const next = {};
+  for (const stage of STAGES) {
+    const value = safeText(stageDepartmentMap[stage.id], 120);
+    if (value) next[stage.id] = value;
+  }
+  settings.workflow.stageDepartmentMap = next;
+  db['설정'].save(settings);
+  return next;
+}
+
 function publicWorkflowBaseUrl() {
   return publicWorkflowLinkState().publicBaseUrl;
 }
@@ -688,7 +724,7 @@ function uniqueTexts(values) {
 function stageTargetLabels(job, stageIds) {
   return uniqueTexts(stageIds.map(stageId => {
     const stage = STAGES.find(s => s.id === stageId);
-    return job.stageChecks?.[stageId]?.assignee || stage?.label || stageId;
+    return job.stageChecks?.[stageId]?.assignee || workflowStageLabel(stageId) || stage?.label || stageId;
   }));
 }
 
@@ -766,6 +802,53 @@ function lowerText(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+function stageDepartments(stageId, org = loadOrgSnapshot()) {
+  const mappedId = storedWorkflowStageDepartmentMap()[stageId] || '';
+  if (!mappedId) return [];
+  const dept = (org.departments || []).find(d => String(d.id || '') === mappedId);
+  return dept ? [dept] : [];
+}
+
+function workflowDepartmentOptions(org = loadOrgSnapshot()) {
+  return (org.departments || [])
+    .map(d => ({
+      id: d.id,
+      name: d.name || d.id,
+      sortOrder: Number(d.sortOrder) || 0,
+      companyId: d.companyId || '',
+    }))
+    .filter(d => d.id && d.name)
+    .sort((a, b) => (a.sortOrder - b.sortOrder) || String(a.name).localeCompare(String(b.name), 'ko'));
+}
+
+function workflowStageMeta(stage, org = loadOrgSnapshot()) {
+  const departments = stageDepartments(stage.id, org);
+  const primary = departments[0] || null;
+  return {
+    ...stage,
+    label: primary?.name || stage.label,
+    defaultLabel: stage.label,
+    departmentIds: departments.map(d => d.id).filter(Boolean),
+    departmentNames: departments.map(d => d.name).filter(Boolean),
+    mappedDepartmentId: primary?.id || '',
+    matchedDepartmentCount: departments.length,
+  };
+}
+
+function workflowStagesForOrg(org = loadOrgSnapshot()) {
+  return STAGES.map(stage => workflowStageMeta(stage, org));
+}
+
+function workflowStageLabel(stageId) {
+  const stage = STAGES.find(s => s.id === stageId);
+  if (!stage) return stageId || '';
+  return workflowStageMeta(stage).label || stage.label || stageId;
+}
+
+function workflowParallelStageLabel(separator = '/') {
+  return DESIGN_PARALLEL_STAGE_IDS.map(workflowStageLabel).filter(Boolean).join(separator);
+}
+
 function resolveWorkflowUser(userLike = {}) {
   const org = loadOrgSnapshot();
   const userId = lowerText(userLike.userId);
@@ -801,14 +884,36 @@ function textMatchesProfile(text, profile) {
   return profileTokens(profile).some(token => hay.includes(token) || token.includes(hay));
 }
 
-function stageTargetTexts(job, stageId) {
+function textMatchesUserIdentity(text, userLike) {
+  const hay = lowerText(text);
+  if (!hay) return false;
+  const profile = resolveWorkflowUser(userLike || {});
+  return [profile.userId, profile.name]
+    .map(lowerText)
+    .filter(Boolean)
+    .some(token => hay.includes(token) || token.includes(hay));
+}
+
+function stageReferenceTexts(job, stageId) {
   const stage = STAGES.find(s => s.id === stageId);
   const check = job?.stageChecks?.[stageId] || {};
   return uniqueTexts([
     stageId,
     stage?.label,
+    workflowStageLabel(stageId),
     check.assignee,
     ...(STAGE_DEPARTMENT_ALIASES[stageId] || []),
+  ]);
+}
+
+function stageTargetTexts(job, stageId) {
+  const check = job?.stageChecks?.[stageId] || {};
+  const departments = stageDepartments(stageId);
+  return uniqueTexts([
+    stageId,
+    check.assignee,
+    ...departments.map(d => d.id),
+    ...departments.map(d => d.name),
   ]);
 }
 
@@ -822,7 +927,7 @@ function targetLabelStageIds(label, job) {
   const needle = lowerText(label);
   if (!needle) return [];
   return STAGES
-    .filter(stage => stageTargetTexts(job, stage.id).some(text => {
+    .filter(stage => stageReferenceTexts(job, stage.id).some(text => {
       const hay = lowerText(text);
       return hay && (needle.includes(hay) || hay.includes(needle));
     }))
@@ -859,7 +964,7 @@ function workflowTargetUsers(job, target = {}, actorId = '') {
     if (targetUserId && uid === targetUserId) addUser(user);
     if (targetUserName && name === targetUserName) addUser(user);
     if (stageIds.some(stageId => viewerMatchesStageTarget(job, stageId, user))) addUser(user);
-    if (targetLabels.some(label => textMatchesProfile(label, resolveWorkflowUser(user)))) addUser(user);
+    if (targetLabels.some(label => textMatchesUserIdentity(label, user))) addUser(user);
   }
 
   return Array.from(picked.values());
@@ -1794,10 +1899,10 @@ function buildScheduleItems(data, req) {
       if (check.status === 'done' || !check.dueDate) continue;
       pushItem(job, {
         kind: 'stage',
-        label: `${stage.label} 마감`,
+        label: `${workflowStageLabel(stage.id) || stage.label} 마감`,
         dueDate: check.dueDate,
         stageId: stage.id,
-        stageLabel: stage.label,
+        stageLabel: workflowStageLabel(stage.id) || stage.label,
         assignee: check.assignee || '',
       });
     }
@@ -1834,7 +1939,7 @@ function nextStageDue(job) {
   const first = pending[0];
   return {
     stageId: first.stage.id,
-    stageLabel: first.stage.label,
+    stageLabel: workflowStageLabel(first.stage.id) || first.stage.label,
     dueDate: first.check.dueDate,
     overdue: isPastDue(first.check.dueDate),
   };
@@ -2061,7 +2166,7 @@ function buildSummary(data, req) {
         jobId: file.jobId,
         jobTitle: job?.title || '',
         stageId: file.stageId,
-        stageLabel: STAGES.find(s => s.id === file.stageId)?.label || file.stageId,
+        stageLabel: workflowStageLabel(file.stageId) || STAGES.find(s => s.id === file.stageId)?.label || file.stageId,
         kind: file.kind || 'attachment',
         originalName: file.originalName,
         note: file.note || '',
@@ -2104,7 +2209,7 @@ function buildSummary(data, req) {
         jobId: file.jobId,
         jobTitle: job?.title || '',
         stageId: file.stageId,
-        stageLabel: STAGES.find(s => s.id === file.stageId)?.label || file.stageId,
+        stageLabel: workflowStageLabel(file.stageId) || STAGES.find(s => s.id === file.stageId)?.label || file.stageId,
         originalName: file.originalName,
         designDueDate: file.designDueDate || '',
         factoryAvailableDate: file.factoryAvailableDate || '',
@@ -2129,7 +2234,7 @@ function buildSummary(data, req) {
         priority: job.priority || 'normal',
         status: job.status || 'active',
         stageId: stage.id,
-        stageLabel: stage.label || stage.id,
+        stageLabel: workflowStageLabel(stage.id) || stage.label || stage.id,
         assignee: check.assignee || '',
         dueDate,
         overdue: !!(isOverdueJob(job) || overdueStageCount(job) > 0 || stageOverdue),
@@ -2527,19 +2632,62 @@ router.use(requireAuth);
 
 router.get('/meta', (req, res) => {
   const publicLink = publicWorkflowLinkState();
+  const org = loadOrgSnapshot();
+  const stageDepartmentMap = storedWorkflowStageDepartmentMap();
+  const stages = workflowStagesForOrg(org);
   res.json({
     ok: true,
-    stages: STAGES,
+    stages,
     statuses: STATUS_LABELS,
     checkStatuses: CHECK_STATUS_LABELS,
     orderTargets: buildWorkflowOrderTargets(),
     orderStatuses: ORDER_STATUS_LABELS,
     publicBaseUrl: publicLink.publicBaseUrl,
     publicLink,
+    departments: workflowDepartmentOptions(org),
+    stageDepartmentMap,
+    stageDepartmentMissingIds: stages.filter(stage => !stage.mappedDepartmentId).map(stage => stage.id),
     uploadLimits: {
       files: MAX_WORKFLOW_UPLOAD_FILES,
       fileSize: MAX_WORKFLOW_UPLOAD_FILE_SIZE,
     },
+  });
+});
+
+router.get('/settings/departments', (req, res) => {
+  const org = loadOrgSnapshot();
+  const stages = workflowStagesForOrg(org);
+  res.json({
+    ok: true,
+    stages,
+    departments: workflowDepartmentOptions(org),
+    stageDepartmentMap: storedWorkflowStageDepartmentMap(),
+    stageDepartmentMissingIds: stages.filter(stage => !stage.mappedDepartmentId).map(stage => stage.id),
+  });
+});
+
+router.post('/settings/departments', requireAdmin, (req, res) => {
+  const org = loadOrgSnapshot();
+  const validDepartmentIds = new Set((org.departments || []).map(d => String(d.id || '')).filter(Boolean));
+  const raw = req.body?.stageDepartmentMap || {};
+  const next = {};
+  for (const stage of STAGES) {
+    const deptId = safeText(raw[stage.id] || req.body?.[stage.id], 120);
+    if (!deptId) continue;
+    if (!validDepartmentIds.has(deptId)) {
+      return res.status(400).json({ ok: false, error: `${stage.label}에 선택한 부서를 찾을 수 없습니다.` });
+    }
+    next[stage.id] = deptId;
+  }
+  saveWorkflowStageDepartmentMap(next);
+  const refreshedOrg = loadOrgSnapshot();
+  const stages = workflowStagesForOrg(refreshedOrg);
+  res.json({
+    ok: true,
+    stages,
+    departments: workflowDepartmentOptions(refreshedOrg),
+    stageDepartmentMap: storedWorkflowStageDepartmentMap(),
+    stageDepartmentMissingIds: stages.filter(stage => !stage.mappedDepartmentId).map(stage => stage.id),
   });
 });
 
@@ -2831,7 +2979,7 @@ router.post('/jobs/:id/stages/:stageId', (req, res) => {
     clearWorkflowCompletion(job);
   }
   const targetStageIds = previousStatus !== nextStatus ? stageStatusNotifyTargets(job, stage.id, nextStatus) : [];
-  addEvent(data, req, job.id, 'stage', `${stage.label} ${CHECK_STATUS_LABELS[nextStatus] || nextStatus}`, {
+  addEvent(data, req, job.id, 'stage', `${workflowStageLabel(stage.id) || stage.label} ${CHECK_STATUS_LABELS[nextStatus] || nextStatus}`, {
     stageId: stage.id,
     status: nextStatus,
     previousStatus,
@@ -2874,7 +3022,7 @@ router.post('/jobs/:id/handoff', (req, res) => {
 
   if (current.id === 'design') {
     const targetLabels = stageTargetLabels(job, DESIGN_PARALLEL_STAGE_IDS);
-    addEvent(data, req, job.id, 'handoff', `${current.label} 완료 · 관리팀/공장 동시 전달${message ? ' - ' + message : ''}`, {
+    addEvent(data, req, job.id, 'handoff', `${workflowStageLabel(current.id)} 완료 · ${workflowParallelStageLabel('/')} 동시 전달${message ? ' - ' + message : ''}`, {
       fromStageId: current.id,
       toStageId: DESIGN_PARALLEL_STAGE_IDS.join(','),
       eventTargetLabel: targetLabels.join(', '),
@@ -2885,14 +3033,14 @@ router.post('/jobs/:id/handoff', (req, res) => {
     const other = STAGES.find(s => s.id === otherStageId);
     if (flow.deliveryActivated) {
       const deliveryCheck = job.stageChecks.delivery || {};
-      addEvent(data, req, job.id, 'handoff', `${current.label} 완료 · 납품팀 전달${message ? ' - ' + message : ''}`, {
+      addEvent(data, req, job.id, 'handoff', `${workflowStageLabel(current.id)} 완료 · ${workflowStageLabel('delivery')} 전달${message ? ' - ' + message : ''}`, {
         fromStageId: current.id,
         toStageId: 'delivery',
         eventTargetLabel: deliveryCheck.assignee || '',
         targetStageIds: ['delivery'],
       });
     } else {
-      addEvent(data, req, job.id, 'handoff', `${current.label} 완료 · ${other?.label || otherStageId} 진행 대기${message ? ' - ' + message : ''}`, {
+      addEvent(data, req, job.id, 'handoff', `${workflowStageLabel(current.id)} 완료 · ${workflowStageLabel(otherStageId) || other?.label || otherStageId} 진행 대기${message ? ' - ' + message : ''}`, {
         fromStageId: current.id,
         toStageId: otherStageId,
         eventTargetLabel: job.stageChecks[otherStageId]?.assignee || '',
@@ -2904,7 +3052,7 @@ router.post('/jobs/:id/handoff', (req, res) => {
     if (nextCheck.status === 'pending') nextCheck.status = 'ready';
     nextCheck.updatedAt = at;
     syncWorkflowStageFlow(job, at);
-    addEvent(data, req, job.id, 'handoff', `${current.label} 완료 · ${next.label} 전달${message ? ' - ' + message : ''}`, {
+    addEvent(data, req, job.id, 'handoff', `${workflowStageLabel(current.id)} 완료 · ${workflowStageLabel(next.id) || next.label} 전달${message ? ' - ' + message : ''}`, {
       fromStageId: current.id,
       toStageId: next.id,
       eventTargetLabel: nextCheck.assignee || '',
