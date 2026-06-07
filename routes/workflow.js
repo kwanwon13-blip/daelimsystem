@@ -2318,6 +2318,7 @@ function buildSummary(data, req) {
 
 function uploadName(name) {
   const raw = String(name || 'file');
+  if ([...raw].some(ch => ch.charCodeAt(0) > 255)) return raw;
   try {
     const decoded = Buffer.from(raw, 'latin1').toString('utf8');
     if (decoded && !decoded.includes('�')) return decoded;
@@ -3605,13 +3606,12 @@ router.post('/jobs/:id/files', workflowUploadFiles, (req, res) => {
       if (!fs.existsSync(actualStorageDir)) throw new Error('target folder missing');
       const from = path.join(FILE_DIR, file.filename);
       const target = uniqueStoredFileTarget(actualStorageDir, originalName || file.filename);
-      if (fs.existsSync(from)) {
-        fs.renameSync(from, target.fullPath);
-        if (!fs.existsSync(target.fullPath)) throw new Error('file move failed');
-        storedName = target.fileName;
-        movedFiles.push(target.fullPath);
-        storedPath = actualStorageInfo ? target.fullPath : `${actualStorageRelDir}/${target.fileName}`;
-      }
+      if (!fs.existsSync(from)) throw new Error('uploaded temp file missing');
+      fs.renameSync(from, target.fullPath);
+      if (!fs.existsSync(target.fullPath)) throw new Error('file move failed');
+      storedName = target.fileName;
+      movedFiles.push(target.fullPath);
+      storedPath = actualStorageInfo ? target.fullPath : `${actualStorageRelDir}/${target.fileName}`;
     } catch (e) {
       for (const movedPath of movedFiles) {
         try { fs.unlinkSync(movedPath); } catch (_) {}
