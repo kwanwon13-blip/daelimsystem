@@ -112,6 +112,7 @@
   .wf-gallery.proof-strip .wf-proof-card{min-width:0;max-width:none;}
   .wf-proof-card,.wf-file-card{border:1px solid #edf0f5;border-radius:8px;background:#fff;overflow:hidden;}
   .wf-proof-card.unread,.wf-file-card.unread{border-color:#bfdbfe;background:#eff6ff;}
+  .wf-file-card.cancelled{border-color:#fecaca;background:#fff1f2;opacity:.78;}
   .wf-proof-card.urgent,.wf-file-card.urgent{border-color:#fecaca;background:#fff7f7;}
   .wf-proof-thumb{position:relative;display:block;width:100%;aspect-ratio:4/3;min-height:0;border:0;background:#f1f5f9;padding:0;cursor:pointer;overflow:hidden;}
   .wf-proof-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
@@ -824,7 +825,7 @@
               <div class="wf-section-body" x-show="orders().length && !orderPanelOpen" x-cloak>
                 <div class="wf-gallery">
                   <template x-for="order in orders()" :key="'compact-order-'+order.id">
-                    <article class="wf-file-card" style="grid-template-columns:minmax(0,1fr);">
+                    <article class="wf-file-card" :class="isOrderCancelled(order) ? 'cancelled' : ''" style="grid-template-columns:minmax(0,1fr);">
                       <div style="min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;">
                         <div style="min-width:0;">
                           <div class="wf-file-name" x-text="order.targetName"></div>
@@ -890,7 +891,7 @@
                         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
                           <div class="wf-file-name" x-text="order.targetName"></div>
                           <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end;">
-                            <span class="wf-chip" :class="order.status === 'done' || order.status === 'confirmed' ? 'ready' : (order.status === 'cancelled' ? 'blocked' : 'unread')" x-text="orderStatusLabel(order.status)"></span>
+                            <span class="wf-chip" :class="orderStatusChipClass(order)" x-text="orderStatusLabel(order.status)"></span>
                             <span class="wf-chip" x-show="order.responseStatus" :class="orderResponseChipClass(order)" x-text="order.responseStatusLabel || scheduleNegotiationLabel(order.responseStatus)"></span>
                           </div>
                         </div>
@@ -916,7 +917,11 @@
                           <button class="wf-btn primary" @click="openOrderDelivery(order)" :disabled="!canOpenOrderDelivery(order)" :title="orderActionTitle(order)">
                             <span class="material-symbols-outlined" style="font-size:15px;" x-text="orderActionIcon(order)"></span><span x-text="orderActionLabel(order)"></span>
                           </button>
-                          <span class="wf-chip high" x-show="isExternalOrder(order) && !hasOrderRecipientEmail(order)">메일주소 없음</span>
+                          <button class="wf-btn ghost" x-show="!isOrderCancelled(order)" @click="cancelOrder(order)" title="기록은 남기고 발주만 취소 표시합니다">
+                            <span class="material-symbols-outlined" style="font-size:15px;">block</span>발주 취소
+                          </button>
+                          <span class="wf-chip blocked" x-show="isOrderCancelled(order)">취소됨</span>
+                          <span class="wf-chip high" x-show="!isOrderCancelled(order) && isExternalOrder(order) && !hasOrderRecipientEmail(order)">메일주소 없음</span>
                           <span class="wf-chip ready" x-show="order.mailStatus === 'sent'">메일발송</span>
                         </div>
                       </div>

@@ -294,6 +294,17 @@
       padding: 18px;
       text-align: center;
     }
+    .cancel-notice {
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      background: #fff1f2;
+      color: #991b1b;
+      padding: 12px;
+      font-size: 14px;
+      font-weight: 900;
+      line-height: 1.45;
+      display: none;
+    }
     .toast {
       position: fixed;
       left: 50%;
@@ -385,6 +396,7 @@
           <span class="chip green" id="replyChip" style="display:none;"></span>
         </div>
         <div class="panel-body">
+          <div class="cancel-notice" id="cancelNotice">이 발주는 취소되었습니다. 파일 제작이나 일정 회신을 진행하지 마세요.</div>
           <form class="reply" id="replyForm">
             <label>회신
               <select id="responseStatus">
@@ -697,6 +709,12 @@
       $('dueChip').textContent = `희망 ${formatDate(order.dueDate || job.dueDate)}`;
       $('zipTop').href = order.publicArchiveUrl || '#';
       $('zipBody').href = order.publicArchiveUrl || '#';
+      const cancelled = order.status === 'cancelled';
+      $('zipTop').style.display = cancelled ? 'none' : '';
+      $('zipBody').style.display = cancelled ? 'none' : '';
+      $('cancelNotice').style.display = cancelled ? 'block' : 'none';
+      $('replyForm').style.display = cancelled ? 'none' : '';
+      $('filesPanel').style.display = cancelled ? 'none' : '';
 
       $('responseStatus').value = order.responseStatus || 'possible';
       $('responseAvailableDate').value = order.responseAvailableDate || order.dueDate || job.dueDate || '';

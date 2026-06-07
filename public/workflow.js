@@ -133,6 +133,15 @@ function workflowApp() {
         });
         window.__workflowOpenListenerInstalled = true;
       }
+      if (!window.__workflowDepartmentsChangedListenerInstalled) {
+        window.addEventListener('workflow:departments-changed', () => {
+          const root = document.querySelector('[x-data="workflowApp()"]');
+          if (!root || !window.Alpine) return;
+          const app = window.Alpine.$data(root);
+          if (app?.refreshWorkflowDepartments) Promise.resolve(app.refreshWorkflowDepartments());
+        });
+        window.__workflowDepartmentsChangedListenerInstalled = true;
+      }
       await Promise.all([this.loadAuth(), this.loadMeta()]);
       await this.loadPublicLinkSettings();
       if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
@@ -200,6 +209,13 @@ function workflowApp() {
         this.stageDepartmentMissingIds = d.stageDepartmentMissingIds || [];
       } catch (e) {
         alert(e.message);
+      }
+    },
+
+    async refreshWorkflowDepartments() {
+      await this.loadMeta();
+      if (this.departmentMappingPanelOpen || this.missingDepartmentMappings().length) {
+        await this.loadDepartmentMappingSettings();
       }
     },
 
@@ -1596,6 +1612,15 @@ function workflowApp() {
       return this.detail?.orders || [];
     },
 
+    isOrderCancelled(order) {
+      return (order?.status || '') === 'cancelled';
+    },
+
+    orderStatusChipClass(order) {
+      if (this.isOrderCancelled(order)) return 'blocked';
+      return order?.status === 'done' || order?.status === 'confirmed' ? 'ready' : 'unread';
+    },
+
     orderSummary() {
       return this.detail?.orderSummary || this.detail?.job?.orderSummary || {};
     },
@@ -1812,6 +1837,22 @@ function workflowApp() {
       await this.loadJobs();
     },
 
+    async cancelOrder(order) {
+      if (!this.detail || !this.detail.job || !order || this.isOrderCancelled(order)) return;
+      const label = order.targetName || '발주';
+      if (!confirm(`${label} 발주를 취소 표시할까요?\n기록과 파일은 삭제되지 않습니다.`)) return;
+      const next = { ...order, status: 'cancelled' };
+      const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/orders/' + encodeURIComponent(order.id), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(next),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.ok) return alert(d.error || '발주 취소 실패');
+      this.applyOrderResponse(d);
+      await this.loadJobs();
+    },
+
     isExternalOrder(order) {
       return !!order && (order.deliveryMethod === 'email' || order.targetType === 'external');
     },
@@ -1872,6 +1913,7 @@ function workflowApp() {
     },
 
     orderMailButtonLabel(order) {
+      if (this.isOrderCancelled(order)) return '발주 취소';
       if (!this.isExternalOrder(order)) return '파일 받기';
       return this.hasOrderRecipientEmail(order) ? '메일 보내기' : '메일주소 입력';
     },
@@ -1881,10 +1923,12 @@ function workflowApp() {
     },
 
     orderActionIcon(order) {
+      if (this.isOrderCancelled(order)) return 'block';
       return this.isExternalOrder(order) ? 'mail' : 'download';
     },
 
     orderActionTitle(order) {
+      if (this.isOrderCancelled(order)) return '취소 표시된 발주입니다';
       return this.isExternalOrder(order)
         ? '외부업체에는 메일로 첨부 또는 다운로드 링크를 보냅니다'
         : `${this.stageLabel('factory', '공장')}/내부 수신자는 ERP에서 파일을 받습니다`;
@@ -1892,6 +1936,7 @@ function workflowApp() {
 
     orderDeliveryStateText(order) {
       if (!order) return '';
+      if (this.isOrderCancelled(order)) return '발주 취소됨 · 기록만 보관';
       if (this.isExternalOrder(order)) {
         if (order.mailStatus === 'sent') return '업체 메일 발송 완료';
         if (this.hasOrderRecipientEmail(order)) return '업체 메일 발송 준비됨';
@@ -1905,6 +1950,7 @@ function workflowApp() {
 
     canOpenOrderDelivery(order) {
       if (!order) return false;
+      if (this.isOrderCancelled(order)) return false;
       if (this.isExternalOrder(order)) return true;
       return !!this.orderArchiveUrl(order);
     },

@@ -798,6 +798,11 @@ function loadOrgSnapshot() {
   return orgCache.data;
 }
 
+function loadFreshOrgSnapshot() {
+  orgCache.at = 0;
+  return loadOrgSnapshot();
+}
+
 function lowerText(value) {
   return String(value || '').trim().toLowerCase();
 }
@@ -2677,6 +2682,7 @@ router.get('/public/orders/:token/files.zip', async (req, res, next) => {
     if (!order) return res.status(404).send('not found');
     const job = data.jobs.find(j => j.id === order.jobId);
     if (!job) return res.status(404).send('not found');
+    if (order.status === 'cancelled') return res.status(409).send('cancelled order');
     const files = orderFiles(data, order, job);
     const archive = await buildArchiveFromFiles(
       job,
@@ -2716,6 +2722,7 @@ router.post('/public/orders/:token/reply', (req, res) => {
   if (!order) return res.status(404).json({ error: '전달건을 찾을 수 없습니다.' });
   const job = data.jobs.find(j => j.id === order.jobId);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  if (order.status === 'cancelled') return res.status(409).json({ error: '취소된 발주입니다.' });
 
   const response = normalizeOrderResponse(req.body || {});
   const files = orderFiles(data, order, job);
@@ -2759,7 +2766,7 @@ router.use(requireAuth);
 
 router.get('/meta', (req, res) => {
   const publicLink = publicWorkflowLinkState();
-  const org = loadOrgSnapshot();
+  const org = loadFreshOrgSnapshot();
   const stageDepartmentMap = storedWorkflowStageDepartmentMap();
   const stages = workflowStagesForOrg(org);
   res.json({
@@ -2782,7 +2789,7 @@ router.get('/meta', (req, res) => {
 });
 
 router.get('/settings/departments', (req, res) => {
-  const org = loadOrgSnapshot();
+  const org = loadFreshOrgSnapshot();
   const stages = workflowStagesForOrg(org);
   res.json({
     ok: true,
@@ -2794,7 +2801,7 @@ router.get('/settings/departments', (req, res) => {
 });
 
 router.post('/settings/departments', requireAdmin, (req, res) => {
-  const org = loadOrgSnapshot();
+  const org = loadFreshOrgSnapshot();
   const validDepartmentIds = new Set((org.departments || []).map(d => String(d.id || '')).filter(Boolean));
   const raw = req.body?.stageDepartmentMap || {};
   const next = {};
@@ -2807,7 +2814,7 @@ router.post('/settings/departments', requireAdmin, (req, res) => {
     next[stage.id] = deptId;
   }
   saveWorkflowStageDepartmentMap(next);
-  const refreshedOrg = loadOrgSnapshot();
+  const refreshedOrg = loadFreshOrgSnapshot();
   const stages = workflowStagesForOrg(refreshedOrg);
   res.json({
     ok: true,

@@ -7032,6 +7032,7 @@ function app() {
     navBadges: { approval: 0, notices: 0, workflow: 0 },
     _notifLastApproval: 0,
     _notifLastWorkflow: 0,
+    _workflowPopupSeenIds: [],
     // 결재 요청 인앱 팝업 알림
     approvalNotif: { show: false, count: 0, items: [], _timer: null },
     workflowNotif: { show: false, modal: false, count: 0, message: '', jobId: '', itemId: '', items: [], _timer: null },
@@ -7754,6 +7755,50 @@ function app() {
       return `${prefix} · ${item.title || '워크플로우'}${item.dueDate ? ' · ' + item.dueDate : ''}`;
     },
 
+    workflowPopupSeenStorageKey() {
+      return 'workflow:seenPopupIds:' + (this.auth?.userId || 'anon');
+    },
+
+    workflowPopupSeenSet() {
+      try {
+        const raw = localStorage.getItem(this.workflowPopupSeenStorageKey());
+        const ids = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(ids)) {
+          this._workflowPopupSeenIds = ids.map(id => String(id || '')).filter(Boolean);
+        }
+      } catch(e) {}
+      return new Set((this._workflowPopupSeenIds || []).map(id => String(id || '')).filter(Boolean));
+    },
+
+    workflowNewPopupItems(items = []) {
+      const seen = this.workflowPopupSeenSet();
+      return (Array.isArray(items) ? items : []).filter(item => item?.id && !seen.has(String(item.id)));
+    },
+
+    rememberWorkflowPopupItems(items = []) {
+      const ids = (Array.isArray(items) ? items : []).map(item => String(item?.id || '')).filter(Boolean);
+      if (!ids.length) return;
+      const seen = this.workflowPopupSeenSet();
+      ids.forEach(id => seen.add(id));
+      this._workflowPopupSeenIds = Array.from(seen).slice(-300);
+      try {
+        localStorage.setItem(this.workflowPopupSeenStorageKey(), JSON.stringify(this._workflowPopupSeenIds));
+      } catch(e) {}
+    },
+
+    workflowNotificationTarget(link = '') {
+      const value = String(link || '').trim();
+      if (value.startsWith('workflow:')) {
+        const [, jobId = '', itemId = ''] = value.split(':');
+        return { jobId: decodeURIComponent(jobId || ''), itemId: decodeURIComponent(itemId || '') };
+      }
+      if (value.startsWith('workflow?')) {
+        const qs = new URLSearchParams(value.slice('workflow?'.length));
+        return { jobId: qs.get('job') || '', itemId: qs.get('file') || qs.get('event') || '' };
+      }
+      return { jobId: '', itemId: '' };
+    },
+
     workflowNotificationItems(summary = {}) {
       const items = [];
       const seen = new Set();
@@ -7979,16 +8024,19 @@ function app() {
           const scheduleItems = Array.isArray(s.scheduleItems) ? s.scheduleItems : [];
           const myActionItems = Array.isArray(s.myActionItems) ? s.myActionItems : [];
           const popupActionItems = myActionItems.filter(item => item.overdue || item.blockedStageCount || item.changeRequestCount || item.lateScheduleCount || Number(item.completionBlockerCount) === 0);
-          const popupItems = this.workflowNotificationItems(s).slice(0, 4);
+          const popupItems = this.workflowNotificationItems(s);
+          const newPopupItems = this.workflowNewPopupItems(popupItems);
+          const displayPopupItems = (newPopupItems.length ? newPopupItems : popupItems).slice(0, 4);
           const popupActionCount = popupActionItems.length;
           const count = unreadFiles + unreadEvents + overdueSchedules + urgentFiles + lateSchedules + popupActionCount;
-          if (count > this._notifLastWorkflow && this._notifLastWorkflow >= 0 && this.currentTab !== 'workflow') {
+          if (count > 0 && newPopupItems.length && this.currentTab !== 'workflow') {
             const firstWorkflowItem = unreadFileItems[0]
               || unreadEventItems[0]
               || urgentFileItems[0]
               || scheduleItems[0]
               || popupActionItems[0]
               || null;
+            const popupTarget = this.workflowNotificationTarget(displayPopupItems[0]?.link || '');
             const parts = [];
             if (unreadFiles) parts.push(`시안/파일 ${unreadFiles}건`);
             if (unreadEvents) parts.push(`메모 ${unreadEvents}건`);
@@ -8004,11 +8052,12 @@ function app() {
               modal: true,
               count,
               message: msg,
-              jobId: firstWorkflowItem?.jobId || firstWorkflowItem?.id || '',
-              itemId: firstWorkflowItem?.jobId ? (firstWorkflowItem?.id || '') : '',
-              items: popupItems,
+              jobId: popupTarget.jobId || firstWorkflowItem?.jobId || firstWorkflowItem?.id || '',
+              itemId: popupTarget.itemId || (firstWorkflowItem?.jobId ? (firstWorkflowItem?.id || '') : ''),
+              items: displayPopupItems,
               _timer: setTimeout(() => { this.workflowNotif.show = false; }, 12000)
             };
+            this.rememberWorkflowPopupItems(popupItems);
             if ('Notification' in window && Notification.permission === 'granted') {
               const n = new Notification('워크플로우 확인 필요', {
                 body: msg,
@@ -9759,6 +9808,7 @@ function app() {
       if (!r.ok) { this.showToast(j.error||'추가 실패','error'); return; }
       this.newDeptName = '';
       await this.loadDepartments();
+      window.dispatchEvent(new CustomEvent('workflow:departments-changed'));
       this.showToast('부서가 추가되었습니다');
     },
     async deleteDepartment(id) {
@@ -9767,6 +9817,7 @@ function app() {
       const j = await r.json();
       if (!r.ok) { this.showToast(j.error||'삭제 실패','error'); return; }
       await this.loadDepartments();
+      window.dispatchEvent(new CustomEvent('workflow:departments-changed'));
     },
     async updateUserDept(id, deptId) {
       await fetch('/api/admin/users/'+id+'/department',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({department:deptId})}); await this.loadAdminUsers();
