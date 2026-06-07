@@ -172,6 +172,11 @@
       grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
       gap: 12px;
     }
+    .more-files {
+      display: none;
+      justify-content: center;
+      padding: 14px 0 2px;
+    }
     .file {
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -411,6 +416,9 @@
       </div>
       <div class="panel-body">
         <div class="file-grid" id="fileGrid"></div>
+        <div class="more-files" id="fileMoreRow">
+          <button class="btn" id="fileMoreBtn" type="button">더 보기</button>
+        </div>
       </div>
     </section>
   </main>
@@ -422,7 +430,14 @@
   <div class="toast" id="toast"></div>
 
   <script>
-    const state = { token: '', data: null, fileSchedulesOpen: false };
+    const INITIAL_FILE_RENDER_LIMIT = 24;
+    const FILE_RENDER_STEP = 24;
+    const state = {
+      token: '',
+      data: null,
+      fileSchedulesOpen: false,
+      fileRenderLimit: INITIAL_FILE_RENDER_LIMIT,
+    };
     const $ = id => document.getElementById(id);
 
     function tokenFromLocation() {
@@ -515,6 +530,8 @@
       thumb.className = 'thumb';
       if (file.isImage && (file.thumbUrl || file.previewUrl)) {
         const img = document.createElement('img');
+        img.loading = 'lazy';
+        img.decoding = 'async';
         img.src = file.thumbUrl || file.previewUrl;
         img.alt = file.originalName || '';
         img.addEventListener('error', () => {
@@ -628,6 +645,35 @@
       $('fileScheduleToggle').textContent = state.fileSchedulesOpen ? '파일별 가능일 닫기' : '파일별 가능일';
     }
 
+    function updateFileMoreRow(total, visibleCount) {
+      const moreRow = $('fileMoreRow');
+      const moreBtn = $('fileMoreBtn');
+      const remaining = Math.max(total - visibleCount, 0);
+      moreRow.style.display = remaining > 0 ? 'flex' : 'none';
+      moreBtn.textContent = remaining > FILE_RENDER_STEP
+        ? `더 보기 ${FILE_RENDER_STEP}개`
+        : `남은 ${remaining}개 보기`;
+    }
+
+    function renderFiles() {
+      const grid = $('fileGrid');
+      const files = state.data?.files || [];
+      const limit = Math.max(INITIAL_FILE_RENDER_LIMIT, Number(state.fileRenderLimit) || INITIAL_FILE_RENDER_LIMIT);
+      const visibleFiles = files.slice(0, limit);
+      grid.innerHTML = '';
+      visibleFiles.forEach(file => grid.appendChild(renderFile(file)));
+      updateFileMoreRow(files.length, visibleFiles.length);
+    }
+
+    function showMoreFiles() {
+      const files = state.data?.files || [];
+      const oldLimit = Math.max(INITIAL_FILE_RENDER_LIMIT, Number(state.fileRenderLimit) || INITIAL_FILE_RENDER_LIMIT);
+      const nextLimit = Math.min(files.length, oldLimit + FILE_RENDER_STEP);
+      files.slice(oldLimit, nextLimit).forEach(file => $('fileGrid').appendChild(renderFile(file)));
+      state.fileRenderLimit = nextLimit;
+      updateFileMoreRow(files.length, nextLimit);
+    }
+
     function render(data) {
       const job = data.job || {};
       const order = data.order || {};
@@ -662,9 +708,7 @@
         $('replyChip').textContent = `${order.responseStatusLabel || '회신'} 저장됨`;
       }
 
-      const grid = $('fileGrid');
-      grid.innerHTML = '';
-      (data.files || []).forEach(file => grid.appendChild(renderFile(file)));
+      renderFiles();
     }
 
     function showError(message) {
@@ -676,7 +720,12 @@
     }
 
     async function loadOrder() {
-      state.token = tokenFromLocation();
+      const nextToken = tokenFromLocation();
+      if (state.token !== nextToken) {
+        state.fileRenderLimit = INITIAL_FILE_RENDER_LIMIT;
+        state.fileSchedulesOpen = false;
+      }
+      state.token = nextToken;
       if (!state.token) return showError('파일 전달 링크가 올바르지 않습니다.');
       try {
         const res = await fetch('/api/workflow/public/orders/' + encodeURIComponent(state.token));
@@ -709,7 +758,7 @@
         const data = await res.json();
         if (!res.ok || !data.ok) throw new Error(data.error || '가능일 저장에 실패했습니다.');
         render(data);
-        showToast('회신을 저장했습니다.');
+        showToast('가능일을 보냈습니다.');
       } catch (e) {
         showToast(e.message || '가능일 저장에 실패했습니다.');
       } finally {
@@ -719,6 +768,7 @@
 
     $('replyForm').addEventListener('submit', submitReply);
     $('fileScheduleToggle').addEventListener('click', toggleFileSchedules);
+    $('fileMoreBtn').addEventListener('click', showMoreFiles);
     $('viewerClose').addEventListener('click', closeViewer);
     $('viewer').addEventListener('click', e => {
       if (e.target === $('viewer')) closeViewer();
