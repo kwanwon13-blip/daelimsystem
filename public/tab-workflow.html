@@ -1020,7 +1020,10 @@
           <span class="material-symbols-outlined" style="font-size:17px;">folder_managed</span>
           프로젝트 관리
         </div>
-        <button class="wf-btn ghost" style="height:28px;" @click="closeProjectPanel()">닫기</button>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button class="wf-btn ghost" style="height:28px;" @click="toggleStorageRulePanel()" x-text="storageRulePanelOpen ? '규칙 닫기' : '저장 규칙'"></button>
+          <button class="wf-btn ghost" style="height:28px;" @click="closeProjectPanel()">닫기</button>
+        </div>
       </div>
       <div class="wf-dialog-body" style="max-height:72vh;overflow:auto;">
         <div class="wf-upload-panel">
@@ -1058,6 +1061,75 @@
             <button class="wf-btn primary" @click="createManagedProject()" :disabled="!projectForm.companyName || !projectForm.projectName">프로젝트 추가</button>
           </div>
           <div class="wf-muted" x-show="projectNotice" x-text="projectNotice"></div>
+        </div>
+
+        <div class="wf-upload-panel" x-show="storageRulePanelOpen" x-cloak>
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;">
+            <div>
+              <div class="wf-inbox-title">회사별 저장 규칙</div>
+              <div class="wf-inbox-meta">회사마다 다른 실제 서버 폴더 구조를 여기 규칙으로 맞춥니다.</div>
+            </div>
+            <button class="wf-btn ghost" style="height:28px;" @click="resetStorageRuleForm(projectForm.companyName)">새 규칙</button>
+          </div>
+          <div class="wf-modal-grid">
+            <div class="wf-field">
+              <label>회사명</label>
+              <input class="wf-input" list="wfCompanyNames" x-model="storageRuleForm.companyName" placeholder="ERP 회사명">
+            </div>
+            <div class="wf-field">
+              <label>실제 회사 폴더</label>
+              <input class="wf-input" x-model="storageRuleForm.companyFolder" placeholder="예: ★★현대산업개발">
+            </div>
+            <div class="wf-field">
+              <label>연도 폴더 규칙</label>
+              <input class="wf-input" x-model="storageRuleForm.yearFolderTemplate" placeholder="{year} 시안작업">
+            </div>
+            <div class="wf-field">
+              <label>프로젝트 폴더 규칙</label>
+              <input class="wf-input" x-model="storageRuleForm.projectFolderTemplate" placeholder="{project}">
+            </div>
+            <div class="wf-field">
+              <label>별칭</label>
+              <input class="wf-input" x-model="storageRuleForm.companyAliasesText" placeholder="HDC, 아이파크">
+            </div>
+            <div class="wf-field">
+              <label>우선순위</label>
+              <input class="wf-input" type="number" x-model.number="storageRuleForm.priority">
+            </div>
+          </div>
+          <textarea class="wf-textarea" x-model="storageRuleForm.note" placeholder="메모"></textarea>
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span class="wf-muted" x-text="'예상 경로: ' + (storageRuleForm.companyFolder || '회사폴더') + ' / ' + (storageRuleForm.yearFolderTemplate || '{year} 시안작업').replaceAll('{year}', projectForm.year || new Date().getFullYear()) + ' / ' + (storageRuleForm.projectFolderTemplate || '{project}').replaceAll('{project}', projectForm.projectName || '프로젝트명')"></span>
+            <button class="wf-btn primary" x-show="canManageWorkflowStorageRules()" @click="saveWorkflowStorageRule()" :disabled="workflowStorageRuleSaving" x-text="workflowStorageRuleSaving ? '저장 중' : '규칙 저장'"></button>
+            <span class="wf-chip" x-show="!canManageWorkflowStorageRules()">읽기 전용</span>
+          </div>
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;">
+            <input class="wf-input" x-model="storageRuleQuery" placeholder="회사명/폴더/별칭 검색">
+            <button class="wf-btn ghost" @click="loadWorkflowStorageRules(true)">새로고침</button>
+          </div>
+          <div class="wf-gallery" x-show="filteredWorkflowStorageRules().length">
+            <template x-for="rule in filteredWorkflowStorageRules()" :key="rule.id">
+              <article class="wf-file-card" style="grid-template-columns:minmax(0,1fr);">
+                <div style="display:flex;flex-direction:column;gap:7px;min-width:0;">
+                  <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">
+                    <div style="min-width:0;">
+                      <div class="wf-file-name" x-text="rule.companyName"></div>
+                      <div class="wf-muted" x-text="rule.companyFolder"></div>
+                    </div>
+                    <span class="wf-chip" :class="rule.active ? 'ready' : 'blocked'" x-text="rule.active ? '사용' : '중지'"></span>
+                  </div>
+                  <div class="wf-muted" x-text="rule.yearFolderTemplate + ' / ' + rule.projectFolderTemplate"></div>
+                  <div class="wf-muted" x-show="storageRuleAliases(rule)" x-text="'별칭: ' + storageRuleAliases(rule)"></div>
+                  <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">
+                    <span class="wf-chip" x-text="'우선 ' + (rule.priority || 0)"></span>
+                    <button class="wf-btn ghost" style="height:28px;margin-left:auto;" @click="editWorkflowStorageRule(rule)">편집</button>
+                    <button class="wf-btn ghost" style="height:28px;" x-show="canManageWorkflowStorageRules() && rule.active" @click="deactivateWorkflowStorageRule(rule)">중지</button>
+                  </div>
+                </div>
+              </article>
+            </template>
+          </div>
+          <div class="wf-empty" style="height:90px;" x-show="workflowStorageRulesLoaded && !filteredWorkflowStorageRules().length">저장 규칙이 없습니다.</div>
         </div>
 
         <div style="display:grid;grid-template-columns:minmax(0,1fr) 120px;gap:8px;">

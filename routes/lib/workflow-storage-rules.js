@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const DB_PATH = path.join(DATA_DIR, '업무데이터.db');
@@ -31,6 +32,15 @@ function cleanText(value, max = 200) {
   return String(value || '').trim().slice(0, max);
 }
 
+function makeRuleId(companyName) {
+  const key = cleanText(companyName, 80)
+    .toLowerCase()
+    .replace(/[^a-z0-9가-힣]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40);
+  return `rule_${key || crypto.randomBytes(4).toString('hex')}_${Date.now().toString(36)}`;
+}
+
 function safeJsonParse(value, fallback) {
   try {
     const parsed = JSON.parse(value || '');
@@ -55,6 +65,40 @@ function normalizeRule(row = {}) {
     active: row.active === undefined ? true : !!Number(row.active),
     note: cleanText(row.note, 500),
   };
+}
+
+function normalizeRuleInput(input = {}, existing = null) {
+  const hasAliasInput = Object.prototype.hasOwnProperty.call(input, 'companyAliases')
+    || Object.prototype.hasOwnProperty.call(input, 'company_aliases');
+  const rule = normalizeRule({
+    ...existing,
+    ...input,
+    companyAliases: hasAliasInput
+      ? (Array.isArray(input.companyAliases)
+        ? input.companyAliases
+        : String(input.companyAliases || input.company_aliases || '')
+        .split(',')
+        .map(v => cleanText(v, 120))
+        .filter(Boolean))
+      : existing?.companyAliases,
+  });
+  rule.id = rule.id || existing?.id || makeRuleId(rule.companyName || rule.companyFolder);
+  rule.companyName = cleanText(rule.companyName, 120);
+  rule.companyFolder = cleanText(rule.companyFolder, 160);
+  rule.yearFolderTemplate = cleanText(rule.yearFolderTemplate || '{year} 시안작업', 160);
+  rule.projectFolderTemplate = cleanText(rule.projectFolderTemplate || '{project}', 160);
+  rule.projectFolderMode = ['under-year'].includes(rule.projectFolderMode) ? rule.projectFolderMode : 'under-year';
+  rule.priority = Number.isFinite(rule.priority) ? Math.trunc(rule.priority) : 0;
+  rule.active = rule.active !== false;
+  if (!rule.companyName) throw new Error('companyName required');
+  if (!rule.companyFolder) throw new Error('companyFolder required');
+  if (!rule.yearFolderTemplate) throw new Error('yearFolderTemplate required');
+  return rule;
+}
+
+function invalidateCache() {
+  cachedRules = null;
+  cachedAt = 0;
 }
 
 function ensureRuleDb(db) {
@@ -121,6 +165,109 @@ function loadRulesFromDb() {
   }
 }
 
+function listRulesFromDb({ includeInactive = false } = {}) {
+  const Database = require('better-sqlite3');
+  ensureDataDir();
+  const db = new Database(DB_PATH);
+  try {
+    ensureRuleDb(db);
+    const where = includeInactive ? '' : 'WHERE active = 1';
+    return db.prepare(`
+      SELECT
+        id,
+        company_name,
+        company_folder,
+        company_aliases,
+        year_folder_template,
+        project_folder_template,
+        project_folder_mode,
+        priority,
+        active,
+        note
+      FROM workflow_storage_rules
+      ${where}
+      ORDER BY active DESC, priority DESC, company_name ASC
+    `).all().map(normalizeRule);
+  } finally {
+    db.close();
+  }
+}
+
+function saveRuleToDb(input = {}) {
+  const Database = require('better-sqlite3');
+  ensureDataDir();
+  const db = new Database(DB_PATH);
+  try {
+    ensureRuleDb(db);
+    const existing = input.id
+      ? db.prepare(`
+        SELECT
+          id,
+          company_name,
+          company_folder,
+          company_aliases,
+          year_folder_template,
+          project_folder_template,
+          project_folder_mode,
+          priority,
+          active,
+          note
+        FROM workflow_storage_rules
+        WHERE id = ?
+      `).get(input.id)
+      : null;
+    const rule = normalizeRuleInput(input, existing ? normalizeRule(existing) : null);
+    db.prepare(`
+      INSERT INTO workflow_storage_rules (
+        id, company_name, company_folder, company_aliases,
+        year_folder_template, project_folder_template, project_folder_mode,
+        priority, active, note, updated_at
+      ) VALUES (
+        @id, @companyName, @companyFolder, @companyAliases,
+        @yearFolderTemplate, @projectFolderTemplate, @projectFolderMode,
+        @priority, @active, @note, CURRENT_TIMESTAMP
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        company_name = excluded.company_name,
+        company_folder = excluded.company_folder,
+        company_aliases = excluded.company_aliases,
+        year_folder_template = excluded.year_folder_template,
+        project_folder_template = excluded.project_folder_template,
+        project_folder_mode = excluded.project_folder_mode,
+        priority = excluded.priority,
+        active = excluded.active,
+        note = excluded.note,
+        updated_at = CURRENT_TIMESTAMP
+    `).run({
+      ...rule,
+      companyAliases: JSON.stringify(rule.companyAliases || []),
+      active: rule.active ? 1 : 0,
+    });
+    invalidateCache();
+    return rule;
+  } finally {
+    db.close();
+  }
+}
+
+function deactivateRuleInDb(id) {
+  const Database = require('better-sqlite3');
+  ensureDataDir();
+  const db = new Database(DB_PATH);
+  try {
+    ensureRuleDb(db);
+    const info = db.prepare(`
+      UPDATE workflow_storage_rules
+      SET active = 0, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(id);
+    invalidateCache();
+    return info.changes > 0;
+  } finally {
+    db.close();
+  }
+}
+
 function loadRulesFromJson() {
   ensureDataDir();
   if (!fs.existsSync(JSON_PATH)) {
@@ -131,6 +278,71 @@ function loadRulesFromJson() {
   return rules.map(normalizeRule)
     .filter(rule => rule.active)
     .sort((a, b) => b.priority - a.priority || a.companyName.localeCompare(b.companyName, 'ko'));
+}
+
+function listRulesFromJson({ includeInactive = false } = {}) {
+  ensureDataDir();
+  if (!fs.existsSync(JSON_PATH)) {
+    fs.writeFileSync(JSON_PATH, JSON.stringify({ rules: DEFAULT_RULES }, null, 2), 'utf8');
+  }
+  const data = safeJsonParse(fs.readFileSync(JSON_PATH, 'utf8'), { rules: DEFAULT_RULES });
+  const rules = Array.isArray(data.rules) ? data.rules : DEFAULT_RULES;
+  return rules.map(normalizeRule)
+    .filter(rule => includeInactive || rule.active)
+    .sort((a, b) => Number(b.active) - Number(a.active) || b.priority - a.priority || a.companyName.localeCompare(b.companyName, 'ko'));
+}
+
+function saveRuleToJson(input = {}) {
+  ensureDataDir();
+  const data = fs.existsSync(JSON_PATH)
+    ? safeJsonParse(fs.readFileSync(JSON_PATH, 'utf8'), { rules: DEFAULT_RULES })
+    : { rules: DEFAULT_RULES };
+  if (!Array.isArray(data.rules)) data.rules = [];
+  const existingIndex = input.id ? data.rules.findIndex(rule => String(rule.id || '') === String(input.id)) : -1;
+  const existing = existingIndex >= 0 ? normalizeRule(data.rules[existingIndex]) : null;
+  const rule = normalizeRuleInput(input, existing);
+  if (existingIndex >= 0) data.rules[existingIndex] = rule;
+  else data.rules.push(rule);
+  fs.writeFileSync(JSON_PATH, JSON.stringify(data, null, 2), 'utf8');
+  invalidateCache();
+  return rule;
+}
+
+function deactivateRuleInJson(id) {
+  ensureDataDir();
+  if (!fs.existsSync(JSON_PATH)) return false;
+  const data = safeJsonParse(fs.readFileSync(JSON_PATH, 'utf8'), { rules: DEFAULT_RULES });
+  if (!Array.isArray(data.rules)) data.rules = [];
+  const idx = data.rules.findIndex(rule => String(rule.id || '') === String(id || ''));
+  if (idx < 0) return false;
+  data.rules[idx] = { ...data.rules[idx], active: false };
+  fs.writeFileSync(JSON_PATH, JSON.stringify(data, null, 2), 'utf8');
+  invalidateCache();
+  return true;
+}
+
+function listRules(options = {}) {
+  try {
+    return listRulesFromDb(options);
+  } catch (_) {
+    return listRulesFromJson(options);
+  }
+}
+
+function saveRule(input = {}) {
+  try {
+    return saveRuleToDb(input);
+  } catch (_) {
+    return saveRuleToJson(input);
+  }
+}
+
+function deactivateRule(id) {
+  try {
+    return deactivateRuleInDb(id);
+  } catch (_) {
+    return deactivateRuleInJson(id);
+  }
 }
 
 function loadRules() {
@@ -146,5 +358,8 @@ function loadRules() {
 
 module.exports = {
   DEFAULT_RULES,
+  deactivateRule,
+  listRules,
   loadRules,
+  saveRule,
 };

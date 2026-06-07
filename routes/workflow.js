@@ -10,6 +10,7 @@ const { notify } = require('../utils/notify');
 const designModule = require('./design');
 const mailRoute = require('./mail');
 const { isPathInside } = require('./lib/design-workflow-storage');
+const workflowStorageRules = require('./lib/workflow-storage-rules');
 let sharp;
 try { sharp = require('sharp'); } catch (_) {}
 const { sendSmtpMail, normalizeEmailList } = mailRoute;
@@ -2896,6 +2897,49 @@ router.post('/settings/public-link', requireAdmin, (req, res) => {
     ok: true,
     ...publicWorkflowLinkState(),
     configuredBaseUrl: url,
+  });
+});
+
+router.get('/settings/storage-rules', (req, res) => {
+  const includeInactive = isWorkflowAdmin(req) && String(req.query.includeInactive || '') === '1';
+  res.json({
+    ok: true,
+    rules: workflowStorageRules.listRules({ includeInactive }),
+  });
+});
+
+router.post('/settings/storage-rules', requireAdmin, (req, res) => {
+  try {
+    const rule = workflowStorageRules.saveRule(req.body || {});
+    res.json({
+      ok: true,
+      rule,
+      rules: workflowStorageRules.listRules({ includeInactive: true }),
+    });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message || '저장 규칙을 저장할 수 없습니다.' });
+  }
+});
+
+router.put('/settings/storage-rules/:id', requireAdmin, (req, res) => {
+  try {
+    const rule = workflowStorageRules.saveRule({ ...(req.body || {}), id: req.params.id });
+    res.json({
+      ok: true,
+      rule,
+      rules: workflowStorageRules.listRules({ includeInactive: true }),
+    });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message || '저장 규칙을 저장할 수 없습니다.' });
+  }
+});
+
+router.delete('/settings/storage-rules/:id', requireAdmin, (req, res) => {
+  const ok = workflowStorageRules.deactivateRule(req.params.id);
+  if (!ok) return res.status(404).json({ ok: false, error: '저장 규칙을 찾을 수 없습니다.' });
+  res.json({
+    ok: true,
+    rules: workflowStorageRules.listRules({ includeInactive: true }),
   });
 });
 

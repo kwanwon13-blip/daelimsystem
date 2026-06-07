@@ -46,6 +46,23 @@ function workflowApp() {
     storagePreviewCache: {},
     storagePreviewTimers: {},
     projectPanelOpen: false,
+    storageRulePanelOpen: false,
+    workflowStorageRules: [],
+    workflowStorageRulesLoaded: false,
+    workflowStorageRulesLoading: null,
+    workflowStorageRuleSaving: false,
+    storageRuleQuery: '',
+    storageRuleForm: {
+      id: '',
+      companyName: '',
+      companyFolder: '',
+      yearFolderTemplate: '{year} 시안작업',
+      projectFolderTemplate: '{project}',
+      companyAliasesText: '',
+      priority: 0,
+      active: true,
+      note: '',
+    },
     autoTitleValue: '',
     projectQuery: '',
     projectStatusFilter: 'active',
@@ -1045,10 +1062,149 @@ function workflowApp() {
       if (!this.projectForm.year) this.projectForm.year = String(new Date().getFullYear());
       this.projectPanelOpen = true;
       this.loadDesignWorkflowOptions();
+      if (this.storageRulePanelOpen) this.loadWorkflowStorageRules();
     },
 
     closeProjectPanel() {
       this.projectPanelOpen = false;
+      this.storageRulePanelOpen = false;
+    },
+
+    canManageWorkflowStorageRules() {
+      return this.currentUser?.role === 'admin';
+    },
+
+    async loadWorkflowStorageRules(force = false) {
+      if (this.workflowStorageRulesLoading) return this.workflowStorageRulesLoading;
+      if (this.workflowStorageRulesLoaded && !force) return this.workflowStorageRules;
+      this.workflowStorageRulesLoading = fetch('/api/workflow/settings/storage-rules?includeInactive=1')
+        .then(async r => {
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok || !d.ok) throw new Error(d.error || '저장 규칙을 불러오지 못했습니다.');
+          this.workflowStorageRules = d.rules || [];
+          this.workflowStorageRulesLoaded = true;
+          return this.workflowStorageRules;
+        })
+        .catch(e => {
+          alert(e.message || '저장 규칙을 불러오지 못했습니다.');
+          return [];
+        })
+        .finally(() => {
+          this.workflowStorageRulesLoading = null;
+        });
+      return this.workflowStorageRulesLoading;
+    },
+
+    toggleStorageRulePanel(force = null) {
+      this.storageRulePanelOpen = force === null ? !this.storageRulePanelOpen : !!force;
+      if (this.storageRulePanelOpen) {
+        this.loadWorkflowStorageRules();
+        if (!this.storageRuleForm.companyName && this.projectForm.companyName) {
+          this.resetStorageRuleForm(this.projectForm.companyName);
+        }
+      }
+    },
+
+    resetStorageRuleForm(companyName = '') {
+      const company = String(companyName || '').trim();
+      const companyOption = company ? this.workflowCompanyOption(company) : null;
+      this.storageRuleForm = {
+        id: '',
+        companyName: company,
+        companyFolder: companyOption?.folderName || company,
+        yearFolderTemplate: '{year} 시안작업',
+        projectFolderTemplate: '{project}',
+        companyAliasesText: '',
+        priority: 0,
+        active: true,
+        note: '',
+      };
+    },
+
+    editWorkflowStorageRule(rule) {
+      this.storageRuleForm = {
+        id: rule?.id || '',
+        companyName: rule?.companyName || '',
+        companyFolder: rule?.companyFolder || '',
+        yearFolderTemplate: rule?.yearFolderTemplate || '{year} 시안작업',
+        projectFolderTemplate: rule?.projectFolderTemplate || '{project}',
+        companyAliasesText: (rule?.companyAliases || []).join(', '),
+        priority: Number(rule?.priority || 0),
+        active: rule?.active !== false,
+        note: rule?.note || '',
+      };
+    },
+
+    storageRuleAliases(rule) {
+      return (rule?.companyAliases || []).filter(Boolean).join(', ');
+    },
+
+    filteredWorkflowStorageRules() {
+      const term = this.normalizeOptionName(this.storageRuleQuery);
+      return (this.workflowStorageRules || [])
+        .filter(rule => {
+          if (!term) return true;
+          return [
+            rule.companyName,
+            rule.companyFolder,
+            rule.yearFolderTemplate,
+            rule.projectFolderTemplate,
+            this.storageRuleAliases(rule),
+          ].some(value => this.normalizeOptionName(value).includes(term));
+        })
+        .sort((a, b) => Number(b.active) - Number(a.active) || Number(b.priority || 0) - Number(a.priority || 0) || String(a.companyName || '').localeCompare(String(b.companyName || ''), 'ko'));
+    },
+
+    async saveWorkflowStorageRule() {
+      if (!this.canManageWorkflowStorageRules()) return alert('관리자만 저장 규칙을 수정할 수 있습니다.');
+      const form = this.storageRuleForm || {};
+      const payload = {
+        id: form.id || undefined,
+        companyName: String(form.companyName || '').trim(),
+        companyFolder: String(form.companyFolder || '').trim(),
+        yearFolderTemplate: String(form.yearFolderTemplate || '').trim(),
+        projectFolderTemplate: String(form.projectFolderTemplate || '').trim() || '{project}',
+        companyAliases: String(form.companyAliasesText || '').split(',').map(v => v.trim()).filter(Boolean),
+        priority: Number(form.priority || 0),
+        active: form.active !== false,
+        note: String(form.note || '').trim(),
+      };
+      if (!payload.companyName) return alert('회사명을 입력하세요.');
+      if (!payload.companyFolder) return alert('실제 회사 폴더명을 입력하세요.');
+      if (!payload.yearFolderTemplate) return alert('연도 폴더 규칙을 입력하세요.');
+      this.workflowStorageRuleSaving = true;
+      try {
+        const url = payload.id
+          ? '/api/workflow/settings/storage-rules/' + encodeURIComponent(payload.id)
+          : '/api/workflow/settings/storage-rules';
+        const r = await fetch(url, {
+          method: payload.id ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.ok) return alert(d.error || '저장 규칙 저장에 실패했습니다.');
+        this.workflowStorageRules = d.rules || [];
+        this.workflowStorageRulesLoaded = true;
+        this.storagePreviewCache = {};
+        await this.loadDesignWorkflowOptions(true);
+        this.editWorkflowStorageRule(d.rule);
+      } finally {
+        this.workflowStorageRuleSaving = false;
+      }
+    },
+
+    async deactivateWorkflowStorageRule(rule) {
+      if (!this.canManageWorkflowStorageRules()) return alert('관리자만 저장 규칙을 수정할 수 있습니다.');
+      if (!rule?.id) return;
+      if (!confirm(`${rule.companyName || rule.companyFolder} 저장 규칙을 비활성화할까요?`)) return;
+      const r = await fetch('/api/workflow/settings/storage-rules/' + encodeURIComponent(rule.id), { method: 'DELETE' });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) return alert(d.error || '저장 규칙 비활성화에 실패했습니다.');
+      this.workflowStorageRules = d.rules || [];
+      this.workflowStorageRulesLoaded = true;
+      this.storagePreviewCache = {};
+      await this.loadDesignWorkflowOptions(true);
     },
 
     resetProjectForm(keepCompany = true) {
