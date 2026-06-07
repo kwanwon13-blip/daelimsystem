@@ -341,10 +341,10 @@
   <header class="top">
     <div class="brand">
       <strong id="topTitle">파일 전달 확인</strong>
-      <span id="topSub">파일과 납기 요청을 확인해 주세요.</span>
+      <span id="topSub">파일을 받고 가능일을 알려주세요.</span>
     </div>
     <div class="actions">
-      <a class="btn primary" id="zipTop" href="#" download>전체 다운로드</a>
+      <a class="btn primary" id="zipTop" href="#" download>파일 받기</a>
     </div>
   </header>
 
@@ -397,8 +397,8 @@
             <label>메모
               <textarea id="responseNote" placeholder="수량, 납기, 제작 관련 메모"></textarea>
             </label>
-            <button class="btn" id="fileScheduleToggle" type="button">파일별 일정 조정</button>
-            <button class="btn primary" id="submitBtn" type="submit">회신 저장</button>
+            <button class="btn" id="fileScheduleToggle" type="button">파일별 가능일</button>
+            <button class="btn primary" id="submitBtn" type="submit">가능일 보내기</button>
           </form>
         </div>
       </div>
@@ -406,8 +406,8 @@
 
     <section class="panel" id="filesPanel" style="display:none;">
       <div class="panel-head">
-        <div class="panel-title">시안 및 첨부</div>
-        <a class="btn" id="zipBody" href="#" download>전체 다운로드</a>
+        <div class="panel-title">파일</div>
+        <a class="btn" id="zipBody" href="#" download>파일 받기</a>
       </div>
       <div class="panel-body">
         <div class="file-grid" id="fileGrid"></div>
@@ -625,7 +625,7 @@
       document.querySelectorAll('[data-file-response="1"]').forEach(row => {
         row.classList.toggle('open', state.fileSchedulesOpen);
       });
-      $('fileScheduleToggle').textContent = state.fileSchedulesOpen ? '파일별 일정 닫기' : '파일별 일정 조정';
+      $('fileScheduleToggle').textContent = state.fileSchedulesOpen ? '파일별 가능일 닫기' : '파일별 가능일';
     }
 
     function render(data) {
@@ -656,7 +656,7 @@
       $('responseAvailableDate').value = order.responseAvailableDate || order.dueDate || job.dueDate || '';
       $('respondedByName').value = order.respondedByName || order.targetName || '';
       $('responseNote').value = order.responseNote || '';
-      $('fileScheduleToggle').textContent = state.fileSchedulesOpen ? '파일별 일정 닫기' : '파일별 일정 조정';
+      $('fileScheduleToggle').textContent = state.fileSchedulesOpen ? '파일별 가능일 닫기' : '파일별 가능일';
       if (order.respondedAt) {
         $('replyChip').style.display = '';
         $('replyChip').textContent = `${order.responseStatusLabel || '회신'} 저장됨`;
@@ -707,11 +707,11 @@
           body: JSON.stringify(payload),
         });
         const data = await res.json();
-        if (!res.ok || !data.ok) throw new Error(data.error || '회신 저장에 실패했습니다.');
+        if (!res.ok || !data.ok) throw new Error(data.error || '가능일 저장에 실패했습니다.');
         render(data);
         showToast('회신을 저장했습니다.');
       } catch (e) {
-        showToast(e.message || '회신 저장에 실패했습니다.');
+        showToast(e.message || '가능일 저장에 실패했습니다.');
       } finally {
         btn.disabled = false;
       }

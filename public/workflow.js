@@ -1845,7 +1845,7 @@ function workflowApp() {
     orderMailLinkStateText() {
       if (!this.orderMailModal.open || this.orderMailModal.attachFiles) return '';
       return this.activePublicWorkflowBaseUrl()
-        ? '터널 다운로드 링크가 본문에 포함됩니다.'
+        ? '파일 받기 링크가 본문에 포함됩니다.'
         : '링크 발송에는 워크플로우 외부 다운로드 주소가 필요합니다.';
     },
 
@@ -1887,7 +1887,7 @@ function workflowApp() {
     orderActionTitle(order) {
       return this.isExternalOrder(order)
         ? '외부업체에는 메일로 첨부 또는 다운로드 링크를 보냅니다'
-        : `${this.stageLabel('factory', '공장')}/내부 수신자는 ERP에서 파일을 ZIP으로 받습니다`;
+        : `${this.stageLabel('factory', '공장')}/내부 수신자는 ERP에서 파일을 받습니다`;
     },
 
     orderDeliveryStateText(order) {
@@ -1898,9 +1898,9 @@ function workflowApp() {
         return '업체 메일주소 입력 필요';
       }
       if (!this.orderArchiveUrl(order)) return '파일 링크 준비 중';
-      if (this.isExternalWorkflowHost()) return '터널 접속 중 · 바로 다운로드';
-      if (order.publicArchiveAbsoluteUrl) return '터널 다운로드 준비됨';
-      return '내부망 다운로드 · 외부는 터널 주소 필요';
+      if (this.isExternalWorkflowHost()) return '외부 접속 · 파일 받기 가능';
+      if (order.publicArchiveAbsoluteUrl) return '외부 링크 준비됨';
+      return '내부망 파일 받기 가능 · 외부는 터널 주소 필요';
     },
 
     canOpenOrderDelivery(order) {
