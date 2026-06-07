@@ -70,6 +70,7 @@ function workflowApp() {
     filePreview: { open: false, file: null, zoom: 1, fit: true },
     expandedFileId: '',
     highlightedEventId: '',
+    quickFactoryOrderSaving: false,
     orderTargetQuery: '',
     orderSelectedFileIds: [],
     orderForm: {
@@ -1628,6 +1629,32 @@ function workflowApp() {
       return this.orderFormIsExternal() ? '업체 메일 준비' : '파일 받기 준비';
     },
 
+    factoryOrderFiles() {
+      return (this.detail?.files || []).filter(file => file.id && file.exists !== false);
+    },
+
+    canCreateQuickFactoryOrder() {
+      return !!(this.detail?.job && this.factoryOrderFiles().length && !this.quickFactoryOrderSaving);
+    },
+
+    quickFactoryOrderButtonLabel() {
+      if (this.quickFactoryOrderSaving) return '전달 중';
+      const count = this.factoryOrderFiles().length;
+      return count ? `${this.stageLabel('factory', '공장')} 전달 ${count}건` : '전달 파일 없음';
+    },
+
+    activeFactoryOrder() {
+      return this.orders().find(order => {
+        if (!order || this.isExternalOrder(order)) return false;
+        return !['done', 'confirmed', 'cancelled'].includes(order.status || 'requested');
+      }) || null;
+    },
+
+    factoryOrderCoversFiles(order, fileIds) {
+      const ids = new Set(order?.fileIds || []);
+      return fileIds.every(id => ids.has(id));
+    },
+
     orderSelectableFiles() {
       return this.filteredFiles().filter(file => file.id && file.exists !== false);
     },
@@ -1702,6 +1729,44 @@ function workflowApp() {
         }
       }
       alert(`${this.stageLabel('factory', '공장')} 전달건을 만들었습니다. ERP에서 파일 받기만 누르면 됩니다.`);
+    },
+
+    async createQuickFactoryOrderPackage() {
+      if (!this.detail || !this.detail.job || this.quickFactoryOrderSaving) return;
+      const files = this.factoryOrderFiles();
+      const fileIds = files.map(file => file.id).filter(Boolean);
+      if (!fileIds.length) return alert('공장에 전달할 파일이 없습니다.');
+      const existing = this.activeFactoryOrder();
+      if (existing && this.factoryOrderCoversFiles(existing, fileIds)) {
+        this.openOrderDelivery(existing);
+        return;
+      }
+      const target = (this.orderTargets || []).find(item => item.id === 'factory') || {};
+      this.quickFactoryOrderSaving = true;
+      try {
+        const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            targetPreset: 'factory',
+            targetType: 'internal',
+            targetName: target.label || this.stageLabel('factory', '우리공장'),
+            deliveryMethod: 'download',
+            dueDate: this.detail.job.dueDate || this.defaultWorkDate(),
+            note: '',
+            status: 'requested',
+            fileIds,
+          }),
+        });
+        const d = await r.json();
+        if (!r.ok || !d.ok) return alert(d.error || '공장 전달 생성 실패');
+        this.applyOrderResponse(d);
+        this.clearOrderFileSelection();
+        this.orderPanelOpen = false;
+        await this.loadJobs();
+      } finally {
+        this.quickFactoryOrderSaving = false;
+      }
     },
 
     async saveOrder(order) {

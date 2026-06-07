@@ -809,8 +809,30 @@
                 </span>
                 <span style="display:flex;align-items:center;gap:6px;">
                   <span class="wf-muted" x-text="'진행 ' + (orderSummary().active || 0) + ' / 전체 ' + (orderSummary().total || 0)"></span>
-                  <button class="wf-btn ghost" style="height:26px;padding:0 8px;" @click="orderPanelOpen = !orderPanelOpen" x-text="orderPanelOpen ? '접기' : '열기'"></button>
+                  <button class="wf-btn primary" style="height:26px;padding:0 8px;" @click="createQuickFactoryOrderPackage()" :disabled="!canCreateQuickFactoryOrder()" x-text="quickFactoryOrderButtonLabel()"></button>
+                  <button class="wf-btn ghost" style="height:26px;padding:0 8px;" @click="orderPanelOpen = !orderPanelOpen" x-text="orderPanelOpen ? '접기' : '상세'"></button>
                 </span>
+              </div>
+              <div class="wf-section-body" x-show="orders().length && !orderPanelOpen" x-cloak>
+                <div class="wf-gallery">
+                  <template x-for="order in orders()" :key="'compact-order-'+order.id">
+                    <article class="wf-file-card" style="grid-template-columns:minmax(0,1fr);">
+                      <div style="min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                        <div style="min-width:0;">
+                          <div class="wf-file-name" x-text="order.targetName"></div>
+                          <div class="wf-muted">
+                            <span x-text="orderTargetTypeLabel(order.targetType)"></span>
+                            <span> · 파일 </span><span x-text="order.fileCount || 0"></span><span>건</span>
+                            <span x-show="order.dueDate"> · 납기 </span><span x-show="order.dueDate" x-text="order.dueDate"></span>
+                          </div>
+                        </div>
+                        <button class="wf-btn primary" @click="openOrderDelivery(order)" :disabled="!canOpenOrderDelivery(order)" :title="orderActionTitle(order)">
+                          <span class="material-symbols-outlined" style="font-size:15px;" x-text="orderActionIcon(order)"></span><span x-text="orderActionLabel(order)"></span>
+                        </button>
+                      </div>
+                    </article>
+                  </template>
+                </div>
               </div>
               <div class="wf-section-body" x-show="orderPanelOpen" x-cloak>
                 <div class="wf-upload-panel">
