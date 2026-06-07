@@ -33,7 +33,11 @@ function workflowApp() {
     stageDepartmentMissingIds: [],
     stageDepartmentSaving: false,
     contactOptions: [],
+    contactsLoaded: false,
+    contactsLoading: null,
     designWorkflowOptions: { companies: [], projectsByCompany: {}, projectLookup: {}, masterCompanies: [] },
+    designWorkflowOptionsLoaded: false,
+    designWorkflowOptionsLoading: null,
     workflowProjects: [],
     storagePreviewCache: {},
     storagePreviewTimers: {},
@@ -124,7 +128,7 @@ function workflowApp() {
         });
         window.__workflowOpenListenerInstalled = true;
       }
-      await Promise.all([this.loadAuth(), this.loadMeta(), this.loadContacts(), this.loadDesignWorkflowOptions()]);
+      await Promise.all([this.loadAuth(), this.loadMeta()]);
       await this.loadPublicLinkSettings();
       if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
       await this.loadJobs();
@@ -172,6 +176,12 @@ function workflowApp() {
       if (!this.workflowDepartments.length) return '조직도 부서를 먼저 등록해주세요.';
       if (missing.length) return `팀 매칭 필요 ${missing.length}개`;
       return '팀 매칭 완료';
+    },
+
+    async toggleDepartmentMappingPanel(force = null) {
+      const next = force === null ? !this.departmentMappingPanelOpen : !!force;
+      this.departmentMappingPanelOpen = next;
+      if (next) await this.loadDepartmentMappingSettings();
     },
 
     async loadDepartmentMappingSettings() {
@@ -307,61 +317,83 @@ function workflowApp() {
       return '터널 주소 없음 · 첨부 메일만 가능';
     },
 
-    async loadContacts() {
+    async loadContacts(force = false) {
+      if (!force && this.contactsLoaded) return this.contactOptions;
+      if (!force && this.contactsLoading) return this.contactsLoading;
+      this.contactsLoading = (async () => {
+        try {
+          const contacts = await fetch('/api/contacts/all').then(r => r.ok ? r.json() : []);
+          this.contactOptions = (contacts || []).slice(0, 1000).map(c => ({
+            name: c.name || '',
+            company: c.company || '',
+            phone: c.mobile || c.phone || '',
+            email: c.email || '',
+          })).filter(c => c.name || c.company);
+          this.contactsLoaded = true;
+        } catch (_) {
+          this.contactOptions = [];
+        }
+        return this.contactOptions;
+      })();
       try {
-        const contacts = await fetch('/api/contacts/all').then(r => r.ok ? r.json() : []);
-        this.contactOptions = (contacts || []).slice(0, 1000).map(c => ({
-          name: c.name || '',
-          company: c.company || '',
-          phone: c.mobile || c.phone || '',
-          email: c.email || '',
-        })).filter(c => c.name || c.company);
-      } catch (_) {
-        this.contactOptions = [];
+        return await this.contactsLoading;
+      } finally {
+        this.contactsLoading = null;
       }
     },
 
-    async loadDesignWorkflowOptions() {
+    async loadDesignWorkflowOptions(force = false) {
+      if (!force && this.designWorkflowOptionsLoaded) return this.designWorkflowOptions;
+      if (!force && this.designWorkflowOptionsLoading) return this.designWorkflowOptionsLoading;
+      this.designWorkflowOptionsLoading = (async () => {
+        try {
+          const [workflowResult, mastersResult, projectsResult] = await Promise.allSettled([
+            fetch('/api/design/workflow-options'),
+            fetch('/api/product-design/masters'),
+            fetch('/api/workflow/projects'),
+          ]);
+          const r = workflowResult.status === 'fulfilled' ? workflowResult.value : null;
+          const d = r ? await r.json() : {};
+          let masterCompanies = [];
+          let managedProjects = [];
+          if (mastersResult.status === 'fulfilled' && mastersResult.value.ok) {
+            const md = await mastersResult.value.json().catch(() => ({}));
+            masterCompanies = ((md.masters && md.masters.brands) || []).map(company => ({
+              name: company.name || '',
+              folderName: company.name || '',
+              count: Number(company.count || 0),
+              projectCount: 0,
+              source: 'design-master',
+            })).filter(company => company.name);
+          }
+          if (projectsResult.status === 'fulfilled' && projectsResult.value.ok) {
+            const pd = await projectsResult.value.json().catch(() => ({}));
+            managedProjects = Array.isArray(pd.projects) ? pd.projects : [];
+          }
+          this.workflowProjects = managedProjects;
+          const projectCompanies = this.workflowCompaniesFromProjects(managedProjects);
+          if (r && r.ok && d.ok) {
+            const workflowCompanies = Array.isArray(d.companies) ? d.companies : [];
+            this.designWorkflowOptions = {
+              companies: this.mergeWorkflowCompanies(projectCompanies, workflowCompanies, masterCompanies),
+              projectsByCompany: d.projectsByCompany || {},
+              projectLookup: d.projectLookup || {},
+              masterCompanies,
+            };
+          } else if (masterCompanies.length || projectCompanies.length) {
+            this.designWorkflowOptions = { companies: this.mergeWorkflowCompanies(projectCompanies, masterCompanies), projectsByCompany: {}, projectLookup: {}, masterCompanies };
+          }
+          this.designWorkflowOptionsLoaded = true;
+        } catch (_) {
+          this.workflowProjects = [];
+          this.designWorkflowOptions = { companies: [], projectsByCompany: {}, projectLookup: {}, masterCompanies: [] };
+        }
+        return this.designWorkflowOptions;
+      })();
       try {
-        const [workflowResult, mastersResult, projectsResult] = await Promise.allSettled([
-          fetch('/api/design/workflow-options'),
-          fetch('/api/product-design/masters'),
-          fetch('/api/workflow/projects'),
-        ]);
-        const r = workflowResult.status === 'fulfilled' ? workflowResult.value : null;
-        const d = r ? await r.json() : {};
-        let masterCompanies = [];
-        let managedProjects = [];
-        if (mastersResult.status === 'fulfilled' && mastersResult.value.ok) {
-          const md = await mastersResult.value.json().catch(() => ({}));
-          masterCompanies = ((md.masters && md.masters.brands) || []).map(company => ({
-            name: company.name || '',
-            folderName: company.name || '',
-            count: Number(company.count || 0),
-            projectCount: 0,
-            source: 'design-master',
-          })).filter(company => company.name);
-        }
-        if (projectsResult.status === 'fulfilled' && projectsResult.value.ok) {
-          const pd = await projectsResult.value.json().catch(() => ({}));
-          managedProjects = Array.isArray(pd.projects) ? pd.projects : [];
-        }
-        this.workflowProjects = managedProjects;
-        const projectCompanies = this.workflowCompaniesFromProjects(managedProjects);
-        if (r && r.ok && d.ok) {
-          const workflowCompanies = Array.isArray(d.companies) ? d.companies : [];
-          this.designWorkflowOptions = {
-            companies: this.mergeWorkflowCompanies(projectCompanies, workflowCompanies, masterCompanies),
-            projectsByCompany: d.projectsByCompany || {},
-            projectLookup: d.projectLookup || {},
-            masterCompanies,
-          };
-        } else if (masterCompanies.length || projectCompanies.length) {
-          this.designWorkflowOptions = { companies: this.mergeWorkflowCompanies(projectCompanies, masterCompanies), projectsByCompany: {}, projectLookup: {}, masterCompanies };
-        }
-      } catch (_) {
-        this.workflowProjects = [];
-        this.designWorkflowOptions = { companies: [], projectsByCompany: {}, projectLookup: {}, masterCompanies: [] };
+        return await this.designWorkflowOptionsLoading;
+      } finally {
+        this.designWorkflowOptionsLoading = null;
       }
     },
 
@@ -1003,7 +1035,7 @@ function workflowApp() {
       const d = await r.json();
       if (!r.ok || !d.ok) return alert(d.error || '프로젝트 추가에 실패했습니다.');
       this.clearStoragePreview(company, project, storageYear);
-      await this.loadDesignWorkflowOptions();
+      await this.loadDesignWorkflowOptions(true);
       const rel = d.folder?.rel || d.project?.storageBucket || '';
       this.projectNotice = rel ? `프로젝트 준비됨 · ${rel}` : '프로젝트 준비됨';
       if (!options.quiet) alert(rel ? `프로젝트를 준비했습니다.\n${rel}` : '프로젝트를 준비했습니다.');
@@ -1059,7 +1091,7 @@ function workflowApp() {
       const d = await r.json();
       if (!r.ok || !d.ok) return alert(d.error || '프로젝트 상태 저장에 실패했습니다.');
       this.projectNotice = `프로젝트 상태 저장 · ${this.projectStatusLabel(status)} · ${d.project?.storageBucket || d.project?.projectName || projectName}`;
-      await this.loadDesignWorkflowOptions();
+      await this.loadDesignWorkflowOptions(true);
       await this.loadJobs();
       await this.refreshDetail(false);
       return d.project;
@@ -1080,7 +1112,7 @@ function workflowApp() {
       const d = await r.json();
       if (!r.ok || !d.ok) return alert(d.error || '프로젝트 상태 저장에 실패했습니다.');
       this.projectNotice = `프로젝트 상태 저장 · ${this.projectStatusLabel(status)} · ${d.project?.storageBucket || d.project?.projectName || project.projectName}`;
-      await this.loadDesignWorkflowOptions();
+      await this.loadDesignWorkflowOptions(true);
       await this.loadJobs();
       if (this.detail?.job) await this.refreshDetail(false);
       return d.project;
@@ -2040,7 +2072,7 @@ function workflowApp() {
         this.resetForm();
         this.clearNewFiles();
         this.newOpen = false;
-        await this.loadDesignWorkflowOptions();
+        await this.loadDesignWorkflowOptions(true);
         await this.loadJobs();
         await this.selectJob(d.job.id);
         if (uploadError) alert('작업은 등록됐지만 파일 업로드에 실패했습니다: ' + uploadError.message);
@@ -2067,6 +2099,8 @@ function workflowApp() {
 
     openNewJobModal() {
       if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
+      this.loadContacts();
+      this.loadDesignWorkflowOptions();
       this.syncAutoJobTitle();
       this.newOpen = true;
       setTimeout(() => {
@@ -2088,7 +2122,11 @@ function workflowApp() {
       if (!next.priority) next.priority = 'normal';
       if (!next.dueDate) next.dueDate = this.defaultWorkDate();
       this.form = next;
-      if (keepOpen) this.newOpen = true;
+      if (keepOpen) {
+        this.loadContacts();
+        this.loadDesignWorkflowOptions();
+        this.newOpen = true;
+      }
     },
 
     consumeWorkflowDraft() {
@@ -2169,7 +2207,7 @@ function workflowApp() {
         });
         const d = await r.json();
         if (!r.ok || !d.ok) throw new Error(d.error || '저장 실패');
-        await this.loadDesignWorkflowOptions();
+        await this.loadDesignWorkflowOptions(true);
         await this.loadJobs();
         await this.refreshDetail(false);
       } catch (e) {
@@ -2296,7 +2334,7 @@ function workflowApp() {
       this.uploadNote = '';
       this.uploadDesignDueDate = this.detail?.job?.dueDate || this.defaultWorkDate();
       this.uploadUrgent = false;
-      await this.loadDesignWorkflowOptions();
+      await this.loadDesignWorkflowOptions(true);
       await this.loadJobs();
       await this.refreshDetail(false);
     },

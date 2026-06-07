@@ -2086,18 +2086,32 @@ function workflowJobSearchText(data, job) {
   ].join(' ').toLowerCase();
 }
 
-function decorateJob(data, job, viewerUser = null) {
-  const files = data.files.filter(f => f.jobId === job.id);
-  const events = data.events.filter(e => e.jobId === job.id);
-  const orderSummary = buildOrderSummary(data, job);
-  const blockers = completionBlockers(data, job);
+function workflowItemsByJob(items = []) {
+  const map = new Map();
+  for (const item of items || []) {
+    const jobId = item?.jobId || '';
+    if (!jobId) continue;
+    if (!map.has(jobId)) map.set(jobId, []);
+    map.get(jobId).push(item);
+  }
+  return map;
+}
+
+function decorateJob(data, job, viewerUser = null, options = {}) {
+  const files = options.filesByJob ? (options.filesByJob.get(job.id) || []) : data.files.filter(f => f.jobId === job.id);
+  const events = options.eventsByJob ? (options.eventsByJob.get(job.id) || []) : data.events.filter(e => e.jobId === job.id);
+  const orders = options.ordersByJob ? (options.ordersByJob.get(job.id) || []) : (data.orders || []).filter(o => o.jobId === job.id);
+  const scopedData = { ...data, files, events, orders };
+  const orderSummary = buildOrderSummary(scopedData, job);
+  const blockers = completionBlockers(scopedData, job);
   const unreadFileCount = files.filter(f => isUnreadForViewer(f, viewerUser, job)).length;
   const unreadEventCount = events.filter(e => isUnreadEventForViewer(e, viewerUser, job)).length;
   const storedArchiveCount = Number(job.archiveFileCount);
   const archiveFileCount = Number.isFinite(storedArchiveCount) ? storedArchiveCount : files.length;
-  const visualFiles = files.filter(f => isImageFile(f) && workflowFileExists(f));
-  const primaryVisualFile = visualFiles
-    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0] || null;
+  const visualFiles = files
+    .filter(f => isImageFile(f))
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  const primaryVisualFile = visualFiles.find(f => workflowFileExists(f)) || null;
   return {
     ...job,
     fileCount: files.length,
@@ -2131,11 +2145,11 @@ function decorateJob(data, job, viewerUser = null) {
     activeStageIds: activeStageIds(job),
     pendingStageCount: pendingStageCount(job),
     pendingChecklistCount: pendingChecklistCount(job),
-    pendingReviewCount: pendingReviewCount(data, job),
+    pendingReviewCount: pendingReviewCount(scopedData, job),
     blockedStageCount: blockedStageCount(job),
     overdueStageCount: overdueStageCount(job),
-    changeRequestCount: changeRequestCount(data, job),
-    lateScheduleCount: lateScheduleCount(data, job),
+    changeRequestCount: changeRequestCount(scopedData, job),
+    lateScheduleCount: lateScheduleCount(scopedData, job),
     canComplete: blockers.length === 0,
     completionBlockers: blockers,
     completedAt: job.completedAt || '',
@@ -2826,6 +2840,11 @@ router.get('/jobs', (req, res) => {
   const q = safeText(req.query.q, 100).toLowerCase();
   const status = safeText(req.query.status, 30);
   const scope = safeText(req.query.scope, 30) || 'all';
+  const decorateOptions = {
+    filesByJob: workflowItemsByJob(data.files),
+    eventsByJob: workflowItemsByJob(data.events),
+    ordersByJob: workflowItemsByJob(data.orders || []),
+  };
   let jobs = data.jobs.slice();
   if (status && status !== 'all') jobs = jobs.filter(j => j.status === status);
   if (q) {
@@ -2834,7 +2853,7 @@ router.get('/jobs', (req, res) => {
   if (scope === 'mine') {
     jobs = jobs.filter(j => isUserJob(j, req));
   } else if (scope === 'unread') {
-    jobs = jobs.filter(j => decorateJob(data, j, req.user).unreadCount > 0);
+    jobs = jobs.filter(j => decorateJob(data, j, req.user, decorateOptions).unreadCount > 0);
   } else if (scope === 'urgent') {
     jobs = jobs.filter(j => urgentOpenFileCount(data, j) > 0);
   } else if (scope === 'risk') {
@@ -2852,7 +2871,7 @@ router.get('/jobs', (req, res) => {
     return String(a.dueDate || '9999-99-99').localeCompare(String(b.dueDate || '9999-99-99'))
       || String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
   });
-  res.json({ ok: true, jobs: jobs.map(job => decorateJob(data, job, req.user)) });
+  res.json({ ok: true, jobs: jobs.map(job => decorateJob(data, job, req.user, decorateOptions)) });
 });
 
 router.get('/jobs/:id', (req, res) => {
