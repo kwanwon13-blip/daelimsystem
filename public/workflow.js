@@ -3,6 +3,7 @@ function workflowApp() {
     loading: true,
     saving: false,
     jobs: [],
+    jobsByStage: {},
     stages: [],
     statuses: {},
     checkStatuses: {},
@@ -423,6 +424,7 @@ function workflowApp() {
         const r = await fetch('/api/workflow/jobs?' + qs.toString());
         const d = await r.json();
         this.jobs = d.jobs || [];
+        this.rebuildJobsByStage();
         if (this.selectedId && !this.jobs.find(j => j.id === this.selectedId)) this.selectedId = '';
         if (!this.selectedId) this.detail = null;
         if (this.selectedId) await this.refreshDetail(false);
@@ -511,12 +513,25 @@ function workflowApp() {
     },
 
     jobsForStage(stageId) {
-      return this.jobs.filter(j => {
-        if (Array.isArray(j.activeStageIds) && j.activeStageIds.length) return j.activeStageIds.includes(stageId);
-        const check = this.stageCheck(j, stageId);
-        if (check.status === 'ready' || check.status === 'blocked') return true;
-        return (j.currentStage || 'design') === stageId && check.status !== 'done';
-      });
+      return this.jobsByStage?.[stageId] || [];
+    },
+
+    rebuildJobsByStage() {
+      const grouped = {};
+      for (const stage of this.stages || []) grouped[stage.id] = [];
+      for (const job of this.jobs || []) {
+        for (const stage of this.stages || []) {
+          if (this.jobBelongsToStage(job, stage.id)) grouped[stage.id].push(job);
+        }
+      }
+      this.jobsByStage = grouped;
+    },
+
+    jobBelongsToStage(job, stageId) {
+      if (Array.isArray(job.activeStageIds) && job.activeStageIds.length) return job.activeStageIds.includes(stageId);
+      const check = this.stageCheck(job, stageId);
+      if (check.status === 'ready' || check.status === 'blocked') return true;
+      return (job.currentStage || 'design') === stageId && check.status !== 'done';
     },
 
     stageCheck(job, stageId) {

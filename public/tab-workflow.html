@@ -402,12 +402,14 @@
             <div class="wf-col-list">
               <template x-for="job in jobsForStage(stage.id)" :key="job.id">
                 <button class="wf-card text-left" :class="selectedId===job.id && (!selectedWorkStageId || selectedWorkStageId===stage.id)?'active':''" @click="selectJob(job.id, stage.id)">
-                  <div class="wf-card-visual" x-show="job.primaryVisualFile">
-                    <img :src="job.primaryVisualFile ? (job.primaryVisualFile.thumbUrl || job.primaryVisualFile.previewUrl) : ''" :alt="job.primaryVisualFile ? job.primaryVisualFile.originalName : ''" @error="handleWorkflowImageError($event, job.primaryVisualFile ? job.primaryVisualFile.previewUrl : '')">
-                    <span class="wf-card-visual-urgent" x-show="job.primaryVisualFile && job.primaryVisualFile.urgent">긴급</span>
-                    <span class="wf-card-visual-label" x-text="'시안 ' + (job.visualFileCount || 1)"></span>
-                    <span class="wf-card-visual-date" x-show="job.primaryVisualFile && job.primaryVisualFile.designDueDate" x-text="job.primaryVisualFile ? job.primaryVisualFile.designDueDate : ''"></span>
-                  </div>
+                  <template x-if="job.primaryVisualFile && selectedId===job.id && (!selectedWorkStageId || selectedWorkStageId===stage.id)">
+                    <div class="wf-card-visual">
+                      <img :src="job.primaryVisualFile ? (job.primaryVisualFile.thumbUrl || job.primaryVisualFile.previewUrl) : ''" :alt="job.primaryVisualFile ? job.primaryVisualFile.originalName : ''" @error="handleWorkflowImageError($event, job.primaryVisualFile ? job.primaryVisualFile.previewUrl : '')">
+                      <span class="wf-card-visual-urgent" x-show="job.primaryVisualFile && job.primaryVisualFile.urgent">긴급</span>
+                      <span class="wf-card-visual-label" x-text="'시안 ' + (job.visualFileCount || 1)"></span>
+                      <span class="wf-card-visual-date" x-show="job.primaryVisualFile && job.primaryVisualFile.designDueDate" x-text="job.primaryVisualFile ? job.primaryVisualFile.designDueDate : ''"></span>
+                    </div>
+                  </template>
                   <div class="wf-card-title" x-text="job.title"></div>
                   <div class="wf-card-meta">
                     <span x-text="job.companyName || '-'"></span>
