@@ -53,6 +53,8 @@ try { multer = require('multer'); } catch(e) { multer = null; }
 
 // Tool Use 도구 정의 + 실행 함수
 const aiTools = require('./ai-tools');
+let hermesClient = null;
+try { hermesClient = require('../lib/hermes-client'); } catch (_) {}
 
 // Tool Use 루프 설정
 const MAX_TOOL_TURNS = parseInt(process.env.AI_MAX_TOOL_TURNS || '10', 10);
@@ -103,13 +105,20 @@ router.use(requireAuthOrControlSecret);
 
 // 헬스체크 — DB 초기화 여부 + API 모드 활성화 여부
 router.get('/health', (req, res) => {
-  const apiOn = apiModeAvailable();
+  const provider = activeApiProvider();
+  const apiOn = !!provider;
   res.json({
     ok: true,
     ready: !!ai.ready,
-    backend: apiOn ? 'api' : 'cli',
-    model: apiOn ? (process.env.ANTHROPIC_MODEL || 'claude-opus-4-8') : 'claude-cli',
-    apiKeyConfigured: !!process.env.ANTHROPIC_API_KEY,
+    backend: apiOn ? (provider === 'hermes' ? 'hermes' : 'api') : 'cli',
+    provider: provider || 'cli',
+    model: provider === 'hermes'
+      ? (hermesClient ? hermesClient.modelName() : 'hermes-agent')
+      : (apiOn ? (process.env.ANTHROPIC_MODEL || 'claude-opus-4-8') : 'claude-cli'),
+    apiKeyConfigured: provider === 'hermes'
+      ? !!(hermesClient && hermesClient.apiKeyAvailable())
+      : !!process.env.ANTHROPIC_API_KEY,
+    hermesConfigured: !!(hermesClient && hermesClient.apiAvailable()),
     apiBillingAllowed: apiBillingAllowed(),
   });
 });
@@ -1364,8 +1373,27 @@ function buildChatSystem() {
 let CHAT_SYSTEM = buildChatSystem();
 
 // API 모드 활성화 여부
+function activeApiProvider() {
+  const wanted = String(process.env.AI_PROVIDER || '').trim().toLowerCase();
+  const hermesReady = !!(hermesClient && hermesClient.apiAvailable());
+  const anthropicReady = apiBillingAllowed() && !!process.env.ANTHROPIC_API_KEY;
+
+  if (wanted === 'hermes') return hermesReady ? 'hermes' : '';
+  if (wanted === 'anthropic' || wanted === 'claude') return anthropicReady ? 'anthropic' : '';
+  if (wanted === 'auto') {
+    if (hermesReady) return 'hermes';
+    if (anthropicReady) return 'anthropic';
+    return '';
+  }
+
+  // Preserve the existing Claude-first behavior unless Hermes is the only configured API.
+  if (anthropicReady) return 'anthropic';
+  if (hermesReady) return 'hermes';
+  return '';
+}
+
 function apiModeAvailable() {
-  return apiBillingAllowed() && !!process.env.ANTHROPIC_API_KEY;
+  return !!activeApiProvider();
 }
 
 const FILE_REQUEST_KEYWORDS = /(엑셀|excel|xlsx|스프레드시트|표로\s*정리|표로\s*만들|PDF|pdf|보고서|보고서로|SVG|svg|HTML|html|마크다운|markdown|md\s*파일|JSON|json|CSV|csv)/i;
@@ -1835,7 +1863,25 @@ router.post('/chat', async (req, res) => {
     let cliArtifactScanSince = null;
 
     try {
-      if (apiModeAvailable() && !forceCliForUnreadableSource) {
+      const provider = activeApiProvider();
+      if (provider === 'hermes' && !forceCliForUnreadableSource) {
+        backend = 'hermes';
+        const r = await hermesClient.chat({
+          system: DEFAULT_SYSTEM,
+          messages: apiMessages,
+          model: modelToUse,
+          maxTokens: DEFAULT_MAX_TOKENS,
+          signal: requestAbort.signal,
+          sessionId: `erp-thread-${thread.id}`,
+          sessionKey: `erp-user-${req.user.userId}`,
+        });
+        aiText = r.text;
+        durationMs = r.durationMs;
+        usage = r.usage;
+        totalUsage = r.usage || totalUsage;
+        turnCount = 1;
+        if (!aiText) { status = 'error'; errMsg = 'Hermes 응답이 비어있습니다'; }
+      } else if (provider === 'anthropic' && !forceCliForUnreadableSource) {
         backend = 'api';
         // Tool Use 루프: Claude 가 end_turn 까지 도구 반복 호출 가능
         const tools = aiTools.toolsForClaude(req.user.role === 'admin');
@@ -2033,12 +2079,16 @@ router.post('/chat', async (req, res) => {
 // 도구가 필요한 요청은 /chat 비스트리밍 엔드포인트 사용
 // ──────────────────────────────────────────────────────────
 router.post('/chat-stream', async (req, res) => {
+  const provider = activeApiProvider();
+  const usingHermes = provider === 'hermes';
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey || !apiBillingAllowed()) {
+  if (!usingHermes && provider !== 'anthropic') {
     return res.status(503).json({
-      error: 'Claude API billing is disabled. Use CLI mode or set AI_ALLOW_API_BILLING=1 only when paid API usage is intended.',
+      error: 'AI API backend is not configured. Set AI_PROVIDER=hermes with HERMES_BASE_URL/HERMES_API_KEY, or enable Claude API billing.',
+      provider: provider || 'cli',
       apiKeyConfigured: !!apiKey,
       apiBillingAllowed: apiBillingAllowed(),
+      hermesConfigured: !!(hermesClient && hermesClient.apiAvailable()),
     });
   }
 
@@ -2124,6 +2174,7 @@ router.post('/chat-stream', async (req, res) => {
   });
 
   const modelToUse = model || DEFAULT_MODEL;
+  const streamBackend = usingHermes ? 'hermes' : 'api';
   const startedAt = Date.now();
   let accumulated = '';
   let usage = null;
@@ -2132,7 +2183,7 @@ router.post('/chat-stream', async (req, res) => {
   // Persist a placeholder before streaming so refresh/tab changes can restore the answer in progress.
   const aiMsg = ai.threads.addMessage(thread.id, {
     role: 'ai', kind: 'chat', content: '', status: 'generating',
-    metadata: { backend: 'api', model: modelToUse, turnCount: 1, stream: true }
+    metadata: { backend: streamBackend, model: modelToUse, turnCount: 1, stream: true }
   });
 
   // SSE 헤더 세팅
@@ -2165,6 +2216,33 @@ router.post('/chat-stream', async (req, res) => {
   });
 
   try {
+    if (usingHermes) {
+      let lastSave = 0;
+      const r = await hermesClient.chatStream({
+        system: DEFAULT_SYSTEM,
+        messages: apiMessages,
+        model: modelToUse,
+        maxTokens: DEFAULT_MAX_TOKENS,
+        signal: upstreamAbort.signal,
+        sessionId: `erp-thread-${thread.id}`,
+        sessionKey: `erp-user-${req.user.userId}`,
+      }, (chunk) => {
+        accumulated += chunk;
+        reg.publish(aiMsg.id, 'delta', { text: chunk });
+        const now = Date.now();
+        if (now - lastSave > 700) {
+          lastSave = now;
+          try { ai.threads.updateMessageContent(aiMsg.id, accumulated, 'generating'); } catch (_) {}
+        }
+      }, {
+        onToolProgress: (progress) => {
+          const label = progress && (progress.name || progress.tool || progress.message || progress.status);
+          if (label) reg.publish(aiMsg.id, 'thinking', { active: true, text: String(label).slice(0, 240) });
+        },
+      });
+      usage = r.usage || usage;
+      if (r.text && !accumulated.trim()) accumulated = r.text;
+    } else {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       signal: upstreamAbort.signal,
@@ -2235,6 +2313,7 @@ router.post('/chat-stream', async (req, res) => {
         } catch (e) {}
       }
     }
+    }
 
     // 완료 — DB 에 저장
     const durationMs = Date.now() - startedAt;
@@ -2254,16 +2333,18 @@ router.post('/chat-stream', async (req, res) => {
     ai.threads.finalizeMessage(aiMsg.id, {
       content: finalText,
       status: 'ok',
-      metadata: { backend: 'api', usage, model: modelToUse, turnCount: 1, stream: true, artifacts },
+      metadata: { backend: streamBackend, usage, model: modelToUse, turnCount: 1, stream: true, artifacts },
       durationMs,
     });
     ai.threads.autoTitleIfEmpty(thread.id);
-    try {
-      ai.apiUsage.log({
-        userId: req.user.userId, userName: req.user.name, threadId: thread.id,
-        model: modelToUse, usage, durationMs, turnCount: 1, toolNames: [],
-      });
-    } catch(e) {}
+    if (streamBackend === 'api') {
+      try {
+        ai.apiUsage.log({
+          userId: req.user.userId, userName: req.user.name, threadId: thread.id,
+          model: modelToUse, usage, durationMs, turnCount: 1, toolNames: [],
+        });
+      } catch(e) {}
+    }
 
     reg.finish(aiMsg.id, 'ok', {
       threadId: thread.id,

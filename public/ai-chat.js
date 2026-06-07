@@ -196,7 +196,14 @@ async function detectApiMode() {
     const r = await fetch('/api/ai/health', { credentials: 'include' });
     if (r.ok) {
       const data = await r.json().catch(() => ({}));
-      state.apiKeyAvailable = data.backend === 'api';
+      state.apiKeyAvailable = data.backend === 'api' || data.backend === 'hermes';
+      if (data.backend === 'hermes') {
+        const hermesId = data.model || 'hermes-agent';
+        if (!MODELS.find(m => m.id === hermesId)) {
+          MODELS.unshift({ id: hermesId, label: 'Hermes Agent', desc: 'Hermes API Server · tools + memory' });
+        }
+        setModel(hermesId);
+      }
       console.log('[ai-chat] 백엔드:', data.backend, '/ 모델:', data.model);
     } else { state.apiKeyAvailable = false; }
   } catch (e) { state.apiKeyAvailable = false; }
