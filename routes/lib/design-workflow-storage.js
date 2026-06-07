@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { loadRules } = require('./workflow-storage-rules');
 
 const LEADING_MARKS_RE = /^[\u2605\u2606\u25cf\u25cb\u25a0\u25a1\s]+/u;
 
@@ -204,6 +205,29 @@ function yearFolderRank(value) {
   return 2;
 }
 
+function renderStorageTemplate(template, vars = {}) {
+  return cleanHierarchyPart(String(template || '')
+    .replace(/\{year\}/g, vars.year || '')
+    .replace(/\{company\}/g, vars.company || '')
+    .replace(/\{project\}/g, vars.project || ''));
+}
+
+function findStorageRule(companyName) {
+  const key = normalizeKey(companyName);
+  if (!key) return null;
+  return loadRules().find(rule => {
+    const values = [
+      rule.companyName,
+      rule.companyFolder,
+      ...(Array.isArray(rule.companyAliases) ? rule.companyAliases : []),
+    ];
+    return values.some(value => {
+      const ruleKey = normalizeKey(value);
+      return ruleKey && (ruleKey === key || ruleKey.includes(key) || key.includes(ruleKey));
+    });
+  }) || null;
+}
+
 function addFolderOptions(companyStats, projectStats, designRoot, skipDirs) {
   if (!designRoot || !fs.existsSync(designRoot)) return;
   for (const folderName of readDirs(designRoot)) {
@@ -308,9 +332,16 @@ function findCompanyForStorage(options, companyName) {
     || null;
 }
 
-function yearFolderForCompany(companyDir, year) {
+function yearFolderForCompany(companyDir, year, preferredFolderName = '') {
   const entries = readDirs(companyDir);
-  const preferredCandidates = [`${year} \uC2DC\uC548\uC791\uC5C5`, `${year}\uC2DC\uC548\uC791\uC5C5`, `${year}\uB144 \uC2DC\uC548\uC791\uC5C5`, `${year}\uB144\uC2DC\uC548\uC791\uC5C5`, `${year}`];
+  const preferredCandidates = [
+    preferredFolderName,
+    `${year} \uC2DC\uC548\uC791\uC5C5`,
+    `${year}\uC2DC\uC548\uC791\uC5C5`,
+    `${year}\uB144 \uC2DC\uC548\uC791\uC5C5`,
+    `${year}\uB144\uC2DC\uC548\uC791\uC5C5`,
+    `${year}`,
+  ].filter(Boolean);
   for (const candidate of preferredCandidates) {
     const found = entries.find(name => normalizeKey(name) === normalizeKey(candidate));
     if (found) return found;
@@ -319,7 +350,7 @@ function yearFolderForCompany(companyDir, year) {
   if (existingYearFolder) {
     return existingYearFolder;
   }
-  return `${year}\uB144 \uC2DC\uC548\uC791\uC5C5`;
+  return preferredFolderName || `${year} \uC2DC\uC548\uC791\uC5C5`;
 }
 
 function findProjectForStorage(options, company, projectName) {
@@ -371,18 +402,29 @@ function resolveWorkflowStorage({ designRoot = '', designIndex = [], skipDirs = 
 
   const options = buildWorkflowOptions({ designIndex, designRoot: root, skipDirs });
   const existingCompany = findCompanyForStorage(options, companyRaw);
-  const companyFolderName = existingCompany?.folderName || safePathPart(companyRaw, 'company');
+  const storageRule = findStorageRule(companyRaw);
+  const companyFolderName = storageRule?.companyFolder || existingCompany?.folderName || safePathPart(companyRaw, 'company');
   const companyDir = path.resolve(root, companyFolderName);
   if (!create && !dryRun && !fs.existsSync(companyDir)) return null;
   const storageYear = safeYear(year);
   const existingProject = findProjectForStorage(options, existingCompany || { name: companyRaw, folderName: companyFolderName }, projectRaw);
-  const yearFolderName = existingProject?.yearFolder && String(cleanHierarchyPart(existingProject.yearFolder)).startsWith(storageYear)
-    ? existingProject.yearFolder
-    : yearFolderForCompany(companyDir, storageYear);
+  const ruleYearFolderName = storageRule
+    ? renderStorageTemplate(storageRule.yearFolderTemplate, { year: storageYear, company: companyRaw, project: projectRaw })
+    : '';
+  const existingYearFolderName = existingProject?.yearFolder && String(cleanHierarchyPart(existingProject.yearFolder)).startsWith(storageYear)
+    ? cleanHierarchyPart(existingProject.yearFolder)
+    : '';
+  const existingYearDir = existingYearFolderName ? path.resolve(companyDir, existingYearFolderName) : '';
+  const yearFolderName = storageRule || !existingYearDir || !fs.existsSync(existingYearDir)
+    ? yearFolderForCompany(companyDir, storageYear, ruleYearFolderName)
+    : existingYearFolderName;
+  const ruleProjectFolderName = storageRule
+    ? renderStorageTemplate(storageRule.projectFolderTemplate || '{project}', { year: storageYear, company: companyRaw, project: projectRaw })
+    : '';
   const projectFolderName = projectFolderForYear(
     path.resolve(companyDir, yearFolderName),
     projectRaw,
-    existingProject?.folderName || safePathPart(projectRaw, 'project'),
+    ruleProjectFolderName || existingProject?.folderName || safePathPart(projectRaw, 'project'),
   );
   const dir = path.resolve(companyDir, yearFolderName, projectFolderName);
 

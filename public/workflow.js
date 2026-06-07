@@ -806,7 +806,7 @@ function workflowApp() {
           id: project.id || '',
           name: String(project.projectName || '').trim(),
           folderName: project.storageProjectFolder || project.projectName || '',
-          yearFolder: project.storageYearFolder || (project.year ? `${project.year}\uB144 \uC2DC\uC548\uC791\uC5C5` : ''),
+          yearFolder: project.storageYearFolder || (project.year ? `${project.year} \uC2DC\uC548\uC791\uC5C5` : ''),
           count: Number(project.jobCount || 0),
           activeJobCount: Number(project.activeJobCount || 0),
           status: project.status || 'active',
@@ -957,7 +957,7 @@ function workflowApp() {
       const exactProject = projectOptions.find(p => this.normalizeOptionName(p.name || p) === projectKey && String(p.yearFolder || '').startsWith(year))
         || projectOptions.find(p => this.normalizeOptionName(p.name || p) === projectKey);
       const yearProject = projectOptions.find(p => String(p.yearFolder || '').startsWith(year));
-      const yearFolder = exactProject?.yearFolder || yearProject?.yearFolder || `${year}\uB144 \uC2DC\uC548\uC791\uC5C5`;
+      const yearFolder = exactProject?.yearFolder || yearProject?.yearFolder || `${year} \uC2DC\uC548\uC791\uC5C5`;
       return `${companyFolder} / ${yearFolder} / ${project || '프로젝트 미입력'}`;
     },
 

@@ -368,6 +368,20 @@ function fileDiskPath(file) {
     if (file.storedName) candidates.push(path.resolve(designRoot, file.storageBucket, file.storedName));
     if (file.originalName) candidates.push(path.resolve(designRoot, file.storageBucket, safeFilePart(file.originalName, file.storedName || file.id || 'file')));
   }
+  if (file?.storageRoot === 'design' && file?.storageCompanyName && file?.storageProjectName) {
+    try {
+      const storageInfo = resolveWorkflowDesignStorage(
+        file.storageCompanyName,
+        file.storageProjectName,
+        safeYear(file.storageYear),
+        false,
+      );
+      if (storageInfo?.dir) {
+        if (file.storedName) candidates.push(path.resolve(storageInfo.dir, file.storedName));
+        if (file.originalName) candidates.push(path.resolve(storageInfo.dir, safeFilePart(file.originalName, file.storedName || file.id || 'file')));
+      }
+    } catch (_) {}
+  }
   let firstAllowed = null;
   for (const candidate of candidates) {
     const allowed = allowedWorkflowFilePath(candidate);
@@ -2647,6 +2661,7 @@ router.get('/public/files/:token/download', (req, res) => {
   const orderToken = safeText(req.query.order || req.query.orderToken, 120);
   if (orderToken) {
     const order = (data.orders || []).find(o => String(o.publicToken || '') === orderToken);
+    if (order?.status === 'cancelled') return res.status(409).send('cancelled order');
     const ids = new Set(normalizeFileIds(order?.fileIds || []));
     const job = order && ids.has(file.id) ? data.jobs.find(j => j.id === order.jobId) : null;
     if (order && job) {
@@ -2665,6 +2680,11 @@ router.get('/public/files/:token/preview', (req, res) => {
   const token = safeText(req.params.token, 120);
   const file = data.files.find(f => String(f.publicToken || '') === token);
   if (!file || !isImageFile(file)) return res.status(404).send('not found');
+  const orderToken = safeText(req.query.order || req.query.orderToken, 120);
+  if (orderToken) {
+    const order = (data.orders || []).find(o => String(o.publicToken || '') === orderToken);
+    if (order?.status === 'cancelled') return res.status(409).send('cancelled order');
+  }
   if (!sendWorkflowFile(res, file, true, true)) return res.status(404).send('not found');
 });
 
@@ -2674,6 +2694,11 @@ router.get('/public/files/:token/thumb', async (req, res, next) => {
     const token = safeText(req.params.token, 120);
     const file = data.files.find(f => String(f.publicToken || '') === token);
     if (!file || !isImageFile(file)) return res.status(404).send('not found');
+    const orderToken = safeText(req.query.order || req.query.orderToken, 120);
+    if (orderToken) {
+      const order = (data.orders || []).find(o => String(o.publicToken || '') === orderToken);
+      if (order?.status === 'cancelled') return res.status(409).send('cancelled order');
+    }
     if (!await sendWorkflowThumb(res, file, true)) return res.status(404).send('not found');
   } catch (e) {
     next(e);
