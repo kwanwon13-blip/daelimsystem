@@ -2164,6 +2164,14 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
 
 function buildSummary(data, req) {
   const activeJobs = data.jobs.filter(j => !['done', 'cancelled'].includes(j.status));
+  const jobById = new Map((data.jobs || []).map(job => [job.id, job]));
+  const filesByJob = workflowItemsByJob(data.files);
+  const ordersByJob = workflowItemsByJob(data.orders || []);
+  const summaryDataForJob = job => ({
+    ...data,
+    files: filesByJob.get(job.id) || [],
+    orders: ordersByJob.get(job.id) || [],
+  });
   const byStage = {};
   for (const stage of STAGES) byStage[stage.id] = 0;
   for (const job of activeJobs) {
@@ -2172,9 +2180,9 @@ function buildSummary(data, req) {
     }
   }
   const unreadFiles = data.files
-    .filter(f => isUnreadForViewer(f, req.user, data.jobs.find(j => j.id === f.jobId)))
+    .filter(f => isUnreadForViewer(f, req.user, jobById.get(f.jobId)))
     .map(file => {
-      const job = data.jobs.find(j => j.id === file.jobId);
+      const job = jobById.get(file.jobId);
       return {
         id: file.id,
         jobId: file.jobId,
@@ -2193,9 +2201,9 @@ function buildSummary(data, req) {
     })
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
   const unreadEvents = data.events
-    .filter(e => isUnreadEventForViewer(e, req.user, data.jobs.find(j => j.id === e.jobId)))
+    .filter(e => isUnreadEventForViewer(e, req.user, jobById.get(e.jobId)))
     .map(event => {
-      const job = data.jobs.find(j => j.id === event.jobId);
+      const job = jobById.get(event.jobId);
       return {
         id: event.id,
         jobId: event.jobId,
@@ -2211,13 +2219,13 @@ function buildSummary(data, req) {
   const urgentFiles = data.files
     .filter(f => f.urgent && (!f.scheduleNegotiation || f.scheduleNegotiation === 'pending' || f.scheduleNegotiation === 'needs_change'))
     .filter(f => {
-      const job = data.jobs.find(j => j.id === f.jobId);
+      const job = jobById.get(f.jobId);
       if (!job || ['done', 'cancelled'].includes(job.status || 'active')) return false;
       if (isWorkflowAdmin(req)) return true;
       return isTargetViewer(f, req.user, job) || isUserJob(job, req);
     })
     .map(file => {
-      const job = data.jobs.find(j => j.id === file.jobId);
+      const job = jobById.get(file.jobId);
       return {
         id: file.id,
         jobId: file.jobId,
@@ -2235,9 +2243,10 @@ function buildSummary(data, req) {
   const myActionJobs = activeJobs.filter(job => isUserJob(job, req));
   const myActionItems = myActionJobs
     .map(job => {
+      const scopedData = summaryDataForJob(job);
       const stage = STAGES.find(s => s.id === job.currentStage) || STAGES[0] || { id: 'design', label: '디자인' };
       const check = job.stageChecks?.[stage.id] || {};
-      const blockers = completionBlockers(data, job);
+      const blockers = completionBlockers(scopedData, job);
       const dueDate = check.dueDate || job.dueDate || '';
       const stageOverdue = check.status !== 'done' && isPastDue(dueDate);
       return {
@@ -2253,11 +2262,10 @@ function buildSummary(data, req) {
         dueDate,
         overdue: !!(isOverdueJob(job) || overdueStageCount(job) > 0 || stageOverdue),
         blockedStageCount: blockedStageCount(job),
-        changeRequestCount: changeRequestCount(data, job),
-        lateScheduleCount: lateScheduleCount(data, job),
+        changeRequestCount: changeRequestCount(scopedData, job),
+        lateScheduleCount: lateScheduleCount(scopedData, job),
         completionBlockerCount: blockers.length,
-        latestFileAt: data.files
-          .filter(f => f.jobId === job.id)
+        latestFileAt: (filesByJob.get(job.id) || [])
           .reduce((max, f) => !max || f.createdAt > max ? f.createdAt : max, ''),
         updatedAt: job.updatedAt || job.createdAt || '',
       };
@@ -2272,9 +2280,9 @@ function buildSummary(data, req) {
       return String(b.updatedAt || b.latestFileAt || '').localeCompare(String(a.updatedAt || a.latestFileAt || ''));
     })
     .slice(0, 8);
-  const changeRequests = activeJobs.reduce((sum, job) => sum + changeRequestCount(data, job), 0);
-  const lateSchedules = activeJobs.reduce((sum, job) => sum + lateScheduleCount(data, job), 0);
-  const readyToComplete = activeJobs.filter(job => completionBlockers(data, job).length === 0).length;
+  const changeRequests = activeJobs.reduce((sum, job) => sum + changeRequestCount(summaryDataForJob(job), job), 0);
+  const lateSchedules = activeJobs.reduce((sum, job) => sum + lateScheduleCount(summaryDataForJob(job), job), 0);
+  const readyToComplete = activeJobs.filter(job => completionBlockers(summaryDataForJob(job), job).length === 0).length;
   const scheduleItems = buildScheduleItems(data, req);
   return {
     active: activeJobs.length,
@@ -2872,7 +2880,11 @@ router.get('/jobs', (req, res) => {
     return String(a.dueDate || '9999-99-99').localeCompare(String(b.dueDate || '9999-99-99'))
       || String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
   });
-  res.json({ ok: true, jobs: jobs.map(job => decorateJob(data, job, req.user, decorateOptions)) });
+  res.json({
+    ok: true,
+    jobs: jobs.map(job => decorateJob(data, job, req.user, decorateOptions)),
+    summary: buildSummary(data, req),
+  });
 });
 
 router.get('/jobs/:id', (req, res) => {

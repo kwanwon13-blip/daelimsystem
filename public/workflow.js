@@ -428,7 +428,8 @@ function workflowApp() {
         if (this.selectedId && !this.jobs.find(j => j.id === this.selectedId)) this.selectedId = '';
         if (!this.selectedId) this.detail = null;
         if (this.selectedId) await this.refreshDetail(false);
-        await this.loadSummary();
+        if (d.summary) this.summary = d.summary;
+        else await this.loadSummary();
       } finally {
         this.loading = false;
       }
@@ -2311,7 +2312,6 @@ function workflowApp() {
       if (!r.ok || !d.ok) return alert(d.error || '확인 처리 실패');
       if (this.selectedId === jobId) await this.refreshDetail(false);
       await this.loadJobs();
-      await this.loadSummary();
     },
 
     async uploadFiles(ev) {
@@ -2446,7 +2446,6 @@ function workflowApp() {
       if (!r.ok || !d.ok) return alert(d.error || '일정 저장 실패');
       await this.refreshDetail(false);
       await this.loadJobs();
-      await this.loadSummary();
     },
 
     fileEvents(file) {
@@ -2477,7 +2476,6 @@ function workflowApp() {
       file._commentText = '';
       await this.refreshDetail(false);
       await this.loadJobs();
-      await this.loadSummary();
     },
 
     async markRead(file) {
@@ -2498,7 +2496,6 @@ function workflowApp() {
       if (!r.ok || !d.ok) return alert(d.error || '확인 처리 실패');
       if (this.selectedId === jobId) await this.refreshDetail(false);
       await this.loadJobs();
-      await this.loadSummary();
     },
 
     async reviewFile(file, status) {
@@ -2517,7 +2514,6 @@ function workflowApp() {
       if (!r.ok || !d.ok) return alert(d.error || '검토 처리 실패');
       await this.refreshDetail(false);
       await this.loadJobs();
-      await this.loadSummary();
     },
 
     fileUrl(file) {
