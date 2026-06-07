@@ -383,6 +383,19 @@ function workflowFileExists(file) {
   return !!(full && fs.existsSync(full));
 }
 
+function workflowFileExistsCached(file, cache = null) {
+  if (!cache || !file) return workflowFileExists(file);
+  const key = file.id || file.storedPath || file.storedName || file.originalName || '';
+  if (!key) return workflowFileExists(file);
+  if (!cache.has(key)) cache.set(key, workflowFileExists(file));
+  return cache.get(key);
+}
+
+function missingFileCount(data, job, cache = null) {
+  if (!job || !data || !Array.isArray(data.files)) return 0;
+  return data.files.filter(file => file.jobId === job.id && !workflowFileExistsCached(file, cache)).length;
+}
+
 function fileExt(file) {
   return path.extname(String(file?.originalName || file?.storedName || '')).toLowerCase();
 }
@@ -2016,6 +2029,7 @@ function completionBlockers(data, job) {
   const pendingStages = pendingStageCount(job);
   const pendingChecklist = pendingChecklistCount(job);
   const blockedStages = blockedStageCount(job);
+  const missingFiles = missingFileCount(data, job, data?.fileExistsCache || null);
   const pendingReviews = pendingReviewCount(data, job);
   const changeRequests = changeRequestCount(data, job);
   const lateSchedules = lateScheduleCount(data, job);
@@ -2024,6 +2038,7 @@ function completionBlockers(data, job) {
   if (pendingStages) blockers.push({ key: 'pendingStages', label: '미완료 단계', count: pendingStages });
   if (pendingChecklist) blockers.push({ key: 'pendingChecklist', label: '미완료 체크', count: pendingChecklist });
   if (blockedStages) blockers.push({ key: 'blockedStages', label: '막힘 단계', count: blockedStages });
+  if (missingFiles) blockers.push({ key: 'missingFiles', label: '서버 파일 없음', count: missingFiles });
   if (pendingReviews) blockers.push({ key: 'pendingReviews', label: '검토대기 파일', count: pendingReviews });
   if (changeRequests) blockers.push({ key: 'changeRequests', label: '수정/조정요청 파일', count: changeRequests });
   if (lateSchedules) blockers.push({ key: 'lateSchedules', label: '가능일 지연', count: lateSchedules });
@@ -2106,9 +2121,11 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
   const files = options.filesByJob ? (options.filesByJob.get(job.id) || []) : data.files.filter(f => f.jobId === job.id);
   const events = options.eventsByJob ? (options.eventsByJob.get(job.id) || []) : data.events.filter(e => e.jobId === job.id);
   const orders = options.ordersByJob ? (options.ordersByJob.get(job.id) || []) : (data.orders || []).filter(o => o.jobId === job.id);
-  const scopedData = { ...data, files, events, orders };
+  const fileExistsCache = options.fileExistsCache || data.fileExistsCache || null;
+  const scopedData = { ...data, files, events, orders, fileExistsCache };
   const orderSummary = buildOrderSummary(scopedData, job);
   const blockers = completionBlockers(scopedData, job);
+  const jobMissingFileCount = missingFileCount(scopedData, job, fileExistsCache);
   const unreadFileCount = files.filter(f => isUnreadForViewer(f, viewerUser, job)).length;
   const unreadEventCount = events.filter(e => isUnreadEventForViewer(e, viewerUser, job)).length;
   const storedArchiveCount = Number(job.archiveFileCount);
@@ -2117,11 +2134,12 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
     .filter(f => isImageFile(f))
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
   const primaryVisualFile = options.skipVisualFileExists
-    ? (visualFiles[0] && workflowFileExists(visualFiles[0]) ? visualFiles[0] : null)
-    : (visualFiles.find(f => workflowFileExists(f)) || null);
+    ? (visualFiles[0] && workflowFileExistsCached(visualFiles[0], fileExistsCache) ? visualFiles[0] : null)
+    : (visualFiles.find(f => workflowFileExistsCached(f, fileExistsCache)) || null);
   return {
     ...job,
     fileCount: files.length,
+    missingFileCount: jobMissingFileCount,
     orderCount: orderSummary.total,
     activeOrderCount: orderSummary.active,
     externalOrderCount: orderSummary.external,
@@ -2174,10 +2192,12 @@ function buildSummary(data, req) {
   const jobById = new Map((data.jobs || []).map(job => [job.id, job]));
   const filesByJob = workflowItemsByJob(data.files);
   const ordersByJob = workflowItemsByJob(data.orders || []);
+  const fileExistsCache = new Map();
   const summaryDataForJob = job => ({
     ...data,
     files: filesByJob.get(job.id) || [],
     orders: ordersByJob.get(job.id) || [],
+    fileExistsCache,
   });
   const byStage = {};
   for (const stage of STAGES) byStage[stage.id] = 0;
@@ -2975,6 +2995,7 @@ router.get('/jobs', (req, res) => {
     filesByJob: workflowItemsByJob(data.files),
     eventsByJob: workflowItemsByJob(data.events),
     ordersByJob: workflowItemsByJob(data.orders || []),
+    fileExistsCache: new Map(),
     skipVisualFileExists: true,
   };
   let jobs = data.jobs.slice();
@@ -2989,7 +3010,7 @@ router.get('/jobs', (req, res) => {
   } else if (scope === 'urgent') {
     jobs = jobs.filter(j => urgentOpenFileCount(data, j) > 0);
   } else if (scope === 'risk') {
-    jobs = jobs.filter(j => isOverdueJob(j) || overdueStageCount(j) > 0 || blockedStageCount(j) > 0 || changeRequestCount(data, j) > 0);
+    jobs = jobs.filter(j => isOverdueJob(j) || overdueStageCount(j) > 0 || blockedStageCount(j) > 0 || changeRequestCount(data, j) > 0 || missingFileCount(data, j, decorateOptions.fileExistsCache) > 0);
   }
   jobs.sort((a, b) => {
     if (status === 'done') {
