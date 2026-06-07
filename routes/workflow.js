@@ -2116,7 +2116,9 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
   const visualFiles = files
     .filter(f => isImageFile(f))
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
-  const primaryVisualFile = options.skipVisualFileExists ? (visualFiles[0] || null) : (visualFiles.find(f => workflowFileExists(f)) || null);
+  const primaryVisualFile = options.skipVisualFileExists
+    ? (visualFiles[0] && workflowFileExists(visualFiles[0]) ? visualFiles[0] : null)
+    : (visualFiles.find(f => workflowFileExists(f)) || null);
   return {
     ...job,
     fileCount: files.length,
