@@ -907,6 +907,22 @@ function workflowApp() {
       }
     },
 
+    async confirmWorkflowStorageReady(companyName, projectName, yearValue, actionLabel = '진행') {
+      const company = String(companyName || '').trim();
+      const project = String(projectName || '').trim();
+      if (!company || !project) return true;
+      const preview = await this.fetchStoragePreview(company, project, yearValue);
+      if (!preview) {
+        const key = this.storagePreviewKey(company, project, yearValue);
+        const cached = key ? this.storagePreviewCache[key] : null;
+        alert(cached?.error || '저장 경로를 확인하지 못했습니다.');
+        return false;
+      }
+      if (!preview.created) return true;
+      const label = preview.label || this.estimatedWorkflowStorageLabel(company, project, yearValue);
+      return confirm(`저장 폴더가 아직 없습니다.\n\n${label}\n\n새 폴더를 만들고 ${actionLabel}할까요?`);
+    },
+
     scheduleStoragePreview(companyName, projectName, yearValue) {
       const key = this.storagePreviewKey(companyName, projectName, yearValue);
       if (!key || this.storagePreviewCache[key]) return;
@@ -2267,6 +2283,15 @@ function workflowApp() {
       if (this.newFiles.length && (!String(this.form.companyName || '').trim() || !String(this.form.projectName || '').trim())) {
         return alert('시안 파일을 같이 올릴 때는 회사명과 프로젝트명을 입력하세요.');
       }
+      if (this.newFiles.length) {
+        const ready = await this.confirmWorkflowStorageReady(
+          this.form.companyName,
+          this.form.projectName,
+          this.newStorageYear(),
+          '작업 등록과 파일 업로드',
+        );
+        if (!ready) return;
+      }
       const payload = { ...this.form };
       payload.title = String(payload.title || '').trim() || this.autoJobTitle(this.newFiles, payload) || '워크플로우 작업';
       payload.dueDate = this.form.dueDate;
@@ -2540,6 +2565,12 @@ function workflowApp() {
         alert('회사와 프로젝트를 먼저 선택해주세요.');
         return;
       }
+      const storageYear = this.uploadStorageYear();
+      const ready = await this.confirmWorkflowStorageReady(storageCompanyName, storageProjectName, storageYear, '파일 업로드');
+      if (!ready) {
+        if (ev?.target) ev.target.value = '';
+        return;
+      }
       try {
         const result = await this.uploadFilesForJob(this.detail.job.id, files, {
           companyName: storageCompanyName,
@@ -2547,10 +2578,10 @@ function workflowApp() {
           designDueDate: this.uploadDesignDueDate || '',
           urgent: this.uploadUrgent,
           note: this.uploadNote || '',
-          storageYear: this.uploadStorageYear(),
+          storageYear,
           targetLabel: this.uploadTargetLabel(),
         });
-        this.clearStoragePreview(storageCompanyName, storageProjectName, result?.storage?.year || this.uploadStorageYear());
+        this.clearStoragePreview(storageCompanyName, storageProjectName, result?.storage?.year || storageYear);
       } catch (e) {
         alert(e.message);
         return;
