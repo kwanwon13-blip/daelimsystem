@@ -2391,7 +2391,85 @@ function jobArchiveFiles(data, job, filters = {}) {
     });
 }
 
-async function buildArchiveFromFiles(job, files, filters = {}, suffix = 'all') {
+function archiveStageChecksForManifest(job) {
+  const checks = job?.stageChecks || {};
+  const out = {};
+  for (const stage of STAGES) {
+    const check = checks[stage.id] || {};
+    out[stage.id] = {
+      label: workflowStageLabel(stage.id) || stage.label,
+      status: check.status || 'pending',
+      assignee: check.assignee || '',
+      dueDate: check.dueDate || '',
+      completedAt: check.completedAt || '',
+      updatedAt: check.updatedAt || '',
+      checklist: (check.checklist || []).map(item => ({
+        label: item.label || '',
+        done: !!item.done,
+        updatedAt: item.updatedAt || '',
+      })),
+    };
+  }
+  return out;
+}
+
+function archiveOrderForManifest(order = {}) {
+  return {
+    id: order.id || '',
+    targetName: order.targetName || '',
+    targetType: order.targetType || '',
+    deliveryMethod: order.deliveryMethod || '',
+    status: order.status || '',
+    dueDate: order.dueDate || '',
+    fileIds: normalizeFileIds(order.fileIds || []),
+    responseStatus: order.responseStatus || '',
+    responseAvailableDate: order.responseAvailableDate || '',
+    responseNote: order.responseNote || '',
+    respondedByName: order.respondedByName || '',
+    respondedAt: order.respondedAt || '',
+    mailStatus: order.mailStatus || '',
+    mailSentAt: order.mailSentAt || '',
+    recipientEmail: order.recipientEmail || order.mailTo || '',
+    createdByName: order.createdByName || '',
+    createdAt: order.createdAt || '',
+    updatedAt: order.updatedAt || '',
+  };
+}
+
+function archiveFileForManifest(file = {}) {
+  return {
+    id: file.id,
+    stageId: file.stageId,
+    stageLabel: workflowStageLabel(file.stageId) || file.stageId || '',
+    kind: file.kind || 'attachment',
+    version: file.version || 1,
+    originalName: file.originalName || '',
+    storedName: file.storedName || '',
+    storedPath: file.storedPath || '',
+    size: file.size || 0,
+    mime: file.mime || '',
+    storageRoot: file.storageRoot || '',
+    storageBucket: file.storageBucket || file.storageRelDir || '',
+    storagePath: file.storagePath || '',
+    storageNetPath: file.storageNetPath || '',
+    uploadedByName: file.uploadedByName || '',
+    targetLabel: file.targetLabel || '',
+    targetLabels: Array.isArray(file.targetLabels) ? file.targetLabels : [],
+    targetStageIds: normalizeTargetStageIds(file.targetStageIds),
+    designDueDate: file.designDueDate || '',
+    factoryAvailableDate: file.factoryAvailableDate || '',
+    factoryScheduleNote: file.factoryScheduleNote || '',
+    scheduleNegotiation: file.scheduleNegotiation || '',
+    reviewStatus: file.reviewStatus || 'pending',
+    reviewNote: file.reviewNote || '',
+    reviewedByName: file.reviewedByName || '',
+    reviewedAt: file.reviewedAt || '',
+    urgent: !!file.urgent,
+    createdAt: file.createdAt || '',
+  };
+}
+
+async function buildArchiveFromFiles(job, files, filters = {}, suffix = 'all', context = {}) {
   if (!files.length) return null;
 
   const zip = new JSZip();
@@ -2405,28 +2483,48 @@ async function buildArchiveFromFiles(job, files, filters = {}, suffix = 'all') {
     const zipPath = uniqueZipPath(used, `${root}/${stage}/${fileKind}/v${version}_${original}`);
     zip.file(zipPath, fs.readFileSync(fileDiskPath(file)));
   }
+  const generatedAt = nowIso();
+  const orders = Array.isArray(context.orders) ? context.orders : [];
+  const order = context.order || null;
   zip.file(`${root}/_manifest.json`, JSON.stringify({
+    archive: {
+      suffix,
+      filters,
+      fileCount: files.length,
+      generatedAt,
+      archiveStatus: job.archiveStatus || '',
+      archiveUpdatedAt: job.archiveUpdatedAt || '',
+      archiveFileCount: Number(job.archiveFileCount || files.length),
+      archiveStorageBucket: job.archiveStorageBucket || job.storageBucket || '',
+      completedAt: job.completedAt || '',
+      completedByName: job.completedByName || '',
+    },
     job: {
       id: job.id,
       title: job.title,
       companyName: job.companyName || '',
       projectName: job.projectName || '',
+      status: job.status || '',
+      priority: job.priority || '',
+      dueDate: job.dueDate || '',
+      deliveryDate: job.deliveryDate || '',
       currentStage: job.currentStage || '',
+      createdByName: job.createdByName || '',
+      createdAt: job.createdAt || '',
+      updatedAt: job.updatedAt || '',
+      completedAt: job.completedAt || '',
+      completedByName: job.completedByName || '',
+      storageRoot: job.storageRoot || '',
+      storageBucket: job.storageBucket || '',
+      storagePath: job.storagePath || '',
+      storageNetPath: job.storageNetPath || '',
+      stageChecks: archiveStageChecksForManifest(job),
     },
     filters,
-    files: files.map(f => ({
-      id: f.id,
-      stageId: f.stageId,
-      kind: f.kind || 'attachment',
-      version: f.version || 1,
-      originalName: f.originalName,
-      uploadedByName: f.uploadedByName,
-      targetLabel: f.targetLabel || '',
-      reviewStatus: f.reviewStatus || 'pending',
-      reviewNote: f.reviewNote || '',
-      createdAt: f.createdAt,
-    })),
-    generatedAt: nowIso(),
+    order: order ? archiveOrderForManifest(order) : null,
+    orders: orders.map(archiveOrderForManifest),
+    files: files.map(archiveFileForManifest),
+    generatedAt,
   }, null, 2));
 
   const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
@@ -2438,7 +2536,8 @@ async function buildJobArchive(data, job, filters = {}) {
   const { stageId = '', kind = '' } = filters;
   const files = jobArchiveFiles(data, job, filters);
   const suffix = [stageId, kind].filter(Boolean).join('_') || 'all';
-  return buildArchiveFromFiles(job, files, { stageId, kind }, suffix);
+  const orders = (data.orders || []).filter(order => order.jobId === job.id);
+  return buildArchiveFromFiles(job, files, { stageId, kind }, suffix, { orders });
 }
 
 function completeWorkflowJob(data, req, job, at = nowIso()) {
@@ -2579,7 +2678,13 @@ router.get('/public/orders/:token/files.zip', async (req, res, next) => {
     const job = data.jobs.find(j => j.id === order.jobId);
     if (!job) return res.status(404).send('not found');
     const files = orderFiles(data, order, job);
-    const archive = await buildArchiveFromFiles(job, files, { orderId: order.id, targetName: order.targetName || '' }, `order_${safeFilePart(order.targetName || order.id)}`);
+    const archive = await buildArchiveFromFiles(
+      job,
+      files,
+      { orderId: order.id, targetName: order.targetName || '' },
+      `order_${safeFilePart(order.targetName || order.id)}`,
+      { order },
+    );
     if (!archive) return res.status(404).send('no files');
     markPublicOrderActivity(data, job, order, 'download', { fileCount: archive.files.length });
     saveStore(data);
