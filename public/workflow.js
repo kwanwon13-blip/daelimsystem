@@ -1853,6 +1853,22 @@ function workflowApp() {
       await this.loadJobs();
     },
 
+    async restoreOrder(order) {
+      if (!this.detail || !this.detail.job || !order || !this.isOrderCancelled(order)) return;
+      const label = order.targetName || '발주';
+      if (!confirm(`${label} 발주 취소를 복구할까요?\n공장/업체 링크도 다시 사용할 수 있습니다.`)) return;
+      const next = { ...order, status: 'requested' };
+      const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/orders/' + encodeURIComponent(order.id), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(next),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.ok) return alert(d.error || '발주 복구 실패');
+      this.applyOrderResponse(d);
+      await this.loadJobs();
+    },
+
     isExternalOrder(order) {
       return !!order && (order.deliveryMethod === 'email' || order.targetType === 'external');
     },

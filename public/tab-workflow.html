@@ -920,9 +920,12 @@
                           <button class="wf-btn ghost" x-show="!isOrderCancelled(order)" @click="cancelOrder(order)" title="기록은 남기고 발주만 취소 표시합니다">
                             <span class="material-symbols-outlined" style="font-size:15px;">block</span>발주 취소
                           </button>
+                          <button class="wf-btn ghost" x-show="isOrderCancelled(order)" @click="restoreOrder(order)" title="취소 표시를 되돌리고 링크를 다시 사용할 수 있게 합니다">
+                            <span class="material-symbols-outlined" style="font-size:15px;">undo</span>발주 복구
+                          </button>
                           <span class="wf-chip blocked" x-show="isOrderCancelled(order)">취소됨</span>
                           <span class="wf-chip high" x-show="!isOrderCancelled(order) && isExternalOrder(order) && !hasOrderRecipientEmail(order)">메일주소 없음</span>
-                          <span class="wf-chip ready" x-show="order.mailStatus === 'sent'">메일발송</span>
+                          <span class="wf-chip ready" x-show="!isOrderCancelled(order) && order.mailStatus === 'sent'">메일발송</span>
                         </div>
                       </div>
                     </article>
