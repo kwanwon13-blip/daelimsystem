@@ -828,7 +828,10 @@
                     <article class="wf-file-card" :class="isOrderCancelled(order) ? 'cancelled' : ''" style="grid-template-columns:minmax(0,1fr);">
                       <div style="min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;">
                         <div style="min-width:0;">
-                          <div class="wf-file-name" x-text="order.targetName"></div>
+                          <div style="display:flex;align-items:center;gap:6px;min-width:0;">
+                            <div class="wf-file-name" style="min-width:0;" x-text="order.targetName"></div>
+                            <span class="wf-chip blocked" x-show="isOrderCancelled(order)">발주 취소</span>
+                          </div>
                           <div class="wf-muted">
                             <span x-text="orderTargetTypeLabel(order.targetType)"></span>
                             <span> · 파일 </span><span x-text="order.fileCount || 0"></span><span>건</span>

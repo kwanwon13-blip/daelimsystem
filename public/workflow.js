@@ -1353,6 +1353,55 @@ function workflowApp() {
         .filter(token => token.length >= 2 && !stopwords.has(token))));
     },
 
+    fileGuessStopwords() {
+      return new Set(['시안', '발주', '공장', '디자인', '작업', '견적', '마감', '내역서', '거래명세서', '최종', '수정', '완료', '납품', '파일', '원본', '확인', '요청', '도면', '사진', '이미지', '첨부', 'ai', 'jpg', 'jpeg', 'png', 'pdf', 'psd', 'xls', 'xlsx', 'doc', 'docx']);
+    },
+
+    isFileGuessDateToken(token = '') {
+      const key = this.normalizeOptionName(token);
+      if (/^\d{6,8}$/.test(key)) return true;
+      if (/^\d{3,4}$/.test(key) && Number(key.slice(0, 2)) >= 1 && Number(key.slice(0, 2)) <= 12) return true;
+      if (/^\d{1,2}월?$/.test(String(token || '').trim())) return true;
+      return false;
+    },
+
+    fallbackProjectNameFromFiles(files = [], companyName = '') {
+      const companyKey = this.normalizeOptionName(companyName);
+      const companyOption = this.workflowCompanyOption(companyName) || {};
+      const companyKeys = new Set([companyKey, this.normalizeOptionName(companyOption.folderName)].filter(Boolean));
+      const stopwords = this.fileGuessStopwords();
+      for (const file of Array.from(files || []).filter(Boolean).slice(0, 3)) {
+        const title = this.fileTitlePart(file.name || file.originalName || '');
+        const rawParts = title
+          .replace(/[()[\]{}]/g, '-')
+          .split(/[-_·|]+/g)
+          .map(part => part.trim())
+          .filter(Boolean);
+        let companySeen = false;
+        const candidates = [];
+        for (const part of rawParts) {
+          const key = this.normalizeOptionName(part);
+          if (!key || this.isFileGuessDateToken(part) || stopwords.has(key)) continue;
+          const companyHit = Array.from(companyKeys).some(company => company && (key === company || key.includes(company) || company.includes(key)));
+          if (companyHit) {
+            companySeen = true;
+            continue;
+          }
+          const clean = part
+            .replace(/\.(jpg|jpeg|png|pdf|psd|ai|xls|xlsx|doc|docx)$/i, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+          const cleanKey = this.normalizeOptionName(clean);
+          if (!clean || clean.length < 2 || stopwords.has(cleanKey)) continue;
+          candidates.push({ name: clean, afterCompany: companySeen });
+        }
+        const afterCompany = candidates.find(item => item.afterCompany);
+        if (afterCompany) return afterCompany.name;
+        if (companyKey && candidates[0]) return candidates[0].name;
+      }
+      return '';
+    },
+
     optionKeys(option = {}, fields = ['name']) {
       if (typeof option === 'string') {
         const key = this.normalizeOptionName(option);
@@ -1430,6 +1479,9 @@ function workflowApp() {
       if (matchedProject) {
         projectName = this.optionDisplayName(matchedProject);
         if (!companyName && matchedProject.companyName) companyName = matchedProject.companyName;
+      }
+      if (!projectName && companyName) {
+        projectName = this.fallbackProjectNameFromFiles(files, companyName);
       }
       return { companyName, projectName };
     },
