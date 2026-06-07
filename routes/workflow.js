@@ -3377,7 +3377,18 @@ router.put('/jobs/:id/orders/:orderId', (req, res) => {
   const recipientSavedToVendor = rememberWorkflowVendorEmail(order, order.recipientEmail);
   job.updatedAt = nowIso();
   const targetStageIds = orderTargetStageIds(order);
-  addEvent(data, req, job.id, 'order_update', `제작 파일 전달 ${ORDER_STATUS_LABELS[order.status] || order.status} · ${order.targetName}`, {
+  const orderStatusChanged = beforeStatus !== order.status;
+  const eventType = orderStatusChanged && order.status === 'cancelled'
+    ? 'order_cancel'
+    : orderStatusChanged && beforeStatus === 'cancelled'
+      ? 'order_restore'
+      : 'order_update';
+  const eventLabel = eventType === 'order_cancel'
+    ? '제작 파일 전달 취소'
+    : eventType === 'order_restore'
+      ? '제작 파일 전달 복구'
+      : `제작 파일 전달 ${ORDER_STATUS_LABELS[order.status] || order.status}`;
+  addEvent(data, req, job.id, eventType, `${eventLabel} · ${order.targetName}`, {
     orderId: order.id,
     targetName: order.targetName,
     status: order.status,

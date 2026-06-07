@@ -652,6 +652,9 @@ function workflowApp() {
 
     workflowEventFocusLabel(event = {}) {
       const type = event.type || '';
+      if (type === 'order_cancel') return '발주 취소';
+      if (type === 'order_restore') return '발주 복구';
+      if (type === 'order_update') return '발주 변경';
       if (type === 'order_public_reply') return '전달 회신';
       if (type === 'order_public_download') return '다운로드';
       if (type === 'order_public_view') return '열람';
@@ -692,7 +695,7 @@ function workflowApp() {
         push('action', item.overdue || item.lateScheduleCount ? '위험' : '내 담당', item.title, `${item.stageLabel || ''}${item.dueDate ? ' · ' + item.dueDate : ''}`, item, risky ? 'urgent' : 'info');
       });
       this.unreadEventItems().slice(0, 2).forEach(item => {
-        push('event', this.workflowEventFocusLabel(item), item.message, `${item.jobTitle || '-'}${item.actorName ? ' · ' + item.actorName : ''}`, item, item.type === 'order_public_reply' ? 'warn' : 'info');
+        push('event', this.workflowEventFocusLabel(item), item.message, `${item.jobTitle || '-'}${item.actorName ? ' · ' + item.actorName : ''}`, item, (item.type === 'order_public_reply' || item.type === 'order_cancel') ? 'warn' : 'info');
       });
       return items.slice(0, 8);
     },

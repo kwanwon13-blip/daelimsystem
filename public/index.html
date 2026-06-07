@@ -7735,6 +7735,9 @@ function app() {
     workflowEventNotificationMessage(event = {}) {
       const type = event.type || '';
       const text = event.message || event.jobTitle || '워크플로우';
+      if (type === 'order_cancel') return `발주 취소 확인 · ${text}`;
+      if (type === 'order_restore') return `발주 복구 확인 · ${text}`;
+      if (type === 'order_update') return `발주 변경 확인 · ${text}`;
       if (type === 'order_public_reply') return `전달 회신 확인 · ${text}`;
       if (type === 'order_public_download') return `파일 다운로드 확인 · ${text}`;
       if (type === 'order_public_view') return `전달 열람 확인 · ${text}`;
