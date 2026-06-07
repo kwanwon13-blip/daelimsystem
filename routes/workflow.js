@@ -2848,6 +2848,14 @@ router.get('/jobs', (req, res) => {
   const q = safeText(req.query.q, 100).toLowerCase();
   const status = safeText(req.query.status, 30);
   const scope = safeText(req.query.scope, 30) || 'all';
+  const rawLimit = String(req.query.limit ?? '').trim().toLowerCase();
+  let limit = 120;
+  if (rawLimit === '0' || rawLimit === 'all' || rawLimit === 'false') {
+    limit = 0;
+  } else if (rawLimit) {
+    const parsedLimit = Number.parseInt(rawLimit, 10);
+    if (Number.isFinite(parsedLimit)) limit = Math.min(Math.max(parsedLimit, 1), 500);
+  }
   const decorateOptions = {
     filesByJob: workflowItemsByJob(data.files),
     eventsByJob: workflowItemsByJob(data.events),
@@ -2880,9 +2888,14 @@ router.get('/jobs', (req, res) => {
     return String(a.dueDate || '9999-99-99').localeCompare(String(b.dueDate || '9999-99-99'))
       || String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
   });
+  const total = jobs.length;
+  const visibleJobs = limit ? jobs.slice(0, limit) : jobs;
   res.json({
     ok: true,
-    jobs: jobs.map(job => decorateJob(data, job, req.user, decorateOptions)),
+    jobs: visibleJobs.map(job => decorateJob(data, job, req.user, decorateOptions)),
+    total,
+    limit,
+    limited: !!limit && total > visibleJobs.length,
     summary: buildSummary(data, req),
   });
 });

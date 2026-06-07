@@ -4,6 +4,9 @@ function workflowApp() {
     saving: false,
     jobs: [],
     jobsByStage: {},
+    jobListLimit: 120,
+    jobListTotal: 0,
+    jobListLimited: false,
     stages: [],
     statuses: {},
     checkStatuses: {},
@@ -421,10 +424,15 @@ function workflowApp() {
       if (this.query.trim()) qs.set('q', this.query.trim());
       if (this.statusFilter) qs.set('status', this.statusFilter);
       if (this.scopeFilter && this.scopeFilter !== 'all') qs.set('scope', this.scopeFilter);
+      qs.set('limit', this.jobListLimit === 0 ? '0' : String(this.jobListLimit || 120));
       try {
         const r = await fetch('/api/workflow/jobs?' + qs.toString());
         const d = await r.json();
-        this.jobs = d.jobs || [];
+        const jobs = Array.isArray(d.jobs) ? d.jobs : [];
+        this.jobs = jobs;
+        const total = Number(d.total);
+        this.jobListTotal = Number.isFinite(total) ? total : jobs.length;
+        this.jobListLimited = !!d.limited;
         this.rebuildJobsByStage();
         if (this.selectedId && !this.jobs.find(j => j.id === this.selectedId)) this.selectedId = '';
         if (!this.selectedId) this.detail = null;
@@ -434,6 +442,22 @@ function workflowApp() {
       } finally {
         this.loading = false;
       }
+    },
+
+    workflowLimitText() {
+      const shown = (this.jobs || []).length;
+      const total = Number(this.jobListTotal || shown);
+      return `${shown}/${total}`;
+    },
+
+    async showAllWorkflowJobs() {
+      this.jobListLimit = 0;
+      await this.loadJobs();
+    },
+
+    async resetWorkflowJobLimit() {
+      this.jobListLimit = 120;
+      await this.loadJobs();
     },
 
     workflowOpenTargetFromLocation() {
