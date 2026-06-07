@@ -296,13 +296,17 @@ function workflowApp() {
       return '현재 접속 주소: ' + origin;
     },
 
+    activePublicWorkflowBaseUrl() {
+      return this.publicShareBaseUrl || this.currentExternalOrigin();
+    },
+
     publicLinkProblem() {
       return this.publicLinkSettings.configuredProblem || this.publicLinkSettings.envProblem || '';
     },
 
     publicLinkStatusClass() {
       if (this.publicLinkProblem()) return 'high';
-      return this.publicShareBaseUrl ? 'ready' : 'high';
+      return this.activePublicWorkflowBaseUrl() ? 'ready' : 'high';
     },
 
     publicLinkSourceLabel() {
@@ -319,6 +323,7 @@ function workflowApp() {
         const source = this.publicLinkSourceLabel();
         return '링크 발송 가능' + (source ? ' · ' + source : '');
       }
+      if (this.currentExternalOrigin()) return '현재 터널로 링크 가능';
       return '터널 주소 없음 · 첨부 메일만 가능';
     },
 
@@ -1839,7 +1844,7 @@ function workflowApp() {
 
     orderMailLinkStateText() {
       if (!this.orderMailModal.open || this.orderMailModal.attachFiles) return '';
-      return this.publicShareBaseUrl
+      return this.activePublicWorkflowBaseUrl()
         ? '터널 다운로드 링크가 본문에 포함됩니다.'
         : '링크 발송에는 워크플로우 외부 다운로드 주소가 필요합니다.';
     },
@@ -1848,7 +1853,7 @@ function workflowApp() {
       const modal = this.orderMailModal || {};
       if (!modal.open || !modal.order) return '';
       if (modal.attachFiles) return '발송 방식: 파일 첨부';
-      if (this.publicShareBaseUrl) return '발송 방식: 터널 링크';
+      if (this.activePublicWorkflowBaseUrl()) return '발송 방식: 터널 링크';
       return '발송 방식: 터널 주소 필요';
     },
 
@@ -1862,7 +1867,7 @@ function workflowApp() {
       const modal = this.orderMailModal;
       if (!modal.open || modal.sending) return false;
       if (!String(modal.toEmail || '').trim()) return false;
-      if (!modal.attachFiles && !this.publicShareBaseUrl) return false;
+      if (!modal.attachFiles && !this.activePublicWorkflowBaseUrl()) return false;
       return true;
     },
 
@@ -1969,7 +1974,7 @@ function workflowApp() {
         modal.error = '받는 이메일을 입력하세요.';
         return;
       }
-      if (!modal.attachFiles && !this.publicShareBaseUrl) {
+      if (!modal.attachFiles && !this.activePublicWorkflowBaseUrl()) {
         modal.error = '링크만 발송하려면 워크플로우 외부 다운로드 주소를 먼저 저장하세요.';
         return;
       }
@@ -2651,7 +2656,7 @@ function workflowApp() {
     absoluteUrl(url) {
       if (!url) return '';
       try {
-        const base = this.publicShareBaseUrl || window.location.origin;
+        const base = this.activePublicWorkflowBaseUrl() || window.location.origin;
         return new URL(url, base).toString();
       } catch (_) {
         return url;
