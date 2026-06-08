@@ -236,8 +236,16 @@ function parseOcrJson(text) {
   if (m) s = m[1];
   const start = s.indexOf('{');
   const end = s.lastIndexOf('}');
-  if (start >= 0 && end > start) s = s.slice(start, end + 1);
-  return JSON.parse(s);
+  if (start < 0 || end <= start) {
+    // OCR이 JSON을 안 줌 (이미지 못 읽음 / 명세서 아님 / 거부 등)
+    const err = new Error('OCR_NO_JSON'); err.ocrRaw = String(text || '').slice(0, 200); throw err;
+  }
+  s = s.slice(start, end + 1);
+  try {
+    return JSON.parse(s);
+  } catch (_) {
+    const err = new Error('OCR_BAD_JSON'); err.ocrRaw = s.slice(0, 200); throw err;
+  }
 }
 
 async function runOcr(filePath, mimeType) {
@@ -373,7 +381,12 @@ router.post('/parse', requireAuth, upload.single('file'), async (req, res) => {
       original_file: histEntry.image_filename,
     });
   } catch (e) {
-    res.status(500).json({ ok: false, error: 'OCR 실패: ' + e.message });
+    const isReadFail = (e.message === 'OCR_NO_JSON' || e.message === 'OCR_BAD_JSON');
+    if (e.ocrRaw) console.warn('[esm-purchase] OCR 비정상 출력:', e.ocrRaw);
+    const friendly = isReadFail
+      ? '명세서를 인식하지 못했습니다. 사진이 흐리거나 명세서가 아닐 수 있어요. 더 선명하게(평평하게, 빛 반사 없이) 다시 찍어 올려주세요.'
+      : ('OCR 실패: ' + e.message);
+    res.status(isReadFail ? 422 : 500).json({ ok: false, error: friendly });
   }
 });
 
