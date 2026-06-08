@@ -276,9 +276,18 @@ router.post('/parse', requireAuth, upload.single('file'), async (req, res) => {
     if (!pool.pool.ready) await pool.load();
     const ocr = await runOcr(req.file.path, req.file.mimetype);
 
-    // 사업자번호 우선 매칭 (회사명 잘못 읽어도 정정)
-    const corrected = vendorResolver.correctVendor(ocr.vendor || {});
-    let vendorName = corrected.name || (ocr.vendor && ocr.vendor.name) || '';
+    // 사업자번호 우선 매칭 (회사명 잘못 읽어도 정정) + 공급자/받는자 자동 swap
+    let ocrVendor = ocr.vendor || {};
+    let ocrBuyer = ocr.buyer || {};
+    let corrected = vendorResolver.correctVendor(ocrVendor);
+    // ⚠️ OCR이 우리 회사(받는자=is_buyer)를 공급처로 잘못 넣었으면 공급자↔받는자 swap (DSD 등 양식에서 흔함)
+    if (corrected.isBuyer && (ocrBuyer.biz_no || ocrBuyer.name)) {
+      const _t = ocrVendor; ocrVendor = ocrBuyer; ocrBuyer = _t;
+      corrected = vendorResolver.correctVendor(ocrVendor);
+      console.log('[esm-purchase] 공급자/받는자 자동 swap (OCR이 우리 회사를 거래처로 오인)');
+    }
+    let vendorName = corrected.name || ocrVendor.name || '';
+    const vendorBizNo = corrected.biz_no || ocrVendor.biz_no || '';
     const trxDate = ocr.trx_date || '';
     const lines = Array.isArray(ocr.lines) ? ocr.lines : [];
 
@@ -358,8 +367,8 @@ router.post('/parse', requireAuth, upload.single('file'), async (req, res) => {
       user_id: req.session?.userId || 'unknown',
       user_name: req.session?.userName || req.session?.userId || 'unknown',
       image_filename: path.basename(req.file.path),
-      vendor: ocr.vendor || null,
-      buyer: ocr.buyer || null,
+      vendor: { biz_no: vendorBizNo, name: vendorName },
+      buyer: (ocrBuyer && (ocrBuyer.biz_no || ocrBuyer.name)) ? ocrBuyer : null,
       trx_date: trxDate,
       lines: matched,
       stats: {
@@ -376,8 +385,8 @@ router.post('/parse', requireAuth, upload.single('file'), async (req, res) => {
     res.json({
       ok: true,
       id: histId,
-      vendor: ocr.vendor || null,
-      buyer: ocr.buyer || null,
+      vendor: { biz_no: vendorBizNo, name: vendorName },
+      buyer: (ocrBuyer && (ocrBuyer.biz_no || ocrBuyer.name)) ? ocrBuyer : null,
       trx_date: trxDate,
       lines: matched,
       stats: histEntry.stats,
