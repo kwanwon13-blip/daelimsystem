@@ -133,6 +133,7 @@ function designWorkflowOptions() {
     designIndex,
     designRoot: DESIGN_ROOT,
     skipDirs: SKIP_DIRS,
+    includeIndex: false,
   });
   designWorkflowOptionsCache = { key, value, cachedAt: Date.now() };
   return value;
