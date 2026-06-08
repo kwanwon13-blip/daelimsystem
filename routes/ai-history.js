@@ -4064,4 +4064,49 @@ router.get('/upscale/recommend', (req, res) => {
   res.json({ ok: true, model: recommendUpscaleModel(hint) });
 });
 
+// ── 회사 기억 관리 (관리자 전용) ──
+function requireMemoryAdmin(req, res) {
+  if (!req.user || req.user.role !== 'admin') { res.status(403).json({ error: '관리자 전용' }); return false; }
+  return true;
+}
+const chatMemory = require('../lib/chat-memory');
+
+// 목록(상태별) + 통계
+router.get('/memory', (req, res) => {
+  if (!requireMemoryAdmin(req, res)) return;
+  const status = req.query.status || null;       // pending|active|archived
+  const category = req.query.category || null;
+  res.json({ ok: true, stats: chatMemory.stats('company'), items: chatMemory.listMemory({ scope: 'company', status, category }) });
+});
+// 수동 추가(관리자 직접) → manual 출처(위험검사는 store 가 함)
+router.post('/memory', (req, res) => {
+  if (!requireMemoryAdmin(req, res)) return;
+  const { content, category } = req.body || {};
+  if (!content || !String(content).trim()) return res.status(400).json({ error: 'content 필수' });
+  const r = chatMemory.addMemory({ content: String(content).trim(), category: category || '기타', createdBy: req.user.userId, sourceKind: 'manual' });
+  res.json({ ok: !r.rejected, result: r });
+});
+// pending 승인
+router.post('/memory/:id/approve', (req, res) => {
+  if (!requireMemoryAdmin(req, res)) return;
+  res.json({ ok: chatMemory.approveMemory(parseInt(req.params.id, 10)) });
+});
+// 고정/해제
+router.post('/memory/:id/pin', (req, res) => {
+  if (!requireMemoryAdmin(req, res)) return;
+  res.json({ ok: chatMemory.setPinned(parseInt(req.params.id, 10), !!(req.body && req.body.pinned)) });
+});
+// 내용 수정
+router.put('/memory/:id', (req, res) => {
+  if (!requireMemoryAdmin(req, res)) return;
+  const { content, category } = req.body || {};
+  if (!content) return res.status(400).json({ error: 'content 필수' });
+  res.json({ ok: chatMemory.updateContent(parseInt(req.params.id, 10), String(content), category) });
+});
+// 삭제(soft archive)
+router.delete('/memory/:id', (req, res) => {
+  if (!requireMemoryAdmin(req, res)) return;
+  res.json({ ok: chatMemory.archiveMemory(parseInt(req.params.id, 10)) });
+});
+
 module.exports = router;
