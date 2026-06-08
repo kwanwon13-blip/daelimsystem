@@ -43,6 +43,7 @@
   <script src="/purchase-auto.js"></script>
   <script src="/orgchart.js"></script>
   <script src="/statements.js"></script>
+  <script src="/esm-purchase.js"></script>
   <script src="/workflow.js"></script>
   <!-- Chart.js (홈 대시보드 그래프) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -4879,6 +4880,11 @@
         <!--INCLUDE:tab-purchase-auto.html-->
       </template>
 
+      <!-- 에스엠 매입 OCR 탭 (매입명세서 사진 → 매칭 → 이카운트용 엑셀) — 컴퍼니와 완전 분리 -->
+      <template x-if="currentTab === 'esmPurchase'">
+        <!--INCLUDE:tab-esm-purchase.html-->
+      </template>
+
       <!-- 컴퍼니 매입 OCR 탭 (매입명세서 사진 → 학습풀 매칭 → E2E 엑셀) -->
       <template x-if="currentTab === 'companyPurchase'">
         <!--INCLUDE:tab-company-purchase.html-->
@@ -6494,6 +6500,7 @@ function app() {
       // { id: 'purchaseAuto', label: '매입 자동화' },     // 숨김 — OCR 자동입력으로 흡수
       { id: 'photos', label: '사진 라이브러리' },
       { id: 'statements', label: 'OCR 자동입력' },
+      { id: 'esmPurchase', label: '에스엠 매입 OCR' },
       { id: 'companyPurchase', label: '컴퍼니 매입 OCR' },
       { id: 'contacts', label: '연락처' },
       { id: 'workflow', label: '워크플로우' },
@@ -6613,6 +6620,8 @@ function app() {
           // { id: 'purchaseAuto', label: '매입 자동화' },     // 숨김 — OCR 자동입력으로 흡수
           { id: 'photos', label: '사진 라이브러리' },
           { id: 'statements', label: 'OCR 자동입력' },
+          { id: 'esmPurchase', label: '에스엠 매입 OCR' },
+          { id: 'companyPurchase', label: '컴퍼니 매입 OCR' },
           { id: 'contacts', label: '연락처' }, { id: 'workflow', label: '워크플로우' }, { id: 'calendar', label: '캘린더' }, { id: 'notices', label: '공지사항' }, { id: 'settings', label: '설정' },
           { id: 'workspace', label: '워크스페이스' },
           { id: 'ai', label: 'AI 챗' },
