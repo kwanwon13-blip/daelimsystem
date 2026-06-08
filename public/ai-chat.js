@@ -147,6 +147,10 @@ $('newChatBtn').addEventListener('click', () => {
 if ($('skillTemplatesBtn')) {
   $('skillTemplatesBtn').addEventListener('click', () => openSkillTemplatesModal());
 }
+// 회사 기억 보기/관리 (관리자 전용 화면)
+if ($('companyMemoryBtn')) {
+  $('companyMemoryBtn').addEventListener('click', () => openCompanyMemoryModal());
+}
 
 // 이미지 모드
 imageModeBtn.addEventListener('click', () => {
@@ -2021,6 +2025,80 @@ function openSkillTemplatesModal() {
     }
   }
   loadSummary();
+}
+
+// 회사 기억 관리 모달 (관리자 전용) — 사용중/검토대기/삭제 탭 + 수동추가
+function openCompanyMemoryModal() {
+  if (!document.getElementById('cmModalStyles')) {
+    const s = document.createElement('style'); s.id = 'cmModalStyles';
+    s.textContent = '.cm-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:2000}'
+      + '.cm-modal{background:#fff;border-radius:14px;padding:20px;width:600px;max-width:94vw;max-height:86vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.25)}'
+      + '.cm-modal h3{font-size:15px;font-weight:700;margin:0 0 4px;color:#1f2937}.cm-sub{font-size:12px;color:#9ca3af;margin:0 0 12px}'
+      + '.cm-tabs{display:flex;gap:6px;margin-bottom:10px}.cm-tab{padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;background:#f3f4f6;color:#4b5563;border:none}.cm-tab.on{background:#4f6ef7;color:#fff}'
+      + '.cm-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px solid #f1f3f5}'
+      + '.cm-c{font-size:13px;color:#374151;word-break:break-all}.cm-meta{font-size:11px;color:#9ca3af;margin-top:2px}'
+      + '.cm-btns{flex:none;display:flex;gap:4px}.cm-btns button{border:none;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:600;cursor:pointer}'
+      + '.cm-approve{background:#dcfce7;color:#15803d}.cm-pin{background:#eef2ff;color:#4f46e5}.cm-del{background:#fef2f2;color:#dc2626}'
+      + '.cm-add{display:flex;gap:6px;margin:10px 0}.cm-add input,.cm-add select{padding:6px 8px;border:1px solid #d1d5db;border-radius:7px;font-size:12px}.cm-add input{flex:1}'
+      + '.cm-add button{background:linear-gradient(135deg,#4f6ef7,#7c5cff);color:#fff;border:none;border-radius:7px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer}'
+      + '.cm-empty{font-size:12px;color:#9ca3af;padding:10px 0}.cm-close{margin-top:12px;padding:8px 16px;border-radius:8px;border:none;background:#f3f4f6;color:#4b5563;font-weight:600;cursor:pointer}';
+    document.head.appendChild(s);
+  }
+  const bg = document.createElement('div'); bg.className = 'cm-bg';
+  bg.innerHTML = '<div class="cm-modal">'
+    + '<h3>🧠 회사 기억</h3><p class="cm-sub">AI가 우리 회사 업무에 대해 기억하는 내용입니다. 위험 항목은 "검토 대기"에 모입니다. (관리자 전용)</p>'
+    + '<div class="cm-tabs"><button class="cm-tab on" data-st="active">사용 중</button><button class="cm-tab" data-st="pending">검토 대기</button><button class="cm-tab" data-st="archived">삭제됨</button></div>'
+    + '<div class="cm-add"><select class="cm-cat"><option>거래처</option><option>품목</option><option>규칙</option><option>용어</option></select>'
+    + '<input class="cm-input" placeholder="회사 기억 직접 추가 (예: 한신공영은 부가세 별도)"><button class="cm-addbtn">추가</button></div>'
+    + '<div class="cm-body"><div class="cm-empty">불러오는 중…</div></div>'
+    + '<button class="cm-close">닫기</button></div>';
+  document.body.appendChild(bg);
+  const body = bg.querySelector('.cm-body');
+  let curStatus = 'active';
+  const close = () => { try { document.body.removeChild(bg); } catch (_) {} };
+  bg.addEventListener('click', e => { if (e.target === bg) close(); });
+  bg.querySelector('.cm-close').addEventListener('click', close);
+  bg.querySelectorAll('.cm-tab').forEach(t => t.addEventListener('click', () => {
+    bg.querySelectorAll('.cm-tab').forEach(x => x.classList.remove('on')); t.classList.add('on');
+    curStatus = t.dataset.st; load();
+  }));
+  bg.querySelector('.cm-addbtn').addEventListener('click', async () => {
+    const content = bg.querySelector('.cm-input').value.trim(); if (!content) return;
+    const category = bg.querySelector('.cm-cat').value;
+    try { const r = await fetch('/api/ai/memory', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ content, category }) });
+      if (!r.ok) throw new Error('추가 실패'); bg.querySelector('.cm-input').value = ''; load();
+    } catch (e) { alert(e.message); }
+  });
+  async function act(id, p, opt) { try { const r = await fetch('/api/ai/memory/' + id + p, Object.assign({ credentials: 'include' }, opt || {})); if (!r.ok) throw new Error('실패'); load(); } catch (e) { alert(e.message); } }
+  async function load() {
+    body.innerHTML = '<div class="cm-empty">불러오는 중…</div>';
+    try {
+      const r = await fetch('/api/ai/memory?status=' + curStatus, { credentials: 'include' });
+      if (!r.ok) throw new Error('권한 없음 또는 오류 (' + r.status + ')');
+      const d = await r.json(); const items = d.items || [];
+      if (!items.length) { body.innerHTML = '<div class="cm-empty">항목이 없습니다.</div>'; return; }
+      body.innerHTML = items.map(m => {
+        const btns = curStatus === 'pending'
+          ? '<button class="cm-approve" data-act="approve">승인</button><button class="cm-del" data-act="del">버림</button>'
+          : curStatus === 'active'
+            ? ('<button class="cm-pin" data-act="pin">' + (m.pinned ? '고정해제' : '📌고정') + '</button><button class="cm-del" data-act="del">삭제</button>')
+            : '';
+        return '<div class="cm-row" data-id="' + m.id + '" data-pinned="' + (m.pinned ? 1 : 0) + '"><div><div class="cm-c">' + escapeHtml(m.content) + '</div>'
+          + '<div class="cm-meta">' + escapeHtml(m.category || '기타') + ' · ' + (m.source_kind || 'auto') + ' · ' + (m.hit_count || 1) + '회</div></div>'
+          + '<div class="cm-btns">' + btns + '</div></div>';
+      }).join('');
+      body.querySelectorAll('.cm-row').forEach(row => {
+        const id = row.dataset.id;
+        row.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => {
+          const a = b.dataset.act;
+          if (a === 'approve') act(id, '/approve', { method: 'POST' });
+          else if (a === 'del') act(id, '', { method: 'DELETE' });
+          else if (a === 'pin') act(id, '/pin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pinned: row.dataset.pinned !== '1' }) });
+        }));
+      });
+    } catch (e) { body.innerHTML = '<div class="cm-empty">' + escapeHtml(e.message) + '</div>'; }
+  }
+  load();
 }
 
 async function loadThreadsByProject() {
