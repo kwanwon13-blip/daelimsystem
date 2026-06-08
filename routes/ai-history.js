@@ -2520,6 +2520,8 @@ router.post('/chat-stream-cli', async (req, res) => {
           for (const e of fs.readdirSync(d, { withFileTypes: true })) {
             const full = path.join(d, e.name);
             if (e.isDirectory()) { walk(full); continue; }
+            // 내부/제어 파일(_system.txt = 시스템 프롬프트, 기타 _·. 시작)은 산출물 아님 → 첨부 금지(노출 방지)
+            if (e.name.startsWith('_') || e.name.startsWith('.')) continue;
             const ext = path.extname(e.name).toLowerCase();
             if (!ALLOWED.includes(ext)) continue;
             try {
