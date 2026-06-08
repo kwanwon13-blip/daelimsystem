@@ -42,5 +42,35 @@ const ac = require('../lib/ledger-autocheck');
     assert.ok(/x\.xlsx/.test(t));
   }
 
+  // --- countNonEmptyRows: 실제 exceljs 워크시트(메모리) ---
+  {
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('s');
+    ws.getCell('A1').value = '헤더';
+    ws.getCell('A2').value = '값1';
+    ws.getCell('B3').value = 123;
+    // 4행은 비움
+    assert.strictEqual(ac.countNonEmptyRows(ws), 3);
+  }
+  // --- autocheckLedger: 가짜 ExcelJS 주입 → 행 충분 → pass ---
+  {
+    const fakeWs = { rowCount: 3, getRow: () => ({ eachCell: (opt, cb) => cb({ value: 'x' }) }) };
+    function FakeWB() { this.worksheets = [fakeWs]; this.xlsx = { readFile: async () => {} }; }
+    const v = await ac.autocheckLedger({ files: [{ name: 'a.xlsx', relPath: 'a.xlsx' }], dir: '/tmp', stdout: '' }, { ExcelJS: { Workbook: FakeWB } });
+    assert.strictEqual(v.status, 'pass');
+    assert.ok(/자동점검/.test(v.text));
+  }
+  // --- autocheckLedger: 비-xlsx 산출물은 행검사 생략하고 통과(허위경보 방지) ---
+  {
+    const v = await ac.autocheckLedger({ files: [{ name: 'note.txt' }], dir: '/tmp', stdout: '' }, {});
+    assert.strictEqual(v.status, 'pass');
+  }
+  // --- autocheckLedger: 산출물 0개 → fail ---
+  {
+    const v = await ac.autocheckLedger({ files: [], dir: '/tmp', stdout: '' }, {});
+    assert.strictEqual(v.status, 'fail');
+  }
+
   console.log('PASS ledger-autocheck');
 })().catch(e => { console.error(e); process.exit(1); });
