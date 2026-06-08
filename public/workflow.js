@@ -1992,14 +1992,11 @@ function workflowApp() {
     },
 
     parallelTargetLabelForJob(job) {
-      return ['management', 'factory']
-        .map(id => {
-          const stage = this.stages.find(s => s.id === id);
-          const check = job?.stageChecks?.[id] || {};
-          return check.assignee || stage?.label || id;
-        })
-        .filter(Boolean)
-        .join(', ');
+      // 병렬 폐지 — 디자인 다음 단계(대림컴퍼니) 담당자/라벨
+      const next = (this.stages || [])[1];
+      if (!next) return '';
+      const check = job?.stageChecks?.[next.id] || {};
+      return check.assignee || next.label || next.id;
     },
 
     fileReadNames(file) {
@@ -2618,34 +2615,22 @@ function workflowApp() {
     },
 
     parallelStageLabel(separator = '/') {
-      return ['management', 'factory'].map(id => this.stageLabel(id)).filter(Boolean).join(separator);
+      // 병렬 폐지 — 디자인 다음 단계(대림컴퍼니) 라벨
+      const next = (this.stages || [])[1];
+      return next ? this.stageLabel(next.id) : '';
     },
 
     nextStage() {
       const current = this.currentStage();
       if (!current) return null;
-      if (current.id === 'design') return { id: 'parallel', label: this.parallelStageLabel('/') };
-      if (current.id === 'management' || current.id === 'factory') {
-        const otherId = current.id === 'management' ? 'factory' : 'management';
-        const otherCheck = this.detail?.job?.stageChecks?.[otherId] || {};
-        if (otherCheck.status !== 'done') return null;
-        return this.stages.find(s => s.id === 'delivery') || null;
-      }
-      const idx = this.stages.findIndex(s => s.id === current.id);
-      return idx >= 0 ? this.stages[idx + 1] || null : null;
+      const idx = (this.stages || []).findIndex(s => s.id === current.id);
+      return idx >= 0 ? (this.stages[idx + 1] || null) : null;
     },
 
     handoffLabel() {
       const current = this.currentStage();
       const next = this.nextStage();
       if (!current) return '전달';
-      if (current.id === 'design') return `${current.label} 완료 · ${this.parallelStageLabel('/')} 전달`;
-      if (current.id === 'management' || current.id === 'factory') {
-        const otherId = current.id === 'management' ? 'factory' : 'management';
-        const otherCheck = this.detail?.job?.stageChecks?.[otherId] || {};
-        if (otherCheck.status !== 'done') return `${current.label} 완료`;
-        return `${current.label} 완료 · ${this.stageLabel('delivery', '납품팀')} 전달`;
-      }
       if (!next) return '작업 완료';
       return `${current.label} 완료 · ${next.label} 전달`;
     },
