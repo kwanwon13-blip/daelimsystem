@@ -160,6 +160,7 @@ function loadIndexCache(filePath, designRoot) {
 async function saveIndexCache(filePath, cache, designRoot) {
   const json = JSON.stringify(serializeCache(cache, designRoot));
   const tmp = filePath + '.tmp';
+  await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
   await fs.promises.writeFile(tmp, json, 'utf8');
   await fs.promises.rename(tmp, filePath);
 }
