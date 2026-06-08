@@ -22,6 +22,7 @@ const multer = require('multer');
 const JSZip = require('jszip');
 const { requireAuth } = require('../middleware/auth');
 const dbSt = require('../db-statements');
+const statementWorkflow = require('../lib/statement-workflow');
 
 // PPTX → 슬라이드별 시안 본체 이미지 추출
 // 한 슬라이드 = 한 매출 라인 = 한 명세서 (parent_pptx 메타로 묶임)
@@ -203,6 +204,62 @@ function deleteStatementWithFile(id) {
   return { statement: deleted || st, fileDeleted, pptxDeleted };
 }
 
+function sha256File(filePath) {
+  const hash = crypto.createHash('sha256');
+  hash.update(fs.readFileSync(filePath));
+  return hash.digest('hex');
+}
+
+function computeStatementWorkflow(statement) {
+  if (!statement) return null;
+  const full = statement.items ? statement : dbSt.getById(statement.id);
+  if (!full) return null;
+  const items = full.items || [];
+  const documentFingerprint = statementWorkflow.buildDocumentFingerprint(full, items);
+  if (documentFingerprint && full.document_fingerprint !== documentFingerprint) {
+    try {
+      dbSt.updateWorkflowFields(full.id, { document_fingerprint: documentFingerprint });
+      full.document_fingerprint = documentFingerprint;
+    } catch (e) {
+      console.warn('[statements] fingerprint update failed:', e.message);
+    }
+  }
+  const duplicateCandidates = dbSt.findDuplicateCandidates({
+    id: full.id,
+    fileHash: full.file_hash,
+    documentFingerprint,
+    companyCode: full.company_code,
+    docClass: full.doc_class,
+    docDate: full.doc_date,
+    vendorName: full.norm_vendor || full.vendor_name,
+    totalAmount: full.total_amount,
+    limit: 8,
+  });
+  const validation = statementWorkflow.validateStatement(
+    { ...full, document_fingerprint: documentFingerprint },
+    items,
+    duplicateCandidates
+  );
+  return { full, documentFingerprint, duplicateCandidates, validation };
+}
+
+function attachWorkflow(statement, { includeItems = false } = {}) {
+  const computed = computeStatementWorkflow(statement);
+  if (!computed) return statement;
+  const { full, documentFingerprint, duplicateCandidates, validation } = computed;
+  const base = includeItems ? full : statement;
+  return {
+    ...base,
+    document_fingerprint: documentFingerprint,
+    workflow: {
+      ...statementWorkflow.summarizeWorkflow(validation),
+      issues: validation.issues,
+      duplicateCandidates,
+      documentFingerprint,
+    },
+  };
+}
+
 // AI 추출 — Claude Code CLI 사용 (사용자 구독 안에서, 비용 0)
 // extra: { isPptxSlide, inferredDate, parentPptx } — PPTX 시안일 때 일자별 정답 컨텍스트 주입용
 async function extractStatement(filePath, mimeType, hint, extra = {}) {
@@ -347,11 +404,12 @@ async function processQueueItem() {
         dbSt.createStatement({
           source_file: item.originalName,
           stored_file: path.basename(item.filePath),
+          file_hash: item.fileHash || null,
           uploaded_by: item.uploadedBy,
           raw_extract: '[학습자료 없음: 컴퍼니 매출 정답 엑셀 0행]',
           doc_type: 'PPTX시안',
-          doc_class: '매출',
-          company_code: 'COMPANY',
+          doc_class: item.forcedDocClass || '매출',
+          company_code: item.forcedCompanyCode || 'COMPANY',
           doc_date: item.inferredDate || null,
           status: 'pending',
           notes: '학습자료가 서버에 로드되지 않아 AI 임의 등록을 중단했습니다. learning-data 엑셀 배포 후 다시 업로드하세요.',
@@ -394,10 +452,12 @@ async function processQueueItem() {
     let companyCode = (p.company_code === 'SM' || p.company_code === 'COMPANY') ? p.company_code : null;
     let docClass = (p.doc_class === '매입' || p.doc_class === '매출') ? p.doc_class : null;
     // PPTX 시안은 무조건 컴퍼니 매출 (사장님 룰)
-    if (item.isPptxSlide) {
+    if (item.isPptxSlide && !item.forcedCompanyCode && !item.forcedDocClass) {
       companyCode = 'COMPANY';
       docClass = '매출';
     }
+    if (item.forcedCompanyCode) companyCode = item.forcedCompanyCode;
+    if (item.forcedDocClass) docClass = item.forcedDocClass;
     // 일자 — AI 추출 우선, 안 되면 PPTX 파일명에서 추출
     const docDate = p.doc_date || item.inferredDate || null;
 
@@ -495,9 +555,64 @@ async function processQueueItem() {
         }
       }
     }
-    const stId = dbSt.createStatement({
+    if (companyCode === 'COMPANY' && docClass === '매입' && Array.isArray(autoItems) && autoItems.length > 0) {
+      const learningPool = require('../lib/learning-pool');
+      autoItems = autoItems.map((line) => {
+        const ocrText = [
+          line.item_name,
+          line.spec,
+          line.notes,
+        ].filter(Boolean).join(' ');
+        const match = learningPool.matchPurchaseLineToPool({
+          ocr_text: ocrText,
+          qty: line.quantity,
+          unit_price: line.unit_price,
+          supply_amt: line.amount,
+        }, {
+          vendor: p.vendor_name || '',
+          dateStr: docDate || '',
+          dayRange: 30,
+        });
+        if (!match.matched) {
+          const top = (match.candidates || [])
+            .slice(0, 3)
+            .map(c => `${c.item}/${c.spec}/${c.price || 0}원(${c.score})`)
+            .join(' | ');
+          return {
+            ...line,
+            notes: [line.notes, `컴퍼니 매입 미매칭: ${match.reason}${top ? ' / 후보: ' + top : ''}`].filter(Boolean).join(' / '),
+          };
+        }
+        const matched = match.matched;
+        const quantity = Number(line.quantity) || Number(matched.qty) || 0;
+        const unitPrice = Number(line.unit_price) || Number(matched.price) || 0;
+        const lineAmount = Number(line.amount) || 0;
+        const amount = lineAmount || (quantity && unitPrice ? Math.round(quantity * unitPrice) : (Number(matched.amount) || 0));
+        const vat = Number(line.vat) || Math.round(amount * 0.1);
+        console.log(`[learning-pool] 컴퍼니 매입 매칭: "${line.item_name || ''}/${line.spec || ''}" → "${matched.item}/${matched.spec}" (${match.reason}, score ${match.score})`);
+        return {
+          ...line,
+          item_name: matched.item || line.item_name,
+          spec: matched.spec || line.spec,
+          quantity,
+          unit_price: unitPrice,
+          amount,
+          vat,
+          notes: [line.notes, `컴퍼니 매입 학습매칭: ${match.reason} / score ${match.score}`].filter(Boolean).join(' / '),
+        };
+      });
+      const supply = autoItems.reduce((s, line) => s + (Number(line.amount) || 0), 0);
+      const vat = autoItems.reduce((s, line) => s + (Number(line.vat) || 0), 0);
+      if (supply > 0) {
+        p.supply_amount = supply;
+        p.vat_amount = vat;
+        p.total_amount = supply + vat;
+      }
+    }
+    const statementRow = {
       source_file: item.originalName,
       stored_file: path.basename(item.filePath),
+      file_hash: item.fileHash || null,
       uploaded_by: item.uploadedBy,
       raw_extract: ext.raw,
       doc_type: p.doc_type || null,
@@ -512,7 +627,9 @@ async function processQueueItem() {
       total_amount: typeof p.total_amount === 'number' ? Math.round(p.total_amount) : null,
       status: 'pending',
       notes: p.notes || null,
-    }, autoItems);
+    };
+    statementRow.document_fingerprint = statementWorkflow.buildDocumentFingerprint(statementRow, autoItems);
+    const stId = dbSt.createStatement(statementRow, autoItems);
     queueStats.processed++;
     console.log(`[statements] AI 추출 완료 #${stId} - ${item.originalName}`);
   } catch (e) {
@@ -522,8 +639,11 @@ async function processQueueItem() {
       dbSt.createStatement({
         source_file: item.originalName,
         stored_file: path.basename(item.filePath),
+        file_hash: item.fileHash || null,
         uploaded_by: item.uploadedBy,
         raw_extract: '[AI 추출 실패: ' + e.message + ']',
+        doc_class: item.forcedDocClass || null,
+        company_code: item.forcedCompanyCode || null,
         status: 'pending',
         notes: 'AI 추출 실패 — 수동 입력 필요',
       });
@@ -556,6 +676,8 @@ function tickQueue() {
 router.post('/upload-batch', requireAuth, upload.array('files', 100), async (req, res) => {
   const files = req.files || [];
   if (files.length === 0) return res.status(400).json({ ok: false, error: '파일 없음' });
+  const forcedCompanyCode = ['SM', 'COMPANY'].includes(req.body.companyCode) ? req.body.companyCode : null;
+  const forcedDocClass = ['매입', '매출'].includes(req.body.docClass) ? req.body.docClass : null;
   resetQueueStatsIfIdle();
   if (queueStats.startedAt === null) queueStats.startedAt = Date.now();
 
@@ -581,6 +703,7 @@ router.post('/upload-batch', requireAuth, upload.array('files', 100), async (req
             filePath: imgPath,
             originalName: `${f.originalname} (슬라이드 ${sl.slideIndex})`,
             mimeType: `image/${sl.ext === 'jpg' ? 'jpeg' : sl.ext}`,
+            fileHash: sha256File(imgPath),
             uploadedBy: req.user.userId,
             hint: `PPTX 시안 — 현재 슬라이드 ${sl.slideIndex}/${slides.length} 텍스트: "${sl.slideText}"${inferredDate ? ` / 파일명 일자: ${inferredDate}` : ''}\n\n[전체 PPT 텍스트]\n${pptText}`,
             isPptxSlide: true,
@@ -589,6 +712,8 @@ router.post('/upload-batch', requireAuth, upload.array('files', 100), async (req
             slideIndex: sl.slideIndex,
             slideCount: slides.length,
             pptText,
+            forcedCompanyCode,
+            forcedDocClass,
           });
           queueStats.total++;
           added++;
@@ -599,7 +724,10 @@ router.post('/upload-batch', requireAuth, upload.array('files', 100), async (req
           filePath: f.path,
           originalName: f.originalname,
           mimeType: f.mimetype,
+          fileHash: sha256File(f.path),
           uploadedBy: req.user.userId,
+          forcedCompanyCode,
+          forcedDocClass,
         });
         queueStats.total++;
         added++;
@@ -640,9 +768,10 @@ router.get('/list', requireAuth, (req, res) => {
     limit: parseInt(req.query.limit) || 100,
     offset: parseInt(req.query.offset) || 0,
   };
+  const items = dbSt.listStatements(params).map((row) => attachWorkflow(row));
   res.json({
     ok: true,
-    items: dbSt.listStatements(params),
+    items,
     total: dbSt.countStatements(params),
   });
 });
@@ -653,10 +782,29 @@ router.get('/stats', requireAuth, (req, res) => {
 });
 
 // 단일
+router.get('/workflow/profiles', requireAuth, (req, res) => {
+  res.json({ ok: true, profiles: statementWorkflow.COMPANY_PROFILES });
+});
+
+router.get('/:id(\\d+)/validate', requireAuth, (req, res) => {
+  const st = dbSt.getById(parseInt(req.params.id));
+  const computed = computeStatementWorkflow(st);
+  if (!computed) return res.status(404).json({ ok: false, error: 'not found' });
+  res.json({
+    ok: true,
+    workflow: {
+      ...statementWorkflow.summarizeWorkflow(computed.validation),
+      issues: computed.validation.issues,
+      duplicateCandidates: computed.duplicateCandidates,
+      documentFingerprint: computed.documentFingerprint,
+    },
+  });
+});
+
 router.get('/:id(\\d+)', requireAuth, (req, res) => {
   const st = dbSt.getById(parseInt(req.params.id));
   if (!st) return res.status(404).json({ ok: false, error: 'not found' });
-  res.json({ ok: true, statement: st });
+  res.json({ ok: true, statement: attachWorkflow(st, { includeItems: true }) });
 });
 
 // 원본 파일
@@ -673,12 +821,26 @@ router.patch('/:id(\\d+)', requireAuth, (req, res) => {
   const id = parseInt(req.params.id);
   const result = dbSt.updateStatement(id, req.body, req.body.items);
   if (!result) return res.status(404).json({ ok: false });
-  res.json({ ok: true, statement: result });
+  res.json({ ok: true, statement: attachWorkflow(result, { includeItems: true }) });
 });
 
 // 확정
 router.post('/:id(\\d+)/confirm', requireAuth, (req, res) => {
   const id = parseInt(req.params.id);
+  const computed = computeStatementWorkflow(dbSt.getById(id));
+  if (!computed) return res.status(404).json({ ok: false, error: 'not found' });
+  if (!computed.validation.canConfirm) {
+    return res.status(400).json({
+      ok: false,
+      error: '검증 실패 항목이 있어 확정할 수 없습니다.',
+      workflow: {
+        ...statementWorkflow.summarizeWorkflow(computed.validation),
+        issues: computed.validation.issues,
+        duplicateCandidates: computed.duplicateCandidates,
+        documentFingerprint: computed.documentFingerprint,
+      },
+    });
+  }
   const result = dbSt.setStatus(id, 'confirmed', req.user.userId);
   // ★ 학습풀 자동 누적 — 확정한 매출 라인을 학습풀에 추가
   try {
@@ -706,17 +868,17 @@ router.post('/:id(\\d+)/confirm', requireAuth, (req, res) => {
       if (added > 0) console.log(`[statements] 학습풀 자동 누적: 매출 ${added}행 (${st.vendor_name} ${st.doc_date})`);
     }
   } catch (e) { console.error('[statements] 학습풀 누적 실패:', e.message); }
-  res.json({ ok: true, statement: result });
+  res.json({ ok: true, statement: attachWorkflow(result, { includeItems: true }) });
 });
 // 반려
 router.post('/:id(\\d+)/reject', requireAuth, (req, res) => {
   const result = dbSt.setStatus(parseInt(req.params.id), 'rejected', req.user.userId);
-  res.json({ ok: true, statement: result });
+  res.json({ ok: true, statement: attachWorkflow(result, { includeItems: true }) });
 });
 // 검토전으로 되돌리기
 router.post('/:id(\\d+)/reset', requireAuth, (req, res) => {
   const result = dbSt.setStatus(parseInt(req.params.id), 'pending', null);
-  res.json({ ok: true, statement: result });
+  res.json({ ok: true, statement: attachWorkflow(result, { includeItems: true }) });
 });
 // 삭제
 router.delete('/:id(\\d+)', requireAuth, (req, res) => {
@@ -779,6 +941,120 @@ router.post('/cleanup', requireAuth, (req, res) => {
   res.json({ ok: true, dryRun: false, deleted, filesDeleted });
 });
 
+router.post('/ecount/register', requireAuth, async (req, res) => {
+  const body = req.body || {};
+  const docClass = body.docClass === '매출' ? '매출' : '매입';
+  const dryRun = body.dryRun !== false;
+  const statementIds = Array.isArray(body.statementIds)
+    ? [...new Set(body.statementIds.map(id => parseInt(id, 10)).filter(Number.isFinite))]
+    : [];
+  const params = {
+    status: 'confirmed',
+    month: body.month || null,
+    companyCode: 'SM',
+    docClass,
+    limit: 10000,
+  };
+
+  const statements = statementIds.length > 0
+    ? statementIds
+      .map(id => dbSt.getById(id))
+      .filter(st => st && st.company_code === 'SM' && st.doc_class === docClass)
+    : dbSt.listStatements(params);
+  const blocked = [];
+  const items = [];
+
+  for (const row of statements) {
+    const full = row.items ? row : dbSt.getById(row.id);
+    const computed = computeStatementWorkflow(full);
+    if (!computed?.validation?.canConfirm) {
+      blocked.push({
+        id: row.id,
+        source_file: row.source_file,
+        issues: computed?.validation?.blockingIssues || [],
+      });
+      continue;
+    }
+
+    const lines = (full.items || []);
+    if (lines.length === 0) {
+      items.push({
+        statement_id: full.id,
+        date: full.doc_date,
+        vendor_code: full.vendor_biz_no || '',
+        item_code: '',
+        item_name: full.norm_vendor || full.vendor_name || '',
+        spec: '',
+        qty: 1,
+        price: full.supply_amount || 0,
+        supply: full.supply_amount || 0,
+        vat: full.vat_amount || 0,
+        note: full.notes || full.source_file || '',
+      });
+    } else {
+      for (const line of lines) {
+        items.push({
+          statement_id: full.id,
+          line_id: line.id,
+          date: full.doc_date,
+          vendor_code: full.vendor_biz_no || '',
+          item_code: line.item_code || '',
+          item_name: line.item_name || '',
+          spec: line.spec || '',
+          qty: Number(line.quantity) || 0,
+          price: Number(line.unit_price) || 0,
+          supply: Number(line.amount) || 0,
+          vat: Number(line.vat) || Math.round((Number(line.amount) || 0) * 0.1),
+          note: line.notes || full.notes || full.source_file || '',
+        });
+      }
+    }
+  }
+
+  if (blocked.length > 0) {
+    return res.status(400).json({
+      ok: false,
+      error: '검증 실패 자료가 있어 이카운트 등록을 진행할 수 없습니다.',
+      blocked,
+    });
+  }
+
+  if (dryRun) {
+    return res.json({
+      ok: true,
+      dryRun: true,
+      docClass,
+      statementCount: statements.length,
+      itemCount: items.length,
+      sample: items.slice(0, 5),
+    });
+  }
+
+  if (process.env.ECOUNT_STATEMENTS_ACTUAL_ENABLED !== '1') {
+    return res.status(400).json({
+      ok: false,
+      error: '이카운트 실제 등록은 아직 잠겨 있습니다. ECOUNT_STATEMENTS_ACTUAL_ENABLED=1 설정 후 사용하세요.',
+      itemCount: items.length,
+      sample: items.slice(0, 5),
+    });
+  }
+
+  const ecountClient = require('../lib/ecount-client');
+  try {
+    const result = docClass === '매출'
+      ? await ecountClient.saveSale(items, { dryRun: false })
+      : await ecountClient.savePurchase(items, { dryRun: false });
+    if (result?.ok && statementIds.length > 0) {
+      for (const row of statements) {
+        if (row?.id) dbSt.setStatus(row.id, 'confirmed', req.user.userId);
+      }
+    }
+    res.json({ ok: !!result.ok, dryRun: false, docClass, itemCount: items.length, result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message, itemCount: items.length });
+  }
+});
+
 // E2E 업로드 양식 엑셀 export (컴퍼니 매입/매출용)
 // e2e-upload 스킬 양식 그대로: A:일자 ~ K:약어 (11컬럼)
 // 라인 아이템 단위로 펼쳐서 기록 (E2E는 한 행에 한 품목)
@@ -792,7 +1068,18 @@ router.get('/export.xlsx', requireAuth, async (req, res) => {
     docClass: req.query.docClass || null,
     limit: 10000,
   };
-  const stmts = dbSt.listStatements(params);
+  const statementIds = String(req.query.statementIds || '')
+    .split(',')
+    .map(id => parseInt(id.trim(), 10))
+    .filter(Number.isFinite);
+  const stmts = statementIds.length > 0
+    ? [...new Set(statementIds)]
+      .map(id => dbSt.getById(id))
+      .filter(st => st
+        && (!params.status || st.status === params.status)
+        && (!params.companyCode || st.company_code === params.companyCode)
+        && (!params.docClass || st.doc_class === params.docClass))
+    : dbSt.listStatements(params);
 
   // 명세서 일자순 정렬 (일자별 명세서 생성)
   stmts.sort((a, b) => (a.doc_date || '').localeCompare(b.doc_date || ''));

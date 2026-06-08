@@ -1821,11 +1821,19 @@
           </button>
         </template>
         <template x-if="tabs.find(t=>t.id==='statements')">
-          <button @click="currentTab = 'statements'"
-            :class="currentTab === 'statements' ? 'active' : ''"
+          <button @click="openStatementEntry('COMPANY')"
+            :class="currentTab === 'statements' && statementEntryCompany === 'COMPANY' ? 'active' : ''"
             class="sidebar-nav-item w-full text-left">
             <span class="material-symbols-outlined" style="font-size:17px">document_scanner</span>
-            <span style="font-size:12px;">OCR 자동입력</span>
+            <span style="font-size:12px;">컴퍼니 매입 OCR</span>
+          </button>
+        </template>
+        <template x-if="tabs.find(t=>t.id==='statements')">
+          <button @click="openStatementEntry('SM')"
+            :class="currentTab === 'statements' && statementEntryCompany === 'SM' ? 'active' : ''"
+            class="sidebar-nav-item w-full text-left">
+            <span class="material-symbols-outlined" style="font-size:17px">document_scanner</span>
+            <span style="font-size:12px;">에스엠 매입 OCR</span>
           </button>
         </template>
         <template x-if="tabs.find(t=>t.id==='contacts')">
@@ -6451,6 +6459,7 @@ function app() {
     _rememberedTabs: REMEMBERED_TABS,
     // 배포 버전 (헤더에 표시 — 서버에 어떤 코드가 깔려있는지 확인용)
     buildInfo: { commit: '', commitShort: '', commitDate: '', commitMsg: '', startedAt: '' },
+    statementEntryCompany: '',
     // 인증
     auth: { loggedIn: false, userId: '', name: '', role: '', position: '', phone: '', permissions: [] },
     // 급여 탭 가용성 (false이면 메뉴 자체를 숨김 — 관리자 PC 외에서는 존재조차 노출 안 함)
@@ -6494,7 +6503,7 @@ function app() {
       // { id: 'purchaseAuto', label: '매입 자동화' },     // 숨김 — OCR 자동입력으로 흡수
       { id: 'photos', label: '사진 라이브러리' },
       { id: 'statements', label: 'OCR 자동입력' },
-      { id: 'companyPurchase', label: '컴퍼니 매입 OCR' },
+      // { id: 'companyPurchase', label: '컴퍼니 매입 OCR' }, // 숨김 — statements의 회사별 매입 입구로 통합
       { id: 'contacts', label: '연락처' },
       { id: 'workflow', label: '워크플로우' },
       { id: 'calendar', label: '캘린더' },
@@ -6595,6 +6604,14 @@ function app() {
     toggleMenuGroup(g) {
       this.expandedMenuGroups[g] = !this.expandedMenuGroups[g];
       sessionStorage.setItem('expandedMenuGroups', JSON.stringify(this.expandedMenuGroups));
+    },
+    openStatementEntry(company) {
+      const companyCode = company === 'SM' ? 'SM' : 'COMPANY';
+      const detail = { company: companyCode, cls: '매입' };
+      this.statementEntryCompany = companyCode;
+      window.__statementEntry = detail;
+      this.currentTab = 'statements';
+      window.dispatchEvent(new CustomEvent('statement-entry', { detail }));
     },
     get tabs() {
       // 플랫 리스트 (하위 호환용) — 권한 필터링된 탭 목록
