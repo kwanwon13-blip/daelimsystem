@@ -2452,7 +2452,13 @@ router.post('/chat-stream-cli', async (req, res) => {
   const detectedSkillSlug = detectLedgerSkillSlug(prompt, attachments);
   const skillInstructionHint = loadSkillInstructionBlock(detectedSkillSlug);
   const autoWorkflowHint = buildAutoWorkflowHint(prompt, attachments);
-  const fullPrompt = knowledgeBlock + templatePrefix + pageCtx + attachmentBlock + skillInstructionHint + autoWorkflowHint + priorBlock + prompt;
+  // 회사 공유 기억 주입 (있으면 더 똑똑, 실패해도 빈 문자열)
+  let memoryBlock = '';
+  try {
+    const chatMemory = require('../lib/chat-memory');
+    memoryBlock = chatMemory.getInjectionContext({ scope: 'company', prompt: String(prompt || ''), maxChars: 6000 });
+  } catch (_) { memoryBlock = ''; }
+  const fullPrompt = knowledgeBlock + memoryBlock + templatePrefix + pageCtx + attachmentBlock + skillInstructionHint + autoWorkflowHint + priorBlock + prompt;
 
   // 사용자 메시지 저장
   ai.threads.addMessage(thread.id, {
