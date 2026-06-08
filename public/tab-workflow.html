@@ -39,6 +39,16 @@
   .wf-focus-item.warn{border-color:#fed7aa;background:#fff7ed;}
   .wf-focus-item.warn .wf-focus-tag{background:#ffedd5;color:#c2410c;}
   .wf-focus-item.info{border-color:#bfdbfe;background:#eff6ff;}
+  .wf-alert-panel{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 12px;border-bottom:1px solid #bfdbfe;background:#eff6ff;}
+  .wf-alert-panel.urgent{border-bottom-color:#fecaca;background:#fff1f2;}
+  .wf-alert-panel.warn{border-bottom-color:#fed7aa;background:#fff7ed;}
+  .wf-alert-main{min-width:0;border:0;background:transparent;padding:0;text-align:left;display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto;gap:2px 8px;align-items:center;cursor:pointer;}
+  .wf-alert-main strong{font-size:13px;color:#111827;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .wf-alert-main span:last-child{grid-column:2;color:#475569;font-size:11px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .wf-alert-tag{grid-row:1 / span 2;align-self:center;border-radius:999px;padding:4px 8px;background:#2563eb;color:#fff;font-size:11px;font-weight:900;white-space:nowrap;}
+  .wf-alert-panel.urgent .wf-alert-tag{background:#dc2626;}
+  .wf-alert-panel.warn .wf-alert-tag{background:#f97316;}
+  .wf-alert-side{display:flex;gap:6px;align-items:center;justify-content:flex-end;}
   .wf-new{display:grid;grid-template-columns:minmax(170px,1.5fr) minmax(120px,.9fr) minmax(130px,1fr) minmax(120px,.75fr) minmax(120px,.7fr) auto;gap:8px;padding:10px 12px;border-bottom:1px solid #e5e9f1;background:#f8fafc;}
   .wf-creator{height:34px;display:flex;align-items:center;gap:5px;border:1px solid #e1e6ef;border-radius:6px;background:#fff;padding:0 9px;color:#475569;font-size:11px;font-weight:800;min-width:0;}
   .wf-creator span:last-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -53,6 +63,7 @@
   .wf-col-list{padding:8px;display:flex;flex-direction:column;gap:6px;overflow:auto;}
   .wf-card{border:1px solid #d8dee9;border-radius:8px;background:#fff;padding:8px 9px;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.04);transition:border-color .16s ease,box-shadow .16s ease,padding .16s ease;}
   .wf-card.active{border-color:#2563eb;box-shadow:0 0 0 2px rgba(37,99,235,.12);padding:10px;}
+  .wf-card.cancelled{border-color:#fecaca;background:#fff7f7;}
   .wf-card-title{font-size:13px;font-weight:800;color:#111827;line-height:1.32;margin-bottom:4px;word-break:break-word;}
   .wf-card:not(.active) .wf-card-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .wf-card-meta{font-size:11px;color:#6b7280;display:flex;gap:5px;flex-wrap:wrap;line-height:1.4;}
@@ -84,7 +95,9 @@
   .wf-detail-title{font-size:14px;font-weight:900;color:#111827;line-height:1.35;word-break:break-word;}
   .wf-detail-subtitle{margin-top:3px;display:flex;gap:6px;flex-wrap:wrap;color:#64748b;font-size:11px;line-height:1.3;}
   .wf-archive-strip{margin-top:8px;border:1px solid #bbf7d0;border-radius:7px;background:#f0fdf4;padding:8px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;}
+  .wf-archive-strip.cancelled{border-color:#fecaca;background:#fff7f7;}
   .wf-archive-main{display:flex;align-items:center;gap:5px;color:#166534;font-size:12px;font-weight:900;}
+  .wf-archive-strip.cancelled .wf-archive-main{color:#b91c1c;}
   .wf-archive-meta{color:#475569;font-size:11px;line-height:1.35;min-width:0;word-break:break-word;}
   .wf-detail-body{flex:1;min-height:0;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:12px;}
   .wf-detail-body .wf-section:nth-of-type(1){order:2;}
@@ -105,10 +118,10 @@
   .wf-checkitem{height:24px;border:1px solid #dbe3ef;border-radius:999px;background:#f8fafc;color:#475569;padding:0 8px;font-size:11px;font-weight:800;display:inline-flex;align-items:center;gap:4px;cursor:pointer;}
   .wf-checkitem.done{background:#dcfce7;color:#15803d;border-color:#bbf7d0;}
   .wf-handoff{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:8px;border:1px solid #bfdbfe;border-radius:6px;background:#eff6ff;}
-  .wf-delivery{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:8px;border:1px solid #bfdbfe;border-radius:7px;background:#eff6ff;}
+  .wf-delivery{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:7px 0;border-top:1px solid #edf0f5;border-bottom:1px solid #edf0f5;background:#fff;}
   .wf-upload-panel{border:1px solid #bfdbfe;border-radius:8px;background:#f8fbff;padding:10px;display:flex;flex-direction:column;gap:9px;}
   .wf-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;}
-  .wf-gallery.proof-strip{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;overflow:visible;padding-bottom:0;}
+  .wf-gallery.proof-strip{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;overflow:visible;padding-bottom:0;}
   .wf-gallery.proof-strip .wf-proof-card{min-width:0;max-width:none;}
   .wf-proof-card,.wf-file-card{border:1px solid #edf0f5;border-radius:8px;background:#fff;overflow:hidden;}
   .wf-proof-card.unread,.wf-file-card.unread{border-color:#bfdbfe;background:#eff6ff;}
@@ -118,7 +131,7 @@
   .wf-proof-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
   .wf-proof-thumb:hover img{transform:scale(1.02);}
   .wf-proof-badge{position:absolute;top:7px;left:7px;height:20px;border-radius:999px;background:rgba(15,23,42,.82);color:#fff;font-size:10px;font-weight:800;padding:3px 7px;}
-  .wf-proof-info{padding:8px;display:flex;flex-direction:column;gap:6px;}
+  .wf-proof-info{padding:7px;display:flex;flex-direction:column;gap:5px;}
   .wf-proof-meta{display:none;}
   .wf-proof-card.active .wf-proof-meta,.wf-file-card.active .wf-proof-meta{display:block;}
   .wf-file-card{display:grid;grid-template-columns:48px minmax(0,1fr);gap:8px;align-items:center;padding:8px;}
@@ -133,10 +146,24 @@
   .wf-proof-card.active .wf-file-collab,.wf-file-card.active .wf-file-collab{display:flex;}
   .wf-collab-compact{display:grid;grid-template-columns:110px minmax(0,1fr) auto;gap:6px;align-items:center;}
   .wf-collab-actions{display:flex;gap:5px;flex-wrap:wrap;align-items:center;}
-  .wf-file-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;font-size:11px;color:#475569;}
+  .wf-file-summary{display:none;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;font-size:11px;color:#475569;}
+  .wf-proof-card.active .wf-file-summary,.wf-file-card.active .wf-file-summary{display:grid;}
   .wf-file-summary strong{color:#111827;}
   .wf-proof-secondary{display:none;}
   .wf-proof-card.active .wf-proof-secondary,.wf-file-card.active .wf-proof-secondary{display:block;}
+  .wf-file-actions{display:flex;gap:5px;flex-wrap:wrap;}
+  .wf-proof-card:not(.active) .wf-file-name{font-size:11.5px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .wf-proof-card:not(.active) .wf-file-actions .wf-btn,.wf-file-card:not(.active) .wf-file-actions .wf-btn{height:26px;padding:0 7px;font-size:11px;}
+  .wf-order-compact{gap:0;padding-top:6px;padding-bottom:6px;}
+  .wf-order-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px 0;border-top:1px solid #edf0f5;}
+  .wf-order-row:first-child{border-top:none;}
+  .wf-order-row.cancelled{opacity:.72;}
+  .wf-order-main{min-width:0;display:flex;flex-direction:column;gap:4px;}
+  .wf-order-title{display:flex;gap:6px;align-items:center;min-width:0;}
+  .wf-order-title strong{font-size:12.5px;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .wf-order-line{display:flex;gap:6px;align-items:center;flex-wrap:wrap;color:#64748b;font-size:11px;line-height:1.35;}
+  .wf-order-actions{display:flex;gap:5px;align-items:center;justify-content:flex-end;flex-wrap:wrap;}
+  .wf-empty-line{min-height:42px;display:flex;align-items:center;color:#94a3b8;font-size:12px;font-weight:800;}
   .wf-dropzone{min-height:118px;border:1px dashed #9db4d8;border-radius:8px;background:#fff;padding:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;color:#334155;text-align:center;cursor:pointer;}
   .wf-dropzone.drag{border-color:#2563eb;background:#eff6ff;}
   .wf-dropzone.busy{opacity:.68;pointer-events:none;}
@@ -157,7 +184,7 @@
   .wf-project-pick{height:24px;max-width:210px;border:1px solid #dbe3ef;border-radius:999px;background:#fff;color:#334155;padding:0 8px;font-size:11px;font-weight:800;display:inline-flex;align-items:center;gap:5px;cursor:pointer;min-width:0;}
   .wf-project-pick span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
   .wf-project-pick small{font-size:10px;color:#64748b;font-weight:800;white-space:nowrap;}
-  .wf-company-picks{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:5px;max-height:180px;overflow:auto;border:1px solid #e1e6ef;border-radius:6px;background:#f8fafc;padding:6px;}
+  .wf-company-picks{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:5px;max-height:132px;overflow:auto;border:1px solid #e1e6ef;border-radius:6px;background:#f8fafc;padding:6px;}
   .wf-company-pick{height:28px;border:1px solid #dbe3ef;border-radius:6px;background:#fff;color:#334155;padding:0 8px;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:pointer;min-width:0;}
   .wf-company-pick strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;font-size:11px;}
   .wf-company-pick small{font-size:10px;color:#64748b;font-weight:800;white-space:nowrap;}
@@ -178,6 +205,7 @@
   .wf-dialog-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-top:1px solid #edf0f5;background:#fbfcfe;}
   .wf-field{display:flex;flex-direction:column;gap:5px;}
   .wf-field label{font-size:11px;font-weight:900;color:#475569;}
+  .wf-required{margin-left:4px;color:#dc2626;font-size:10px;font-weight:900;}
   .wf-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
   .wf-event{padding:8px;border-left:3px solid #cbd5e1;background:#f8fafc;border-radius:4px;font-size:12px;color:#334155;line-height:1.45;}
   .wf-event.unread{border-left-color:#2563eb;background:#eff6ff;}
@@ -222,6 +250,7 @@
           <option value="active">진행</option>
           <option value="hold">보류</option>
           <option value="done">완료 보관함</option>
+          <option value="cancelled">취소 보관함</option>
           <option value="all">전체</option>
         </select>
         <select class="wf-select" x-model="scopeFilter" @change="loadJobs()">
@@ -238,7 +267,7 @@
           <span x-text="departmentMappingSummary()"></span>
         </button>
         <button class="wf-btn ghost" @click="openProjectPanel()"><span class="material-symbols-outlined" style="font-size:16px;">folder_managed</span>프로젝트</button>
-        <button class="wf-btn primary" @click="openNewJobModal()"><span class="material-symbols-outlined" style="font-size:16px;">add</span>작업</button>
+        <button class="wf-btn primary" @click="openNewJobModal()"><span class="material-symbols-outlined" style="font-size:16px;">add</span>시안</button>
       </div>
 
       <div class="wf-team-map" x-show="departmentMappingPanelOpen || missingDepartmentMappings().length" x-cloak>
@@ -248,7 +277,7 @@
               <div class="wf-inbox-title">팀 매칭</div>
               <div class="wf-inbox-meta" x-text="missingDepartmentMappings().length ? '각 단계가 어느 조직도 부서로 갈지 직접 선택하세요.' : '조직도 부서와 워크플로우 단계가 연결되어 있습니다.'"></div>
             </div>
-            <button class="wf-btn ghost" @click="toggleDepartmentMappingPanel(false)" x-text="departmentMappingPanelOpen ? '닫기' : '설정'"></button>
+            <button class="wf-btn ghost" @click="toggleDepartmentMappingPanel(!departmentMappingPanelOpen)" x-text="departmentMappingPanelOpen ? '닫기' : '설정'"></button>
           </div>
           <div x-show="departmentMappingPanelOpen" x-cloak style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;">
             <template x-for="stage in stages" :key="'map-'+stage.id">
@@ -264,6 +293,7 @@
             </template>
           </div>
           <div x-show="departmentMappingPanelOpen" x-cloak style="display:flex;justify-content:flex-end;gap:6px;">
+            <button class="wf-btn ghost" @click="applySuggestedDepartmentMapping()">추천 적용</button>
             <button class="wf-btn primary" @click="saveDepartmentMappingSettings()" :disabled="stageDepartmentSaving" x-text="stageDepartmentSaving ? '저장 중' : '팀 매칭 저장'"></button>
           </div>
         </div>
@@ -277,6 +307,10 @@
         <button type="button" class="wf-metric clickable" x-show="summary.done > 0" @click="setWorkflowListFilter('done')">
           <strong x-text="summary.done || 0"></strong>
           <span>완료 보관</span>
+        </button>
+        <button type="button" class="wf-metric clickable warn" x-show="summary.cancelled > 0" @click="setWorkflowListFilter('cancelled')">
+          <strong x-text="summary.cancelled || 0"></strong>
+          <span>취소 보관</span>
         </button>
         <div class="wf-metric action" x-show="summary.myActions > 0">
           <strong x-text="summary.myActions || 0"></strong>
@@ -322,6 +356,18 @@
           <strong>기본</strong>
           <span>가볍게 보기</span>
         </button>
+      </div>
+
+      <div class="wf-alert-panel" x-show="shouldShowWorkflowAlert()" x-cloak :class="focusItemClass(workflowAlertItem())" aria-live="polite">
+        <button type="button" class="wf-alert-main" @click="openWorkflowAlert()">
+          <span class="wf-alert-tag" x-text="workflowAlertItem() ? workflowAlertItem().label : ''"></span>
+          <strong x-text="workflowAlertItem() ? workflowAlertItem().title : ''"></strong>
+          <span x-text="workflowAlertItem() ? workflowAlertItem().meta : ''"></span>
+        </button>
+        <div class="wf-alert-side">
+          <span class="wf-chip" x-show="workflowAlertCount() > 1" x-text="'처리 ' + workflowAlertCount()"></span>
+          <button type="button" class="wf-btn ghost" style="height:28px;padding:0 8px;" @click="dismissWorkflowAlert()">접기</button>
+        </div>
       </div>
 
       <div class="wf-focus-strip" x-show="workflowFocusItems().length">
@@ -410,10 +456,10 @@
             </div>
             <div class="wf-col-list">
               <template x-for="job in jobsForStage(stage.id)" :key="job.id">
-                <button class="wf-card text-left" :class="selectedId===job.id && (!selectedWorkStageId || selectedWorkStageId===stage.id)?'active':''" @click="selectJob(job.id, stage.id)">
+                <button class="wf-card text-left" :class="[(selectedId===job.id && (!selectedWorkStageId || selectedWorkStageId===stage.id)) ? 'active' : '', job.status === 'cancelled' ? 'cancelled' : '']" @click="selectJob(job.id, stage.id)">
                   <template x-if="job.primaryVisualFile && selectedId===job.id && (!selectedWorkStageId || selectedWorkStageId===stage.id)">
                     <div class="wf-card-visual">
-                      <img :src="job.primaryVisualFile ? (job.primaryVisualFile.thumbUrl || job.primaryVisualFile.previewUrl) : ''" :alt="job.primaryVisualFile ? job.primaryVisualFile.originalName : ''" @error="handleWorkflowImageError($event, job.primaryVisualFile ? job.primaryVisualFile.previewUrl : '')">
+                      <img :src="job.primaryVisualFile ? (job.primaryVisualFile.thumbUrl || job.primaryVisualFile.previewUrl) : ''" :alt="job.primaryVisualFile ? job.primaryVisualFile.originalName : ''" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, job.primaryVisualFile ? job.primaryVisualFile.previewUrl : '')">
                       <span class="wf-card-visual-urgent" x-show="job.primaryVisualFile && job.primaryVisualFile.urgent">긴급</span>
                       <span class="wf-card-visual-label" x-text="'시안 ' + (job.visualFileCount || 1)"></span>
                       <span class="wf-card-visual-date" x-show="job.primaryVisualFile && job.primaryVisualFile.designDueDate" x-text="job.primaryVisualFile ? job.primaryVisualFile.designDueDate : ''"></span>
@@ -426,11 +472,6 @@
                     <span x-show="job.projectName" x-text="job.projectName"></span>
                   </div>
                   <div class="wf-card-compact" x-show="job.status === 'done' || job.overdue || job.overdueStageCount || job.blockedStageCount || job.changeRequestCount || job.lateScheduleCount || job.missingFileCount || job.unreadCount || job.unreadFileCount || job.dueDate || job.nextStageDue || job.fileCount">
-                    <span class="wf-chip overdue" x-show="job.overdue || job.overdueStageCount">지연</span>
-                    <span class="wf-chip blocked" x-show="job.blockedStageCount">막힘</span>
-                    <span class="wf-chip change_requested" x-show="job.changeRequestCount">수정/조정</span>
-                    <span class="wf-chip overdue" x-show="job.lateScheduleCount">가능일지연</span>
-                    <span class="wf-chip overdue" x-show="job.missingFileCount" x-text="'파일누락 ' + job.missingFileCount"></span>
                     <span class="wf-chip urgent" x-show="job.urgentFileCount" x-text="'긴급 ' + job.urgentFileCount"></span>
                     <span class="wf-chip unread" x-show="job.unreadCount || job.unreadFileCount" x-text="'확인 ' + (job.unreadCount || job.unreadFileCount)"></span>
                     <span class="wf-chip" x-show="job.dueDate" x-text="job.dueDate"></span>
@@ -438,6 +479,7 @@
                     <span class="wf-chip" x-show="job.fileCount" x-text="'파일 ' + job.fileCount"></span>
                     <span class="wf-chip done" x-show="job.status === 'done' && archiveDateLabel(job)" x-text="'보관 ' + archiveDateLabel(job)"></span>
                     <span class="wf-chip done" x-show="job.status === 'done' && Number(job.archiveFileCount || 0)">발송원본</span>
+                    <span class="wf-chip blocked" x-show="job.status === 'cancelled'">취소 보관</span>
                   </div>
                   <div class="wf-card-extra">
                     <span class="wf-chip" :class="job.priority" x-text="priorityLabel(job.priority)"></span>
@@ -455,6 +497,7 @@
                     <span class="wf-chip" x-show="job.fileCount" x-text="'파일 ' + job.fileCount"></span>
                     <span class="wf-chip done" x-show="job.status === 'done' && archiveDateLabel(job)" x-text="'보관 ' + archiveDateLabel(job)"></span>
                     <span class="wf-chip done" x-show="job.status === 'done' && Number(job.archiveFileCount || 0)">메일/링크 원본</span>
+                    <span class="wf-chip blocked" x-show="job.status === 'cancelled'">취소 보관</span>
                   </div>
                 </button>
               </template>
@@ -482,8 +525,7 @@
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px;">
               <span class="wf-chip" :class="detail.job.priority" x-text="priorityLabel(detail.job.priority)"></span>
               <span class="wf-chip" :class="detail.job.status === 'done' ? 'done' : (detail.job.status === 'hold' || detail.job.status === 'cancelled' ? 'blocked' : 'ready')" x-text="statuses[detail.job.status] || detail.job.status || '진행'"></span>
-              <span class="wf-chip" :class="detail.job.canComplete ? 'ready' : 'not_ready'" x-text="completionBlockerText(detail.job)"></span>
-              <button class="wf-btn ghost" x-show="detail.job.status !== 'done' && detail.job.status !== 'cancelled'" @click="handoffJob()" :disabled="saving">전달</button>
+              <span class="wf-chip" :class="detail.job.canComplete ? 'ready' : 'not_ready'" x-text="completionBlockerShortText(detail.job)"></span>
               <button class="wf-btn ghost" @click="detailMoreOpen = !detailMoreOpen" x-text="detailMoreOpen ? '상세 접기' : '상세'"></button>
             </div>
             <div class="wf-archive-strip" x-show="detail.job.status === 'done'" x-cloak>
@@ -496,6 +538,15 @@
               </div>
               <div style="display:flex;gap:5px;flex-wrap:wrap;">
                 <a class="wf-btn" x-show="Number(detail.job.archiveFileCount || 0)" :href="smartArchiveUrl(true)" title="완료된 작업의 발송 원본을 ZIP으로 받습니다">원본 받기</a>
+              </div>
+            </div>
+            <div class="wf-archive-strip cancelled" x-show="detail.job.status === 'cancelled'" x-cloak>
+              <div>
+                <div class="wf-archive-main">
+                  <span class="material-symbols-outlined" style="font-size:16px;">block</span>
+                  <span>취소 보관함 · 기록 보존</span>
+                </div>
+                <div class="wf-archive-meta" x-text="cancelSummaryText(detail.job)"></div>
               </div>
             </div>
           </div>
@@ -526,8 +577,8 @@
                 <div class="wf-grid-2">
                   <div class="wf-field">
                     <input class="wf-input" list="wfCompanyNames" x-model="detail.job.companyName" placeholder="업체">
-                    <div class="wf-company-picks" x-show="workflowCompanySuggestions(detail.job.companyName, 24).length">
-                      <template x-for="company in workflowCompanySuggestions(detail.job.companyName, 24)" :key="'detail-company-'+company.name">
+                    <div class="wf-company-picks" x-show="workflowCompanySuggestions(detail.job.companyName, 8).length">
+                      <template x-for="company in workflowCompanySuggestions(detail.job.companyName, 8)" :key="'detail-company-'+company.name">
                         <button type="button" class="wf-company-pick" @click="detail.job.companyName = company.name; detail.job.projectName = ''">
                           <strong x-text="company.name"></strong>
                           <small x-text="(company.projectCount || 0) + ' 현장'"></small>
@@ -537,16 +588,15 @@
                   </div>
                   <div class="wf-field">
                     <input class="wf-input" list="wfDetailProjectNames" x-model="detail.job.projectName" placeholder="현장">
-                    <div class="wf-project-picks" x-show="workflowProjectSuggestions(detail.job.companyName, 16, detail.job.projectName).length">
-                      <template x-for="project in workflowProjectSuggestions(detail.job.companyName, 16, detail.job.projectName)" :key="'detail-project-'+project.name">
+                    <div class="wf-project-picks" x-show="workflowProjectSuggestions(detail.job.companyName, 8, detail.job.projectName).length">
+                      <template x-for="project in workflowProjectSuggestions(detail.job.companyName, 8, detail.job.projectName)" :key="'detail-project-'+project.name">
                         <button type="button" class="wf-project-pick" @click="detail.job.projectName = project.name">
                           <span x-text="project.name"></span>
                           <small x-show="projectBadge(project)" x-text="projectBadge(project)"></small>
                         </button>
                       </template>
                     </div>
-                    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                      <button type="button" class="wf-btn ghost" style="height:28px;" @click="addDetailProjectFolder()" :disabled="!detail.job.companyName || !detail.job.projectName">프로젝트 추가</button>
+                    <div style="display:flex;justify-content:flex-end;">
                       <select class="wf-select" style="height:28px;" :value="detailProjectStatus()" @change="saveDetailProjectStatus($event.target.value)">
                         <option value="active">진행</option>
                         <option value="done">완료</option>
@@ -568,6 +618,7 @@
                 <div class="wf-handoff" x-show="detail.job.status !== 'done' && detail.job.status !== 'cancelled'">
                   <input class="wf-input" x-model="handoffText" placeholder="전달 메모">
                   <button class="wf-btn primary" @click="handoffJob()" :disabled="saving" x-text="handoffLabel()"></button>
+                  <div class="wf-muted" style="grid-column:1 / -1;" x-show="detail.job.completionBlockers && detail.job.completionBlockers.length" x-text="completionBlockerText(detail.job)"></div>
                 </div>
                 <template x-for="stage in stages" :key="stage.id">
                   <div class="wf-stage-block" :class="isStageOverdue(stage.id) ? 'overdue' : ''">
@@ -677,7 +728,7 @@
                   <template x-for="file in visualFiles()" :key="file.id">
                     <article class="wf-proof-card" :data-workflow-file-id="file.id" :class="[(isUnreadFile(file) ? 'unread' : ''), (file.urgent ? 'urgent' : ''), (expandedFileId === file.id ? 'active' : '')]">
                       <button class="wf-proof-thumb" @click="openFilePreview(file)">
-                        <img :src="fileThumbUrl(file)" :alt="file.originalName" @error="handleWorkflowImageError($event, filePreviewUrl(file))">
+                        <img :src="fileThumbUrl(file)" :alt="file.originalName" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, filePreviewUrl(file))">
                         <span class="wf-proof-badge" x-text="fileKindLabel(file.kind)"></span>
                       </button>
                       <div class="wf-proof-info">
@@ -702,30 +753,30 @@
                           <span class="wf-chip ready" x-show="file.hasTarget && file.targetRead">수신확인</span>
                           <span class="wf-chip" :class="file.reviewStatus || 'pending'" x-show="canReviewFile(file)" x-text="fileReviewLabel(file.reviewStatus)"></span>
                         </div>
-                        <div style="display:flex;gap:5px;flex-wrap:wrap;">
+                        <div class="wf-file-actions">
                           <a class="wf-btn" x-show="file.exists !== false" :href="smartFileUrl(file)" title="접속 위치에 맞는 파일을 받습니다">파일 받기</a>
                           <button class="wf-btn" x-show="file.exists !== false" :class="isOrderFileSelected(file) ? 'primary' : ''" @click="toggleOrderFileSelection(file)" x-text="isOrderFileSelected(file) ? '전달 선택됨' : '전달 선택'"></button>
-                          <button class="wf-btn" x-show="isUnreadFile(file)" @click="markRead(file)">확인</button>
-                          <button class="wf-btn" @click="toggleFileCollab(file)" x-text="expandedFileId === file.id ? '접기' : '협의'"></button>
+                          <button class="wf-btn" x-show="isUnreadFile(file)" @click="markRead(file)">수신확인</button>
+                          <button class="wf-btn" @click="toggleFileCollab(file)" x-text="expandedFileId === file.id ? '접기' : '일정확인'"></button>
                         </div>
                         <div class="wf-file-collab">
                           <div class="wf-collab-compact">
                             <select class="wf-select" x-model="file.scheduleNegotiation">
-                              <option value="pending">확인중</option>
-                              <option value="possible">가능</option>
-                              <option value="needs_change">조정</option>
-                              <option value="confirmed">확정</option>
+                              <option value="pending">확인 대기</option>
+                              <option value="possible">가능일 제시</option>
+                              <option value="needs_change">조정요청</option>
+                              <option value="confirmed">일정 확정</option>
                             </select>
                             <input class="wf-input" type="date" x-model="file.factoryAvailableDate" :title="stageLabel('factory', '공장') + ' 가능일'">
-                            <button class="wf-btn" @click="saveFileSchedule(file)">일정저장</button>
+                            <button class="wf-btn primary" @click="saveFileSchedule(file)">가능일 저장</button>
                           </div>
-                          <input class="wf-input" x-model="file.factoryScheduleNote" :placeholder="stageLabel('factory', '공장') + ' 일정 메모'">
+                          <input class="wf-input" x-model="file.factoryScheduleNote" :placeholder="stageLabel('factory', '공장') + ' 확인/조정 메모'">
                           <div class="wf-collab-actions">
                             <label style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:800;color:#b91c1c;">
                               <input type="checkbox" x-model="file.urgent"> 긴급
                             </label>
-                            <button class="wf-btn" x-show="canReviewFile(file)" @click="reviewFile(file, 'approved')">승인</button>
-                            <button class="wf-btn" x-show="canReviewFile(file)" @click="reviewFile(file, 'change_requested')">수정요청</button>
+                            <button class="wf-btn" x-show="canReviewFile(file)" @click="reviewFile(file, 'approved')">시안 승인</button>
+                            <button class="wf-btn" x-show="canReviewFile(file)" @click="reviewFile(file, 'change_requested')">시안 수정요청</button>
                             <button class="wf-btn" @click="file._threadOpen = !file._threadOpen" x-text="file._threadOpen ? '대화 접기' : ('대화 ' + fileEvents(file).length)"></button>
                           </div>
                           <div class="wf-file-thread" x-show="file._threadOpen" x-cloak>
@@ -763,7 +814,7 @@
                           <div><strong>희망</strong> <span x-text="file.designDueDate || '미정'"></span></div>
                           <div><strong x-text="stageLabel('factory', '공장')"></strong> <span x-text="file.factoryAvailableDate || '확인 전'"></span></div>
                         </div>
-                        <div style="display:flex;gap:5px;flex-wrap:wrap;">
+                        <div class="wf-file-actions">
                           <span class="wf-chip urgent" x-show="file.urgent">긴급</span>
                           <span class="wf-chip wf-schedule-chip" :class="fileScheduleChipClass(file)" x-text="fileScheduleChipLabel(file)"></span>
                           <span class="wf-chip unread" x-show="file.hasTarget && !file.targetRead">수신대기</span>
@@ -772,21 +823,21 @@
                           <span class="wf-chip" :class="file.reviewStatus || 'pending'" x-show="canReviewFile(file)" x-text="fileReviewLabel(file.reviewStatus)"></span>
                           <a class="wf-btn" x-show="file.exists !== false" :href="smartFileUrl(file)" title="접속 위치에 맞는 파일을 받습니다">파일 받기</a>
                           <button class="wf-btn" x-show="file.exists !== false" :class="isOrderFileSelected(file) ? 'primary' : ''" @click="toggleOrderFileSelection(file)" x-text="isOrderFileSelected(file) ? '전달 선택됨' : '전달 선택'"></button>
-                          <button class="wf-btn" x-show="isUnreadFile(file)" @click="markRead(file)">확인</button>
-                          <button class="wf-btn" @click="toggleFileCollab(file)" x-text="expandedFileId === file.id ? '접기' : '협의'"></button>
+                          <button class="wf-btn" x-show="isUnreadFile(file)" @click="markRead(file)">수신확인</button>
+                          <button class="wf-btn" @click="toggleFileCollab(file)" x-text="expandedFileId === file.id ? '접기' : '일정확인'"></button>
                         </div>
                         <div class="wf-file-collab">
                           <div class="wf-collab-compact">
                             <select class="wf-select" x-model="file.scheduleNegotiation">
-                              <option value="pending">확인중</option>
-                              <option value="possible">가능</option>
-                              <option value="needs_change">조정</option>
-                              <option value="confirmed">확정</option>
+                              <option value="pending">확인 대기</option>
+                              <option value="possible">가능일 제시</option>
+                              <option value="needs_change">조정요청</option>
+                              <option value="confirmed">일정 확정</option>
                             </select>
                             <input class="wf-input" type="date" x-model="file.factoryAvailableDate" :title="stageLabel('factory', '공장') + ' 가능일'">
-                            <button class="wf-btn" @click="saveFileSchedule(file)">일정저장</button>
+                            <button class="wf-btn primary" @click="saveFileSchedule(file)">가능일 저장</button>
                           </div>
-                          <input class="wf-input" x-model="file.factoryScheduleNote" :placeholder="stageLabel('factory', '공장') + ' 일정 메모'">
+                          <input class="wf-input" x-model="file.factoryScheduleNote" :placeholder="stageLabel('factory', '공장') + ' 확인/조정 메모'">
                           <div class="wf-collab-actions">
                             <label style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:800;color:#b91c1c;">
                               <input type="checkbox" x-model="file.urgent"> 긴급
@@ -816,37 +867,48 @@
             <section class="wf-section">
               <div class="wf-section-title" style="justify-content:space-between;">
                 <span style="display:flex;align-items:center;gap:6px;">
-                  <span class="material-symbols-outlined" style="font-size:16px;">outbox</span>제작 파일 전달
+                  <span class="material-symbols-outlined" style="font-size:16px;">outbox</span>발행/전달 확인
                 </span>
                 <span style="display:flex;align-items:center;gap:6px;">
                   <span class="wf-muted" x-text="'진행 ' + (orderSummary().active || 0) + ' / 전체 ' + (orderSummary().total || 0)"></span>
                   <button class="wf-btn primary" style="height:26px;padding:0 8px;" @click="createQuickFactoryOrderPackage()" :disabled="!canCreateQuickFactoryOrder()" x-text="quickFactoryOrderButtonLabel()"></button>
-                  <button class="wf-btn ghost" style="height:26px;padding:0 8px;" @click="orderPanelOpen = !orderPanelOpen" x-text="orderPanelOpen ? '접기' : '상세'"></button>
+                  <button class="wf-btn ghost" style="height:26px;padding:0 8px;" @click="toggleOrderPanel()" x-text="orderPanelOpen ? '닫기' : '발행/메일'"></button>
                 </span>
               </div>
-              <div class="wf-section-body" x-show="orders().length && !orderPanelOpen" x-cloak>
-                <div class="wf-gallery">
-                  <template x-for="order in orders()" :key="'compact-order-'+order.id">
-                    <article class="wf-file-card" :class="isOrderCancelled(order) ? 'cancelled' : ''" style="grid-template-columns:minmax(0,1fr);">
-                      <div style="min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;">
-                        <div style="min-width:0;">
-                          <div style="display:flex;align-items:center;gap:6px;min-width:0;">
-                            <div class="wf-file-name" style="min-width:0;" x-text="order.targetName"></div>
-                            <span class="wf-chip blocked" x-show="isOrderCancelled(order)">발주 취소</span>
-                          </div>
-                          <div class="wf-muted">
-                            <span x-text="orderTargetTypeLabel(order.targetType)"></span>
-                            <span> · 파일 </span><span x-text="order.fileCount || 0"></span><span>건</span>
-                            <span x-show="order.dueDate"> · 납기 </span><span x-show="order.dueDate" x-text="order.dueDate"></span>
-                          </div>
-                        </div>
-                        <button class="wf-btn primary" @click="openOrderDelivery(order)" :disabled="!canOpenOrderDelivery(order)" :title="orderActionTitle(order)">
-                          <span class="material-symbols-outlined" style="font-size:15px;" x-text="orderActionIcon(order)"></span><span x-text="orderActionLabel(order)"></span>
-                        </button>
-                      </div>
-                    </article>
-                  </template>
+              <div class="wf-section-body wf-order-compact" x-show="!orderPanelOpen" x-cloak>
+                <div class="wf-empty-line" x-show="!orders().length">
+                  아직 발행된 전달이 없습니다. 시안을 선택하면 공장/업체 전달을 만들 수 있습니다.
                 </div>
+                <template x-for="order in orders()" :key="'compact-order-'+order.id">
+                  <div class="wf-order-row" :class="isOrderCancelled(order) ? 'cancelled' : ''">
+                    <div class="wf-order-main">
+                      <div class="wf-order-title">
+                        <strong x-text="order.targetName"></strong>
+                        <span class="wf-chip" :class="orderStatusChipClass(order)" x-text="orderStatusLabel(order.status)"></span>
+                        <span class="wf-chip" x-show="order.responseStatus" :class="orderResponseChipClass(order)" x-text="order.responseStatusLabel || scheduleNegotiationLabel(order.responseStatus)"></span>
+                        <span class="wf-chip ready" x-show="!isOrderCancelled(order) && order.mailStatus === 'sent'">메일발송</span>
+                        <span class="wf-chip blocked" x-show="isOrderCancelled(order)">발주 취소</span>
+                      </div>
+                      <div class="wf-order-line">
+                        <span x-text="orderTargetTypeLabel(order.targetType)"></span>
+                        <span x-text="'파일 ' + (order.fileCount || 0) + '건'"></span>
+                        <span x-show="order.dueDate" x-text="'납기 ' + order.dueDate"></span>
+                        <span x-show="orderDeliveryStateText(order)" x-text="orderDeliveryStateText(order)"></span>
+                      </div>
+                      <div class="wf-order-line" x-show="orderPublicActivityText(order) || orderResponseText(order) || orderMailSentText(order)">
+                        <span x-show="orderPublicActivityText(order)" x-text="orderPublicActivityText(order)"></span>
+                        <span x-show="orderResponseText(order)" x-text="orderResponseText(order)"></span>
+                        <span x-show="orderMailSentText(order)" x-text="orderMailSentText(order)"></span>
+                      </div>
+                    </div>
+                    <div class="wf-order-actions">
+                      <button class="wf-btn primary" @click="openOrderDelivery(order)" :disabled="!canOpenOrderDelivery(order)" :title="orderActionTitle(order)">
+                        <span class="material-symbols-outlined" style="font-size:15px;" x-text="orderActionIcon(order)"></span><span x-text="orderActionLabel(order)"></span>
+                      </button>
+                      <button class="wf-btn ghost" @click="toggleOrderPanel(true)">상세</button>
+                    </div>
+                  </div>
+                </template>
               </div>
               <div class="wf-section-body" x-show="orderPanelOpen" x-cloak>
                 <div class="wf-upload-panel">
@@ -1048,8 +1110,8 @@
               </select>
             </div>
           </div>
-          <div class="wf-company-picks" x-show="workflowCompanySuggestions(projectForm.companyName, 18).length">
-            <template x-for="company in workflowCompanySuggestions(projectForm.companyName, 18)" :key="'project-company-'+company.name">
+          <div class="wf-company-picks" x-show="workflowCompanySuggestions(projectForm.companyName, 12).length">
+            <template x-for="company in workflowCompanySuggestions(projectForm.companyName, 12)" :key="'project-company-'+company.name">
               <button type="button" class="wf-company-pick" @click="projectForm.companyName = company.name">
                 <strong x-text="company.name"></strong>
                 <small x-text="(company.projectCount || 0) + ' 현장'"></small>
@@ -1069,8 +1131,12 @@
               <div class="wf-inbox-title">회사별 저장 규칙</div>
               <div class="wf-inbox-meta">회사마다 다른 실제 서버 폴더 구조를 여기 규칙으로 맞춥니다.</div>
             </div>
-            <button class="wf-btn ghost" style="height:28px;" @click="resetStorageRuleForm(projectForm.companyName)">새 규칙</button>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <button class="wf-btn ghost" style="height:28px;" x-show="canManageWorkflowStorageRules()" @click="repairWorkflowFileStorage()" :disabled="workflowStorageRepairRunning" x-text="workflowStorageRepairRunning ? '정리 중' : '파일 정리'"></button>
+              <button class="wf-btn ghost" style="height:28px;" @click="resetStorageRuleForm(projectForm.companyName)">새 규칙</button>
+            </div>
           </div>
+          <div class="wf-muted" x-show="workflowStorageRepairNotice" x-text="workflowStorageRepairNotice"></div>
           <div class="wf-modal-grid">
             <div class="wf-field">
               <label>회사명</label>
@@ -1174,7 +1240,7 @@
       <div class="wf-dialog-head">
         <div class="wf-dialog-title">
           <span class="material-symbols-outlined" style="font-size:17px;">add_task</span>
-          작업 등록
+          시안 등록
         </div>
         <button class="wf-btn ghost" style="height:28px;" @click="closeNewJobModal()">닫기</button>
       </div>
@@ -1183,8 +1249,8 @@
           <div class="wf-field">
             <label>회사명</label>
             <input class="wf-input" x-ref="newJobCompany" list="wfCompanyNames" x-model="form.companyName" @change="syncAutoJobTitle()" placeholder="직접 입력 또는 선택">
-            <div class="wf-company-picks" x-show="workflowCompanySuggestions(form.companyName, 36).length">
-              <template x-for="company in workflowCompanySuggestions(form.companyName, 36)" :key="'new-company-'+company.name">
+            <div class="wf-company-picks" x-show="workflowCompanySuggestions(form.companyName, 12).length">
+              <template x-for="company in workflowCompanySuggestions(form.companyName, 12)" :key="'new-company-'+company.name">
                         <button type="button" class="wf-company-pick" @click="form.companyName = company.name; form.projectName = ''; syncAutoJobTitle(true)">
                   <strong x-text="company.name"></strong>
                   <small x-text="(company.projectCount || 0) + ' 현장'"></small>
@@ -1195,16 +1261,13 @@
           <div class="wf-field">
             <label>프로젝트/현장</label>
             <input class="wf-input" list="wfFormProjectNames" x-model="form.projectName" @change="syncAutoJobTitle()" placeholder="프로젝트명">
-            <div class="wf-project-picks" x-show="workflowProjectSuggestions(form.companyName, 16, form.projectName).length">
-              <template x-for="project in workflowProjectSuggestions(form.companyName, 16, form.projectName)" :key="'new-project-'+project.name">
+            <div class="wf-project-picks" x-show="workflowProjectSuggestions(form.companyName, 8, form.projectName).length">
+              <template x-for="project in workflowProjectSuggestions(form.companyName, 8, form.projectName)" :key="'new-project-'+project.name">
                 <button type="button" class="wf-project-pick" @click="form.projectName = project.name; syncAutoJobTitle(true)">
                   <span x-text="project.name"></span>
                   <small x-show="projectBadge(project)" x-text="projectBadge(project)"></small>
                 </button>
               </template>
-            </div>
-            <div style="display:flex;justify-content:flex-end;">
-              <button type="button" class="wf-btn ghost" style="height:28px;" @click="addFormProjectFolder()" :disabled="!form.companyName || !form.projectName">프로젝트 추가</button>
             </div>
           </div>
           <div class="wf-field">
@@ -1212,17 +1275,15 @@
             <input class="wf-input" type="date" x-model="form.dueDate">
           </div>
           <div class="wf-field">
-            <label>긴급도</label>
-            <select class="wf-select" x-model="form.priority">
-              <option value="urgent">긴급</option>
-              <option value="high">높음</option>
-              <option value="normal">보통</option>
-              <option value="low">낮음</option>
-            </select>
+            <label>긴급</label>
+            <label class="wf-creator" style="cursor:pointer;">
+              <input type="checkbox" :checked="form.priority === 'urgent' || form.priority === 'high'" @change="form.priority = $event.target.checked ? 'urgent' : 'normal'">
+              <span>긴급 요청</span>
+            </label>
           </div>
         </div>
         <div class="wf-field">
-          <label>시안 파일</label>
+          <label>시안 파일 <span class="wf-required">필수</span></label>
           <label class="wf-dropzone wf-modal-dropzone" :class="[newUploadDragOver ? 'drag' : '', uploadProgress.active ? 'busy' : '']"
             @dragover.prevent="newUploadDragOver=true"
             @dragleave.prevent="newUploadDragOver=false"
@@ -1268,8 +1329,9 @@
           <span class="material-symbols-outlined" style="font-size:15px;">person</span>
           <span x-text="'담당 ' + currentUserLabel()"></span>
         </div>
-        <button class="wf-btn primary" @click="createJob()" :disabled="saving">
-          <span class="material-symbols-outlined" style="font-size:16px;">check</span>등록
+        <button class="wf-btn primary" @click="createJob()" :disabled="saving || !newFiles.length" :title="newFiles.length ? '' : '시안 파일을 먼저 올려주세요.'">
+          <span class="material-symbols-outlined" style="font-size:16px;">check</span>
+          <span x-text="saving ? '등록 중' : '등록'"></span>
         </button>
       </div>
     </div>

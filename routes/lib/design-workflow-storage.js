@@ -157,10 +157,14 @@ function projectFromParts(parts, skipDirs) {
 function ensureCompany(stats, company, count = 0) {
   const key = normalizeKey(company.name);
   if (!key) return null;
+  const aliases = Array.isArray(company.companyAliases)
+    ? company.companyAliases.map(cleanCompanyDisplayName).filter(Boolean)
+    : [];
   if (!stats.has(key)) {
     stats.set(key, {
       name: cleanCompanyDisplayName(company.name),
       folderName: cleanHierarchyPart(company.folderName || company.name),
+      companyAliases: aliases,
       count: 0,
       folderCount: 0,
     });
@@ -168,6 +172,16 @@ function ensureCompany(stats, company, count = 0) {
   const stat = stats.get(key);
   stat.count += Number(count || 0);
   if (!stat.folderName && company.folderName) stat.folderName = cleanHierarchyPart(company.folderName);
+  if (aliases.length) {
+    const seen = new Set((stat.companyAliases || []).map(normalizeKey).filter(Boolean));
+    for (const alias of aliases) {
+      const aliasKey = normalizeKey(alias);
+      if (aliasKey && !seen.has(aliasKey)) {
+        seen.add(aliasKey);
+        stat.companyAliases.push(alias);
+      }
+    }
+  }
   return stat;
 }
 
@@ -274,12 +288,31 @@ function addIndexOptions(companyStats, projectStats, designIndex, skipDirs) {
   }
 }
 
+function addStorageRuleOptions(companyStats) {
+  let rules = [];
+  try {
+    rules = loadRules();
+  } catch (_) {
+    rules = [];
+  }
+  for (const rule of rules || []) {
+    const company = {
+      name: rule.companyName,
+      folderName: rule.companyFolder || rule.companyName,
+      companyAliases: rule.companyAliases || [],
+    };
+    const stat = ensureCompany(companyStats, company, 0);
+    if (stat) stat.storageRule = true;
+  }
+}
+
 function buildWorkflowOptions({ designIndex = [], designRoot = '', skipDirs = null, companyLimit = 5000, projectLimit = 1000 } = {}) {
   const companyStats = new Map();
   const projectStats = new Map();
   const currentYear = String(new Date().getFullYear());
   addFolderOptions(companyStats, projectStats, designRoot, skipDirs);
   addIndexOptions(companyStats, projectStats, designIndex, skipDirs);
+  addStorageRuleOptions(companyStats);
 
   const companies = Array.from(companyStats.values())
     .map(company => {
@@ -305,6 +338,10 @@ function buildWorkflowOptions({ designIndex = [], designRoot = '', skipDirs = nu
     if (company.folderName && company.folderName !== company.name) projectsByCompany[company.folderName] = projects;
     projectLookup[key] = projects;
     if (company.folderName) projectLookup[normalizeKey(company.folderName)] = projects;
+    for (const alias of company.companyAliases || []) {
+      const aliasKey = normalizeKey(alias);
+      if (aliasKey) projectLookup[aliasKey] = projects;
+    }
   }
 
   return {
