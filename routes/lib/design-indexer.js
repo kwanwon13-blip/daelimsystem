@@ -38,6 +38,7 @@ function buildFileItem({ dir, entryName, rootPath, ext, extToType, aiSet }) {
 // 증분 인덱스 빌드.
 // opts: { force, cache(Map), skipDirs(Set), indexedExts(Set), extToType(obj), maxDepth, onProgress(fn) }
 // returns { items, dirsScanned, dirsReused }
+// 주의: 반환 items 는 cache 와 객체를 공유(참조)한다 — 소비측은 item 을 in-place 변형하지 말 것(불변 취급).
 async function buildDesignIndex(rootPath, opts = {}) {
   const {
     force = false,
@@ -115,4 +116,55 @@ async function buildDesignIndex(rootPath, opts = {}) {
   return { items, dirsScanned, dirsReused };
 }
 
-module.exports = { CACHE_VERSION, buildFileItem, buildDesignIndex };
+// designDirCache(Map) → 디스크 저장용 평탄 객체
+function serializeCache(cache, designRoot) {
+  const dirs = [];
+  for (const [dir, entry] of cache.entries()) {
+    dirs.push({ dir, mtimeMs: entry.mtimeMs, subdirs: entry.subdirs, items: entry.items });
+  }
+  return { version: CACHE_VERSION, designRoot, savedAt: new Date().toISOString(), dirs };
+}
+
+// 디스크 객체 → { cache(Map), items[] } 또는 null(무효)
+function deserializeCache(obj, designRoot) {
+  if (!obj || obj.version !== CACHE_VERSION) return null;
+  if (obj.designRoot !== designRoot) return null;
+  if (!Array.isArray(obj.dirs)) return null;
+  const cache = new Map();
+  const items = [];
+  for (const d of obj.dirs) {
+    if (!d || typeof d.dir !== 'string') continue;
+    const entry = {
+      mtimeMs: d.mtimeMs || 0,
+      subdirs: Array.isArray(d.subdirs) ? d.subdirs : [],
+      items: Array.isArray(d.items) ? d.items : [],
+    };
+    cache.set(d.dir, entry);
+    for (const it of entry.items) items.push(it);
+  }
+  return { cache, items };
+}
+
+// 파일에서 캐시 로드 (손상/없음/불일치 시 null)
+function loadIndexCache(filePath, designRoot) {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const raw = fs.readFileSync(filePath, 'utf8');
+    return deserializeCache(JSON.parse(raw), designRoot);
+  } catch (e) {
+    return null;
+  }
+}
+
+// 파일에 캐시 저장 (임시파일 → rename 원자적 교체)
+async function saveIndexCache(filePath, cache, designRoot) {
+  const json = JSON.stringify(serializeCache(cache, designRoot));
+  const tmp = filePath + '.tmp';
+  await fs.promises.writeFile(tmp, json, 'utf8');
+  await fs.promises.rename(tmp, filePath);
+}
+
+module.exports = {
+  CACHE_VERSION, buildFileItem, buildDesignIndex,
+  serializeCache, deserializeCache, loadIndexCache, saveIndexCache,
+};
