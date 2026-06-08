@@ -2594,6 +2594,28 @@ function workflowApp() {
       return d.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' });
     },
 
+    // 읽기 쉬운 짧은 날짜: "7/12(금)"
+    wfShortDate(d) {
+      const m = String(d || '').match(/(\d{4})-(\d{2})-(\d{2})/);
+      if (!m) return '';
+      const wd = ['일', '월', '화', '수', '목', '금', '토'][new Date(+m[1], +m[2] - 1, +m[3]).getDay()];
+      return `${+m[2]}/${+m[3]}(${wd})`;
+    },
+
+    // 카드에 항상 보일 마감/완료 날짜 배지 (접혀있어도 보임)
+    cardDeadline(job) {
+      if (!job || job.status === 'cancelled') return null;
+      if (job.status === 'done') {
+        const d = job.completedAt || job.archiveUpdatedAt || job.dueDate;
+        const date = this.wfShortDate(d);
+        return date ? { label: '완료', date, cls: 'done' } : null;
+      }
+      const d = job.dueDate || (job.nextStageDue && job.nextStageDue.dueDate) || '';
+      const date = this.wfShortDate(d);
+      if (!date) return null;
+      return { label: '마감', date, cls: job.overdue ? 'overdue' : '' };
+    },
+
     canReviewFile(file) {
       return !!file && ['proof', 'drawing'].includes(file.kind || 'attachment');
     },

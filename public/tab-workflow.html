@@ -74,6 +74,11 @@
   .wf-card.active .wf-card-extra{display:flex;}
   .wf-card-actions{display:flex;gap:5px;margin-top:7px;}
   .wf-card-actions .wf-btn{height:27px;font-size:11px;padding:0 8px;flex:1;justify-content:center;}
+  .wf-card-date{margin-top:5px;}
+  .wf-date{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 9px;border-radius:6px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-size:12px;font-weight:800;}
+  .wf-date strong{font-size:12.5px;font-weight:900;}
+  .wf-date.overdue{background:#fee2e2;color:#b91c1c;border-color:#fecaca;}
+  .wf-date.done{background:#dcfce7;color:#15803d;border-color:#bbf7d0;}
   .wf-card:not(.active) .wf-chip{height:18px;padding:0 6px;font-size:10px;}
   .wf-card:not(.active) .wf-card-visual{display:none!important;}
   .wf-card-visual{position:relative;display:block;height:180px;margin:-2px -3px 8px -3px;border-radius:6px;overflow:hidden;background:#e2e8f0;}
@@ -468,6 +473,9 @@
                     </div>
                   </template>
                   <div class="wf-card-title" x-text="job.title"></div>
+                  <div class="wf-card-date" x-show="cardDeadline(job)">
+                    <span class="wf-date" :class="(cardDeadline(job)||{}).cls"><span x-text="(cardDeadline(job)||{}).label"></span><strong x-text="(cardDeadline(job)||{}).date"></strong></span>
+                  </div>
                   <div class="wf-card-meta">
                     <span x-text="job.companyName || '-'"></span>
                     <span x-show="job.projectName">·</span>
@@ -476,11 +484,7 @@
                   <div class="wf-card-compact">
                     <span class="wf-chip urgent" x-show="job.urgentFileCount" x-text="'긴급 ' + job.urgentFileCount"></span>
                     <span class="wf-chip unread" x-show="job.unreadCount || job.unreadFileCount" x-text="'확인 ' + (job.unreadCount || job.unreadFileCount)"></span>
-                    <span class="wf-chip overdue" x-show="job.overdue">지연</span>
-                    <span class="wf-chip" x-show="job.dueDate" x-text="job.dueDate"></span>
-                    <span class="wf-chip" x-show="!job.dueDate && job.nextStageDue" x-text="job.nextStageDue ? (job.nextStageDue.stageLabel + ' ' + job.nextStageDue.dueDate) : ''"></span>
                     <span class="wf-chip" x-show="job.fileCount" x-text="'파일 ' + job.fileCount"></span>
-                    <span class="wf-chip done" x-show="job.status === 'done'">완료</span>
                     <span class="wf-chip blocked" x-show="job.status === 'cancelled'">취소</span>
                   </div>
                   <div class="wf-card-actions" @click.stop style="display:flex;gap:4px;margin-top:7px;flex-wrap:wrap;">
@@ -853,10 +857,10 @@
               </div>
             </section>
 
-            <section class="wf-section">
+            <section class="wf-section" x-show="detail.job.currentStage === 'design' || selectedWorkStageId === 'design'" x-cloak>
               <div class="wf-section-title" style="justify-content:space-between;">
                 <span style="display:flex;align-items:center;gap:6px;">
-                  <span class="material-symbols-outlined" style="font-size:16px;">outbox</span>발행/전달 확인
+                  <span class="material-symbols-outlined" style="font-size:16px;">outbox</span>발행/전달 확인 <span class="wf-muted" style="font-weight:600;">· 디자인 발주용</span>
                 </span>
                 <span style="display:flex;align-items:center;gap:6px;">
                   <span class="wf-muted" x-text="'진행 ' + (orderSummary().active || 0) + ' / 전체 ' + (orderSummary().total || 0)"></span>
