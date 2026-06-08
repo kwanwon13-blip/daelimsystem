@@ -29,4 +29,21 @@ assert.strictEqual(r.unknownLedgerGuard({ matchedSlugs: [], task: '퍼시스 마
 // 미매칭 + 잡담 + xlsx → 통과(일반 처리)
 assert.strictEqual(r.unknownLedgerGuard({ matchedSlugs: [], task: '이 파일 요약해줘', attachments: [{ name: 'a.xlsx' }] }).stop, false);
 
+// --- classifyUnknownLedger ---
+assert.strictEqual(r.classifyUnknownLedger({ matchedSlugs: ['persys-ledger'], task: '마감', attachments: [{ name: 'a.xlsx' }] }).mode, 'skill');
+assert.strictEqual(r.classifyUnknownLedger({ matchedSlugs: [], task: '안녕', attachments: [] }).mode, 'passthrough');
+assert.strictEqual(r.classifyUnknownLedger({ matchedSlugs: [], task: '이 파일 요약해줘', attachments: [{ name: 'a.xlsx' }] }).mode, 'passthrough');
+assert.strictEqual(r.classifyUnknownLedger({ matchedSlugs: [], task: '새거래처 마감', attachments: [{ name: 'raw.xlsx' }] }).mode, 'ask-template');
+{
+  const g = r.classifyUnknownLedger({ matchedSlugs: [], task: '새거래처 마감', attachments: [{ name: 'raw.xlsx' }, { name: '전월양식.xlsx' }] });
+  assert.strictEqual(g.mode, 'generate');
+}
+// --- buildGenerationInstruction ---
+{
+  const t = r.buildGenerationInstruction({ task: 'x' });
+  assert.ok(/양식/.test(t));
+  assert.ok(/make_generated\.py/.test(t));
+  assert.ok(/임시/.test(t));
+}
+
 console.log('PASS ledger-router');
