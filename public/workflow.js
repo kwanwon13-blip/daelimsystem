@@ -160,9 +160,9 @@ function workflowApp() {
         window.__workflowDepartmentsChangedListenerInstalled = true;
       }
       await Promise.all([this.loadAuth(), this.loadMeta()]);
-      await this.loadPublicLinkSettings();
       if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
-      await this.loadJobs();
+      // 목록(loadJobs)과 공개링크 설정은 서로 독립 → 병렬로 받아 첫 표시를 앞당긴다
+      await Promise.all([this.loadJobs(), this.loadPublicLinkSettings()]);
       this.consumeWorkflowDraft();
       await this.consumeWorkflowOpenTarget();
     },

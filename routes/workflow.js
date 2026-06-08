@@ -11,6 +11,7 @@ const designModule = require('./design');
 const mailRoute = require('./mail');
 const { isPathInside } = require('./lib/design-workflow-storage');
 const workflowStorageRules = require('./lib/workflow-storage-rules');
+const { createFileLocator } = require('./lib/workflow-file-locator');
 let sharp;
 try { sharp = require('sharp'); } catch (_) {}
 const { sendSmtpMail, normalizeEmailList } = mailRoute;
@@ -350,52 +351,47 @@ function allowedWorkflowFilePath(fullPath) {
   return null;
 }
 
-function fileDiskPath(file) {
-  const raw = String(file?.storedPath || file?.storedName || '');
-  const candidates = [];
-  if (raw) {
-    if (path.isAbsolute(raw)) {
-      candidates.push(raw);
-    } else {
-      candidates.push(path.resolve(FILE_DIR, raw.replace(/\\/g, '/')));
-    }
-  }
-  if (file?.storagePath) {
-    if (file.storedName) candidates.push(path.join(file.storagePath, file.storedName));
-    if (file.originalName) candidates.push(path.join(file.storagePath, safeFilePart(file.originalName, file.storedName || file.id || 'file')));
-  }
-  if (file?.storageRoot === 'design' && file?.storageBucket) {
-    const designRoot = path.resolve(designModule.getDesignRoot ? designModule.getDesignRoot() : 'D:\\');
-    if (file.storedName) candidates.push(path.resolve(designRoot, file.storageBucket, file.storedName));
-    if (file.originalName) candidates.push(path.resolve(designRoot, file.storageBucket, safeFilePart(file.originalName, file.storedName || file.id || 'file')));
-  }
-  if (file?.storageRoot === 'design' && file?.storageCompanyName && file?.storageProjectName) {
-    try {
-      const storageInfo = resolveWorkflowDesignStorage(
-        file.storageCompanyName,
-        file.storageProjectName,
-        safeYear(file.storageYear),
-        false,
-      );
-      if (storageInfo?.dir) {
-        if (file.storedName) candidates.push(path.resolve(storageInfo.dir, file.storedName));
-        if (file.originalName) candidates.push(path.resolve(storageInfo.dir, safeFilePart(file.originalName, file.storedName || file.id || 'file')));
-      }
-    } catch (_) {}
-  }
-  let firstAllowed = null;
-  for (const candidate of candidates) {
-    const allowed = allowedWorkflowFilePath(candidate);
-    if (!allowed) continue;
-    if (!firstAllowed) firstAllowed = allowed;
-    if (fs.existsSync(allowed)) return allowed;
-  }
-  return firstAllowed;
+let _fileLocator = null;
+function fileLocator() {
+  if (_fileLocator) return _fileLocator;
+  _fileLocator = createFileLocator({
+    fileDir: FILE_DIR,
+    getDesignRoot: () => (designModule.getDesignRoot ? designModule.getDesignRoot() : 'D:\\'),
+    resolveDesignStorage: (company, project, year) =>
+      resolveWorkflowDesignStorage(company, project, safeYear(year), false),
+    safeFilePart,
+    isPathInside,
+  });
+  return _fileLocator;
 }
 
+// 디스크 경로 해석 — 저장된 절대경로/디렉터리(싼 후보) 우선, 모두 없을 때만 네트워크 폴백.
+// 기존엔 design 파일마다 네트워크 디자인폴더 풀스캔을 "무조건" 먼저 했다 → 목록/상세 로드가 분 단위.
+function fileDiskPath(file) {
+  return fileLocator().diskPath(file);
+}
+
+// 표시용 존재여부 — 모듈 레벨 TTL 메모. 한 요청 안/요청 간 반복 stat 을 제거.
 function workflowFileExists(file) {
-  const full = fileDiskPath(file);
-  return !!(full && fs.existsSync(full));
+  return fileLocator().exists(file);
+}
+
+// 느린 요청 자가보고: 300ms 이상이거나 WORKFLOW_PERF_LOG 환경변수일 때만 1줄 출력.
+// 캐시가 더워지면 자동으로 조용해진다. (어디서 시간이 새는지 확인용)
+function workflowPerfSnapshot() {
+  return fileLocator().snapshotStats();
+}
+function logWorkflowPerf(label, t0, s0, extra = {}) {
+  const ms = Date.now() - t0;
+  if (ms < 300 && !process.env.WORKFLOW_PERF_LOG) return;
+  const s = fileLocator().snapshotStats();
+  console.log(`[workflow-perf] ${label} ${ms}ms`, {
+    ...extra,
+    diskPath: s.diskPathCalls - (s0.diskPathCalls || 0),
+    stat: s.existsChecks - (s0.existsChecks || 0),
+    memoHit: s.existsMemoHits - (s0.existsMemoHits || 0),
+    scan: s.expensiveResolves - (s0.expensiveResolves || 0),
+  });
 }
 
 function workflowFileExistsCached(file, cache = null) {
@@ -2039,12 +2035,13 @@ function orderChangeRequestCount(data, job) {
   }).length;
 }
 
-function completionBlockers(data, job) {
+function completionBlockers(data, job, opts = {}) {
   const blockers = [];
   const pendingStages = pendingStageCount(job);
   const pendingChecklist = pendingChecklistCount(job);
   const blockedStages = blockedStageCount(job);
-  const missingFiles = missingFileCount(data, job, data?.fileExistsCache || null);
+  // 목록/요약에서는 디스크 확인을 건너뛴다(skipFileExists) → 탭 열기 즉시. 상세에서 정확히 검증.
+  const missingFiles = opts.skipFileExists ? 0 : missingFileCount(data, job, data?.fileExistsCache || null);
   const pendingReviews = pendingReviewCount(data, job);
   const changeRequests = changeRequestCount(data, job);
   const lateSchedules = lateScheduleCount(data, job);
@@ -2139,8 +2136,8 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
   const fileExistsCache = options.fileExistsCache || data.fileExistsCache || null;
   const scopedData = { ...data, files, events, orders, fileExistsCache };
   const orderSummary = buildOrderSummary(scopedData, job);
-  const blockers = completionBlockers(scopedData, job);
-  const jobMissingFileCount = missingFileCount(scopedData, job, fileExistsCache);
+  const blockers = completionBlockers(scopedData, job, { skipFileExists: options.skipFileExists });
+  const jobMissingFileCount = options.skipFileExists ? 0 : missingFileCount(scopedData, job, fileExistsCache);
   const unreadFileCount = files.filter(f => isUnreadForViewer(f, viewerUser, job)).length;
   const unreadEventCount = events.filter(e => isUnreadEventForViewer(e, viewerUser, job)).length;
   const storedArchiveCount = Number(job.archiveFileCount);
@@ -2148,9 +2145,11 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
   const visualFiles = files
     .filter(f => isImageFile(f))
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
-  const primaryVisualFile = options.skipVisualFileExists
-    ? (visualFiles[0] && workflowFileExistsCached(visualFiles[0], fileExistsCache) ? visualFiles[0] : null)
-    : (visualFiles.find(f => workflowFileExistsCached(f, fileExistsCache)) || null);
+  const primaryVisualFile = options.skipFileExists
+    ? (visualFiles[0] || null)
+    : options.skipVisualFileExists
+      ? (visualFiles[0] && workflowFileExistsCached(visualFiles[0], fileExistsCache) ? visualFiles[0] : null)
+      : (visualFiles.find(f => workflowFileExistsCached(f, fileExistsCache)) || null);
   return {
     ...job,
     fileCount: files.length,
@@ -2288,7 +2287,7 @@ function buildSummary(data, req) {
       const scopedData = summaryDataForJob(job);
       const stage = STAGES.find(s => s.id === job.currentStage) || STAGES[0] || { id: 'design', label: '디자인' };
       const check = job.stageChecks?.[stage.id] || {};
-      const blockers = completionBlockers(scopedData, job);
+      const blockers = completionBlockers(scopedData, job, { skipFileExists: true });
       const dueDate = check.dueDate || job.dueDate || '';
       const stageOverdue = check.status !== 'done' && isPastDue(dueDate);
       return {
@@ -2324,7 +2323,7 @@ function buildSummary(data, req) {
     .slice(0, 8);
   const changeRequests = activeJobs.reduce((sum, job) => sum + changeRequestCount(summaryDataForJob(job), job), 0);
   const lateSchedules = activeJobs.reduce((sum, job) => sum + lateScheduleCount(summaryDataForJob(job), job), 0);
-  const readyToComplete = activeJobs.filter(job => completionBlockers(summaryDataForJob(job), job).length === 0).length;
+  const readyToComplete = activeJobs.filter(job => completionBlockers(summaryDataForJob(job), job, { skipFileExists: true }).length === 0).length;
   const scheduleItems = buildScheduleItems(data, req);
   return {
     active: activeJobs.length,
@@ -3048,6 +3047,8 @@ router.put('/projects/:id', (req, res) => {
 });
 
 router.get('/jobs', (req, res) => {
+  const __t0 = Date.now();
+  const __s0 = workflowPerfSnapshot();
   const data = loadStore();
   const q = safeText(req.query.q, 100).toLowerCase();
   const status = safeText(req.query.status, 30);
@@ -3065,7 +3066,8 @@ router.get('/jobs', (req, res) => {
     eventsByJob: workflowItemsByJob(data.events),
     ordersByJob: workflowItemsByJob(data.orders || []),
     fileExistsCache: new Map(),
-    skipVisualFileExists: true,
+    // 목록은 디스크 존재확인을 아예 건너뛴다 → 네트워크 드라이브와 무관하게 즉시. 상세에서 검증.
+    skipFileExists: true,
   };
   let jobs = data.jobs.slice();
   if (status && status !== 'all') jobs = jobs.filter(j => j.status === status);
@@ -3095,24 +3097,29 @@ router.get('/jobs', (req, res) => {
   });
   const total = jobs.length;
   const visibleJobs = limit ? jobs.slice(0, limit) : jobs;
+  const decoratedJobs = visibleJobs.map(job => decorateJob(data, job, req.user, decorateOptions));
+  const summary = buildSummary(data, req);
+  logWorkflowPerf('GET /jobs', __t0, __s0, { jobs: decoratedJobs.length, total });
   res.json({
     ok: true,
-    jobs: visibleJobs.map(job => decorateJob(data, job, req.user, decorateOptions)),
+    jobs: decoratedJobs,
     total,
     limit,
     limited: !!limit && total > visibleJobs.length,
-    summary: buildSummary(data, req),
+    summary,
   });
 });
 
 router.get('/jobs/:id', (req, res) => {
+  const __t0 = Date.now();
+  const __s0 = workflowPerfSnapshot();
   const data = loadStore();
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
   const files = data.files
     .filter(f => f.jobId === job.id)
     .map(f => decorateWorkflowFile(f, req.user, job));
-  res.json({
+  const payload = {
     ok: true,
     job: decorateJob(data, job, req.user),
     files,
@@ -3120,7 +3127,9 @@ router.get('/jobs/:id', (req, res) => {
     orderSummary: buildOrderSummary(data, job),
     deliverySummary: buildDeliverySummary(files, req.user, job),
     events: data.events.filter(e => e.jobId === job.id).map(e => decorateWorkflowEvent(e, req.user, job)),
-  });
+  };
+  logWorkflowPerf('GET /jobs/:id', __t0, __s0, { files: files.length });
+  res.json(payload);
 });
 
 router.post('/jobs', (req, res) => {
@@ -3777,6 +3786,8 @@ router.post('/jobs/:id/files', workflowUploadFiles, (req, res) => {
     });
   }
   saveStore(data);
+  // 폴더가 새로 만들어졌을 수 있으니 해당 프로젝트의 폴더해석 캐시를 비운다(읽기 폴백이 최신 폴더를 보도록).
+  if (actualStorageInfo) fileLocator().invalidateResolve(storageCompanyName, storageProjectName, actualStorageInfo.year || storageYear);
   res.json({
     ok: true,
     files: uploaded.map(f => decorateWorkflowFile(f, req.user, job)),
