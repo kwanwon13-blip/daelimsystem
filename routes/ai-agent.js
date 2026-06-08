@@ -126,11 +126,34 @@ function persistAgentFiles({ userId, threadId, sessionId, files }) {
   return out;
 }
 
-function buildAgentFinalContent({ status, lastError, lastDone, finalFiles, createdArtifacts, collectedOutput }) {
+// 마감 스킬 실패 코드별 직원용 안내 (raw stderr 대신 이걸 먼저 보여줌)
+const FRIENDLY_ERROR = {
+  RAW_MISSING:    '원본 판매현황 파일을 찾지 못했어요. "판매현황" 시트가 있는 엑셀을 첨부했는지 확인해 주세요.',
+  TEMPLATE_MISSING: '이 업체의 전월 마감 양식(템플릿)이 등록돼 있지 않아요. 전월 마감내역서 엑셀을 한 번 첨부하면 다음부터는 판매현황만 올려도 됩니다.',
+  NO_SALES_SHEET: '첨부한 엑셀에 "판매현황" 시트가 없어요. eCount 판매현황 원본을 첨부했는지 확인해 주세요.',
+  BAD_TEMPLATE:   '등록된 템플릿 양식이 올바르지 않아요(필요한 시트를 찾지 못함). 정상적인 전월 마감내역서로 다시 등록해 주세요.',
+  NO_DATA:        '처리할 데이터가 없어요. 판매현황에 해당 월 데이터가 들어있는지 확인해 주세요.',
+  NO_OUTPUT:      '생성된 결과가 없어요. 데이터·템플릿을 다시 확인해 주세요.',
+};
+
+function buildAgentFinalContent({ status, lastError, lastDone, finalFiles, createdArtifacts, collectedOutput, userStopped, errorCode }) {
+  // 사용자가 명시적으로 중단한 경우 — 오류가 아니라 '중단됨' 으로 표시 (여태 만든 파일은 아래서 카드로 노출)
+  if (userStopped) {
+    const made = createdArtifacts && createdArtifacts.length
+      ? `\n\n중단 전까지 생성된 파일 ${createdArtifacts.length}개는 아래에서 받을 수 있어요.` : '';
+    return '⏹ 작업을 중단했어요.' + made;
+  }
   if (lastError) {
+    // 종료코드별 친절 안내 (있으면) — 자세한 raw 로그는 접이식으로
+    const friendly = errorCode ? FRIENDLY_ERROR[errorCode] : '';
     const tail = String(collectedOutput || '').trim().slice(-2500);
-    return 'Agent error: ' + (lastError.message || 'unknown error')
-      + (tail ? '\n\n실행 로그:\n```text\n' + tail + '\n```' : '');
+    const head = friendly
+      ? friendly
+      : ('작업에 실패했어요: ' + (lastError.message || '알 수 없는 오류'));
+    const partial = createdArtifacts && createdArtifacts.length
+      ? `\n\n(실패 전까지 생성된 파일 ${createdArtifacts.length}개는 아래에서 받을 수 있어요.)` : '';
+    return head + partial
+      + (tail ? '\n\n<details>\n<summary>실행 로그 보기</summary>\n\n```text\n' + tail + '\n```\n</details>' : '');
   }
   if (lastDone?.templateSaved?.length) {
     return `템플릿 저장 완료 (${lastDone.templateSaved.join(', ')})`;
@@ -251,14 +274,18 @@ router.post('/run', async (req, res) => {
 
   // Browser disconnects should not cancel the server-side job.
   const ctrl = new AbortController();
+  let userStopped = false;   // 명시적 stop(중단)으로 종료됐는지 — interrupted 표시용
   let lastDone = null;
   let lastError = null;
   let collectedOutput = '';
   let collectedFiles = [];
+  let liveSessionId = '';            // started 에서 캡처 — 진행 중 파일을 바로 persist 하려면 필요
+  const liveArtifacts = [];          // 진행 중 즉시 등록된 artifact (done 전 F5 복원용)
+  const persistedRelPaths = new Set();
   const agentReg = aiMsgRec ? reg.start(aiMsgRec.id, {
     threadId: thread?.id,
     ownerId: req.user.userId,
-    abort: () => ctrl.abort(),
+    abort: () => { userStopped = true; ctrl.abort(); },
     getAccumulated: () => collectedOutput || aiMsgRec.content || '',
   }) : null;
   req.on('close', () => {
@@ -274,8 +301,13 @@ router.post('/run', async (req, res) => {
       signal: ctrl.signal,
     })) {
       // thread 정보를 첫 'started' 에 끼워서 클라이언트에 알려주기
-      if (evt.type === 'started' && thread) {
-        send('started', { ...evt.data, threadId: thread.id, userMsgId, messageId: aiMsgRec?.id });
+      if (evt.type === 'started') {
+        liveSessionId = (evt.data && evt.data.sessionId) || liveSessionId;
+        if (thread) {
+          send('started', { ...evt.data, threadId: thread.id, userMsgId, messageId: aiMsgRec?.id });
+        } else {
+          send(evt.type, evt.data);
+        }
       } else {
         send(evt.type, evt.data);
       }
@@ -288,6 +320,25 @@ router.post('/run', async (req, res) => {
       }
       if (evt.type === 'file') {
         collectedFiles.push(evt.data);
+        // ★ 파일이 감지되는 즉시 영구 보존(ai_outputs) + artifact 등록 →
+        //   작업이 길어 done 전에 새로고침해도 다운로드 카드가 복원된다.
+        if (thread && liveSessionId && evt.data && evt.data.relPath && !persistedRelPaths.has(evt.data.relPath)) {
+          persistedRelPaths.add(evt.data.relPath);
+          try {
+            const made = persistAgentFiles({
+              userId: req.user.userId, threadId: thread.id,
+              sessionId: liveSessionId, files: [evt.data],
+            });
+            for (const a of made) {
+              liveArtifacts.push(a);
+              if (aiMsgRec) { try { ai.artifacts.setMessageId(a.id, aiMsgRec.id); } catch (_) {} }
+            }
+            // 진행 메시지 metadata 에 누적 artifacts 저장 → selectThread 가 F5 후 카드 복원
+            if (aiMsgRec && made.length) {
+              try { ai.threads.updateMessageMetadata(aiMsgRec.id, { artifacts: liveArtifacts.slice() }); } catch (_) {}
+            }
+          } catch (e) { console.warn('[ai-agent] live persist 실패:', e.message); }
+        }
         if (agentReg && aiMsgRec) {
           const fileText = `\n\n생성 감지: ${evt.data?.name || 'file'}`;
           reg.publish(aiMsgRec.id, 'delta', { text: fileText });
@@ -301,26 +352,35 @@ router.post('/run', async (req, res) => {
     // ── DB 에 결과 저장 (thread 가 있으면) ──
     if (thread && ai.threads && ai.threads.addMessage) {
       try {
-        const status = lastError ? 'error' : 'ok';
-        const finalFiles = collectedFiles.length ? collectedFiles : (lastDone?.files || []);
-        const createdArtifacts = status === 'ok'
-          ? persistAgentFiles({
-              userId: req.user.userId,
-              threadId: thread.id,
-              sessionId: lastDone?.sessionId || '',
-              files: finalFiles,
-            })
-          : [];
+        // 명시적 중단(stop)이면 'interrupted', 그 외 오류면 'error', 정상이면 'ok'
+        const status = userStopped ? 'interrupted' : (lastError ? 'error' : 'ok');
+        // 실패·중단으로 끝나도 lastError.data.files / lastDone.files 에 부분 생성 파일이 담겨 옴.
+        const finalFiles = collectedFiles.length
+          ? collectedFiles
+          : (lastDone?.files || (lastError && lastError.files) || []);
+        // ★ status 무관하게 산출물 보존 — 중단·실패해도 이미 만든 파일은 다운로드 가능해야 함.
+        //   진행 중 이미 즉시-등록한 파일(liveArtifacts)은 제외하고 나머지만 등록 후 합침(중복 방지).
+        const remainingFiles = finalFiles.filter(f => f && f.relPath && !persistedRelPaths.has(f.relPath));
+        const newlyCreated = persistAgentFiles({
+          userId: req.user.userId,
+          threadId: thread.id,
+          sessionId: (lastDone && lastDone.sessionId) || (lastError && lastError.sessionId) || liveSessionId || '',
+          files: remainingFiles,
+        });
+        const createdArtifacts = liveArtifacts.concat(newlyCreated);
+        const errorCode = (lastError && lastError.code) || null;
         const summary = buildAgentFinalContent({
           status, lastError, lastDone, finalFiles, createdArtifacts, collectedOutput,
+          userStopped, errorCode,
         });
+        const fileSessionId = (lastDone && lastDone.sessionId) || (lastError && lastError.sessionId) || '';
         const files = finalFiles.map(f => ({
           name: f.name,
           relPath: f.relPath,
           size: f.size,
           ext: f.ext,
           url: '/api/ai/agent/file/' + encodeURIComponent(req.user.userId)
-               + '/' + encodeURIComponent(lastDone?.sessionId || '')
+               + '/' + encodeURIComponent(fileSessionId)
                + '/' + encodeURIComponent(f.relPath || ''),
         }));
         const finalMsg = aiMsgRec
@@ -330,10 +390,12 @@ router.post('/run', async (req, res) => {
           error: lastError ? lastError.message : null,
           durationMs: lastDone?.durationMs || 0,
           metadata: {
-            sessionId: lastDone?.sessionId,
+            sessionId: (lastDone && lastDone.sessionId) || (lastError && lastError.sessionId) || '',
             files,
             artifacts: createdArtifacts,
             templateSaved: lastDone?.templateSaved || [],
+            errorCode: errorCode || undefined,   // 실패 코드 — 새로고침 후에도 안내 복원
+            interrupted: userStopped || undefined,
             outputTail: (collectedOutput || '').slice(-2000),
           },
         })
@@ -362,7 +424,11 @@ router.post('/run', async (req, res) => {
           artifacts: createdArtifacts,
           error: lastError ? lastError.message : null,
         });
-        send('saved', { threadId: thread.id, messageId: finalMsg?.id, text: summary, artifacts: createdArtifacts });
+        send('saved', {
+          threadId: thread.id, messageId: finalMsg?.id, text: summary,
+          artifacts: createdArtifacts,
+          templateSaved: (lastDone && lastDone.templateSaved) || [],  // 마감 양식 자동 등록 알림용
+        });
       } catch (e) {
         console.warn('[ai-agent] DB 저장 실패:', e.message);
       }
@@ -388,6 +454,78 @@ router.post('/run', async (req, res) => {
   } finally {
     clearInterval(ping);
     try { res.end(); } catch(_) {}
+  }
+});
+
+// ── 에이전트 작업 중단 (명시적 stop 버튼 전용) ──
+// POST /api/ai/agent/stop { messageId }
+//   브라우저 연결 끊김(새로고침)은 작업을 안 죽임 — 오직 이 API 만 자식 프로세스를 종료.
+//   reg.start 에 등록된 abort(()=>ctrl.abort()) 를 호출 → runAgent 의 signal.abort →
+//   자식 claude 프로세스 SIGTERM/SIGKILL. 이후 finalize 가 status='error'(중단) 로 마무리.
+router.post('/stop', (req, res) => {
+  const messageId = parseInt(req.body && req.body.messageId, 10);
+  if (!messageId) return res.status(400).json({ error: 'messageId 필수' });
+  let row = null;
+  try { row = ai.db.prepare('SELECT thread_id FROM ai_messages WHERE id=?').get(messageId); } catch (_) {}
+  if (!row) return res.status(404).json({ error: '메시지 없음' });
+  const t = ai.threads.get(row.thread_id);
+  const isAdmin = req.user && req.user.role === 'admin';
+  if (!t || (String(t.owner_id) !== String(req.user.userId) && !isAdmin)) {
+    return res.status(403).json({ error: '권한 없음' });
+  }
+  const ok = reg.abort(messageId);   // 등록된 abort 가 있으면 자식 프로세스 종료
+  res.json({ ok });
+});
+
+// ── 엑셀 스킬 템플릿 관리 (등록된 양식 조회/삭제) ──
+// 등록(저장)은 "전월 마감파일을 첨부해서 작업"하면 자동으로 됨(agent-runtime storeSkillTemplates).
+// 여기서는 등록된 것을 보고/지우는 관리 기능만 노출.
+const TEMPLATE_SLUG_RE = /^[a-z0-9_-]+$/i;
+
+// GET /api/ai/agent/skill-templates           → 전체 스킬별 등록 현황 요약
+// GET /api/ai/agent/skill-templates/:slug      → 특정 스킬 등록 템플릿 목록
+router.get('/skill-templates/:slug?', (req, res) => {
+  try {
+    const slug = req.params.slug;
+    if (slug) {
+      if (!TEMPLATE_SLUG_RE.test(slug)) return res.status(400).json({ error: '잘못된 스킬명' });
+      const list = (agent.listStoredTemplates(slug) || []).map(t => ({
+        name: t.name, mtimeMs: t.mtimeMs,
+        sizeKB: (() => { try { return Math.round(require('fs').statSync(t.path).size / 1024); } catch { return null; } })(),
+      }));
+      return res.json({ ok: true, slug, templates: list });
+    }
+    // 전체 요약: 알려진 마감 스킬들의 등록 개수
+    const slugs = ['persys-ledger', 'nicetech-ledger', 'haatz-ledger', 'partner-ledger', 'posco-statement'];
+    const summary = slugs.map(s => ({ slug: s, count: (agent.listStoredTemplates(s) || []).length }));
+    res.json({ ok: true, summary });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// DELETE /api/ai/agent/skill-templates/:slug/:name   → 잘못 등록된 템플릿 삭제
+router.delete('/skill-templates/:slug/:name', (req, res) => {
+  try {
+    const { slug, name } = req.params;
+    if (!TEMPLATE_SLUG_RE.test(slug)) return res.status(400).json({ error: '잘못된 스킬명' });
+    // 파일명에 경로구분자/상위이동 차단
+    const safeName = require('path').basename(String(name || ''));
+    if (!safeName || safeName !== name || safeName.includes('..')) {
+      return res.status(400).json({ error: '잘못된 파일명' });
+    }
+    const dir = agent.getSkillTemplateDir(slug);
+    if (!dir) return res.status(400).json({ error: '스킬 폴더 없음' });
+    const target = require('path').join(dir, safeName);
+    // dir 밖으로 못 나가게 한 번 더 확인
+    if (!require('path').resolve(target).startsWith(require('path').resolve(dir))) {
+      return res.status(400).json({ error: '경로 위반' });
+    }
+    if (!require('fs').existsSync(target)) return res.status(404).json({ error: '파일 없음' });
+    require('fs').unlinkSync(target);
+    res.json({ ok: true, deleted: safeName });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 

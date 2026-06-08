@@ -143,6 +143,11 @@ $('newChatBtn').addEventListener('click', () => {
   input.focus();
 });
 
+// 등록된 마감 양식(템플릿) 보기/관리
+if ($('skillTemplatesBtn')) {
+  $('skillTemplatesBtn').addEventListener('click', () => openSkillTemplatesModal());
+}
+
 // 이미지 모드
 imageModeBtn.addEventListener('click', () => {
   state.imageMode = !state.imageMode;
@@ -1180,9 +1185,20 @@ async function sendViaAgent(text, attachmentIds, aiMsg, ownerThreadId, signal) {
         aiMsg.content = data.text || aiMsg.content || '작업 완료';
         aiMsg.artifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
         refreshMessageElement(aiMsg);
+        // 마감 양식이 자동 등록됐으면 알림 (다음부터 판매현황만 올려도 됨)
+        if (Array.isArray(data.templateSaved) && data.templateSaved.length) {
+          showAiToast('마감 양식 ' + data.templateSaved.length + '개를 등록했어요. 다음부터 판매현황 파일만 올리면 됩니다.', 'ok');
+        }
       } else if (eventName === 'error') {
+        // 서버가 곧 'saved' 로 친절 안내(중단됨/실패 사유)를 보내므로 raw 오류를 덮어쓰지 않게 보관만.
         aiMsg.streaming = false;
-        aiMsg.content += '\n\n**오류:** ' + (data.error || data.message || '작업 실패');
+        aiMsg._agentError = data || {};
+        // saved 가 안 오는 예외 케이스(서버 자체 throw)에 대비해 임시 표시
+        if (!aiMsg.content || aiMsg.content === '작업을 시작했습니다.') {
+          aiMsg.content = data.code
+            ? '작업을 완료하지 못했어요. (' + data.code + ')'
+            : ('작업에 실패했어요: ' + (data.error || data.message || '알 수 없는 오류'));
+        }
         updateAIMessageContent(aiMsg, aiMsg.content, false, progressThreadId);
       }
     }
@@ -1455,12 +1471,13 @@ stopBtn.addEventListener('click', async () => {
   if (live && live.serverMsgId) sid = live.serverMsgId;
   if (!sid) { const m = state.messages.find(x => x.streaming && (x.serverMsgId || x.id)); if (m) sid = m.serverMsgId || m.id; }
   if (sid) {
-    try {
-      await fetch('/api/ai/chat-stream-cli/stop', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ messageId: sid }),
-      });
-    } catch (_) {}
+    // 채팅/에이전트 중 어느 경로인지 클라이언트가 항상 알 수 없으므로 둘 다 시도 (없는 쪽은 서버가 no-op).
+    const body = JSON.stringify({ messageId: sid });
+    const opt = { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body };
+    try { await Promise.allSettled([
+      fetch('/api/ai/chat-stream-cli/stop', opt),
+      fetch('/api/ai/agent/stop', opt),
+    ]); } catch (_) {}
   }
   if (state.abortController) { state.abortController.abort(); console.log('[ai-chat] 사용자 중단'); }
   if (state.attachES) { try { state.attachES.close(); } catch(_){} state.attachES = null; }
@@ -1858,6 +1875,152 @@ function openKnowledgeModal(project) {
       close();
     } catch (e) { alert('지식 저장 실패: ' + e.message); }
   });
+}
+
+// 마감 스킬 slug → 사람이 읽는 이름
+const SKILL_LABELS = {
+  'persys-ledger': '퍼시스',
+  'nicetech-ledger': '나이스텍',
+  'haatz-ledger': '하츠',
+  'partner-ledger': '파트너(8개사)',
+  'posco-statement': '포스코',
+};
+
+// 가벼운 토스트 알림 (양식 자동 등록 등)
+function showAiToast(msg, kind) {
+  if (!document.getElementById('aiToastStyles')) {
+    const s = document.createElement('style'); s.id = 'aiToastStyles';
+    s.textContent = '.ai-toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%);z-index:3000;'
+      + 'background:#1f2937;color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;font-weight:600;'
+      + 'box-shadow:0 8px 28px rgba(0,0,0,.28);opacity:0;transition:opacity .25s,transform .25s;max-width:80vw}'
+      + '.ai-toast.show{opacity:1;transform:translateX(-50%) translateY(-4px)}'
+      + '.ai-toast.ok{background:linear-gradient(135deg,#16a34a,#059669)}';
+    document.head.appendChild(s);
+  }
+  const el = document.createElement('div');
+  el.className = 'ai-toast' + (kind ? ' ' + kind : '');
+  el.textContent = msg;
+  document.body.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => { try { document.body.removeChild(el); } catch(_){} }, 300);
+  }, 3200);
+}
+
+// 등록된 마감 양식(템플릿) 보기/삭제 모달
+//  GET  /api/ai/agent/skill-templates          → {summary:[{slug,count}]}
+//  GET  /api/ai/agent/skill-templates/:slug     → {templates:[{name,mtimeMs,sizeKB}]}
+//  DELETE /api/ai/agent/skill-templates/:slug/:name
+function openSkillTemplatesModal() {
+  if (!document.getElementById('tplModalStyles')) {
+    const s = document.createElement('style'); s.id = 'tplModalStyles';
+    s.textContent = '.tpl-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:2000}'
+      + '.tpl-modal{background:#fff;border-radius:14px;padding:20px;width:540px;max-width:92vw;max-height:84vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.25)}'
+      + '.tpl-modal h3{font-size:15px;font-weight:700;margin:0 0 4px;color:#1f2937}'
+      + '.tpl-modal .tpl-sub{font-size:12px;color:#9ca3af;margin:0 0 14px;line-height:1.5}'
+      + '.tpl-skill{border:1px solid #e5e7eb;border-radius:10px;margin-bottom:8px;overflow:hidden}'
+      + '.tpl-skill-head{display:flex;align-items:center;justify-content:space-between;padding:11px 14px;cursor:pointer;background:#fafbfc}'
+      + '.tpl-skill-head:hover{background:#f3f4f6}'
+      + '.tpl-skill-name{font-size:13px;font-weight:700;color:#1f2937}'
+      + '.tpl-skill-cnt{font-size:12px;color:#6b7280;background:#eef2ff;border-radius:20px;padding:2px 10px;font-weight:600}'
+      + '.tpl-skill-cnt.zero{background:#f3f4f6;color:#9ca3af}'
+      + '.tpl-list{padding:6px 14px 12px}'
+      + '.tpl-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-top:1px solid #f1f3f5}'
+      + '.tpl-row:first-child{border-top:none}'
+      + '.tpl-fname{font-size:12px;color:#374151;word-break:break-all;line-height:1.4}'
+      + '.tpl-meta{font-size:11px;color:#9ca3af;margin-top:1px}'
+      + '.tpl-del{flex:none;border:none;background:#fef2f2;color:#dc2626;border-radius:7px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer}'
+      + '.tpl-del:hover{background:#fee2e2}'
+      + '.tpl-empty{font-size:12px;color:#9ca3af;padding:8px 0}'
+      + '.tpl-modal-actions{display:flex;justify-content:flex-end;margin-top:14px}'
+      + '.tpl-close{padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:#f3f4f6;color:#4b5563}';
+    document.head.appendChild(s);
+  }
+  const bg = document.createElement('div');
+  bg.className = 'tpl-modal-bg';
+  bg.innerHTML =
+    '<div class="tpl-modal">' +
+      '<h3>📑 등록된 마감 양식</h3>' +
+      '<p class="tpl-sub">전월 마감내역서를 한 번 첨부하면 이 양식으로 저장됩니다.<br>다음부터는 <b>판매현황 파일만</b> 올려도 같은 양식으로 자동 마감됩니다. 잘못 등록된 양식은 삭제하세요.</p>' +
+      '<div class="tpl-body"><div class="tpl-empty">불러오는 중…</div></div>' +
+      '<div class="tpl-modal-actions"><button class="tpl-close">닫기</button></div>' +
+    '</div>';
+  document.body.appendChild(bg);
+  const bodyEl = bg.querySelector('.tpl-body');
+  const close = () => { try { document.body.removeChild(bg); } catch(_){} };
+  bg.addEventListener('click', (ev) => { if (ev.target === bg) close(); });
+  bg.querySelector('.tpl-close').addEventListener('click', close);
+
+  async function renderTemplates(slug, listEl) {
+    listEl.innerHTML = '<div class="tpl-empty">불러오는 중…</div>';
+    try {
+      const r = await fetch('/api/ai/agent/skill-templates/' + encodeURIComponent(slug), { credentials: 'include' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      const list = Array.isArray(d.templates) ? d.templates : [];
+      if (!list.length) { listEl.innerHTML = '<div class="tpl-empty">등록된 양식이 없습니다.</div>'; return; }
+      listEl.innerHTML = list.map(t => {
+        const dt = t.mtimeMs ? new Date(t.mtimeMs) : null;
+        const meta = [t.sizeKB != null ? t.sizeKB + 'KB' : null,
+                      dt ? (dt.getFullYear() + '.' + String(dt.getMonth()+1).padStart(2,'0') + '.' + String(dt.getDate()).padStart(2,'0')) : null]
+                     .filter(Boolean).join(' · ');
+        return '<div class="tpl-row" data-name="' + escapeHtml(t.name) + '">' +
+          '<div><div class="tpl-fname">' + escapeHtml(t.name) + '</div>' +
+          (meta ? '<div class="tpl-meta">' + escapeHtml(meta) + '</div>' : '') + '</div>' +
+          '<button class="tpl-del">삭제</button></div>';
+      }).join('');
+      listEl.querySelectorAll('.tpl-row').forEach(row => {
+        row.querySelector('.tpl-del').addEventListener('click', async () => {
+          const name = row.dataset.name;
+          if (!confirm('이 양식을 삭제할까요?\n' + name)) return;
+          try {
+            const dr = await fetch('/api/ai/agent/skill-templates/' + encodeURIComponent(slug) + '/' + encodeURIComponent(name),
+              { method: 'DELETE', credentials: 'include' });
+            if (!dr.ok) { const e = await dr.json().catch(()=>({})); throw new Error(e.error || ('HTTP ' + dr.status)); }
+            showAiToast('양식을 삭제했습니다.', 'ok');
+            loadSummary();   // 카운트·목록 갱신
+          } catch (e) { alert('삭제 실패: ' + e.message); }
+        });
+      });
+    } catch (e) {
+      listEl.innerHTML = '<div class="tpl-empty">불러오기 실패: ' + escapeHtml(e.message) + '</div>';
+    }
+  }
+
+  async function loadSummary() {
+    try {
+      const r = await fetch('/api/ai/agent/skill-templates', { credentials: 'include' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      const summary = Array.isArray(d.summary) ? d.summary : [];
+      bodyEl.innerHTML = summary.map(s => {
+        const label = SKILL_LABELS[s.slug] || s.slug;
+        const zero = s.count ? '' : ' zero';
+        return '<div class="tpl-skill" data-slug="' + escapeHtml(s.slug) + '">' +
+          '<div class="tpl-skill-head">' +
+            '<span class="tpl-skill-name">' + escapeHtml(label) + '</span>' +
+            '<span class="tpl-skill-cnt' + zero + '">' + s.count + '개</span>' +
+          '</div>' +
+          '<div class="tpl-list" style="display:none"></div>' +
+        '</div>';
+      }).join('') || '<div class="tpl-empty">표시할 스킬이 없습니다.</div>';
+      bodyEl.querySelectorAll('.tpl-skill').forEach(sk => {
+        const slug = sk.dataset.slug;
+        const head = sk.querySelector('.tpl-skill-head');
+        const listEl = sk.querySelector('.tpl-list');
+        head.addEventListener('click', () => {
+          const open = listEl.style.display !== 'none';
+          if (open) { listEl.style.display = 'none'; return; }
+          listEl.style.display = 'block';
+          renderTemplates(slug, listEl);
+        });
+      });
+    } catch (e) {
+      bodyEl.innerHTML = '<div class="tpl-empty">불러오기 실패: ' + escapeHtml(e.message) + '</div>';
+    }
+  }
+  loadSummary();
 }
 
 async function loadThreadsByProject() {

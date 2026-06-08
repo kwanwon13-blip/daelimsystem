@@ -20,6 +20,8 @@ from openpyxl import load_workbook
 from openpyxl.cell import MergedCell
 
 
+# ⚠️ SSOT: lib/agent-runtime.js 의 PARTNER_LEDGER_VENDORS 와 동일하게 유지할 것.
+#    (JS↔Python 런타임 분리로 import 불가 — 거래처 추가/변경 시 양쪽 동시 수정)
 SUPPORTED = [
     "한신공영",
     "요진건설",

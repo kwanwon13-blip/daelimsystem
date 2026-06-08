@@ -537,6 +537,18 @@ const threads = {
     }
   },
 
+  // 메시지 metadata 만 부분 갱신 (기존 키와 merge). 진행 중 artifact 누적 저장 등에 사용.
+  updateMessageMetadata(messageId, patch) {
+    if (!ready || !patch) return;
+    try {
+      const cur = db.prepare('SELECT metadata FROM ai_messages WHERE id=?').get(messageId);
+      let meta = {};
+      try { meta = cur && cur.metadata ? JSON.parse(cur.metadata) : {}; } catch (_) {}
+      meta = Object.assign(meta, patch);
+      db.prepare('UPDATE ai_messages SET metadata=? WHERE id=?').run(JSON.stringify(meta), messageId);
+    } catch (_) {}
+  },
+
   // 생성 완료 시 한 번에 확정 (content + status + metadata merge + duration + error)
   finalizeMessage(messageId, { content, status, metadata, durationMs, error } = {}) {
     if (!ready) return null;
