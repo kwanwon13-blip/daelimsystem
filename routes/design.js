@@ -819,8 +819,10 @@ router.resolveWorkflowStorage = (opts = {}) => {
     skipDirs: SKIP_DIRS,
     ...opts,
   });
-  if (info.created) invalidateDesignWorkflowOptions();
+  if (info?.created) invalidateDesignWorkflowOptions();
   return info;
 };
+
+router.invalidateWorkflowOptions = invalidateDesignWorkflowOptions;
 
 module.exports = router;

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>대림에스엠 ERP — AI 비서</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; font-family: 'Malgun Gothic', sans-serif; background: #0f172a; }
+  .topbar {
+    height: 50px; background: linear-gradient(90deg, #1f2937, #111827); color: #fff;
+    display: flex; align-items: center; gap: 10px; padding: 0 16px;
+    box-shadow: 0 1px 6px rgba(0,0,0,.3);
+  }
+  .topbar .logo { font-weight: 700; font-size: 15px; }
+  .topbar .tag { font-size: 12px; color: #93c5fd; background: #1e3a5f; padding: 3px 9px; border-radius: 20px; }
+  .topbar .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .topbar a.back, .topbar button.reload {
+    color: #cbd5e1; text-decoration: none; font-size: 13px; padding: 7px 13px;
+    border: 1px solid #374151; border-radius: 8px; background: transparent; cursor: pointer;
+  }
+  .topbar a.back:hover, .topbar button.reload:hover { background: #374151; color: #fff; }
+  .frame-wrap { height: calc(100% - 50px); position: relative; }
+  iframe { width: 100%; height: 100%; border: 0; display: block; }
+  .hint {
+    position: absolute; left: 50%; top: 40%; transform: translateX(-50%);
+    color: #cbd5e1; font-size: 14px; text-align: center; line-height: 1.7; max-width: 520px;
+  }
+  .hint b { color: #fff; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <span class="logo">🏢 대림에스엠 ERP</span>
+    <span class="tag">AI 비서 (임베드 데모)</span>
+    <div class="right">
+      <button class="reload" onclick="document.getElementById('ai').src=document.getElementById('ai').src">새로고침</button>
+      <a class="back" href="/">← ERP 메인으로</a>
+    </div>
+  </div>
+  <div class="frame-wrap" style="display:flex;align-items:center;justify-content:center;">
+    <!-- Odysseus 위치. 로컬=localhost:7000. 서버 이전 시 http://192.168.0.133:7000 으로만 바꾸면 됨. -->
+    <div style="text-align:center;color:#cbd5e1;max-width:560px;padding:24px;">
+      <div style="font-size:46px;margin-bottom:8px;">🤖</div>
+      <h2 style="color:#fff;font-size:20px;margin-bottom:10px;">대림에스엠 AI 비서</h2>
+      <p style="font-size:14px;line-height:1.7;color:#94a3b8;margin-bottom:22px;">
+        업무 질문 · 파일 분석 · 거래명세서/마감 · 문서 작성을 도와드립니다.<br>
+        아래 버튼을 누르면 AI 작업실이 열립니다.
+      </p>
+      <button onclick="window.open('http://localhost:7000','_blank')"
+        style="background:linear-gradient(135deg,#4f6ef7,#7c5cff);color:#fff;border:0;border-radius:12px;
+               padding:14px 30px;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 6px 20px rgba(79,110,247,.4);">
+        AI 비서 열기 →
+      </button>
+      <p style="font-size:11px;color:#64748b;margin-top:26px;line-height:1.6;">
+        ※ 보안상 AI 화면을 ERP 안에 직접 삽입하는 건 차단돼 있어, ERP에서 '실행'하는 방식입니다.<br>
+        (Odysseus 7000 · 통역서버 8765 가 켜져 있어야 합니다)
+      </p>
+    </div>
+  </div>
+</body>
+</html>

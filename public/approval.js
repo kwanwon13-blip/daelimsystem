@@ -19,6 +19,9 @@ function approvalApp() {
     // 상세 보기
     selectedDoc: null,
     processComment: '',
+    // 취소요청/처리용 state
+    cancelReason: '',
+    cancelProcessComment: '',
 
     // 지출결의서 폼 기본값
     expenseForm: {
@@ -103,12 +106,25 @@ function approvalApp() {
         if (this.activeFilter === 'mine') params.set('filter', 'mine');
         else if (this.activeFilter === 'pending') params.set('filter', 'pending');
         else if (this.activeFilter === 'deleted') params.set('filter', 'deleted');
+        else if (this.activeFilter === 'cancel_requested') params.set('status', 'cancel_requested');
         if (this.activeDeptFolder) params.set('dept', this.activeDeptFolder);
         const qs = params.toString();
         const r = await fetch('/api/approvals' + (qs ? '?' + qs : ''));
         if (r.ok) this.approvals = await r.json();
       } catch (e) { console.error('결재 목록 로드 실패:', e); }
       this.loading = false;
+    },
+    // 취소요청 개수 (현재 로드된 approvals 중) — 필터 뱃지용
+    get cancelRequestCount() {
+      // 결재자/admin 입장에서 자기에게 온 취소요청만 카운트
+      return (this.approvals || []).filter(d => {
+        if (d.status !== 'cancel_requested') return false;
+        // 본인이 기안한 건 제외 (자기 신청)
+        if (d.authorId === this.myUserId) return false;
+        // 내가 결재자(또는 위임받은 사람)이거나 admin
+        const approverId = d.effectiveApproverId || d.approverId;
+        return approverId === this.myUserId || this.myRole === 'admin';
+      }).length;
     },
 
     // 필터 변경
@@ -408,6 +424,8 @@ function approvalApp() {
     async viewDoc(doc) {
       this.selectedDoc = doc;
       this.processComment = '';
+      this.cancelReason = '';
+      this.cancelProcessComment = '';
       this.currentView = 'detail';
     },
 
@@ -423,6 +441,65 @@ function approvalApp() {
         const result = await r.json();
         if (r.ok) {
           this.showToast3(action === 'approved' ? '승인 완료' : '반려 완료', 'success');
+          this.currentView = 'list';
+          this.loadApprovals();
+        } else {
+          this.showToast3(result.error || '처리 실패', 'error');
+        }
+      } catch (e) {
+        this.showToast3('네트워크 오류', 'error');
+      }
+    },
+
+    // 본인: 결재완료된 문서 취소 요청
+    async requestCancel() {
+      if (!this.selectedDoc) return;
+      if (!this.cancelReason || !this.cancelReason.trim()) {
+        this.showToast3('취소 사유를 입력해주세요', 'error');
+        return;
+      }
+      if (!confirm('이 결재의 취소를 요청하시겠습니까?\n원래 결재자가 승인하면 취소됩니다.')) return;
+      try {
+        const r = await fetch(`/api/approvals/${this.selectedDoc.id}/cancel-request`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: this.cancelReason })
+        });
+        const result = await r.json();
+        if (r.ok) {
+          this.showToast3('취소 요청을 보냈습니다', 'success');
+          this.cancelReason = '';
+          // 상세 화면 갱신
+          this.selectedDoc.status = 'cancel_requested';
+          this.selectedDoc.cancelReason = this.cancelReason;
+          this.selectedDoc.cancelRequestedAt = new Date().toISOString();
+          this.loadApprovals();
+        } else {
+          this.showToast3(result.error || '취소 요청 실패', 'error');
+        }
+      } catch (e) {
+        this.showToast3('네트워크 오류', 'error');
+      }
+    },
+
+    // 결재자/관리자: 취소 요청 처리 (승인/반려)
+    async processCancel(action) {
+      if (!this.selectedDoc) return;
+      const label = action === 'approved' ? '취소 승인' : '취소 반려';
+      const confirmMsg = action === 'approved'
+        ? '이 결재를 취소 처리하시겠습니까?\n승인 시 연차 기록과 출퇴근 표시가 함께 제거됩니다.'
+        : '취소 요청을 반려하시겠습니까?\n반려 시 결재는 다시 승인 상태로 돌아갑니다.';
+      if (!confirm(confirmMsg)) return;
+      try {
+        const r = await fetch(`/api/approvals/${this.selectedDoc.id}/cancel-process`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action, comment: this.cancelProcessComment })
+        });
+        const result = await r.json();
+        if (r.ok) {
+          this.showToast3(label + ' 완료', 'success');
+          this.cancelProcessComment = '';
           this.currentView = 'list';
           this.loadApprovals();
         } else {
@@ -474,14 +551,19 @@ function approvalApp() {
 
     // 상태 라벨/색상
     statusLabel(s) {
-      return { pending: '대기', approved: '승인', rejected: '반려', deleted: '삭제됨' }[s] || s;
+      return {
+        pending: '대기', approved: '승인', rejected: '반려', deleted: '삭제됨',
+        cancel_requested: '취소요청', cancelled: '취소됨'
+      }[s] || s;
     },
     statusColor(s) {
       return {
         pending: 'background:#fef3c7;color:#b45309;',
         approved: 'background:#dcfce7;color:#15803d;',
         rejected: 'background:#fee2e2;color:#dc2626;',
-        deleted: 'background:#f3f4f6;color:#6b7280;'
+        deleted: 'background:#f3f4f6;color:#6b7280;',
+        cancel_requested: 'background:#fff7ed;color:#c2410c;',
+        cancelled: 'background:#f3f4f6;color:#374151;'
       }[s] || '';
     },
 
