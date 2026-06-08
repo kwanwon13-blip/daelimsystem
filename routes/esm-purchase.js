@@ -269,6 +269,38 @@ async function runOcr(filePath, mimeType) {
   return parseOcrJson(r.text || '');
 }
 
+// ─── 회사 판별 (받는자 기준) + SM 등록내역(코드) 매칭 헬퍼 ──
+function detectCompanyFromBuyer(buyer) {
+  const s = (((buyer && buyer.biz_no) || '') + ' ' + ((buyer && buyer.name) || ''));
+  if (/162-?81-?01738/.test(s) || /컴퍼니/.test(s)) return 'COMPANY';
+  if (/113-?86-?19492/.test(s) || /에스엠/.test(s)) return 'SM';
+  return null;
+}
+function _normTxt(s) { return String(s || '').replace(/[\s()[\]{}/.\-]/g, '').toLowerCase(); }
+// 매칭에 방해되는 비식별 토큰(색상·원산지 등) — 이걸로 매칭하면 엉뚱한 품목에 붙음
+const _STOP_TOKENS = new Set(['주황', '그린', '빨강', '노랑', '파랑', '검정', '흰색', '백색', '국산', '수입', '오렌지', '블루', '레드', '녹색', '회색']);
+// SM 매입 과거 등록내역에서 품목코드 찾기 (회사 전용 — 컴퍼니 데이터 안 봄)
+function findSmRegisteredCode(itemText, specText) {
+  if (!itemText || !pool.findItem) return null;
+  let cands = (pool.findItem('SM', '매입', itemText) || []).filter(c => c.code);
+  if (!cands.length) {
+    // 핵심 토큰으로 재시도 (숫자·기호 제거, 2글자 이상)
+    const toks = String(itemText).replace(/[0-9]/g, ' ').split(/[\s/().\-]+/).filter(t => t.length >= 2 && !_STOP_TOKENS.has(t));
+    const seen = new Set();
+    for (const tk of toks) {
+      for (const c of (pool.findItem('SM', '매입', tk) || [])) {
+        if (c.code && !seen.has(c.code)) { seen.add(c.code); cands.push(c); }
+      }
+    }
+  }
+  if (!cands.length) return null;
+  const ns = _normTxt(specText);
+  cands.forEach(c => { c._sp = !!(ns && _normTxt(c.spec).includes(ns)); });
+  cands.sort((a, b) => (Number(b._sp) - Number(a._sp)) || ((b.count || 0) - (a.count || 0)));
+  const best = cands[0];
+  return { code: best.code, name: best.name, spec: best.spec, lastPrice: best.lastPrice, specMatch: best._sp };
+}
+
 // ─── 한 장 OCR + 매칭 ──
 router.post('/parse', requireAuth, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ ok: false, error: '파일 없음' });
@@ -291,48 +323,65 @@ router.post('/parse', requireAuth, upload.single('file'), async (req, res) => {
     const trxDate = ocr.trx_date || '';
     const lines = Array.isArray(ocr.lines) ? ocr.lines : [];
 
+    // 받는자 기준 회사 판별 (esm 페이지 기본 SM. 컴퍼니 명세서가 섞여 들어오면 감지해서 경고)
+    const company = detectCompanyFromBuyer(ocrBuyer) || 'SM';
+    const companyMismatch = (company === 'COMPANY');
+
     const matched = lines.map((line, i) => {
       const rawText = String(line.ocr_text || '');
       const specRaw = String(line.spec || '');
 
       const learned = findLearnedMapping(vendorName, rawText, specRaw);
-      const masterResult = pool.matchSlideToProductMaster(rawText + ' ' + specRaw + ' ' + (line.qty || ''), {
-        vendor: vendorName,
-      });
-      const m = pool.matchPurchaseLineToPool({
-        ocr_text: rawText + ' ' + specRaw,
-        qty: line.qty, unit_price: line.unit_price,
-      }, { vendor: vendorName, dateStr: trxDate, dayRange: 60 });
 
       let status, finalItem, finalSpec, finalCode, finalPrice, source, reason;
+      let suggestedOptions = [], matchSuggestion = null;
       if (learned && learned.item) {
         status = 'matched'; source = 'learned';
         finalItem = learned.item; finalSpec = learned.spec || specRaw;
         finalCode = ''; finalPrice = Number(line.unit_price) || 0;
         reason = '사용자 학습';
-      } else if (masterResult.status === 'matched') {
-        status = 'matched'; source = 'master';
-        finalItem = masterResult.item; finalSpec = masterResult.spec;
-        finalCode = masterResult.code;
-        finalPrice = Number(line.unit_price) || masterResult.priceIn || masterResult.priceOut || 0;
-        reason = masterResult.reason;
-      } else if (masterResult.status === 'predicted') {
-        status = 'predicted'; source = 'master_predict';
-        finalItem = masterResult.item; finalSpec = masterResult.spec;
-        finalCode = '';
-        finalPrice = Number(line.unit_price) || masterResult.priceOut || 0;
-        reason = masterResult.reason;
-      } else if (m.matched) {
-        status = 'matched'; source = 'history';
-        finalItem = m.matched.item; finalSpec = m.matched.spec;
-        finalCode = '';
-        finalPrice = Number(line.unit_price) || m.matched.price || 0;
-        reason = m.reason;
+      } else if (company === 'SM') {
+        // ── 에스엠 매입 → SM 등록내역(코드)으로만 매칭 (컴퍼니 데이터 절대 안 봄) ──
+        const sm = findSmRegisteredCode(rawText, specRaw);
+        if (sm && sm.code) {
+          status = sm.specMatch ? 'matched' : 'predicted';
+          finalItem = sm.name; finalSpec = sm.spec || specRaw; finalCode = sm.code;
+          finalPrice = Number(line.unit_price) || sm.lastPrice || 0;
+          source = 'sm_history';
+          reason = sm.specMatch ? `에스엠 과거등록 (코드 ${sm.code})` : `에스엠 과거 품명매칭 (코드 ${sm.code}) — 규격 확인`;
+        } else {
+          status = 'unknown'; source = null;
+          finalItem = ''; finalSpec = specRaw; finalCode = '';
+          finalPrice = Number(line.unit_price) || 0;
+          reason = '에스엠 등록내역에 없음 — 직접 입력(다음부터 학습)';
+        }
       } else {
-        status = 'unknown'; source = null;
-        finalItem = ''; finalSpec = specRaw; finalCode = '';
-        finalPrice = Number(line.unit_price) || 0;
-        reason = '마스터에 없음 — 직접 입력 필요';
+        // ── 컴퍼니 매입(섞여 들어온 경우) → 컴퍼니 데이터로 매칭 ──
+        const masterResult = pool.matchSlideToProductMaster(rawText + ' ' + specRaw + ' ' + (line.qty || ''), { vendor: vendorName });
+        const m = pool.matchPurchaseLineToPool({ ocr_text: rawText + ' ' + specRaw, qty: line.qty, unit_price: line.unit_price }, { vendor: vendorName, dateStr: trxDate, dayRange: 60 });
+        suggestedOptions = masterResult.options || [];
+        matchSuggestion = masterResult.suggestion;
+        if (masterResult.status === 'matched') {
+          status = 'matched'; source = 'master';
+          finalItem = masterResult.item; finalSpec = masterResult.spec; finalCode = masterResult.code;
+          finalPrice = Number(line.unit_price) || masterResult.priceIn || masterResult.priceOut || 0;
+          reason = masterResult.reason;
+        } else if (masterResult.status === 'predicted') {
+          status = 'predicted'; source = 'master_predict';
+          finalItem = masterResult.item; finalSpec = masterResult.spec; finalCode = '';
+          finalPrice = Number(line.unit_price) || masterResult.priceOut || 0;
+          reason = masterResult.reason;
+        } else if (m.matched) {
+          status = 'matched'; source = 'history';
+          finalItem = m.matched.item; finalSpec = m.matched.spec; finalCode = '';
+          finalPrice = Number(line.unit_price) || m.matched.price || 0;
+          reason = m.reason;
+        } else {
+          status = 'unknown'; source = null;
+          finalItem = ''; finalSpec = specRaw; finalCode = '';
+          finalPrice = Number(line.unit_price) || 0;
+          reason = '컴퍼니 등록내역에 없음 — 직접 입력';
+        }
       }
 
       const supply = Number(line.supply_amt) || Math.round((line.qty || 0) * finalPrice);
@@ -345,7 +394,7 @@ router.post('/parse', requireAuth, upload.single('file'), async (req, res) => {
         item: finalItem,
         spec: finalSpec,
         code: finalCode,
-        suggested_options: masterResult.options || [],
+        suggested_options: suggestedOptions,
         qty: Number(line.qty) || 0,
         unit_price: finalPrice,
         supply_amt: supply,
@@ -355,7 +404,7 @@ router.post('/parse', requireAuth, upload.single('file'), async (req, res) => {
         matched: status === 'matched',
         match_source: source,
         match_reason: reason,
-        match_suggestion: masterResult.suggestion,
+        match_suggestion: matchSuggestion,
         skip: false,
       };
     });
@@ -369,6 +418,8 @@ router.post('/parse', requireAuth, upload.single('file'), async (req, res) => {
       image_filename: path.basename(req.file.path),
       vendor: { biz_no: vendorBizNo, name: vendorName },
       buyer: (ocrBuyer && (ocrBuyer.biz_no || ocrBuyer.name)) ? ocrBuyer : null,
+      company,
+      company_mismatch: companyMismatch,
       trx_date: trxDate,
       lines: matched,
       stats: {
@@ -387,6 +438,8 @@ router.post('/parse', requireAuth, upload.single('file'), async (req, res) => {
       id: histId,
       vendor: { biz_no: vendorBizNo, name: vendorName },
       buyer: (ocrBuyer && (ocrBuyer.biz_no || ocrBuyer.name)) ? ocrBuyer : null,
+      company,
+      company_mismatch: companyMismatch,
       trx_date: trxDate,
       lines: matched,
       stats: histEntry.stats,
