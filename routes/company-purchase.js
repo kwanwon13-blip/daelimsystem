@@ -297,9 +297,9 @@ async function runOcr(filePath, mimeType) {
     }], { maxTokens: 8192, model: 'claude-sonnet-4-6' });
     return parseOcrJson(r.text || '');
   }
-  // CLI fallback
-  const cliPrompt = `${OCR_PROMPT}\n\n이미지 경로: ${path.resolve(filePath)}`;
-  const r = await claudeClient.runClaudeCli(cliPrompt, { timeoutMs: 120000 });
+  // CLI fallback — Read 도구 허용(--allowedTools Read) + 명시적 Read 지시 (헤드리스 권한 우회)
+  const cliPrompt = `${OCR_PROMPT}\n\n이미지 파일: ${path.resolve(filePath)}\n\n위 파일을 Read 도구로 열어 읽고, 위 지시대로 JSON만 출력해줘.`;
+  const r = await claudeClient.runClaudeCli(cliPrompt, { timeoutMs: 120000, allowedTools: 'Read' });
   return parseOcrJson(r.text || '');
 }
 
