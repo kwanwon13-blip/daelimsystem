@@ -179,15 +179,20 @@ return { items, dirsScanned, dirsReused }
 
 ## 4. 변경 범위
 
-- 수정: `routes/design.js` 단일 파일
-  - `buildDesignIndexAsync(rootPath, opts)` — 증분 버전으로 교체
-  - `runDesignIndex(opts)` — force/mode 처리 + 상태 필드 확장 + 완료 후 디스크 저장 트리거
-  - `startDesignIndexer()` — 시작 시 디스크 캐시 로드 + 안전망(주기적 force) 적용
+> **구조 결정**: 스펙 초안은 "routes/design.js 단일 파일"이었으나, 그 파일은 require 시 `../db`·`../middleware/auth`를 로드하고 `startDesignIndexer()`가 자동 실행되어 단위 테스트가 불가능하다. 따라서 인덱싱 순수 로직을 `routes/lib/design-indexer.js`로 분리한다 — 이는 이미 존재하는 `routes/lib/design-workflow-storage.js`·`design-parser.js`·`workflow-storage-rules.js`와 동일한 관례다.
+
+- 신규: `routes/lib/design-indexer.js` — 순수 로직 (fs/path만 의존)
+  - `buildDesignIndex(rootPath, { force, cache, skipDirs, indexedExts, extToType, maxDepth, onProgress })`
+  - `serializeCache`, `deserializeCache`, `loadIndexCache`, `saveIndexCache`, `buildFileItem`
+- 신규(테스트): `routes/lib/design-indexer.test.js`, `routes/lib/design-indexer.cache.test.js` (내장 `node:test`)
+- 수정: `routes/design.js` — 얇은 소비자로 전환
+  - `buildDesignIndexAsync` 인라인 로직 제거 → `designIndexer.buildDesignIndex` 호출
+  - `runDesignIndex(opts)` — force/mode 처리 + 상태 필드 확장 + 완료 후 디스크 저장
+  - `startDesignIndexer()` + `loadDesignCacheAtStartup()` — 시작 시 디스크 캐시 로드 + 안전망(주기적 force)
   - `POST /design/reindex` — full 파라미터 처리
-  - 추가 함수: `loadIndexCacheFromDisk()`, `saveIndexCacheToDisk()`
-  - 모듈 상태/상수 추가: `designDirCache`, `lastFullScanAt`, `FULL_RESCAN_MS`, `INDEX_CACHE_PATH`
+  - 모듈 상태/상수 추가: `designDirCache`, `lastFullScanAt`, `FULL_RESCAN_MS`, `INDEX_CACHE_PATH`, `MAX_DEPTH`
 - 런타임 생성: `data/design-index-cache.json` (파생 캐시, 커밋 대상 아님)
-- 불변: 파일 item 객체 구조, 모든 API 응답 형식, 프론트엔드, 다른 라우터(`design-workflow-storage` 등 소비처)
+- 불변: 파일 item 객체 구조(`searchText`는 Windows 출력 바이트 동일, 경로 구분자 정규식만 `[\\/]`로 확장), 모든 API 응답 형식, 프론트엔드, 다른 라우터(`design-workflow-storage` 등 소비처)
 
 ## 5. 엣지 케이스
 
