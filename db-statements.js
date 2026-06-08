@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS statements (
   -- 메타
   source_file     TEXT,                       -- 원본 파일명 (스캔 사진/PDF)
   stored_file     TEXT,                       -- 디스크 저장 파일
+  file_hash       TEXT,                       -- 원본/슬라이드 파일 SHA-256
+  document_fingerprint TEXT,                  -- 회사+거래처+일자+금액+라인 지문
   uploaded_by     TEXT,                       -- 업로드한 사번
   uploaded_at     TEXT DEFAULT (datetime('now', 'localtime')),
 
@@ -59,6 +61,7 @@ CREATE TABLE IF NOT EXISTS statement_items (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   statement_id    INTEGER NOT NULL,
   line_no         INTEGER,
+  item_code       TEXT,
   item_name       TEXT,
   spec            TEXT,                       -- 규격
   quantity        REAL,
@@ -84,6 +87,11 @@ function _safeAddCol(table, col, type) {
 _safeAddCol('statements', 'doc_class', 'TEXT');
 _safeAddCol('statements', 'company_code', 'TEXT');
 _safeAddCol('statements', 'target_erp', 'TEXT');
+_safeAddCol('statements', 'file_hash', 'TEXT');
+_safeAddCol('statements', 'document_fingerprint', 'TEXT');
+_safeAddCol('statement_items', 'item_code', 'TEXT');
+db.exec('CREATE INDEX IF NOT EXISTS idx_st_file_hash ON statements(file_hash)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_st_fingerprint ON statements(document_fingerprint)');
 
 // 회사 → ERP 매핑
 const COMPANY_ERP = { SM: 'ECOUNT', COMPANY: 'E2E' };
@@ -96,13 +104,13 @@ function inferTargetErp(companyCode) {
 const stmts = {
   insert: db.prepare(`
     INSERT INTO statements (
-      source_file, stored_file, uploaded_by,
+      source_file, stored_file, file_hash, document_fingerprint, uploaded_by,
       raw_extract, doc_type, doc_class, company_code, target_erp,
       doc_date, vendor_name, vendor_biz_no, norm_vendor,
       supply_amount, vat_amount, total_amount,
       status, month_key, notes
     ) VALUES (
-      @source_file, @stored_file, @uploaded_by,
+      @source_file, @stored_file, @file_hash, @document_fingerprint, @uploaded_by,
       @raw_extract, @doc_type, @doc_class, @company_code, @target_erp,
       @doc_date, @vendor_name, @vendor_biz_no, @norm_vendor,
       @supply_amount, @vat_amount, @total_amount,
@@ -111,9 +119,9 @@ const stmts = {
   `),
   insertItem: db.prepare(`
     INSERT INTO statement_items (
-      statement_id, line_no, item_name, spec, quantity, unit, unit_price, amount, vat, notes
+      statement_id, line_no, item_code, item_name, spec, quantity, unit, unit_price, amount, vat, notes
     ) VALUES (
-      @statement_id, @line_no, @item_name, @spec, @quantity, @unit, @unit_price, @amount, @vat, @notes
+      @statement_id, @line_no, @item_code, @item_name, @spec, @quantity, @unit, @unit_price, @amount, @vat, @notes
     )
   `),
   byId: db.prepare('SELECT * FROM statements WHERE id = ?'),
@@ -126,6 +134,8 @@ const stmts = {
       doc_class = @doc_class,
       company_code = @company_code,
       target_erp = @target_erp,
+      file_hash = @file_hash,
+      document_fingerprint = @document_fingerprint,
       doc_date = @doc_date,
       vendor_name = @vendor_name,
       vendor_biz_no = @vendor_biz_no,
@@ -144,6 +154,12 @@ const stmts = {
       confirmed_at = CASE WHEN @status = 'confirmed' THEN datetime('now', 'localtime') ELSE NULL END
     WHERE id = @id
   `),
+  updateWorkflowFields: db.prepare(`
+    UPDATE statements SET
+      file_hash = COALESCE(@file_hash, file_hash),
+      document_fingerprint = COALESCE(@document_fingerprint, document_fingerprint)
+    WHERE id = @id
+  `),
 };
 
 function createStatement(row, items = []) {
@@ -151,6 +167,8 @@ function createStatement(row, items = []) {
     const r = stmts.insert.run({
       source_file: row.source_file || null,
       stored_file: row.stored_file || null,
+      file_hash: row.file_hash || null,
+      document_fingerprint: row.document_fingerprint || null,
       uploaded_by: row.uploaded_by || null,
       raw_extract: row.raw_extract || null,
       doc_type: row.doc_type || null,
@@ -174,6 +192,7 @@ function createStatement(row, items = []) {
       stmts.insertItem.run({
         statement_id: stId,
         line_no: i + 1,
+        item_code: it.item_code || it.품목코드 || null,
         item_name: it.item_name || it.name || null,
         spec: it.spec || it.규격 || null,
         quantity: it.quantity || it.수량 || null,
@@ -306,6 +325,7 @@ function updateStatement(id, fields, items) {
         stmts.insertItem.run({
           statement_id: id,
           line_no: i + 1,
+          item_code: it.item_code || null,
           item_name: it.item_name || null,
           spec: it.spec || null,
           quantity: it.quantity || null,
@@ -341,6 +361,78 @@ function deleteStatement(id) {
 function countByStoredFile(storedFile) {
   if (!storedFile) return 0;
   return db.prepare('SELECT COUNT(*) as n FROM statements WHERE stored_file = ?').get(storedFile).n;
+}
+
+function updateWorkflowFields(id, fields = {}) {
+  stmts.updateWorkflowFields.run({
+    id,
+    file_hash: fields.file_hash || null,
+    document_fingerprint: fields.document_fingerprint || null,
+  });
+  return getById(id);
+}
+
+function findDuplicateCandidates({
+  id = null,
+  fileHash = null,
+  documentFingerprint = null,
+  companyCode = null,
+  docClass = null,
+  docDate = null,
+  vendorName = null,
+  totalAmount = null,
+  limit = 10,
+} = {}) {
+  const out = new Map();
+  const lim = Math.max(1, Math.min(parseInt(limit, 10) || 10, 50));
+  const baseSelect = `
+    SELECT id, status, source_file, uploaded_by, uploaded_at, confirmed_by, confirmed_at,
+           company_code, doc_class, doc_date, norm_vendor, vendor_name, total_amount,
+           file_hash, document_fingerprint
+    FROM statements
+  `;
+  const addRows = (rows, reason, score) => {
+    for (const row of rows || []) {
+      if (id && row.id === id) continue;
+      const prev = out.get(row.id);
+      if (!prev || score > prev.score) out.set(row.id, { ...row, reason, score });
+    }
+  };
+
+  if (fileHash) {
+    addRows(db.prepare(`${baseSelect}
+      WHERE file_hash = @fileHash
+        AND (@id IS NULL OR id <> @id)
+      ORDER BY id DESC
+      LIMIT ${lim}
+    `).all({ fileHash, id }), 'file_hash', 100);
+  }
+
+  if (documentFingerprint) {
+    addRows(db.prepare(`${baseSelect}
+      WHERE document_fingerprint = @documentFingerprint
+        AND (@id IS NULL OR id <> @id)
+      ORDER BY id DESC
+      LIMIT ${lim}
+    `).all({ documentFingerprint, id }), 'document_fingerprint', 95);
+  }
+
+  const vendorKey = String(vendorName || '').trim();
+  const amount = Number(totalAmount);
+  if (companyCode && docClass && docDate && vendorKey && Number.isFinite(amount)) {
+    addRows(db.prepare(`${baseSelect}
+      WHERE company_code = @companyCode
+        AND doc_class = @docClass
+        AND doc_date = @docDate
+        AND COALESCE(norm_vendor, vendor_name, '') = @vendorKey
+        AND total_amount = @amount
+        AND (@id IS NULL OR id <> @id)
+      ORDER BY id DESC
+      LIMIT ${lim}
+    `).all({ companyCode, docClass, docDate, vendorKey, amount, id }), 'similar_business_key', 80);
+  }
+
+  return Array.from(out.values()).sort((a, b) => b.score - a.score || b.id - a.id).slice(0, lim);
 }
 
 function listCleanupCandidates({
@@ -451,6 +543,8 @@ module.exports = {
   setStatus,
   deleteStatement,
   countByStoredFile,
+  updateWorkflowFields,
+  findDuplicateCandidates,
   listCleanupCandidates,
   mergeByVendorDate,
 };

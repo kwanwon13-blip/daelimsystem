@@ -4,16 +4,20 @@ function workflowApp() {
     saving: false,
     jobs: [],
     jobsByStage: {},
-    jobListLimit: 120,
+    jobListLimit: 80,
     jobListTotal: 0,
     jobListLimited: false,
     stages: [],
     statuses: {},
     checkStatuses: {},
     orderTargets: [],
+    orderTargetsLoaded: false,
+    orderTargetsLoading: null,
     orderStatuses: {},
     uploadLimits: { files: 20, fileSize: 100 * 1024 * 1024 },
     summary: { active: 0, overdue: 0, blocked: 0, urgentFiles: 0, unreadTotal: 0, unreadFiles: 0, unreadEvents: 0, scheduleCount: 0, myActions: 0, byStage: {} },
+    workflowPollTimer: null,
+    workflowAlertDismissedKey: '',
     selectedId: '',
     selectedWorkStageId: '',
     detail: null,
@@ -34,6 +38,7 @@ function workflowApp() {
     departmentMappingPanelOpen: false,
     workflowDepartments: [],
     stageDepartmentMap: {},
+    suggestedStageDepartmentMap: {},
     stageDepartmentMissingIds: [],
     stageDepartmentSaving: false,
     contactOptions: [],
@@ -51,6 +56,8 @@ function workflowApp() {
     workflowStorageRulesLoaded: false,
     workflowStorageRulesLoading: null,
     workflowStorageRuleSaving: false,
+    workflowStorageRepairRunning: false,
+    workflowStorageRepairNotice: '',
     storageRuleQuery: '',
     storageRuleForm: {
       id: '',
@@ -160,9 +167,10 @@ function workflowApp() {
         window.__workflowDepartmentsChangedListenerInstalled = true;
       }
       await Promise.all([this.loadAuth(), this.loadMeta()]);
+      this.loadPublicLinkSettings();
       if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
-      // 목록(loadJobs)과 공개링크 설정은 서로 독립 → 병렬로 받아 첫 표시를 앞당긴다
-      await Promise.all([this.loadJobs(), this.loadPublicLinkSettings()]);
+      await this.loadJobs();
+      this.startWorkflowPolling();
       this.consumeWorkflowDraft();
       await this.consumeWorkflowOpenTarget();
     },
@@ -183,17 +191,26 @@ function workflowApp() {
       this.stages = d.stages || [];
       this.statuses = d.statuses || {};
       this.checkStatuses = d.checkStatuses || {};
-      this.orderTargets = d.orderTargets || [];
       this.orderStatuses = d.orderStatuses || {};
       this.workflowDepartments = d.departments || [];
       this.stageDepartmentMap = { ...(d.stageDepartmentMap || {}) };
+      this.suggestedStageDepartmentMap = { ...(d.suggestedStageDepartmentMap || {}) };
       this.stageDepartmentMissingIds = d.stageDepartmentMissingIds || [];
       this.applyPublicLinkSettings(d.publicLink || d);
       this.uploadLimits = d.uploadLimits || this.uploadLimits;
     },
 
     missingDepartmentMappings() {
-      return (this.stages || []).filter(stage => !this.stageDepartmentMap?.[stage.id]);
+      return (this.stages || []).filter(stage => {
+        const deptId = this.stageDepartmentMap?.[stage.id] || '';
+        return !deptId || !this.isKnownWorkflowDepartmentId(deptId);
+      });
+    },
+
+    isKnownWorkflowDepartmentId(deptId) {
+      const id = String(deptId || '').trim();
+      if (!id) return false;
+      return (this.workflowDepartments || []).some(dept => String(dept.id || '') === id);
     },
 
     stageDepartmentName(stageId) {
@@ -223,6 +240,7 @@ function workflowApp() {
         this.stages = d.stages || this.stages || [];
         this.workflowDepartments = d.departments || [];
         this.stageDepartmentMap = { ...(d.stageDepartmentMap || {}) };
+        this.suggestedStageDepartmentMap = { ...(d.suggestedStageDepartmentMap || {}) };
         this.stageDepartmentMissingIds = d.stageDepartmentMissingIds || [];
       } catch (e) {
         alert(e.message);
@@ -249,6 +267,7 @@ function workflowApp() {
         this.stages = d.stages || this.stages || [];
         this.workflowDepartments = d.departments || [];
         this.stageDepartmentMap = { ...(d.stageDepartmentMap || {}) };
+        this.suggestedStageDepartmentMap = { ...(d.suggestedStageDepartmentMap || {}) };
         this.stageDepartmentMissingIds = d.stageDepartmentMissingIds || [];
         await this.loadJobs();
         alert('워크플로우 팀 매칭을 저장했습니다.');
@@ -257,6 +276,26 @@ function workflowApp() {
       } finally {
         this.stageDepartmentSaving = false;
       }
+    },
+
+    applySuggestedDepartmentMapping() {
+      const suggestions = this.suggestedStageDepartmentMap || {};
+      if (!this.workflowDepartments.length) return alert('조직도 부서를 먼저 등록해주세요.');
+      let changed = 0;
+      const unresolved = [];
+      for (const stage of this.stages || []) {
+        const current = this.stageDepartmentMap?.[stage.id] || '';
+        if (current && this.isKnownWorkflowDepartmentId(current)) continue;
+        const suggested = suggestions[stage.id] || '';
+        if (suggested && this.isKnownWorkflowDepartmentId(suggested)) {
+          this.stageDepartmentMap[stage.id] = suggested;
+          changed += 1;
+        } else {
+          unresolved.push(stage.defaultLabel || stage.label || stage.id);
+        }
+      }
+      const tail = unresolved.length ? `\n직접 선택 필요: ${unresolved.join(', ')}` : '';
+      alert(changed ? `추천 매칭 ${changed}개를 채웠습니다.${tail}` : `추천할 수 있는 부서가 없습니다.${tail}`);
     },
 
     applyPublicLinkSettings(data = {}) {
@@ -279,6 +318,28 @@ function workflowApp() {
         if (!r.ok || !d.ok) return;
         this.applyPublicLinkSettings(d);
       } catch (_) {}
+    },
+
+    async loadOrderTargets(force = false) {
+      if (!force && this.orderTargetsLoaded) return this.orderTargets;
+      if (!force && this.orderTargetsLoading) return this.orderTargetsLoading;
+      this.orderTargetsLoading = (async () => {
+        try {
+          const r = await fetch('/api/workflow/order-targets');
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok || !d.ok) throw new Error(d.error || '전달 대상을 불러오지 못했습니다.');
+          this.orderTargets = d.orderTargets || [];
+          this.orderTargetsLoaded = true;
+        } catch (e) {
+          alert(e.message || '전달 대상을 불러오지 못했습니다.');
+        }
+        return this.orderTargets;
+      })();
+      try {
+        return await this.orderTargetsLoading;
+      } finally {
+        this.orderTargetsLoading = null;
+      }
     },
 
     async savePublicLinkSettings() {
@@ -448,6 +509,14 @@ function workflowApp() {
       } catch (_) {}
     },
 
+    startWorkflowPolling() {
+      if (this.workflowPollTimer) return;
+      this.workflowPollTimer = setInterval(() => {
+        if (document.hidden) return;
+        this.loadSummary();
+      }, 30000);
+    },
+
     async setWorkflowListFilter(status = 'active', scope = 'all') {
       this.statusFilter = status || 'active';
       this.scopeFilter = scope || 'all';
@@ -462,7 +531,7 @@ function workflowApp() {
       if (this.query.trim()) qs.set('q', this.query.trim());
       if (this.statusFilter) qs.set('status', this.statusFilter);
       if (this.scopeFilter && this.scopeFilter !== 'all') qs.set('scope', this.scopeFilter);
-      qs.set('limit', this.jobListLimit === 0 ? '0' : String(this.jobListLimit || 120));
+      qs.set('limit', this.jobListLimit === 0 ? '0' : String(this.jobListLimit || 80));
       try {
         const r = await fetch('/api/workflow/jobs?' + qs.toString());
         const d = await r.json();
@@ -494,7 +563,7 @@ function workflowApp() {
     },
 
     async resetWorkflowJobLimit() {
-      this.jobListLimit = 120;
+      this.jobListLimit = 80;
       await this.loadJobs();
     },
 
@@ -669,6 +738,8 @@ function workflowApp() {
 
     workflowEventFocusLabel(event = {}) {
       const type = event.type || '';
+      if (type === 'cancel') return '작업 취소';
+      if (type === 'restore') return '작업 복구';
       if (type === 'order_cancel') return '발주 취소';
       if (type === 'order_restore') return '발주 복구';
       if (type === 'order_update') return '발주 변경';
@@ -715,6 +786,81 @@ function workflowApp() {
         push('event', this.workflowEventFocusLabel(item), item.message, `${item.jobTitle || '-'}${item.actorName ? ' · ' + item.actorName : ''}`, item, (item.type === 'order_public_reply' || item.type === 'order_cancel') ? 'warn' : 'info');
       });
       return items.slice(0, 8);
+    },
+
+    workflowAlertItems() {
+      const items = [];
+      const push = (kind, label, title, meta, source, level = 'info', count = 1) => {
+        if (!source && !count) return;
+        items.push({
+          key: `${kind}:${source?.id || source?.jobId || title || label}`,
+          kind,
+          label,
+          title: title || label || '-',
+          meta: meta || '',
+          source,
+          level,
+          count: Number(count || 1),
+        });
+      };
+      const urgentFiles = this.urgentFileItems();
+      if (urgentFiles.length) {
+        const first = urgentFiles[0];
+        push('urgentFile', '긴급', first.originalName, `${first.jobTitle || '-'} · 희망 ${first.designDueDate || '미정'}`, first, 'urgent', urgentFiles.length);
+      }
+      const overdueSchedules = this.scheduleItems().filter(item => item.overdue || item.today);
+      if (overdueSchedules.length) {
+        const first = overdueSchedules[0];
+        push('schedule', first.overdue ? '일정 지연' : '오늘 일정', first.title, `${first.label || '일정'} · ${first.dueDate || ''}`, first, first.overdue ? 'urgent' : 'warn', overdueSchedules.length);
+      }
+      const unreadCount = Number(this.summary.unreadTotal || ((this.summary.unreadFiles || 0) + (this.summary.unreadEvents || 0)));
+      const firstUnread = this.unreadFileItems()[0] || this.unreadEventItems()[0] || null;
+      if (unreadCount > 0) {
+        push(
+          firstUnread?.originalName ? 'unreadFile' : 'event',
+          '확인 필요',
+          firstUnread?.originalName || firstUnread?.message || '확인할 항목',
+          `${firstUnread?.jobTitle || '-'}${firstUnread?.stageLabel ? ' · ' + firstUnread.stageLabel : ''}`,
+          firstUnread,
+          'info',
+          unreadCount,
+        );
+      }
+      const actionCount = Number(this.summary.myActions || 0);
+      if (actionCount > 0) {
+        const first = this.myActionItems()[0];
+        push('action', '내 담당', first?.title || '내 담당 작업', `${first?.stageLabel || ''}${first?.dueDate ? ' · ' + first.dueDate : ''}`, first, first?.overdue ? 'urgent' : 'info', actionCount);
+      }
+      return items;
+    },
+
+    workflowAlertItem() {
+      return this.workflowAlertItems()[0] || null;
+    },
+
+    workflowAlertCount() {
+      return this.workflowAlertItems().reduce((sum, item) => sum + Number(item.count || 0), 0);
+    },
+
+    workflowAlertKey() {
+      const item = this.workflowAlertItem();
+      return item ? `${item.key}:${item.count}:${this.workflowAlertCount()}` : '';
+    },
+
+    shouldShowWorkflowAlert() {
+      const key = this.workflowAlertKey();
+      return !!key && key !== this.workflowAlertDismissedKey;
+    },
+
+    dismissWorkflowAlert() {
+      this.workflowAlertDismissedKey = this.workflowAlertKey();
+    },
+
+    async openWorkflowAlert() {
+      const item = this.workflowAlertItem();
+      if (!item) return;
+      await this.openFocusItem(item);
+      this.dismissWorkflowAlert();
     },
 
     focusItemClass(item) {
@@ -777,14 +923,19 @@ function workflowApp() {
         const folderName = String(company?.folderName || name).trim();
         const key = this.normalizeOptionName(name || folderName);
         if (!key) return;
+        const aliases = Array.isArray(company?.companyAliases)
+          ? company.companyAliases
+          : (Array.isArray(company?.aliases) ? company.aliases : []);
         const current = map.get(key);
         if (!current) {
           map.set(key, {
             name: name || folderName,
             folderName,
+            companyAliases: aliases.map(v => String(v || '').trim()).filter(Boolean),
             count: Number(company?.count || 0),
             folderCount: Number(company?.folderCount || 0),
             projectCount: Number(company?.projectCount || 0),
+            storageRule: !!company?.storageRule,
           });
           return;
         }
@@ -792,6 +943,16 @@ function workflowApp() {
         current.folderCount = Math.max(Number(current.folderCount || 0), Number(company?.folderCount || 0));
         current.projectCount = Math.max(Number(current.projectCount || 0), Number(company?.projectCount || 0));
         if (!current.folderName && folderName) current.folderName = folderName;
+        current.storageRule = current.storageRule || !!company?.storageRule;
+        const seen = new Set((current.companyAliases || []).map(v => this.normalizeOptionName(v)).filter(Boolean));
+        for (const alias of aliases) {
+          const value = String(alias || '').trim();
+          const aliasKey = this.normalizeOptionName(value);
+          if (value && aliasKey && !seen.has(aliasKey)) {
+            seen.add(aliasKey);
+            current.companyAliases.push(value);
+          }
+        }
       };
       lists.flat().forEach(put);
       return Array.from(map.values())
@@ -883,8 +1044,10 @@ function workflowApp() {
         || companies.find(c => {
           const nameKey = this.normalizeOptionName(c.name);
           const folderKey = this.normalizeOptionName(c.folderName);
+          const aliasKeys = (c.companyAliases || []).map(alias => this.normalizeOptionName(alias)).filter(Boolean);
           return (nameKey && (nameKey.includes(key) || key.includes(nameKey)))
-            || (folderKey && (folderKey.includes(key) || key.includes(folderKey)));
+            || (folderKey && (folderKey.includes(key) || key.includes(folderKey)))
+            || aliasKeys.some(aliasKey => aliasKey === key || aliasKey.includes(key) || key.includes(aliasKey));
         }) || null;
     },
 
@@ -1207,6 +1370,49 @@ function workflowApp() {
       await this.loadDesignWorkflowOptions(true);
     },
 
+    async repairWorkflowFileStorage() {
+      if (!this.canManageWorkflowStorageRules()) return alert('관리자만 파일 정리를 실행할 수 있습니다.');
+      if (this.workflowStorageRepairRunning) return;
+      this.workflowStorageRepairRunning = true;
+      this.workflowStorageRepairNotice = '파일 저장명/경로 검사 중';
+      try {
+        const callRepair = async dryRun => {
+          const r = await fetch('/api/workflow/maintenance/repair-file-storage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dryRun, limit: 500 }),
+          });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok || !d.ok) throw new Error(d.error || '파일 정리에 실패했습니다.');
+          return d;
+        };
+        const preview = await callRepair(true);
+        if (!preview.repairable) {
+          this.workflowStorageRepairNotice = '정리할 파일 없음';
+          return;
+        }
+        const first = preview.items?.[0];
+        const sample = first ? `\n\n예: ${first.originalName}` : '';
+        const ok = confirm(`원본명/저장경로 정리가 필요한 파일 ${preview.repairable}개를 찾았습니다.${sample}\n\n정리할까요?`);
+        if (!ok) {
+          this.workflowStorageRepairNotice = '파일 정리 취소';
+          return;
+        }
+        this.workflowStorageRepairNotice = '파일 정리 중';
+        const result = await callRepair(false);
+        this.workflowStorageRepairNotice = `파일 정리 완료 · ${result.repaired || 0}개`;
+        this.storagePreviewCache = {};
+        await this.loadDesignWorkflowOptions(true);
+        await this.loadJobs();
+        if (this.detail?.job) await this.refreshDetail(false);
+      } catch (e) {
+        this.workflowStorageRepairNotice = e.message || '파일 정리에 실패했습니다.';
+        alert(this.workflowStorageRepairNotice);
+      } finally {
+        this.workflowStorageRepairRunning = false;
+      }
+    },
+
     resetProjectForm(keepCompany = true) {
       const companyName = keepCompany ? this.projectForm.companyName : '';
       this.projectForm = {
@@ -1294,16 +1500,6 @@ function workflowApp() {
       }
     },
 
-    async addFormProjectFolder() {
-      return this.createWorkflowProjectFolder(this.form.companyName, this.form.projectName, this.newStorageYear(), 'active');
-    },
-
-    async addDetailProjectFolder() {
-      if (!this.detail?.job) return null;
-      const year = String(this.detail.job.dueDate || '').slice(0, 4);
-      return this.createWorkflowProjectFolder(this.detail.job.companyName, this.detail.job.projectName, year, this.detailProjectStatus());
-    },
-
     async saveDetailProjectStatus(status) {
       if (!this.detail?.job) return;
       const companyName = String(this.detail.job.companyName || '').trim();
@@ -1367,14 +1563,17 @@ function workflowApp() {
         const key = this.normalizeOptionName(name);
         const folderKey = this.normalizeOptionName(folderName);
         if (!name || seen.has(key)) continue;
-        const score = Math.min(this.optionMatchScore(name, term), this.optionMatchScore(folderName, term));
+        const aliasScores = (company?.companyAliases || []).map(alias => this.optionMatchScore(alias, term));
+        const score = Math.min(this.optionMatchScore(name, term), this.optionMatchScore(folderName, term), ...aliasScores);
         if (term && score >= 99) continue;
         seen.add(key);
         suggestions.push({
           name,
           folderName,
+          companyAliases: company?.companyAliases || [],
           count: Number(company?.count || 0),
           projectCount: Number(company?.projectCount || 0),
+          storageRule: !!company?.storageRule,
           score,
         });
       }
@@ -1397,7 +1596,7 @@ function workflowApp() {
         if (['done', 'cancelled'].includes(job.status || 'active')) continue;
         if (job.projectName && (!companyKey || this.normalizeOptionName(job.companyName) === companyKey)) names.push(job.projectName);
       }
-      return Array.from(new Set(names.filter(Boolean)));
+      return Array.from(new Set(names.filter(Boolean))).slice(0, 300);
     },
 
     workflowCompanyNames() {
@@ -1420,7 +1619,7 @@ function workflowApp() {
       for (const contact of this.contactOptions || []) {
         if (contact.company) add(contact.company);
       }
-      return names;
+      return names.slice(0, 800);
     },
 
     currentUserLabel() {
@@ -1580,7 +1779,8 @@ function workflowApp() {
         return key && key.length >= 2 ? [key] : [];
       }
       return fields
-        .map(field => this.normalizeOptionName(option?.[field]))
+        .flatMap(field => Array.isArray(option?.[field]) ? option[field] : [option?.[field]])
+        .map(value => this.normalizeOptionName(value))
         .filter(key => key && key.length >= 2);
     },
 
@@ -1633,7 +1833,7 @@ function workflowApp() {
           projectCount: 1,
         }))
       );
-      const matchedCompany = this.bestNameMatch(companies, text, ['name', 'folderName']);
+      const matchedCompany = this.bestNameMatch(companies, text, ['name', 'folderName', 'companyAliases']);
       let companyName = matchedCompany?.name || '';
       let projectName = '';
       const projectPool = companyName
@@ -1866,16 +2066,24 @@ function workflowApp() {
       }).slice(0, 80);
     },
 
-    onOrderTargetQuery() {
+    async toggleOrderPanel(force = null) {
+      const next = force === null ? !this.orderPanelOpen : !!force;
+      this.orderPanelOpen = next;
+      if (next) await this.loadOrderTargets();
+    },
+
+    async onOrderTargetQuery() {
+      await this.loadOrderTargets();
       const targets = this.filteredOrderTargets();
       if (!targets.length) return;
       if (!targets.some(target => target.id === this.orderForm.targetPreset)) {
         this.orderForm.targetPreset = targets[0].id;
-        this.onOrderTargetPreset();
+        await this.onOrderTargetPreset();
       }
     },
 
-    onOrderTargetPreset() {
+    async onOrderTargetPreset() {
+      if (!this.orderTargetsLoaded) await this.loadOrderTargets();
       const target = (this.orderTargets || []).find(t => t.id === this.orderForm.targetPreset);
       if (!target) return;
       this.orderForm.targetName = target.label || this.orderForm.targetName;
@@ -2000,7 +2208,7 @@ function workflowApp() {
       const createdOrderId = d.order?.id || '';
       this.applyOrderResponse(d);
       this.clearOrderFileSelection();
-      if (d.recipientSavedToVendor) await this.loadMeta();
+      if (d.recipientSavedToVendor) await this.loadOrderTargets(true);
       await this.loadJobs();
       if (isExternal) {
         const createdOrder = (this.detail?.orders || []).find(order => order.id === createdOrderId) || d.order;
@@ -2060,7 +2268,7 @@ function workflowApp() {
       const d = await r.json();
       if (!r.ok || !d.ok) return alert(d.error || '전달 저장 실패');
       this.applyOrderResponse(d);
-      if (d.recipientSavedToVendor) await this.loadMeta();
+      if (d.recipientSavedToVendor) await this.loadOrderTargets(true);
       await this.loadJobs();
     },
 
@@ -2291,7 +2499,7 @@ function workflowApp() {
           return;
         }
         this.applyOrderResponse(d);
-        if (d.recipientSavedToVendor) await this.loadMeta();
+        if (d.recipientSavedToVendor) await this.loadOrderTargets(true);
         await this.loadJobs();
         modal.sending = false;
         this.closeOrderMail();
@@ -2349,7 +2557,7 @@ function workflowApp() {
     },
 
     scheduleNegotiationLabel(status) {
-      return ({ pending: '일정확인', possible: '가능', needs_change: '조정요청', confirmed: '확정' })[status || 'pending'] || '일정확인';
+      return ({ pending: '일정확인', possible: '가능일 제시', needs_change: '조정요청', confirmed: '일정 확정' })[status || 'pending'] || '일정확인';
     },
 
     fileScheduleChipClass(file) {
@@ -2371,6 +2579,14 @@ function workflowApp() {
       const blockers = job?.completionBlockers || [];
       if (!blockers.length) return '완료 가능';
       return blockers.map(b => `${b.label} ${b.count}`).join(' · ');
+    },
+
+    completionBlockerShortText(job) {
+      const blockers = job?.completionBlockers || [];
+      if (!blockers.length) return '진행 가능';
+      const first = blockers[0];
+      const suffix = blockers.length > 1 ? ` 외 ${blockers.length - 1}` : '';
+      return `${first.label}${first.count ? ' ' + first.count : ''}${suffix}`;
     },
 
     archiveDateLabel(job) {
@@ -2436,6 +2652,9 @@ function workflowApp() {
 
     async createJob() {
       if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
+      if (!this.newFiles.length) {
+        return alert('시안 파일을 먼저 올려주세요.');
+      }
       if (this.newFiles.length && (!String(this.form.companyName || '').trim() || !String(this.form.projectName || '').trim())) {
         return alert('시안 파일을 같이 올릴 때는 회사명과 프로젝트명을 입력하세요.');
       }
@@ -2477,17 +2696,38 @@ function workflowApp() {
             uploadError = e;
           }
         }
+        if (uploadError) {
+          const cleaned = await this.abortEmptyJob(d.job.id, uploadError.message);
+          await this.loadJobs();
+          if (!cleaned) await this.selectJob(d.job.id);
+          alert('파일 업로드에 실패했습니다: ' + uploadError.message + (cleaned ? '\n빈 작업은 자동 정리했습니다.' : '\n작업 정리는 하지 못했습니다. 선택된 작업을 확인해주세요.'));
+          return;
+        }
         this.resetForm();
         this.clearNewFiles();
         this.newOpen = false;
         await this.loadDesignWorkflowOptions(true);
         await this.loadJobs();
         await this.selectJob(d.job.id);
-        if (uploadError) alert('작업은 등록됐지만 파일 업로드에 실패했습니다: ' + uploadError.message);
       } catch (e) {
         alert(e.message);
       } finally {
         this.saving = false;
+      }
+    },
+
+    async abortEmptyJob(jobId, reason = '') {
+      if (!jobId) return false;
+      try {
+        const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(jobId) + '/abort-empty', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason }),
+        });
+        const d = await r.json().catch(() => ({}));
+        return !!(r.ok && d.ok);
+      } catch (_) {
+        return false;
       }
     },
 
@@ -2932,12 +3172,21 @@ function workflowApp() {
       return file.thumbUrl || file.previewUrl || this.fileUrl(file);
     },
 
+    handleWorkflowImageLoad(event) {
+      const img = event?.target;
+      if (!img) return;
+      img.style.visibility = '';
+      const holder = img.closest ? img.closest('.wf-proof-thumb, .wf-card-visual') : null;
+      if (holder) holder.classList.remove('image-failed');
+    },
+
     handleWorkflowImageError(event, fallbackUrl = '') {
       const img = event?.target;
       if (!img) return;
       const fallback = String(fallbackUrl || '').trim();
       if (fallback && img.dataset.fallbackSrc !== fallback) {
         img.dataset.fallbackSrc = fallback;
+        img.style.visibility = '';
         img.src = fallback;
         return;
       }
@@ -3040,6 +3289,18 @@ function workflowApp() {
       const storage = String(job.archiveStorageBucket || job.storageBucket || '').trim();
       if (storage) parts.push('저장경로 ' + storage);
       if (count) parts.push('다운로드/메일 원본');
+      return parts.join(' · ');
+    },
+
+    cancelSummaryText(job) {
+      if (!job) return '';
+      const parts = [];
+      const at = this.eventTime(job.updatedAt || '');
+      if (at) parts.push(at + ' 취소 표시');
+      const count = Number(job.fileCount || job.archiveFileCount || 0);
+      parts.push(count ? `파일 ${count}개 기록 보존` : '파일 기록 없음');
+      const storage = String(job.storageBucket || job.archiveStorageBucket || '').trim();
+      if (storage) parts.push('저장경로 ' + storage);
       return parts.join(' · ');
     },
 
