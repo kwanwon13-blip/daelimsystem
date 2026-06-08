@@ -2635,6 +2635,21 @@ function workflowApp() {
       return `${current.label} 완료 · ${next.label} 전달`;
     },
 
+    // 목록 카드용: 그 작업의 다음 단계 라벨 (상세 안 들어가도 카드에서 바로)
+    cardNextLabel(job) {
+      const idx = (this.stages || []).findIndex(s => s.id === (job?.currentStage || 'design'));
+      const next = idx >= 0 ? this.stages[idx + 1] : null;
+      return next ? (next.label + ' 전달') : '완료 처리';
+    },
+
+    // 목록 카드에서 바로 "다음 단계로" — 선택 후 핸드오프 (가벼운 확인 1번)
+    async cardHandoff(jobId, stageId = '') {
+      await this.selectJob(jobId, stageId);
+      if (!this.detail || !this.detail.job) return;
+      if (!confirm(`${this.detail.job.title || '작업'}\n\n${this.handoffLabel()} 하시겠어요?`)) return;
+      await this.handoffJob();
+    },
+
     async createJob() {
       if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
       if (!this.newFiles.length) {

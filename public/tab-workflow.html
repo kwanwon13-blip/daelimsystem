@@ -456,7 +456,7 @@
             </div>
             <div class="wf-col-list">
               <template x-for="job in jobsForStage(stage.id)" :key="job.id">
-                <button class="wf-card text-left" :class="[(selectedId===job.id && (!selectedWorkStageId || selectedWorkStageId===stage.id)) ? 'active' : '', job.status === 'cancelled' ? 'cancelled' : '']" @click="selectJob(job.id, stage.id)">
+                <div class="wf-card text-left" role="button" tabindex="0" :class="[(selectedId===job.id && (!selectedWorkStageId || selectedWorkStageId===stage.id)) ? 'active' : '', job.status === 'cancelled' ? 'cancelled' : '']" @click="selectJob(job.id, stage.id)">
                   <template x-if="job.primaryVisualFile && selectedId===job.id && (!selectedWorkStageId || selectedWorkStageId===stage.id)">
                     <div class="wf-card-visual">
                       <img :src="job.primaryVisualFile ? (job.primaryVisualFile.thumbUrl || job.primaryVisualFile.previewUrl) : ''" :alt="job.primaryVisualFile ? job.primaryVisualFile.originalName : ''" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, job.primaryVisualFile ? job.primaryVisualFile.previewUrl : '')">
@@ -471,35 +471,22 @@
                     <span x-show="job.projectName">·</span>
                     <span x-show="job.projectName" x-text="job.projectName"></span>
                   </div>
-                  <div class="wf-card-compact" x-show="job.status === 'done' || job.overdue || job.overdueStageCount || job.blockedStageCount || job.changeRequestCount || job.lateScheduleCount || job.missingFileCount || job.unreadCount || job.unreadFileCount || job.dueDate || job.nextStageDue || job.fileCount">
+                  <div class="wf-card-compact">
                     <span class="wf-chip urgent" x-show="job.urgentFileCount" x-text="'긴급 ' + job.urgentFileCount"></span>
                     <span class="wf-chip unread" x-show="job.unreadCount || job.unreadFileCount" x-text="'확인 ' + (job.unreadCount || job.unreadFileCount)"></span>
-                    <span class="wf-chip" x-show="job.dueDate" x-text="job.dueDate"></span>
-                    <span class="wf-chip" x-show="!job.dueDate && job.nextStageDue" x-text="job.nextStageDue ? job.nextStageDue.dueDate : ''"></span>
-                    <span class="wf-chip" x-show="job.fileCount" x-text="'파일 ' + job.fileCount"></span>
-                    <span class="wf-chip done" x-show="job.status === 'done' && archiveDateLabel(job)" x-text="'보관 ' + archiveDateLabel(job)"></span>
-                    <span class="wf-chip done" x-show="job.status === 'done' && Number(job.archiveFileCount || 0)">발송원본</span>
-                    <span class="wf-chip blocked" x-show="job.status === 'cancelled'">취소 보관</span>
-                  </div>
-                  <div class="wf-card-extra">
-                    <span class="wf-chip" :class="job.priority" x-text="priorityLabel(job.priority)"></span>
-                    <span class="wf-chip" x-show="job.dueDate" x-text="job.dueDate"></span>
                     <span class="wf-chip overdue" x-show="job.overdue">지연</span>
-                    <span class="wf-chip" x-show="job.nextStageDue" :class="job.nextStageDue && job.nextStageDue.overdue ? 'overdue' : ''" x-text="job.nextStageDue ? (job.nextStageDue.stageLabel + ' ' + job.nextStageDue.dueDate) : ''"></span>
-                    <span class="wf-chip overdue" x-show="job.overdueStageCount" x-text="'단계지연 ' + job.overdueStageCount"></span>
-                    <span class="wf-chip blocked" x-show="job.blockedStageCount" x-text="'막힘 ' + job.blockedStageCount"></span>
-                    <span class="wf-chip change_requested" x-show="job.changeRequestCount" x-text="'수정/조정 ' + job.changeRequestCount"></span>
-                    <span class="wf-chip overdue" x-show="job.lateScheduleCount" x-text="'가능일지연 ' + job.lateScheduleCount"></span>
-                    <span class="wf-chip overdue" x-show="job.missingFileCount" x-text="'파일누락 ' + job.missingFileCount"></span>
-                    <span class="wf-chip urgent" x-show="job.urgentFileCount" x-text="'긴급시안 ' + job.urgentFileCount"></span>
-                    <span class="wf-chip" :class="job.canComplete ? 'ready' : 'not_ready'" x-text="job.canComplete ? '완료가능' : ('완료전 ' + (job.completionBlockers || []).length)"></span>
-                    <span class="wf-chip unread" x-show="job.unreadCount || job.unreadFileCount" x-text="'확인 ' + (job.unreadCount || job.unreadFileCount)"></span>
+                    <span class="wf-chip" x-show="job.dueDate" x-text="job.dueDate"></span>
+                    <span class="wf-chip" x-show="!job.dueDate && job.nextStageDue" x-text="job.nextStageDue ? (job.nextStageDue.stageLabel + ' ' + job.nextStageDue.dueDate) : ''"></span>
                     <span class="wf-chip" x-show="job.fileCount" x-text="'파일 ' + job.fileCount"></span>
-                    <span class="wf-chip done" x-show="job.status === 'done' && archiveDateLabel(job)" x-text="'보관 ' + archiveDateLabel(job)"></span>
-                    <span class="wf-chip done" x-show="job.status === 'done' && Number(job.archiveFileCount || 0)">메일/링크 원본</span>
-                    <span class="wf-chip blocked" x-show="job.status === 'cancelled'">취소 보관</span>
+                    <span class="wf-chip done" x-show="job.status === 'done'">완료</span>
+                    <span class="wf-chip blocked" x-show="job.status === 'cancelled'">취소</span>
                   </div>
-                </button>
+                  <div class="wf-card-actions" @click.stop style="display:flex;gap:4px;margin-top:7px;flex-wrap:wrap;">
+                    <a class="wf-btn ghost" :href="job.archiveUrl" @click.stop x-show="job.fileCount" title="자료 받기(압축)">받기</a>
+                    <button type="button" class="wf-btn ghost" @click.stop="selectJob(job.id, stage.id)" x-show="job.status!=='done' && job.status!=='cancelled'">올리기</button>
+                    <button type="button" class="wf-btn primary" @click.stop="cardHandoff(job.id, stage.id)" x-show="job.status!=='done' && job.status!=='cancelled'" x-text="cardNextLabel(job)">다음 단계</button>
+                  </div>
+                </div>
               </template>
               <div class="wf-empty" x-show="!jobsForStage(stage.id).length">비어 있음</div>
             </div>
