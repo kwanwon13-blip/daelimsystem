@@ -2598,6 +2598,23 @@ router.post('/chat-stream-cli', async (req, res) => {
     ai.threads.autoTitleIfEmpty(thread.id);
 
     reg.finish(aiMsg.id, 'ok', { threadId: thread.id, messageId: aiMsg.id, text: finalText, durationMs, artifacts });
+
+    // 회사 기억 자동 학습 (비차단, 대화당 1회 디바운스, 실패 무해)
+    try {
+      const chatMemory = require('../lib/chat-memory');
+      const { callClaudeCli } = require('../lib/claude-cli');
+      if (!global.__cmExtractAt) global.__cmExtractAt = {};
+      const cmKey = String(thread.id);
+      const cmLastAt = global.__cmExtractAt[cmKey] || 0;
+      if (Date.now() - cmLastAt > 60000 && typeof callClaudeCli === 'function') {  // 대화당 60초 1회
+        global.__cmExtractAt[cmKey] = Date.now();
+        const cmLlm = (p) => callClaudeCli(p).then(r => (r && (r.text || r)) || '').catch(() => '');
+        setImmediate(() => {
+          chatMemory.extractAndStore(cmLlm, { userText: String(prompt || ''), aiText: finalText, threadId: thread.id, userId: req.user.userId })
+            .catch(() => {});
+        });
+      }
+    } catch (_) {}
   } catch (e) {
     // 중단(stop) vs 진짜 오류 구분. 어느 쪽이든 여태 생성된 텍스트는 보존.
     const recNow = reg.get(aiMsg.id);
