@@ -225,7 +225,9 @@ const OCR_PROMPT = `이 이미지는 매입명세서 또는 거래명세서야. 
 }
 
 규칙:
-- 합계/소계/총계/이월금/일계/합 행은 lines에 포함하지 않음
+- ⚠️ 공급받는자(buyer)는 거의 항상 "대림에스엠" 또는 "대림컴퍼니"다. 그 쪽이 buyer, 물건 파는 반대쪽이 vendor(매입처)다. 둘을 절대 바꾸지 말 것.
+- ⚠️ trx_date(거래일자)는 명세서에 인쇄된 발행일/납품일을 정확히 읽어라. 월(MM)·일(DD) 숫자를 특히 신중히 (5월이면 05를 4월 04로 착각 금지). 카톡/파일 날짜가 아니라 명세서 자체의 거래일자.
+- 합계/소계/총계/이월금/일계/전잔액/출고액/입금액/잔액 행은 lines에 포함하지 않음
 - ocr_text 와 spec 은 매입명세서 원본 그대로 (정규화 X)
 - 숫자는 콤마 빼고
 - JSON 외 다른 설명 절대 출력하지 말 것`;
@@ -261,8 +263,9 @@ async function runOcr(filePath, mimeType) {
     }], { maxTokens: 8192, model: 'claude-sonnet-4-6' });
     return parseOcrJson(r.text || '');
   }
-  const cliPrompt = `${OCR_PROMPT}\n\n이미지 경로: ${path.resolve(filePath)}`;
-  const r = await claudeClient.runClaudeCli(cliPrompt, { timeoutMs: 120000 });
+  // CLI fallback — Read 도구 허용(--allowedTools Read) + 명시적 Read 지시 (헤드리스 권한 우회)
+  const cliPrompt = `${OCR_PROMPT}\n\n이미지 파일: ${path.resolve(filePath)}\n\n위 파일을 Read 도구로 열어 읽고, 위 지시대로 JSON만 출력해줘.`;
+  const r = await claudeClient.runClaudeCli(cliPrompt, { timeoutMs: 120000, allowedTools: 'Read' });
   return parseOcrJson(r.text || '');
 }
 
