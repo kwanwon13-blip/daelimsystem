@@ -4,6 +4,8 @@ function workflowApp() {
     saving: false,
     jobs: [],
     jobsByStage: {},
+    archiveJobs: [],
+    archiveQuery: '',
     jobListLimit: 80,
     jobListTotal: 0,
     jobListLimited: false,
@@ -541,6 +543,7 @@ function workflowApp() {
         this.jobListTotal = Number.isFinite(total) ? total : jobs.length;
         this.jobListLimited = !!d.limited;
         this.rebuildJobsByStage();
+        this.loadArchive();
         if (this.selectedId && !this.jobs.find(j => j.id === this.selectedId)) this.selectedId = '';
         if (!this.selectedId) this.detail = null;
         if (this.selectedId) await this.refreshDetail(false);
@@ -549,6 +552,21 @@ function workflowApp() {
       } finally {
         this.loading = false;
       }
+    },
+
+    // 과거내역(완료 보관) — status=done 작업을 따로 불러와 맨 오른쪽 칸에서 검색
+    async loadArchive() {
+      try {
+        const r = await fetch('/api/workflow/jobs?status=done&limit=0');
+        const d = await r.json();
+        this.archiveJobs = Array.isArray(d.jobs) ? d.jobs : [];
+      } catch (_) { this.archiveJobs = []; }
+    },
+    archiveFiltered() {
+      const q = (this.archiveQuery || '').trim().toLowerCase();
+      let list = this.archiveJobs || [];
+      if (q) list = list.filter(j => `${j.completionCode || ''} ${j.title || ''} ${j.companyName || ''} ${j.projectName || ''}`.toLowerCase().includes(q));
+      return list.slice().sort((a, b) => String(b.completedAt || '').localeCompare(String(a.completedAt || '')));
     },
 
     workflowLimitText() {

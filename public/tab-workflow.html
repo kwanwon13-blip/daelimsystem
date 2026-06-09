@@ -79,6 +79,17 @@
   .wf-date strong{font-size:12.5px;font-weight:900;}
   .wf-date.overdue{background:#fee2e2;color:#b91c1c;border-color:#fecaca;}
   .wf-date.done{background:#dcfce7;color:#15803d;border-color:#bbf7d0;}
+  .wf-col-archive{background:#f8fafc;border-left:2px solid #cbd5e1;}
+  .wf-col-archive .wf-col-head{background:#eef2f7;}
+  .wf-arc-search{padding:7px 8px;border-bottom:1px solid #e5e9f1;background:#fbfcfe;}
+  .wf-code{font-family:'Consolas',monospace;font-weight:900;color:#1d4ed8;font-size:13px;}
+  .wf-arc-card{border:1px solid #e2e8f0;border-radius:8px;background:#fff;padding:8px 9px;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.04);}
+  .wf-arc-card:hover{border-color:#94a3b8;}
+  .wf-arc-top{display:flex;align-items:center;justify-content:space-between;gap:6px;}
+  .wf-arc-title{font-size:13px;font-weight:800;color:#111827;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .wf-arc-meta{font-size:11px;color:#6b7280;margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;}
+  .wf-arc-act{display:flex;gap:5px;margin-top:7px;}
+  .wf-arc-act .wf-btn{height:26px;font-size:11px;padding:0 9px;flex:1;justify-content:center;}
   .wf-card:not(.active) .wf-chip{height:18px;padding:0 6px;font-size:10px;}
   .wf-card:not(.active) .wf-card-visual{display:none!important;}
   .wf-card-visual{position:relative;display:block;height:180px;margin:-2px -3px 8px -3px;border-radius:6px;overflow:hidden;background:#e2e8f0;}
@@ -498,6 +509,41 @@
             </div>
           </div>
         </template>
+
+        <!-- 과거내역(완료 보관) — 맨 오른쪽 별도 칸 + 검색 -->
+        <div class="wf-col wf-col-archive">
+          <div class="wf-col-head">
+            <span style="display:flex;align-items:center;gap:5px;">
+              <span class="material-symbols-outlined" style="font-size:16px;">inventory_2</span>
+              <span>과거내역</span>
+            </span>
+            <span class="wf-chip" x-text="archiveFiltered().length"></span>
+          </div>
+          <div class="wf-arc-search">
+            <input class="wf-input" style="width:100%;box-sizing:border-box;" x-model="archiveQuery" placeholder="🔍 코드·업체·현장 검색">
+          </div>
+          <div class="wf-col-list">
+            <template x-for="job in archiveFiltered()" :key="'arc-'+job.id">
+              <div class="wf-arc-card" role="button" tabindex="0" @click="selectJob(job.id, 'delivery')">
+                <div class="wf-arc-top">
+                  <span class="wf-code" x-text="job.completionCode || '미발번'"></span>
+                  <span class="wf-date done" x-show="job.completedAt" x-text="wfShortDate(job.completedAt)"></span>
+                </div>
+                <div class="wf-arc-title" x-text="job.title"></div>
+                <div class="wf-arc-meta">
+                  <span x-text="job.companyName || '-'"></span>
+                  <span x-show="job.projectName">· <span x-text="job.projectName"></span></span>
+                  <span>· 파일 <span x-text="job.archiveFileCount || 0"></span></span>
+                </div>
+                <div class="wf-arc-act" @click.stop>
+                  <a class="wf-btn ghost" :href="job.archiveUrl" @click.stop x-show="job.archiveFileCount" title="완료본 받기">받기</a>
+                  <button type="button" class="wf-btn ghost" @click.stop="selectJob(job.id, 'delivery')">보기</button>
+                </div>
+              </div>
+            </template>
+            <div class="wf-empty" x-show="!archiveFiltered().length">완료된 작업이 없습니다</div>
+          </div>
+        </div>
       </div>
     </section>
 
