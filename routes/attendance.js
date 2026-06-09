@@ -770,7 +770,9 @@ router.get('/attendance/debug-caps', requireAdmin, async (req, res) => {
 // GET /api/attendance/summary?year=2025&month=3[&employeeId=]
 // ─────────────────────────────────────────────────────────
 router.get('/attendance/summary', requireAuth, async (req, res) => {
-  const { year, month, employeeId } = req.query;
+  const { year, month } = req.query;
+  const calendarOnly = req.query.calendar === 'company' || req.query.calendarOnly === 'true';
+  const employeeId = calendarOnly ? '' : req.query.employeeId;
   if (!year || !month) return res.status(400).json({ error: 'year, month 파라미터 필요' });
 
   const y = parseInt(year), m = parseInt(month);
@@ -823,7 +825,9 @@ router.get('/attendance/summary', requireAuth, async (req, res) => {
       if (myDept && myDept.leaderId === me2.id) canViewTeam = true;
     }
   }
-  if (req.user.role !== 'admin' && canViewTeam && userDeptId) {
+  if (calendarOnly) {
+    teamMemberNames = null;
+  } else if (req.user.role !== 'admin' && canViewTeam && userDeptId) {
     // 팀장: 같은 부서 팀원만
     teamMemberNames = (uDataOnce.users || [])
       .filter(u => u.department === userDeptId && u.status === 'approved')
@@ -1217,7 +1221,7 @@ router.get('/attendance/summary', requireAuth, async (req, res) => {
 
   // ── 과거 근무일 중 CAPS 기록이 없는 날 → noRecord 가상 레코드 생성 ──
   // (근태면제 부서 제외, 퇴근 미기록(noSwipeOut)은 기존 레코드로 처리되므로 해당 없음)
-  {
+  if (!calendarOnly) {
     // 직원별 입사일 맵 (입사일 이전 날짜는 미기록 생성 제외)
     const hireDateMap = {};
     try {
@@ -1296,7 +1300,27 @@ router.get('/attendance/summary', requireAuth, async (req, res) => {
     res.set('X-Data-Source', 'cache');
   }
   _lap(`응답 전송 (최종 ${summary.length}명)`);
-  _sendJson(summary);
+  if (calendarOnly) {
+    const calendarTypes = new Set(['annual', 'halfAM', 'halfPM']);
+    const calendarSummary = summary
+      .map(emp => ({
+        employeeId: emp.employeeId,
+        employeeName: emp.employeeName,
+        department: emp.department || '',
+        records: (emp.records || [])
+          .filter(r => calendarTypes.has(r.leaveType))
+          .map(r => ({
+            date: r.date,
+            leaveType: r.leaveType,
+            leaveLabel: r.leaveLabel || (r.leaveType === 'annual' ? '연차' : '반차'),
+          })),
+      }))
+      .filter(emp => emp.records.length > 0);
+    res.set('X-Attendance-Calendar', 'company');
+    _sendJson(calendarSummary);
+  } else {
+    _sendJson(summary);
+  }
 
   } catch (err) {
     // 후처리 중 예외 발생 시 응답 전송 보장 (무응답 방지)
