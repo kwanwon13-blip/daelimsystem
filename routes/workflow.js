@@ -2907,11 +2907,34 @@ async function buildJobArchive(data, job, filters = {}) {
   return buildArchiveFromFiles(job, files, { stageId, kind }, suffix, { orders });
 }
 
+// 완료 명세서 코드: 완료일자 기준 일별 순번 (예: 20260710-001). 완료일이 바뀌면 새 날짜로 재발번.
+function completionCodeDatePart(job) {
+  const m = String(job.completedAt || '').match(/(\d{4})-(\d{2})-(\d{2})/);
+  return m ? m[1] + m[2] + m[3] : '';
+}
+function assignCompletionCode(data, job) {
+  const ymd = completionCodeDatePart(job);
+  if (!ymd) return job.completionCode || '';
+  if (job.completionCode && job.completionCode.slice(0, 8) === ymd) return job.completionCode; // 같은 날짜면 유지
+  let max = 0;
+  for (const j of (data.jobs || [])) {
+    if (j === job) continue;
+    const c = String(j.completionCode || '');
+    if (c.slice(0, 8) === ymd && c.charAt(8) === '-') {
+      const n = parseInt(c.slice(9), 10);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+  }
+  job.completionCode = `${ymd}-${String(max + 1).padStart(3, '0')}`;
+  return job.completionCode;
+}
+
 function completeWorkflowJob(data, req, job, at = nowIso()) {
   const firstComplete = !job.completedAt;
   const files = jobArchiveFiles(data, job, {});
   job.status = 'done';
   job.completedAt = job.completedAt || at;
+  assignCompletionCode(data, job);
   job.completedBy = job.completedBy || req.user?.userId || '';
   job.completedByName = job.completedByName || userName(req);
   job.archiveStatus = 'ready';
@@ -2936,6 +2959,7 @@ function clearWorkflowCompletion(job) {
   job.archiveUpdatedAt = '';
   job.archiveFileCount = 0;
   job.archiveStorageBucket = '';
+  job.completionCode = '';
 }
 
 function sendWorkflowFile(res, file, inline = false, publicCache = false) {
