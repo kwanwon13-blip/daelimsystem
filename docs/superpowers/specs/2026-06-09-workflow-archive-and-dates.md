@@ -48,5 +48,19 @@
 - 3단계 직선화 + 게이트 제거(4cc4f52, 5016c90), 카드 인라인 액션·칩·날짜배지(1a23047,715664c,dc76f3d), 메일 디자인단계 한정(dc76f3d).
 - 완료코드 발번 함수 `assignCompletionCode`(3ee0125) — ⚠️ 발번 **시점**을 위 전환#2(제작완료)로 옮겨야 함.
 
+## 남은 작업 (다음 세션 — 이 브랜치 + 이 스펙으로 이어가기)
+
+### A. 날짜 역할 정교화 (요청날짜/완료가능일)
+- 신규 필드 `job.factoryAvailableDate`(완료가능일). 요청날짜는 기존 `job.dueDate`.
+- 백엔드 `PUT /jobs/:id`(saveJob): `dueDate`는 currentStage=design일 때만, `factoryAvailableDate`는 currentStage=factory일 때만 저장(역할 가드).
+- 프론트 카드/상세: design=요청 입력 / factory=요청🔒+완료가능 입력 / delivery=둘다 읽기전용. (샘플 이미지 = 날짜흐름 확인됨)
+- 전환 트리거/라벨 정교화: design→factory는 "완료가능일 확정", factory→delivery는 "완료", delivery→done(과거내역)은 "수령". (지금은 공통 cardHandoff)
+- completionCode 발번 시점을 **factory→delivery(제작완료)** 로 이동(현재는 done 시점).
+
+### B. 다운로드 터널 연결
+- **이미 있음(백엔드)**: 공개 엔드포인트 `/api/workflow/public/files/:token/download`, `/public/jobs/:token/files.zip`; 터널 base는 `publicWorkflowLinkState()`가 env(`WORKFLOW_PUBLIC_BASE_URL`/`CLOUDFLARE_TUNNEL_URL`) 또는 설정(`설정.json` workflow.publicBaseUrl)에서 해석. decorateJob이 `publicArchiveUrl`(상대경로) 노출.
+- **코드로 할 일**: UI에서 `publicShareBaseUrl + publicArchiveUrl`로 **외부 공유/받기 링크** 버튼 제공(과거내역·전달에서 "외부 링크로 받기/복사"). 터널 미설정 시 안내.
+- **서버 인프라(코드 밖)**: 서버 PC에서 Cloudflare 터널 실제 구동 + base URL 설정 ([docs/workflow-cloudflare-tunnel.md] 참고). 토큰은 레포에 저장 금지.
+
 ## 샘플
 - 날짜흐름·명세서 목업 puppeteer 렌더로 확인됨(대화 이미지). 임시파일 `archive-sample.html`,`_shot.js`는 구현 후 정리.
