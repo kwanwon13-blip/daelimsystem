@@ -1,6 +1,6 @@
 # 워크플로우 — 단계 흐름 + 완료 명세서(과거내역) + 요청/완료가능일
 
-작성·갱신 2026-06-09. 사장님과 합의 확정. 브랜치 `claude/adoring-wozniak-15f7a6`.
+작성·갱신 2026-06-10. 사장님과 합의 확정. 브랜치 `claude/adoring-wozniak-15f7a6`.
 
 ## 확정된 일의 순서 (가장 중요)
 
@@ -48,19 +48,21 @@
 - 3단계 직선화 + 게이트 제거(4cc4f52, 5016c90), 카드 인라인 액션·칩·날짜배지(1a23047,715664c,dc76f3d), 메일 디자인단계 한정(dc76f3d).
 - 완료코드 발번 함수 `assignCompletionCode`(3ee0125) — ⚠️ 발번 **시점**을 위 전환#2(제작완료)로 옮겨야 함.
 
-## 남은 작업 (다음 세션 — 이 브랜치 + 이 스펙으로 이어가기)
+## 남은 작업 — ✅ A·B 코드 구현 완료 (2026-06-10)
 
-### A. 날짜 역할 정교화 (요청날짜/완료가능일)
-- 신규 필드 `job.factoryAvailableDate`(완료가능일). 요청날짜는 기존 `job.dueDate`.
-- 백엔드 `PUT /jobs/:id`(saveJob): `dueDate`는 currentStage=design일 때만, `factoryAvailableDate`는 currentStage=factory일 때만 저장(역할 가드).
-- 프론트 카드/상세: design=요청 입력 / factory=요청🔒+완료가능 입력 / delivery=둘다 읽기전용. (샘플 이미지 = 날짜흐름 확인됨)
-- 전환 트리거/라벨 정교화: design→factory는 "완료가능일 확정", factory→delivery는 "완료", delivery→done(과거내역)은 "수령". (지금은 공통 cardHandoff)
-- completionCode 발번 시점을 **factory→delivery(제작완료)** 로 이동(현재는 done 시점).
+### A. 날짜 역할 정교화 (요청날짜/완료가능일) — ✅ 완료
+- [x] 신규 필드 `job.factoryAvailableDate`(완료가능일) — `normalizeJobPayload` + `decorateJob` 노출. 요청날짜는 기존 `job.dueDate`.
+- [x] 백엔드 역할 가드: `routes/lib/workflow-stage-rules.js`의 `applyDateRoleGuard` — `dueDate`는 design, `factoryAvailableDate`는 factory 단계에서만 저장. `PUT /jobs/:id` + `POST /jobs`(생성=design) 적용. 서버가 **기존 저장된 단계** 기준으로 판단 → 클라이언트 우회 불가.
+- [x] 프론트 상세: design=요청 입력 / factory=요청🔒+완료가능 입력 / delivery=둘 다 🔒(disabled + 잠금 표시).
+- [x] 전환 라벨: `stageHandoffLabel` — design→"완료가능일 확정", factory→"완료", delivery→"수령". 카드/상세 버튼·확인창 공통.
+- [x] completionCode 발번을 **factory→delivery(제작완료) 핸드오프**로 이동. `completedAt`/`completionCode`는 제작완료(factory done)에 종속, `status='done'`(수령/보관)과 분리. 수령 시 `ensureStagesDone`으로 전 단계 done 확정(도중 reopen 돼도 코드 유실 방지).
+- 테스트: `tests/workflow-stage-rules.test.js`(백엔드 순수 로직), `tests/workflow-frontend-dates-links.test.js`(프론트 헬퍼). 코드리뷰 에이전트 지적(MEDIUM 1·LOW 3) 반영 완료.
 
-### B. 다운로드 터널 연결
+### B. 다운로드 터널 연결 — ✅ UI 완료 (서버 인프라만 남음)
 - **이미 있음(백엔드)**: 공개 엔드포인트 `/api/workflow/public/files/:token/download`, `/public/jobs/:token/files.zip`; 터널 base는 `publicWorkflowLinkState()`가 env(`WORKFLOW_PUBLIC_BASE_URL`/`CLOUDFLARE_TUNNEL_URL`) 또는 설정(`설정.json` workflow.publicBaseUrl)에서 해석. decorateJob이 `publicArchiveUrl`(상대경로) 노출.
-- **코드로 할 일**: UI에서 `publicShareBaseUrl + publicArchiveUrl`로 **외부 공유/받기 링크** 버튼 제공(과거내역·전달에서 "외부 링크로 받기/복사"). 터널 미설정 시 안내.
-- **서버 인프라(코드 밖)**: 서버 PC에서 Cloudflare 터널 실제 구동 + base URL 설정 ([docs/workflow-cloudflare-tunnel.md] 참고). 토큰은 레포에 저장 금지.
+- [x] UI: `jobExternalArchiveUrl`/`hasExternalArchiveLink`/`copyJobExternalLink` — 과거내역 카드·상세 보관 스트립·전달(delivery) 카드에 "🔗외부" 링크 복사 버튼. 터널 미설정 시 설정 안내 alert.
+- [ ] **서버 인프라(코드 밖)**: 서버 PC에서 Cloudflare 터널 실제 구동 + base URL 설정 ([docs/workflow-cloudflare-tunnel.md] 참고). 토큰은 레포에 저장 금지.
+- 참고: 공개 ZIP은 기존부터 완료 여부와 무관하게 토큰만으로 열림(이번 변경과 무관). 외부 노출이 걱정되면 `status='done'` 게이팅 추가 검토.
 
 ## 샘플
-- 날짜흐름·명세서 목업 puppeteer 렌더로 확인됨(대화 이미지). 임시파일 `archive-sample.html`,`_shot.js`는 구현 후 정리.
+- 날짜흐름·명세서 목업 puppeteer 렌더로 확인됨(대화 이미지). 임시파일 `archive-sample.html`,`_shot.js`는 정리 완료(현재 없음).

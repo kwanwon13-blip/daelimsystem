@@ -12,6 +12,7 @@ const mailRoute = require('./mail');
 const { isPathInside } = require('./lib/design-workflow-storage');
 const workflowStorageRules = require('./lib/workflow-storage-rules');
 const { createFileLocator } = require('./lib/workflow-file-locator');
+const stageRules = require('./lib/workflow-stage-rules');
 let sharp;
 try { sharp = require('sharp'); } catch (_) {}
 const { sendSmtpMail, normalizeEmailList } = mailRoute;
@@ -1150,6 +1151,7 @@ function normalizeJobPayload(body, existing = null) {
     status,
     currentStage: STAGES.some(s => s.id === body.currentStage) ? body.currentStage : (existing?.currentStage || inferCurrentStage(stageChecks)),
     dueDate: safeDate(body.dueDate),
+    factoryAvailableDate: safeDate(body.factoryAvailableDate),
     deliveryDate: safeDate(body.deliveryDate),
     summary: safeText(body.summary, 3000),
     stageChecks,
@@ -2354,7 +2356,7 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
     publicArchiveUrl: job.publicToken ? `/api/workflow/public/jobs/${encodeURIComponent(job.publicToken)}/files.zip` : '',
     archiveFileCount,
     archiveStatus: job.archiveStatus || (job.status === 'done' ? 'ready' : ''),
-    archiveUpdatedAt: job.archiveUpdatedAt || job.completedAt || '',
+    archiveUpdatedAt: job.archiveUpdatedAt || '', // 수령(보관) 전에는 비움 — 제작완료(completedAt)와 분리
     archiveStorageBucket: job.archiveStorageBucket || job.storageBucket || '',
     primaryVisualFile: primaryVisualFile ? {
       id: primaryVisualFile.id,
@@ -2382,6 +2384,7 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
     lateScheduleCount: lateScheduleCount(scopedData, job),
     canComplete: blockers.length === 0,
     completionBlockers: blockers,
+    factoryAvailableDate: job.factoryAvailableDate || '',
     completedAt: job.completedAt || '',
     completedByName: job.completedByName || '',
     overdue: isOverdueJob(job),
@@ -2908,41 +2911,29 @@ async function buildJobArchive(data, job, filters = {}) {
 }
 
 // 완료 명세서 코드: 완료일자 기준 일별 순번 (예: 20260710-001). 완료일이 바뀌면 새 날짜로 재발번.
-function completionCodeDatePart(job) {
-  const m = String(job.completedAt || '').match(/(\d{4})-(\d{2})-(\d{2})/);
-  return m ? m[1] + m[2] + m[3] : '';
-}
-function assignCompletionCode(data, job) {
-  const ymd = completionCodeDatePart(job);
-  if (!ymd) return job.completionCode || '';
-  if (job.completionCode && job.completionCode.slice(0, 8) === ymd) return job.completionCode; // 같은 날짜면 유지
-  let max = 0;
-  for (const j of (data.jobs || [])) {
-    if (j === job) continue;
-    const c = String(j.completionCode || '');
-    if (c.slice(0, 8) === ymd && c.charAt(8) === '-') {
-      const n = parseInt(c.slice(9), 10);
-      if (Number.isFinite(n) && n > max) max = n;
-    }
-  }
-  job.completionCode = `${ymd}-${String(max + 1).padStart(3, '0')}`;
-  return job.completionCode;
+function actorFromReq(req) {
+  return { userId: (req && req.user && req.user.userId) || '', userName: userName(req) };
 }
 
+// 제작완료(factory 단계 done) 동기화 — 제작완료일/완료코드/완료자를 세팅하거나 초기화.
+// 완료코드/제작완료일은 "제작완료"에 종속하며, 수령(done/archive)과 분리된다.
+function syncJobFactoryCompletion(data, req, job, at = nowIso()) {
+  return stageRules.syncFactoryCompletion(data.jobs, job, at, actorFromReq(req));
+}
+
+// 수령(영업지원팀): 완료본을 과거내역으로 보관. 제작완료일/코드는 factory 동기화가 이미 세팅함.
 function completeWorkflowJob(data, req, job, at = nowIso()) {
-  const firstComplete = !job.completedAt;
+  const firstArchive = !job.archiveUpdatedAt;
   const files = jobArchiveFiles(data, job, {});
   job.status = 'done';
-  job.completedAt = job.completedAt || at;
-  assignCompletionCode(data, job);
-  job.completedBy = job.completedBy || req.user?.userId || '';
-  job.completedByName = job.completedByName || userName(req);
+  stageRules.ensureStagesDone(job, STAGES.map(s => s.id), at); // 수령=전 단계 완료 확정 → 제작완료일/코드 보존
+  syncJobFactoryCompletion(data, req, job, at);
   job.archiveStatus = 'ready';
   job.archiveUpdatedAt = at;
   job.archiveFileCount = files.length;
   job.archiveStorageBucket = job.storageBucket || '';
   job.currentStage = 'delivery';
-  if (firstComplete) {
+  if (firstArchive) {
     addEvent(data, req, job.id, 'complete', '완료 보관함 저장', {
       archiveFileCount: files.length,
       archiveStorageBucket: job.archiveStorageBucket,
@@ -2951,15 +2942,12 @@ function completeWorkflowJob(data, req, job, at = nowIso()) {
   return files.length;
 }
 
-function clearWorkflowCompletion(job) {
-  job.completedAt = '';
-  job.completedBy = '';
-  job.completedByName = '';
+// 수령(done/archive) 취소 시 보관 메타만 초기화. 제작완료일/코드는 factory 동기화가 관리.
+function clearWorkflowArchive(job) {
   job.archiveStatus = '';
   job.archiveUpdatedAt = '';
   job.archiveFileCount = 0;
   job.archiveStorageBucket = '';
-  job.completionCode = '';
 }
 
 function sendWorkflowFile(res, file, inline = false, publicCache = false) {
@@ -3509,6 +3497,7 @@ router.get('/jobs/:id', (req, res) => {
 router.post('/jobs', (req, res) => {
   const data = loadStore();
   const payload = normalizeJobPayload(req.body || {});
+  stageRules.applyDateRoleGuard({ currentStage: 'design' }, payload); // 생성=디자인 단계: 완료가능일 입력 차단
   if (!payload.title) {
     payload.title = payload.projectName || (payload.companyName ? `${payload.companyName} 작업` : '워크플로우 작업');
   }
@@ -3563,6 +3552,7 @@ router.put('/jobs/:id', (req, res) => {
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
   const payload = normalizeJobPayload(req.body || {}, job);
+  stageRules.applyDateRoleGuard(job, payload); // 요청날짜=design / 완료가능일=factory 단계만 저장
   const previousStatus = job.status || 'active';
   const at = nowIso();
   if (payload.status === 'done') {
@@ -3588,16 +3578,11 @@ router.put('/jobs/:id', (req, res) => {
     year: job.storageYear || String(job.dueDate || '').slice(0, 4),
   }, req, storageResult.info);
   if (job.status === 'done') {
-    for (const stage of STAGES) {
-      if (job.stageChecks[stage.id].status !== 'done') {
-        job.stageChecks[stage.id].status = 'done';
-        job.stageChecks[stage.id].completedAt = job.stageChecks[stage.id].completedAt || at;
-      }
-    }
-    completeWorkflowJob(data, req, job, at);
+    completeWorkflowJob(data, req, job, at); // 내부에서 전 단계 done 확정(ensureStagesDone)
   } else {
-    clearWorkflowCompletion(job);
     syncWorkflowStageFlow(job);
+    clearWorkflowArchive(job);
+    syncJobFactoryCompletion(data, req, job, at);
   }
   let eventType = 'update';
   let eventMessage = storageResult.changed ? '작업 정보 수정 · 저장 폴더 자동 준비' : '작업 정보 수정';
@@ -3642,7 +3627,8 @@ router.post('/jobs/:id/stages/:stageId', (req, res) => {
   if (job.status === 'done') {
     completeWorkflowJob(data, req, job, at);
   } else {
-    clearWorkflowCompletion(job);
+    clearWorkflowArchive(job);
+    syncJobFactoryCompletion(data, req, job, at);
   }
   const targetStageIds = previousStatus !== nextStatus ? stageStatusNotifyTargets(job, stage.id, nextStatus) : [];
   addEvent(data, req, job.id, 'stage', `${workflowStageLabel(stage.id) || stage.label} ${CHECK_STATUS_LABELS[nextStatus] || nextStatus}`, {
@@ -3691,6 +3677,7 @@ router.post('/jobs/:id/handoff', (req, res) => {
     if (nextCheck.status === 'pending') nextCheck.status = 'ready';
     nextCheck.updatedAt = at;
     syncWorkflowStageFlow(job, at);
+    syncJobFactoryCompletion(data, req, job, at); // factory→delivery 전환 시 제작완료일/완료코드 발번
     addEvent(data, req, job.id, 'handoff', `${workflowStageLabel(current.id)} 완료 · ${workflowStageLabel(next.id) || next.label} 전달${message ? ' - ' + message : ''}`, {
       fromStageId: current.id,
       toStageId: next.id,

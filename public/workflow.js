@@ -2667,19 +2667,23 @@ function workflowApp() {
       return idx >= 0 ? (this.stages[idx + 1] || null) : null;
     },
 
-    handoffLabel() {
-      const current = this.currentStage();
-      const next = this.nextStage();
-      if (!current) return '전달';
-      if (!next) return '작업 완료';
-      return `${current.label} 완료 · ${next.label} 전달`;
+    // 단계 전환 액션 라벨 — design→대림컴퍼니(완료가능일 확정), factory→영업지원팀(완료), delivery→과거내역(수령)
+    stageHandoffLabel(stageId) {
+      if (stageId === 'design') return '완료가능일 확정';
+      if (stageId === 'factory') return '완료';
+      if (stageId === 'delivery') return '수령';
+      return '다음 단계';
     },
 
-    // 목록 카드용: 그 작업의 다음 단계 라벨 (상세 안 들어가도 카드에서 바로)
+    handoffLabel() {
+      const current = this.currentStage();
+      const stageId = (current && current.id) || (this.detail && this.detail.job && this.detail.job.currentStage) || 'design';
+      return this.stageHandoffLabel(stageId);
+    },
+
+    // 목록 카드용: 그 작업의 다음 단계 전환 라벨 (상세 안 들어가도 카드에서 바로)
     cardNextLabel(job) {
-      const idx = (this.stages || []).findIndex(s => s.id === (job?.currentStage || 'design'));
-      const next = idx >= 0 ? this.stages[idx + 1] : null;
-      return next ? (next.label + ' 전달') : '완료 처리';
+      return this.stageHandoffLabel((job && job.currentStage) || 'design');
     },
 
     // 목록 카드에서 바로 "다음 단계로" — 선택 후 핸드오프 (가벼운 확인 1번)
@@ -3388,6 +3392,32 @@ function workflowApp() {
       if (this.fileKindFilter !== 'all') qs.set('kind', this.fileKindFilter);
       const query = qs.toString();
       return base + (query ? '?' + query : '');
+    },
+
+    // B. 외부(터널) 받기 링크 — 과거내역·전달에서 외부업체에게 주는 공개 ZIP 링크
+    jobExternalArchiveUrl(job) {
+      const rel = job && job.publicArchiveUrl ? job.publicArchiveUrl : '';
+      if (!rel) return '';
+      return this.absoluteUrl(rel);
+    },
+
+    hasExternalArchiveLink(job) {
+      return !!(this.activePublicWorkflowBaseUrl() && job && job.publicArchiveUrl
+        && Number(job.archiveFileCount || job.fileCount || 0));
+    },
+
+    async copyJobExternalLink(job) {
+      if (!this.activePublicWorkflowBaseUrl()) {
+        return alert('외부 다운로드 주소(터널)가 설정되지 않았습니다.\n설정 → "외부 다운로드 주소"에 Cloudflare 터널 주소를 등록하면 외부 받기 링크를 만들 수 있어요.');
+      }
+      const url = this.jobExternalArchiveUrl(job);
+      if (!url) return alert('이 작업에는 외부로 보낼 완료 파일이 없습니다.');
+      try {
+        await navigator.clipboard.writeText(url);
+        alert('외부 받기 링크를 복사했습니다.\n\n' + url);
+      } catch (_) {
+        window.prompt('외부 받기 링크 (Ctrl+C 로 복사하세요)', url);
+      }
     },
 
     eventTime(ts) {
