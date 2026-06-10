@@ -1,0 +1,28 @@
+/* Material Symbols Outlined — 셀프호스팅 (구글 폰트 의존 제거 → 인터넷 순단에도 아이콘 안 깨짐).
+   원본: fonts.gstatic.com /materialsymbolsoutlined/v344 정적판(wght 400).
+   ERP 전체가 기본 변형(FILL 0, wght 400, GRAD 0)만 쓰므로 경량 정적판으로 충분.
+   일관성 가드: tests/font-link-consistency.test.js */
+@font-face {
+  font-family: 'Material Symbols Outlined';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url(/fonts/material-symbols-outlined.woff2) format('woff2');
+}
+
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+}
