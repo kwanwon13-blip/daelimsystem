@@ -502,7 +502,7 @@
                   </div>
                   <div class="wf-card-actions" @click.stop style="display:flex;gap:4px;margin-top:7px;flex-wrap:wrap;">
                     <a class="wf-btn ghost" :href="job.archiveUrl" @click.stop x-show="job.fileCount" title="자료 받기(압축)">받기</a>
-                    <button type="button" class="wf-btn ghost" @click.stop="copyJobExternalLink(job)" x-show="stage.id==='delivery' && hasExternalArchiveLink(job)" title="외부업체에게 줄 받기 링크 복사">🔗외부</button>
+                    <button type="button" class="wf-btn ghost" @click.stop="copyJobExternalLink(job)" x-show="hasExternalArchiveLink(job)" title="외부(공장/업체)에게 줄 받기 링크 복사">🔗외부</button>
                     <button type="button" class="wf-btn ghost" @click.stop="selectJob(job.id, stage.id)" x-show="job.status!=='done' && job.status!=='cancelled'">올리기</button>
                     <button type="button" class="wf-btn primary" @click.stop="cardHandoff(job.id, stage.id)" x-show="job.status!=='done' && job.status!=='cancelled'" x-text="cardNextLabel(job)">다음 단계</button>
                   </div>

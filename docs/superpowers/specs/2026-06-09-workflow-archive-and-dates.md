@@ -60,7 +60,8 @@
 
 ### B. 다운로드 터널 연결 — ✅ UI 완료 (서버 인프라만 남음)
 - **이미 있음(백엔드)**: 공개 엔드포인트 `/api/workflow/public/files/:token/download`, `/public/jobs/:token/files.zip`; 터널 base는 `publicWorkflowLinkState()`가 env(`WORKFLOW_PUBLIC_BASE_URL`/`CLOUDFLARE_TUNNEL_URL`) 또는 설정(`설정.json` workflow.publicBaseUrl)에서 해석. decorateJob이 `publicArchiveUrl`(상대경로) 노출.
-- [x] UI: `jobExternalArchiveUrl`/`hasExternalArchiveLink`/`copyJobExternalLink` — 과거내역 카드·상세 보관 스트립·전달(delivery) 카드에 "🔗외부" 링크 복사 버튼. 터널 미설정 시 설정 안내 alert.
+- [x] UI: `jobExternalArchiveUrl`/`hasExternalArchiveLink`/`copyJobExternalLink` — "🔗외부" 링크 복사 버튼. 터널 미설정 시 설정 안내 alert.
+  - **2026-06-10 정정(사장님 피드백)**: 처음엔 스펙 글자대로 과거내역·전달(delivery)에만 뒀으나, 실제로 외부 다운로드가 필요한 건 **공장(대림컴퍼니)** 임(터널 자체가 공장 외부접속용). → **모든 칸**에 표시로 변경(파일 있고 터널 켜져 있으면 단계 무관). 과거내역 카드·상세 보관 스트립도 유지.
 - [ ] **서버 인프라(코드 밖)**: 서버 PC에서 Cloudflare 터널 실제 구동 + base URL 설정 ([docs/workflow-cloudflare-tunnel.md] 참고). 토큰은 레포에 저장 금지.
 - 참고: 공개 ZIP은 기존부터 완료 여부와 무관하게 토큰만으로 열림(이번 변경과 무관). 외부 노출이 걱정되면 `status='done'` 게이팅 추가 검토.
 
