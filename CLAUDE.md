@@ -14,11 +14,35 @@
 - 서버 PC의 `D:\price-list-app`은 **직접 접근 불가**. 오직 원격 배포(git push/pull 또는 수동 복사)로만 반영됨
 - 따라서 내가 파일을 수정/생성하면 → **로컬 PC**에 먼저 반영됨 → 그 다음 서버 PC로 전송돼야 실제 서비스에 반영
 
-### 배포 흐름 (배포순서.md 참고)
-1. 로컬 PC에서 코드 수정
-2. 로컬 PC에서 `git-setup.bat` 실행 → GitHub에 push
-3. 서버 PC에서 `git-pull-server.bat` 실행 → GitHub에서 pull + 서버 재시작
-4. **주의**: `*.bat`, `*.vbs`, `*.ps1`은 `.gitignore`에 등록돼 있어서 git으로 동기화 안 됨 → 이 파일들은 네트워크 공유 복사 또는 gitignore 예외 추가 필요
+### 배포 흐름 — Claude가 직접 실행하는 표준 절차 (사장님 확정 2026-06-10)
+
+bat 더블클릭은 사용자용 포장일 뿐이다. **Claude는 아래 명령/API를 직접 실행해서 배포한다.**
+
+```bash
+# 1. 로컬 수정 확인
+git status --short --branch && git diff
+
+# 2. 커밋
+git add -- <수정한파일> && git commit -m "커밋 메시지"
+
+# 3. GitHub push (main 직행 또는 브랜치 보존)
+git push origin HEAD:main        # 또는: git push origin <브랜치명>
+
+# 4. 서버 pull — bat 누르러 가지 말고 API 호출 (시크릿은 로컬 .env의 CONTROL_DAEMON_SECRET, 값 출력 금지!)
+SECRET=$(grep ^CONTROL_DAEMON_SECRET "C:/Users/NAMGW/Documents/Claude/Projects/업체별 단가표 만들기!!!/price-list-app/.env" | cut -d= -f2 | tr -d '\r')
+curl -s -X POST http://192.168.0.133:3000/api/git-pull -H "X-Control-Secret: $SECRET"
+
+# 5. 서버 재시작 (control-daemon, 포트 3002)
+curl -s -X POST http://192.168.0.133:3002/restart -H "X-Control-Secret: $SECRET"
+
+# 6. 반영 확인 — commit 해시가 방금 push한 것과 일치해야 완료
+curl -s http://192.168.0.133:3000/api/version
+```
+
+- 요약: **로컬 수정 → commit → GitHub push → 서버 git-pull API → 서버 restart API → /api/version 확인**
+- 시크릿 값은 절대 echo/출력하지 말 것 (.env 누설 금지 규칙과 동일)
+- (참고) 사용자 수동 배포: 로컬 `git-setup.bat` → 서버 `git-pull-server.bat`
+- **주의**: `*.bat`, `*.vbs`, `*.ps1`은 `.gitignore` 등록이라 git 동기화 안 됨 (예외: proxy 3종 + git-pull-server.bat + scripts/cloudflare-tunnel/tunnel-start.bat) → 그 외 bat과 비밀파일(tunnel-env.bat 등)은 네트워크 공유 복사
 
 ### PowerShell/bat 명령을 사용자가 보여줄 때 PC 구분법
 - 프롬프트가 `PS D:\price-list-app>` → **서버 PC**

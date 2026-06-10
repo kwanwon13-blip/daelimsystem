@@ -72,6 +72,24 @@
   .wf-card.active .wf-card-compact{display:none;}
   .wf-card-extra{display:none;gap:5px;flex-wrap:wrap;margin-top:8px;}
   .wf-card.active .wf-card-extra{display:flex;}
+  .wf-card-actions{display:flex;gap:5px;margin-top:7px;}
+  .wf-card-actions .wf-btn{height:27px;font-size:11px;padding:0 8px;flex:1;justify-content:center;}
+  .wf-card-date{margin-top:5px;}
+  .wf-date{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 9px;border-radius:6px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-size:12px;font-weight:800;}
+  .wf-date strong{font-size:12.5px;font-weight:900;}
+  .wf-date.overdue{background:#fee2e2;color:#b91c1c;border-color:#fecaca;}
+  .wf-date.done{background:#dcfce7;color:#15803d;border-color:#bbf7d0;}
+  .wf-col-archive{background:#f8fafc;border-left:2px solid #cbd5e1;}
+  .wf-col-archive .wf-col-head{background:#eef2f7;}
+  .wf-arc-search{padding:7px 8px;border-bottom:1px solid #e5e9f1;background:#fbfcfe;}
+  .wf-code{font-family:'Consolas',monospace;font-weight:900;color:#1d4ed8;font-size:13px;}
+  .wf-arc-card{border:1px solid #e2e8f0;border-radius:8px;background:#fff;padding:8px 9px;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.04);}
+  .wf-arc-card:hover{border-color:#94a3b8;}
+  .wf-arc-top{display:flex;align-items:center;justify-content:space-between;gap:6px;}
+  .wf-arc-title{font-size:13px;font-weight:800;color:#111827;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .wf-arc-meta{font-size:11px;color:#6b7280;margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;}
+  .wf-arc-act{display:flex;gap:5px;margin-top:7px;}
+  .wf-arc-act .wf-btn{height:26px;font-size:11px;padding:0 9px;flex:1;justify-content:center;}
   .wf-card:not(.active) .wf-chip{height:18px;padding:0 6px;font-size:10px;}
   .wf-card:not(.active) .wf-card-visual{display:none!important;}
   .wf-card-visual{position:relative;display:block;height:180px;margin:-2px -3px 8px -3px;border-radius:6px;overflow:hidden;background:#e2e8f0;}
@@ -205,6 +223,8 @@
   .wf-dialog-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-top:1px solid #edf0f5;background:#fbfcfe;}
   .wf-field{display:flex;flex-direction:column;gap:5px;}
   .wf-field label{font-size:11px;font-weight:900;color:#475569;}
+  .wf-date-label{display:flex;align-items:center;gap:3px;}
+  .wf-input:disabled{background:#f1f5f9;color:#64748b;cursor:not-allowed;}
   .wf-required{margin-left:4px;color:#dc2626;font-size:10px;font-weight:900;}
   .wf-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
   .wf-event{padding:8px;border-left:3px solid #cbd5e1;background:#f8fafc;border-radius:4px;font-size:12px;color:#334155;line-height:1.45;}
@@ -456,7 +476,7 @@
             </div>
             <div class="wf-col-list">
               <template x-for="job in jobsForStage(stage.id)" :key="job.id">
-                <button class="wf-card text-left" :class="[(selectedId===job.id && (!selectedWorkStageId || selectedWorkStageId===stage.id)) ? 'active' : '', job.status === 'cancelled' ? 'cancelled' : '']" @click="selectJob(job.id, stage.id)">
+                <div class="wf-card text-left" role="button" tabindex="0" :class="[(selectedId===job.id && (!selectedWorkStageId || selectedWorkStageId===stage.id)) ? 'active' : '', job.status === 'cancelled' ? 'cancelled' : '']" @click="selectJob(job.id, stage.id)">
                   <template x-if="job.primaryVisualFile && selectedId===job.id && (!selectedWorkStageId || selectedWorkStageId===stage.id)">
                     <div class="wf-card-visual">
                       <img :src="job.primaryVisualFile ? (job.primaryVisualFile.thumbUrl || job.primaryVisualFile.previewUrl) : ''" :alt="job.primaryVisualFile ? job.primaryVisualFile.originalName : ''" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, job.primaryVisualFile ? job.primaryVisualFile.previewUrl : '')">
@@ -466,45 +486,68 @@
                     </div>
                   </template>
                   <div class="wf-card-title" x-text="job.title"></div>
+                  <div class="wf-card-date" x-show="cardDeadline(job)">
+                    <span class="wf-date" :class="(cardDeadline(job)||{}).cls"><span x-text="(cardDeadline(job)||{}).label"></span><strong x-text="(cardDeadline(job)||{}).date"></strong></span>
+                  </div>
                   <div class="wf-card-meta">
                     <span x-text="job.companyName || '-'"></span>
                     <span x-show="job.projectName">·</span>
                     <span x-show="job.projectName" x-text="job.projectName"></span>
                   </div>
-                  <div class="wf-card-compact" x-show="job.status === 'done' || job.overdue || job.overdueStageCount || job.blockedStageCount || job.changeRequestCount || job.lateScheduleCount || job.missingFileCount || job.unreadCount || job.unreadFileCount || job.dueDate || job.nextStageDue || job.fileCount">
+                  <div class="wf-card-compact">
                     <span class="wf-chip urgent" x-show="job.urgentFileCount" x-text="'긴급 ' + job.urgentFileCount"></span>
                     <span class="wf-chip unread" x-show="job.unreadCount || job.unreadFileCount" x-text="'확인 ' + (job.unreadCount || job.unreadFileCount)"></span>
-                    <span class="wf-chip" x-show="job.dueDate" x-text="job.dueDate"></span>
-                    <span class="wf-chip" x-show="!job.dueDate && job.nextStageDue" x-text="job.nextStageDue ? job.nextStageDue.dueDate : ''"></span>
                     <span class="wf-chip" x-show="job.fileCount" x-text="'파일 ' + job.fileCount"></span>
-                    <span class="wf-chip done" x-show="job.status === 'done' && archiveDateLabel(job)" x-text="'보관 ' + archiveDateLabel(job)"></span>
-                    <span class="wf-chip done" x-show="job.status === 'done' && Number(job.archiveFileCount || 0)">발송원본</span>
-                    <span class="wf-chip blocked" x-show="job.status === 'cancelled'">취소 보관</span>
+                    <span class="wf-chip blocked" x-show="job.status === 'cancelled'">취소</span>
                   </div>
-                  <div class="wf-card-extra">
-                    <span class="wf-chip" :class="job.priority" x-text="priorityLabel(job.priority)"></span>
-                    <span class="wf-chip" x-show="job.dueDate" x-text="job.dueDate"></span>
-                    <span class="wf-chip overdue" x-show="job.overdue">지연</span>
-                    <span class="wf-chip" x-show="job.nextStageDue" :class="job.nextStageDue && job.nextStageDue.overdue ? 'overdue' : ''" x-text="job.nextStageDue ? (job.nextStageDue.stageLabel + ' ' + job.nextStageDue.dueDate) : ''"></span>
-                    <span class="wf-chip overdue" x-show="job.overdueStageCount" x-text="'단계지연 ' + job.overdueStageCount"></span>
-                    <span class="wf-chip blocked" x-show="job.blockedStageCount" x-text="'막힘 ' + job.blockedStageCount"></span>
-                    <span class="wf-chip change_requested" x-show="job.changeRequestCount" x-text="'수정/조정 ' + job.changeRequestCount"></span>
-                    <span class="wf-chip overdue" x-show="job.lateScheduleCount" x-text="'가능일지연 ' + job.lateScheduleCount"></span>
-                    <span class="wf-chip overdue" x-show="job.missingFileCount" x-text="'파일누락 ' + job.missingFileCount"></span>
-                    <span class="wf-chip urgent" x-show="job.urgentFileCount" x-text="'긴급시안 ' + job.urgentFileCount"></span>
-                    <span class="wf-chip" :class="job.canComplete ? 'ready' : 'not_ready'" x-text="job.canComplete ? '완료가능' : ('완료전 ' + (job.completionBlockers || []).length)"></span>
-                    <span class="wf-chip unread" x-show="job.unreadCount || job.unreadFileCount" x-text="'확인 ' + (job.unreadCount || job.unreadFileCount)"></span>
-                    <span class="wf-chip" x-show="job.fileCount" x-text="'파일 ' + job.fileCount"></span>
-                    <span class="wf-chip done" x-show="job.status === 'done' && archiveDateLabel(job)" x-text="'보관 ' + archiveDateLabel(job)"></span>
-                    <span class="wf-chip done" x-show="job.status === 'done' && Number(job.archiveFileCount || 0)">메일/링크 원본</span>
-                    <span class="wf-chip blocked" x-show="job.status === 'cancelled'">취소 보관</span>
+                  <div class="wf-card-actions" @click.stop style="display:flex;gap:4px;margin-top:7px;flex-wrap:wrap;">
+                    <a class="wf-btn ghost" :href="job.archiveUrl" @click.stop x-show="job.fileCount" title="자료 받기(압축)">받기</a>
+                    <button type="button" class="wf-btn ghost" @click.stop="copyJobExternalLink(job)" x-show="stage.id==='delivery' && hasExternalArchiveLink(job)" title="외부업체에게 줄 받기 링크 복사">🔗외부</button>
+                    <button type="button" class="wf-btn ghost" @click.stop="selectJob(job.id, stage.id)" x-show="job.status!=='done' && job.status!=='cancelled'">올리기</button>
+                    <button type="button" class="wf-btn primary" @click.stop="cardHandoff(job.id, stage.id)" x-show="job.status!=='done' && job.status!=='cancelled'" x-text="cardNextLabel(job)">다음 단계</button>
                   </div>
-                </button>
+                </div>
               </template>
               <div class="wf-empty" x-show="!jobsForStage(stage.id).length">비어 있음</div>
             </div>
           </div>
         </template>
+
+        <!-- 과거내역(완료 보관) — 맨 오른쪽 별도 칸 + 검색 -->
+        <div class="wf-col wf-col-archive">
+          <div class="wf-col-head">
+            <span style="display:flex;align-items:center;gap:5px;">
+              <span class="material-symbols-outlined" style="font-size:16px;">inventory_2</span>
+              <span>과거내역</span>
+            </span>
+            <span class="wf-chip" x-text="archiveFiltered().length"></span>
+          </div>
+          <div class="wf-arc-search">
+            <input class="wf-input" style="width:100%;box-sizing:border-box;" x-model="archiveQuery" placeholder="🔍 코드·업체·현장 검색">
+          </div>
+          <div class="wf-col-list">
+            <template x-for="job in archiveFiltered()" :key="'arc-'+job.id">
+              <div class="wf-arc-card" role="button" tabindex="0" @click="selectJob(job.id, 'delivery')">
+                <div class="wf-arc-top">
+                  <span class="wf-code" x-text="job.completionCode || '미발번'"></span>
+                  <span class="wf-date done" x-show="job.completedAt" x-text="wfShortDate(job.completedAt)"></span>
+                </div>
+                <div class="wf-arc-title" x-text="job.title"></div>
+                <div class="wf-arc-meta">
+                  <span x-text="job.companyName || '-'"></span>
+                  <span x-show="job.projectName">· <span x-text="job.projectName"></span></span>
+                  <span>· 파일 <span x-text="job.archiveFileCount || 0"></span></span>
+                </div>
+                <div class="wf-arc-act" @click.stop>
+                  <a class="wf-btn ghost" :href="job.archiveUrl" @click.stop x-show="job.archiveFileCount" title="완료본 받기">받기</a>
+                  <button type="button" class="wf-btn ghost" @click.stop="copyJobExternalLink(job)" x-show="hasExternalArchiveLink(job)" title="외부업체에게 줄 받기 링크 복사">🔗외부</button>
+                  <button type="button" class="wf-btn ghost" @click.stop="selectJob(job.id, 'delivery')">보기</button>
+                </div>
+              </div>
+            </template>
+            <div class="wf-empty" x-show="!archiveFiltered().length">완료된 작업이 없습니다</div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -538,6 +581,7 @@
               </div>
               <div style="display:flex;gap:5px;flex-wrap:wrap;">
                 <a class="wf-btn" x-show="Number(detail.job.archiveFileCount || 0)" :href="smartArchiveUrl(true)" title="완료된 작업의 발송 원본을 ZIP으로 받습니다">원본 받기</a>
+                <button class="wf-btn ghost" x-show="hasExternalArchiveLink(detail.job)" @click="copyJobExternalLink(detail.job)" title="외부업체에게 줄 외부 받기 링크를 복사합니다">🔗 외부 링크 복사</button>
               </div>
             </div>
             <div class="wf-archive-strip cancelled" x-show="detail.job.status === 'cancelled'" x-cloak>
@@ -603,8 +647,18 @@
                       </select>
                     </div>
                   </div>
-                  <input class="wf-input" type="date" x-model="detail.job.dueDate">
-                  <input class="wf-input" type="date" x-model="detail.job.deliveryDate">
+                  <div class="wf-field">
+                    <label class="wf-date-label">요청날짜<span x-show="detail.job.currentStage !== 'design'" title="디자인팀만 수정할 수 있습니다"> 🔒</span></label>
+                    <input class="wf-input" type="date" x-model="detail.job.dueDate" :disabled="detail.job.currentStage !== 'design'">
+                  </div>
+                  <div class="wf-field" x-show="detail.job.currentStage !== 'design'" x-cloak>
+                    <label class="wf-date-label">완료가능일<span x-show="detail.job.currentStage !== 'factory'" title="대림컴퍼니(공장)만 수정할 수 있습니다"> 🔒</span></label>
+                    <input class="wf-input" type="date" x-model="detail.job.factoryAvailableDate" :disabled="detail.job.currentStage !== 'factory'">
+                  </div>
+                  <div class="wf-field">
+                    <label class="wf-date-label">배송예정</label>
+                    <input class="wf-input" type="date" x-model="detail.job.deliveryDate">
+                  </div>
                 </div>
                 <div class="wf-muted" x-show="detail.job.companyName || detail.job.projectName"
                   x-text="'저장 경로: ' + (detail.job.storageBucket || workflowStorageText(detail.job.companyName, detail.job.projectName, String(detail.job.dueDate || '').slice(0, 4)))"></div>
@@ -864,10 +918,10 @@
               </div>
             </section>
 
-            <section class="wf-section">
+            <section class="wf-section" x-show="detail.job.currentStage === 'design' || selectedWorkStageId === 'design'" x-cloak>
               <div class="wf-section-title" style="justify-content:space-between;">
                 <span style="display:flex;align-items:center;gap:6px;">
-                  <span class="material-symbols-outlined" style="font-size:16px;">outbox</span>발행/전달 확인
+                  <span class="material-symbols-outlined" style="font-size:16px;">outbox</span>발행/전달 확인 <span class="wf-muted" style="font-weight:600;">· 디자인 발주용</span>
                 </span>
                 <span style="display:flex;align-items:center;gap:6px;">
                   <span class="wf-muted" x-text="'진행 ' + (orderSummary().active || 0) + ' / 전체 ' + (orderSummary().total || 0)"></span>

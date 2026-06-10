@@ -4,6 +4,8 @@ function workflowApp() {
     saving: false,
     jobs: [],
     jobsByStage: {},
+    archiveJobs: [],
+    archiveQuery: '',
     jobListLimit: 80,
     jobListTotal: 0,
     jobListLimited: false,
@@ -541,6 +543,7 @@ function workflowApp() {
         this.jobListTotal = Number.isFinite(total) ? total : jobs.length;
         this.jobListLimited = !!d.limited;
         this.rebuildJobsByStage();
+        this.loadArchive();
         if (this.selectedId && !this.jobs.find(j => j.id === this.selectedId)) this.selectedId = '';
         if (!this.selectedId) this.detail = null;
         if (this.selectedId) await this.refreshDetail(false);
@@ -549,6 +552,21 @@ function workflowApp() {
       } finally {
         this.loading = false;
       }
+    },
+
+    // 과거내역(완료 보관) — status=done 작업을 따로 불러와 맨 오른쪽 칸에서 검색
+    async loadArchive() {
+      try {
+        const r = await fetch('/api/workflow/jobs?status=done&limit=0');
+        const d = await r.json();
+        this.archiveJobs = Array.isArray(d.jobs) ? d.jobs : [];
+      } catch (_) { this.archiveJobs = []; }
+    },
+    archiveFiltered() {
+      const q = (this.archiveQuery || '').trim().toLowerCase();
+      let list = this.archiveJobs || [];
+      if (q) list = list.filter(j => `${j.completionCode || ''} ${j.title || ''} ${j.companyName || ''} ${j.projectName || ''}`.toLowerCase().includes(q));
+      return list.slice().sort((a, b) => String(b.completedAt || '').localeCompare(String(a.completedAt || '')));
     },
 
     workflowLimitText() {
@@ -1992,14 +2010,11 @@ function workflowApp() {
     },
 
     parallelTargetLabelForJob(job) {
-      return ['management', 'factory']
-        .map(id => {
-          const stage = this.stages.find(s => s.id === id);
-          const check = job?.stageChecks?.[id] || {};
-          return check.assignee || stage?.label || id;
-        })
-        .filter(Boolean)
-        .join(', ');
+      // 병렬 폐지 — 디자인 다음 단계(대림컴퍼니) 담당자/라벨
+      const next = (this.stages || [])[1];
+      if (!next) return '';
+      const check = job?.stageChecks?.[next.id] || {};
+      return check.assignee || next.label || next.id;
     },
 
     fileReadNames(file) {
@@ -2597,6 +2612,28 @@ function workflowApp() {
       return d.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' });
     },
 
+    // 읽기 쉬운 짧은 날짜: "7/12(금)"
+    wfShortDate(d) {
+      const m = String(d || '').match(/(\d{4})-(\d{2})-(\d{2})/);
+      if (!m) return '';
+      const wd = ['일', '월', '화', '수', '목', '금', '토'][new Date(+m[1], +m[2] - 1, +m[3]).getDay()];
+      return `${+m[2]}/${+m[3]}(${wd})`;
+    },
+
+    // 카드에 항상 보일 마감/완료 날짜 배지 (접혀있어도 보임)
+    cardDeadline(job) {
+      if (!job || job.status === 'cancelled') return null;
+      if (job.status === 'done') {
+        const d = job.completedAt || job.archiveUpdatedAt || job.dueDate;
+        const date = this.wfShortDate(d);
+        return date ? { label: '완료', date, cls: 'done' } : null;
+      }
+      const d = job.dueDate || (job.nextStageDue && job.nextStageDue.dueDate) || '';
+      const date = this.wfShortDate(d);
+      if (!date) return null;
+      return { label: '마감', date, cls: job.overdue ? 'overdue' : '' };
+    },
+
     canReviewFile(file) {
       return !!file && ['proof', 'drawing'].includes(file.kind || 'attachment');
     },
@@ -2618,36 +2655,43 @@ function workflowApp() {
     },
 
     parallelStageLabel(separator = '/') {
-      return ['management', 'factory'].map(id => this.stageLabel(id)).filter(Boolean).join(separator);
+      // 병렬 폐지 — 디자인 다음 단계(대림컴퍼니) 라벨
+      const next = (this.stages || [])[1];
+      return next ? this.stageLabel(next.id) : '';
     },
 
     nextStage() {
       const current = this.currentStage();
       if (!current) return null;
-      if (current.id === 'design') return { id: 'parallel', label: this.parallelStageLabel('/') };
-      if (current.id === 'management' || current.id === 'factory') {
-        const otherId = current.id === 'management' ? 'factory' : 'management';
-        const otherCheck = this.detail?.job?.stageChecks?.[otherId] || {};
-        if (otherCheck.status !== 'done') return null;
-        return this.stages.find(s => s.id === 'delivery') || null;
-      }
-      const idx = this.stages.findIndex(s => s.id === current.id);
-      return idx >= 0 ? this.stages[idx + 1] || null : null;
+      const idx = (this.stages || []).findIndex(s => s.id === current.id);
+      return idx >= 0 ? (this.stages[idx + 1] || null) : null;
+    },
+
+    // 단계 전환 액션 라벨 — design→대림컴퍼니(완료가능일 확정), factory→영업지원팀(완료), delivery→과거내역(수령)
+    stageHandoffLabel(stageId) {
+      if (stageId === 'design') return '완료가능일 확정';
+      if (stageId === 'factory') return '완료';
+      if (stageId === 'delivery') return '수령';
+      return '다음 단계';
     },
 
     handoffLabel() {
       const current = this.currentStage();
-      const next = this.nextStage();
-      if (!current) return '전달';
-      if (current.id === 'design') return `${current.label} 완료 · ${this.parallelStageLabel('/')} 전달`;
-      if (current.id === 'management' || current.id === 'factory') {
-        const otherId = current.id === 'management' ? 'factory' : 'management';
-        const otherCheck = this.detail?.job?.stageChecks?.[otherId] || {};
-        if (otherCheck.status !== 'done') return `${current.label} 완료`;
-        return `${current.label} 완료 · ${this.stageLabel('delivery', '납품팀')} 전달`;
-      }
-      if (!next) return '작업 완료';
-      return `${current.label} 완료 · ${next.label} 전달`;
+      const stageId = (current && current.id) || (this.detail && this.detail.job && this.detail.job.currentStage) || 'design';
+      return this.stageHandoffLabel(stageId);
+    },
+
+    // 목록 카드용: 그 작업의 다음 단계 전환 라벨 (상세 안 들어가도 카드에서 바로)
+    cardNextLabel(job) {
+      return this.stageHandoffLabel((job && job.currentStage) || 'design');
+    },
+
+    // 목록 카드에서 바로 "다음 단계로" — 선택 후 핸드오프 (가벼운 확인 1번)
+    async cardHandoff(jobId, stageId = '') {
+      await this.selectJob(jobId, stageId);
+      if (!this.detail || !this.detail.job) return;
+      if (!confirm(`${this.detail.job.title || '작업'}\n\n${this.handoffLabel()} 하시겠어요?`)) return;
+      await this.handoffJob();
     },
 
     async createJob() {
@@ -3348,6 +3392,32 @@ function workflowApp() {
       if (this.fileKindFilter !== 'all') qs.set('kind', this.fileKindFilter);
       const query = qs.toString();
       return base + (query ? '?' + query : '');
+    },
+
+    // B. 외부(터널) 받기 링크 — 과거내역·전달에서 외부업체에게 주는 공개 ZIP 링크
+    jobExternalArchiveUrl(job) {
+      const rel = job && job.publicArchiveUrl ? job.publicArchiveUrl : '';
+      if (!rel) return '';
+      return this.absoluteUrl(rel);
+    },
+
+    hasExternalArchiveLink(job) {
+      return !!(this.activePublicWorkflowBaseUrl() && job && job.publicArchiveUrl
+        && Number(job.archiveFileCount || job.fileCount || 0));
+    },
+
+    async copyJobExternalLink(job) {
+      if (!this.activePublicWorkflowBaseUrl()) {
+        return alert('외부 다운로드 주소(터널)가 설정되지 않았습니다.\n설정 → "외부 다운로드 주소"에 Cloudflare 터널 주소를 등록하면 외부 받기 링크를 만들 수 있어요.');
+      }
+      const url = this.jobExternalArchiveUrl(job);
+      if (!url) return alert('이 작업에는 외부로 보낼 완료 파일이 없습니다.');
+      try {
+        await navigator.clipboard.writeText(url);
+        alert('외부 받기 링크를 복사했습니다.\n\n' + url);
+      } catch (_) {
+        window.prompt('외부 받기 링크 (Ctrl+C 로 복사하세요)', url);
+      }
     },
 
     eventTime(ts) {

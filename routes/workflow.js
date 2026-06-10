@@ -12,6 +12,7 @@ const mailRoute = require('./mail');
 const { isPathInside } = require('./lib/design-workflow-storage');
 const workflowStorageRules = require('./lib/workflow-storage-rules');
 const { createFileLocator } = require('./lib/workflow-file-locator');
+const stageRules = require('./lib/workflow-stage-rules');
 let sharp;
 try { sharp = require('sharp'); } catch (_) {}
 const { sendSmtpMail, normalizeEmailList } = mailRoute;
@@ -26,27 +27,29 @@ const MAX_WORKFLOW_UPLOAD_FILES = 20;
 const MAX_WORKFLOW_UPLOAD_FILE_SIZE = 100 * 1024 * 1024;
 const MAX_WORKFLOW_MAIL_ATTACH_BYTES = 24 * 1024 * 1024;
 
+// 3단계 직선 흐름: 디자인팀 → 대림컴퍼니 → 영업지원팀
+// 내부 단계 ID(design/factory/delivery)는 유지하고 라벨만 바꾼다 → 기존 데이터·업무로직 100% 호환.
+// 경영관리(management)는 더 이상 파이프라인 단계가 아니다(필요할 때 별도로 체크).
 const STAGES = [
   { id: 'design', label: '디자인팀', icon: 'design_services' },
-  { id: 'management', label: '관리팀', icon: 'rule_settings' },
-  { id: 'factory', label: '공장', icon: 'precision_manufacturing' },
-  { id: 'delivery', label: '납품팀', icon: 'local_shipping' },
+  { id: 'factory', label: '대림컴퍼니', icon: 'factory' },
+  { id: 'delivery', label: '영업지원팀', icon: 'support_agent' },
 ];
 
+// 단계별 체크리스트 폐지 — 상세 드릴다운 제거 + 가벼운 UX. 핵심 동작은 "올리고 다음으로".
 const STAGE_CHECKLISTS = {
-  design: ['시안 파일 정리', '승인/수정요청 확인'],
-  management: ['일정 확인', '제작 전달 확인'],
-  factory: ['제작 사양 확인', '제작 완료 확인'],
-  delivery: ['납품 일정 확인', '납품 완료 확인'],
+  design: [],
+  factory: [],
+  delivery: [],
 };
 
-const DESIGN_PARALLEL_STAGE_IDS = ['management', 'factory'];
+// 병렬 단계 폐지 → 완전 직선 흐름
+const DESIGN_PARALLEL_STAGE_IDS = [];
 
 const STAGE_DEPARTMENT_ALIASES = {
   design: ['디자인팀', '디자인'],
-  management: ['경영관리팀', '관리팀', '관리'],
-  factory: ['공장', '공장팀', '생산팀', '제작팀'],
-  delivery: ['납품팀', '납품', '배송팀', '배송'],
+  factory: ['대림컴퍼니', '대림', '공장', '공장팀', '생산팀', '제작팀'],
+  delivery: ['영업지원팀', '영업지원', '영업팀', '영업', '납품팀', '납품', '배송팀', '배송'],
 };
 
 const STATUS_LABELS = {
@@ -221,6 +224,29 @@ function emptyStore() {
   return { jobs: [], events: [], files: [], orders: [], projects: [] };
 }
 
+// 기존 4단계(관리/공장/납품) → 3단계 일회성 이전.
+// 경영관리(management)는 파이프라인에서 제거하되 job.managementReview 로 보존하고,
+// currentStage/파일 stageId 가 management 면 대림컴퍼니(factory)로 옮긴다. (멱등)
+function migrateLegacyManagementStage(data) {
+  let changed = false;
+  for (const job of data.jobs || []) {
+    const sc = job.stageChecks;
+    if (sc && typeof sc === 'object' && sc.management) {
+      if (!job.managementReview) {
+        const m = sc.management || {};
+        job.managementReview = { status: m.status || '', note: m.note || '', assignee: m.assignee || '', updatedAt: m.updatedAt || '' };
+      }
+      delete sc.management;
+      changed = true;
+    }
+    if (job.currentStage === 'management') { job.currentStage = 'factory'; changed = true; }
+  }
+  for (const file of data.files || []) {
+    if (file && file.stageId === 'management') { file.stageId = 'factory'; changed = true; }
+  }
+  return changed;
+}
+
 function loadStore() {
   ensureDirs();
   if (!fs.existsSync(STORE_PATH)) {
@@ -235,7 +261,9 @@ function loadStore() {
     if (!Array.isArray(data.files)) data.files = [];
     if (!Array.isArray(data.orders)) data.orders = [];
     if (!Array.isArray(data.projects)) data.projects = [];
-    if (ensurePublicTokens(data)) saveStore(data);
+    let storeChanged = ensurePublicTokens(data);
+    storeChanged = migrateLegacyManagementStage(data) || storeChanged;
+    if (storeChanged) saveStore(data);
     return data;
   } catch (e) {
     const brokenPath = STORE_PATH + '.broken_' + Date.now();
@@ -709,23 +737,15 @@ function setStageReady(job, stageId, at = nowIso()) {
 function syncWorkflowStageFlow(job, at = nowIso()) {
   if (!job) return { parallelActivated: false, deliveryActivated: false };
   job.stageChecks = newStageChecks(job.stageChecks || {});
-  let parallelActivated = false;
-  let deliveryActivated = false;
-
-  if (job.stageChecks.design?.status === 'done') {
-    for (const stageId of DESIGN_PARALLEL_STAGE_IDS) {
-      parallelActivated = setStageReady(job, stageId, at) || parallelActivated;
+  let advanced = false;
+  // 직선 흐름: 이전 단계가 done 이면 다음 단계를 ready 로 (디자인 → 대림컴퍼니 → 영업지원)
+  for (let i = 1; i < STAGES.length; i++) {
+    if (job.stageChecks[STAGES[i - 1].id]?.status === 'done') {
+      advanced = setStageReady(job, STAGES[i].id, at) || advanced;
     }
   }
-
-  const managementDone = job.stageChecks.management?.status === 'done';
-  const factoryDone = job.stageChecks.factory?.status === 'done';
-  if (managementDone && factoryDone) {
-    deliveryActivated = setStageReady(job, 'delivery', at) || deliveryActivated;
-  }
-
   job.currentStage = inferCurrentStage(job.stageChecks, job.currentStage || 'design');
-  return { parallelActivated, deliveryActivated };
+  return { parallelActivated: advanced, deliveryActivated: advanced };
 }
 
 function activeStageIds(job) {
@@ -752,29 +772,27 @@ function stageTargetLabels(job, stageIds) {
   }));
 }
 
+function nextStageId(stageId) {
+  const idx = STAGES.findIndex(s => s.id === stageId);
+  return idx >= 0 && idx < STAGES.length - 1 ? STAGES[idx + 1].id : '';
+}
+
 function defaultUploadTargetLabels(job, stageId, kind) {
+  // 디자인 시안/도면/사진은 다음 단계(대림컴퍼니)로 전달
   if (stageId === 'design' && ['proof', 'drawing', 'photo'].includes(kind || '')) {
-    return stageTargetLabels(job, DESIGN_PARALLEL_STAGE_IDS);
+    const next = nextStageId('design');
+    return stageTargetLabels(job, next ? [next] : ['design']);
   }
   return stageTargetLabels(job, [stageId]);
 }
 
 function stageStatusNotifyTargets(job, stageId, status) {
   if (!job || !stageId) return [];
-  if (status === 'blocked') {
-    if (stageId === 'design') return ['management'];
-    if (stageId === 'management') return ['design'];
-    return ['design', 'management'];
-  }
-  if (status === 'done') {
-    if (stageId === 'design') return DESIGN_PARALLEL_STAGE_IDS;
-    if (stageId === 'management' || stageId === 'factory') {
-      const otherStageId = stageId === 'management' ? 'factory' : 'management';
-      if (job.stageChecks?.[otherStageId]?.status === 'done') return ['delivery'];
-      return [otherStageId];
-    }
-    return [];
-  }
+  const idx = STAGES.findIndex(s => s.id === stageId);
+  if (idx < 0) return [];
+  // 직선 흐름: 막히면 이전 단계, 완료되면 다음 단계에 알림
+  if (status === 'blocked') return idx > 0 ? [STAGES[idx - 1].id] : [stageId];
+  if (status === 'done') return idx < STAGES.length - 1 ? [STAGES[idx + 1].id] : [];
   if (status === 'ready') return [stageId];
   return [];
 }
@@ -1133,6 +1151,7 @@ function normalizeJobPayload(body, existing = null) {
     status,
     currentStage: STAGES.some(s => s.id === body.currentStage) ? body.currentStage : (existing?.currentStage || inferCurrentStage(stageChecks)),
     dueDate: safeDate(body.dueDate),
+    factoryAvailableDate: safeDate(body.factoryAvailableDate),
     deliveryDate: safeDate(body.deliveryDate),
     summary: safeText(body.summary, 3000),
     stageChecks,
@@ -1760,7 +1779,8 @@ function orderStatusFromResponse(responseStatus) {
 
 function orderTargetStageIds(order) {
   if (!order) return [];
-  return order.targetType === 'internal' ? ['factory', 'management'] : ['management'];
+  // 내부(우리공장)=대림컴퍼니, 외부(거래처)=영업지원팀
+  return order.targetType === 'internal' ? ['factory'] : ['delivery'];
 }
 
 function markPublicOrderActivity(data, job, order, kind, meta = {}) {
@@ -1791,8 +1811,8 @@ function markPublicOrderActivity(data, job, order, kind, meta = {}) {
     ...meta,
     eventTargetUserId: job.createdBy || '',
     eventTargetUserName: job.createdByName || '',
-    eventTargetLabel: stageTargetLabels(job, ['design', 'management']).join(', '),
-    targetStageIds: ['design', 'management'],
+    eventTargetLabel: stageTargetLabels(job, ['design', 'delivery']).join(', '),
+    targetStageIds: ['design', 'delivery'],
   });
   return true;
 }
@@ -2336,7 +2356,7 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
     publicArchiveUrl: job.publicToken ? `/api/workflow/public/jobs/${encodeURIComponent(job.publicToken)}/files.zip` : '',
     archiveFileCount,
     archiveStatus: job.archiveStatus || (job.status === 'done' ? 'ready' : ''),
-    archiveUpdatedAt: job.archiveUpdatedAt || job.completedAt || '',
+    archiveUpdatedAt: job.archiveUpdatedAt || '', // 수령(보관) 전에는 비움 — 제작완료(completedAt)와 분리
     archiveStorageBucket: job.archiveStorageBucket || job.storageBucket || '',
     primaryVisualFile: primaryVisualFile ? {
       id: primaryVisualFile.id,
@@ -2364,6 +2384,7 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
     lateScheduleCount: lateScheduleCount(scopedData, job),
     canComplete: blockers.length === 0,
     completionBlockers: blockers,
+    factoryAvailableDate: job.factoryAvailableDate || '',
     completedAt: job.completedAt || '',
     completedByName: job.completedByName || '',
     overdue: isOverdueJob(job),
@@ -2889,19 +2910,30 @@ async function buildJobArchive(data, job, filters = {}) {
   return buildArchiveFromFiles(job, files, { stageId, kind }, suffix, { orders });
 }
 
+// 완료 명세서 코드: 완료일자 기준 일별 순번 (예: 20260710-001). 완료일이 바뀌면 새 날짜로 재발번.
+function actorFromReq(req) {
+  return { userId: (req && req.user && req.user.userId) || '', userName: userName(req) };
+}
+
+// 제작완료(factory 단계 done) 동기화 — 제작완료일/완료코드/완료자를 세팅하거나 초기화.
+// 완료코드/제작완료일은 "제작완료"에 종속하며, 수령(done/archive)과 분리된다.
+function syncJobFactoryCompletion(data, req, job, at = nowIso()) {
+  return stageRules.syncFactoryCompletion(data.jobs, job, at, actorFromReq(req));
+}
+
+// 수령(영업지원팀): 완료본을 과거내역으로 보관. 제작완료일/코드는 factory 동기화가 이미 세팅함.
 function completeWorkflowJob(data, req, job, at = nowIso()) {
-  const firstComplete = !job.completedAt;
+  const firstArchive = !job.archiveUpdatedAt;
   const files = jobArchiveFiles(data, job, {});
   job.status = 'done';
-  job.completedAt = job.completedAt || at;
-  job.completedBy = job.completedBy || req.user?.userId || '';
-  job.completedByName = job.completedByName || userName(req);
+  stageRules.ensureStagesDone(job, STAGES.map(s => s.id), at); // 수령=전 단계 완료 확정 → 제작완료일/코드 보존
+  syncJobFactoryCompletion(data, req, job, at);
   job.archiveStatus = 'ready';
   job.archiveUpdatedAt = at;
   job.archiveFileCount = files.length;
   job.archiveStorageBucket = job.storageBucket || '';
   job.currentStage = 'delivery';
-  if (firstComplete) {
+  if (firstArchive) {
     addEvent(data, req, job.id, 'complete', '완료 보관함 저장', {
       archiveFileCount: files.length,
       archiveStorageBucket: job.archiveStorageBucket,
@@ -2910,10 +2942,8 @@ function completeWorkflowJob(data, req, job, at = nowIso()) {
   return files.length;
 }
 
-function clearWorkflowCompletion(job) {
-  job.completedAt = '';
-  job.completedBy = '';
-  job.completedByName = '';
+// 수령(done/archive) 취소 시 보관 메타만 초기화. 제작완료일/코드는 factory 동기화가 관리.
+function clearWorkflowArchive(job) {
   job.archiveStatus = '';
   job.archiveUpdatedAt = '';
   job.archiveFileCount = 0;
@@ -3110,8 +3140,8 @@ router.post('/public/orders/:token/reply', (req, res) => {
     fileResponseSummary,
     eventTargetUserId: job.createdBy || '',
     eventTargetUserName: job.createdByName || '',
-    eventTargetLabel: stageTargetLabels(job, ['design', 'management']).join(', '),
-    targetStageIds: ['design', 'management'],
+    eventTargetLabel: stageTargetLabels(job, ['design', 'delivery']).join(', '),
+    targetStageIds: ['design', 'delivery'],
   });
   saveStore(data);
   res.json(decoratePublicOrder(data, job, order));
@@ -3467,6 +3497,7 @@ router.get('/jobs/:id', (req, res) => {
 router.post('/jobs', (req, res) => {
   const data = loadStore();
   const payload = normalizeJobPayload(req.body || {});
+  stageRules.applyDateRoleGuard({ currentStage: 'design' }, payload); // 생성=디자인 단계: 완료가능일 입력 차단
   if (!payload.title) {
     payload.title = payload.projectName || (payload.companyName ? `${payload.companyName} 작업` : '워크플로우 작업');
   }
@@ -3521,6 +3552,7 @@ router.put('/jobs/:id', (req, res) => {
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
   const payload = normalizeJobPayload(req.body || {}, job);
+  stageRules.applyDateRoleGuard(job, payload); // 요청날짜=design / 완료가능일=factory 단계만 저장
   const previousStatus = job.status || 'active';
   const at = nowIso();
   if (payload.status === 'done') {
@@ -3546,16 +3578,11 @@ router.put('/jobs/:id', (req, res) => {
     year: job.storageYear || String(job.dueDate || '').slice(0, 4),
   }, req, storageResult.info);
   if (job.status === 'done') {
-    for (const stage of STAGES) {
-      if (job.stageChecks[stage.id].status !== 'done') {
-        job.stageChecks[stage.id].status = 'done';
-        job.stageChecks[stage.id].completedAt = job.stageChecks[stage.id].completedAt || at;
-      }
-    }
-    completeWorkflowJob(data, req, job, at);
+    completeWorkflowJob(data, req, job, at); // 내부에서 전 단계 done 확정(ensureStagesDone)
   } else {
-    clearWorkflowCompletion(job);
     syncWorkflowStageFlow(job);
+    clearWorkflowArchive(job);
+    syncJobFactoryCompletion(data, req, job, at);
   }
   let eventType = 'update';
   let eventMessage = storageResult.changed ? '작업 정보 수정 · 저장 폴더 자동 준비' : '작업 정보 수정';
@@ -3583,21 +3610,7 @@ router.post('/jobs/:id/stages/:stageId', (req, res) => {
   const check = job.stageChecks[stage.id];
   const previousStatus = check.status || 'pending';
   const nextStatus = ['pending', 'ready', 'done', 'blocked'].includes(req.body.status) ? req.body.status : check.status;
-  const needsFactoryConfirmation = nextStatus === 'done'
-    && (
-      stage.id === 'factory'
-      || stage.id === 'delivery'
-      || (stage.id === 'management' && job.stageChecks.factory?.status === 'done')
-    );
-  if (needsFactoryConfirmation) {
-    const factoryBlockers = factoryConfirmationBlockers(data, job);
-    if (factoryBlockers.length) {
-      return res.status(400).json({
-        error: factoryConfirmationError(factoryBlockers),
-        blockers: factoryBlockers,
-      });
-    }
-  }
+  // 단순화: 단계 완료에 별도 확인 게이트 없음(그냥 올리고 다음으로). 감독은 경영관리 메뉴에서.
   const at = nowIso();
   check.status = nextStatus;
   check.assignee = safeText(req.body.assignee, 80);
@@ -3609,13 +3622,13 @@ router.post('/jobs/:id/stages/:stageId', (req, res) => {
   if (nextStatus !== 'done') check.completedAt = '';
   syncWorkflowStageFlow(job);
   const allStagesDone = Object.values(job.stageChecks).every(c => c.status === 'done');
-  const blockers = completionBlockers(data, job);
-  job.status = allStagesDone && blockers.length === 0 ? 'done' : (job.status === 'done' ? 'active' : job.status);
+  job.status = allStagesDone ? 'done' : (job.status === 'done' ? 'active' : job.status);
   job.updatedAt = at;
   if (job.status === 'done') {
     completeWorkflowJob(data, req, job, at);
   } else {
-    clearWorkflowCompletion(job);
+    clearWorkflowArchive(job);
+    syncJobFactoryCompletion(data, req, job, at);
   }
   const targetStageIds = previousStatus !== nextStatus ? stageStatusNotifyTargets(job, stage.id, nextStatus) : [];
   addEvent(data, req, job.id, 'stage', `${workflowStageLabel(stage.id) || stage.label} ${CHECK_STATUS_LABELS[nextStatus] || nextStatus}`, {
@@ -3650,60 +3663,21 @@ router.post('/jobs/:id/handoff', (req, res) => {
   const message = safeText(req.body.message, 1000);
   const at = nowIso();
 
-  const needsFactoryConfirmation = current.id === 'factory'
-    || current.id === 'delivery'
-    || (current.id === 'management' && job.stageChecks.factory?.status === 'done');
-  if (needsFactoryConfirmation) {
-    const factoryBlockers = factoryConfirmationBlockers(data, job);
-    if (factoryBlockers.length) {
-      return res.status(400).json({
-        error: factoryConfirmationError(factoryBlockers),
-        blockers: factoryBlockers,
-      });
-    }
-  }
-
   const currentCheck = job.stageChecks[current.id];
   currentCheck.status = 'done';
   currentCheck.completedAt = currentCheck.completedAt || at;
   currentCheck.updatedAt = at;
   if (message) currentCheck.note = currentCheck.note ? `${currentCheck.note}\n${message}` : message;
 
-  const flow = syncWorkflowStageFlow(job, at);
+  syncWorkflowStageFlow(job, at);
   if (job.status === 'hold') job.status = 'active';
 
-  if (current.id === 'design') {
-    const targetLabels = stageTargetLabels(job, DESIGN_PARALLEL_STAGE_IDS);
-    addEvent(data, req, job.id, 'handoff', `${workflowStageLabel(current.id)} 완료 · ${workflowParallelStageLabel('/')} 동시 전달${message ? ' - ' + message : ''}`, {
-      fromStageId: current.id,
-      toStageId: DESIGN_PARALLEL_STAGE_IDS.join(','),
-      eventTargetLabel: targetLabels.join(', '),
-      targetStageIds: DESIGN_PARALLEL_STAGE_IDS,
-    });
-  } else if (current.id === 'management' || current.id === 'factory') {
-    const otherStageId = current.id === 'management' ? 'factory' : 'management';
-    const other = STAGES.find(s => s.id === otherStageId);
-    if (flow.deliveryActivated) {
-      const deliveryCheck = job.stageChecks.delivery || {};
-      addEvent(data, req, job.id, 'handoff', `${workflowStageLabel(current.id)} 완료 · ${workflowStageLabel('delivery')} 전달${message ? ' - ' + message : ''}`, {
-        fromStageId: current.id,
-        toStageId: 'delivery',
-        eventTargetLabel: deliveryCheck.assignee || '',
-        targetStageIds: ['delivery'],
-      });
-    } else {
-      addEvent(data, req, job.id, 'handoff', `${workflowStageLabel(current.id)} 완료 · ${workflowStageLabel(otherStageId) || other?.label || otherStageId} 진행 대기${message ? ' - ' + message : ''}`, {
-        fromStageId: current.id,
-        toStageId: otherStageId,
-        eventTargetLabel: job.stageChecks[otherStageId]?.assignee || '',
-        targetStageIds: [otherStageId],
-      });
-    }
-  } else if (next) {
+  if (next) {
     const nextCheck = job.stageChecks[next.id];
     if (nextCheck.status === 'pending') nextCheck.status = 'ready';
     nextCheck.updatedAt = at;
     syncWorkflowStageFlow(job, at);
+    syncJobFactoryCompletion(data, req, job, at); // factory→delivery 전환 시 제작완료일/완료코드 발번
     addEvent(data, req, job.id, 'handoff', `${workflowStageLabel(current.id)} 완료 · ${workflowStageLabel(next.id) || next.label} 전달${message ? ' - ' + message : ''}`, {
       fromStageId: current.id,
       toStageId: next.id,
@@ -3711,13 +3685,6 @@ router.post('/jobs/:id/handoff', (req, res) => {
       targetStageIds: [next.id],
     });
   } else {
-    const blockers = completionBlockers(data, job);
-    if (blockers.length) {
-      return res.status(400).json({
-        error: '완료 전 확인할 항목이 남아 있습니다.',
-        blockers,
-      });
-    }
     job.status = 'done';
     addEvent(data, req, job.id, 'handoff', `작업 완료${message ? ' - ' + message : ''}`, {
       fromStageId: current.id,
@@ -3993,8 +3960,8 @@ router.post('/jobs/:id/orders/:orderId/email', async (req, res) => {
       attachedCount: mailFiles.attachments.length,
       publicUrl,
       recipientSavedToVendor,
-      targetStageIds: ['management'],
-      eventTargetLabel: stageTargetLabels(job, ['management']).join(', '),
+      targetStageIds: ['delivery'],
+      eventTargetLabel: stageTargetLabels(job, ['delivery']).join(', '),
     });
     saveStore(data);
     res.json({
@@ -4034,7 +4001,7 @@ router.post('/jobs/:id/files', workflowUploadFiles, (req, res) => {
   const targetStageIds = targetUserId || targetUserName
     ? []
     : isDesignAsset
-      ? (requestedTargetStageIds.length ? requestedTargetStageIds : DESIGN_PARALLEL_STAGE_IDS)
+      ? (requestedTargetStageIds.length ? requestedTargetStageIds : [nextStageId('design')].filter(Boolean))
       : requestedTargetStageIds;
   const targetLabels = targetUserId || targetUserName
     ? uniqueTexts([requestedTargetLabel || targetUserName || targetUserId])
@@ -4263,7 +4230,6 @@ router.post('/jobs/:id/files/:fileId/schedule', (req, res) => {
   const urgentChanged = urgentBefore !== !!file.urgent;
   const negotiationChanged = negotiationBefore !== file.scheduleNegotiation;
   const designAssignee = safeText(job.stageChecks?.design?.assignee, 80);
-  const managementAssignee = safeText(job.stageChecks?.management?.assignee, 80);
   const factoryAssignee = safeText(job.stageChecks?.factory?.assignee, 80);
   const messageParts = [];
   if (urgentChanged) messageParts.push(file.urgent ? '긴급 요청' : '긴급 해제');
@@ -4273,8 +4239,8 @@ router.post('/jobs/:id/files/:fileId/schedule', (req, res) => {
     fileId: file.id,
     designDueDate: file.designDueDate,
     factoryAvailableDate: file.factoryAvailableDate,
-    eventTargetLabel: factoryChanged ? uniqueTexts([designAssignee, managementAssignee]).join(', ') : factoryAssignee,
-    targetStageIds: factoryChanged ? ['design', 'management'] : ['factory'],
+    eventTargetLabel: factoryChanged ? designAssignee : factoryAssignee,
+    targetStageIds: factoryChanged ? ['design'] : ['factory'],
   });
   saveStore(data);
   res.json({ ok: true, file: decorateWorkflowFile(file, req.user, job), job: decorateJob(data, job, req.user) });
