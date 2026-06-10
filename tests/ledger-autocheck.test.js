@@ -77,5 +77,37 @@ const ac = require('../lib/ledger-autocheck');
     assert.strictEqual(v.status, 'fail');
   }
 
+  // --- parseRecon: stdout 에서 마지막 [RECON] 한 줄 파싱 ---
+  {
+    const out = '스킬 실행\n[OK] 검증 통과\n[RECON] {"raw_rows":120,"raw_total":45000000,"excluded_rows":3,"excluded_total":150000,"excluded_note":"매출할인","out_rows":117,"out_total":44850000}\n완료';
+    const r = ac.parseRecon(out);
+    assert.ok(r && r.raw_total === 45000000 && r.out_rows === 117);
+  }
+  assert.strictEqual(ac.parseRecon('아무 RECON 없음'), null);
+  assert.strictEqual(ac.parseRecon('[RECON] {깨진json'), null);
+  // --- judgeRecon: 균형 OK → pass ---
+  {
+    const v = ac.judgeRecon({ raw_rows: 120, raw_total: 45000000, excluded_rows: 3, excluded_total: 150000, out_rows: 117, out_total: 44850000 });
+    assert.strictEqual(v.status, 'pass');
+    assert.strictEqual(v.reasons.length, 0);
+  }
+  // --- judgeRecon: 합계 안 맞음 → warn ---
+  {
+    const v = ac.judgeRecon({ raw_rows: 120, raw_total: 45000000, excluded_rows: 3, excluded_total: 150000, out_rows: 117, out_total: 43850000 });
+    assert.strictEqual(v.status, 'warn');
+    assert.ok(/합계/.test(v.reasons.join(' ')));
+  }
+  // --- judgeRecon: 행 누락 → warn (원본 120 = 결과 100 + 제외 3 → 17행 샘) ---
+  {
+    const v = ac.judgeRecon({ raw_rows: 120, raw_total: 45000000, excluded_rows: 3, excluded_total: 150000, out_rows: 100, out_total: 44850000 });
+    assert.strictEqual(v.status, 'warn');
+    assert.ok(/행|누락/.test(v.reasons.join(' ')));
+  }
+  // --- 반올림 오차는 통과 (행수 비례 허용) ---
+  {
+    const v = ac.judgeRecon({ raw_rows: 120, raw_total: 45000050, excluded_rows: 3, excluded_total: 150000, out_rows: 117, out_total: 44850000 });
+    assert.strictEqual(v.status, 'pass');
+  }
+
   console.log('PASS ledger-autocheck');
 })().catch(e => { console.error(e); process.exit(1); });
