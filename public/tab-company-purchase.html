@@ -3,85 +3,95 @@
 <!-- ⚠️ 컴포넌트 JS는 public/company-purchase.js (템플릿 안 script 미실행 — statements.js 패턴) -->
 <div x-data="companyLedgerApp()" x-init="init()" style="height:100%;display:flex;flex-direction:column;background:#eceef2;font-family:'Malgun Gothic','맑은 고딕',sans-serif;">
   <style>
-    /* ── E2E ERP 풍 ── */
-    .cl2-titlebar { display:flex; align-items:center; gap:10px; padding:8px 14px; background:#f7f8fa; border-bottom:1px solid #c7c9d1; }
-    .cl2-title { font-size:20px; font-weight:850; color:#d23a2e; letter-spacing:8px; }
-    .cl2-sub { font-size:11px; color:#6b7280; }
-    .cl2-actions { margin-left:auto; display:flex; gap:5px; }
-    .cl2-abtn { display:flex; flex-direction:column; align-items:center; gap:2px; min-width:52px; padding:5px 8px; background:#fff; border:1px solid #b9bdc9; border-radius:4px; font-size:11px; font-weight:700; color:#374151; cursor:pointer; }
-    .cl2-abtn:hover { background:#eef2ff; border-color:#7c8bd9; }
-    .cl2-abtn .i { font-size:15px; line-height:1; }
-    .cl2-abtn.blue { color:#1d4ed8; }
-    .cl2-abtn.green { color:#15803d; }
-    .cl2-abtn.red { color:#b91c1c; }
+    /* ── 우리 ERP 컨셉 (흰 카드·둥근 모서리·파스텔 배지 / 컴퍼니=주황 포인트) ── */
+    .cl2-titlebar { display:flex; align-items:center; gap:12px; padding:12px 16px; background:#fff; border-bottom:1px solid #e5e7eb; }
+    .cl2-tic { width:36px; height:36px; border-radius:10px; background:#fff7ed; border:1px solid #fed7aa; color:#d97706; display:flex; align-items:center; justify-content:center; font-size:18px; flex:0 0 auto; }
+    .cl2-title { font-size:16px; font-weight:850; color:#111827; line-height:1.2; }
+    .cl2-sub { font-size:11.5px; color:#9ca3af; margin-top:2px; }
+    .cl2-actions { margin-left:auto; display:flex; gap:6px; flex-wrap:wrap; }
+    .cl2-abtn { display:inline-flex; align-items:center; gap:5px; padding:7px 12px; background:#fff; border:1px solid #d1d5db; border-radius:8px; font-size:12px; font-weight:700; color:#374151; cursor:pointer; transition:all .15s; }
+    .cl2-abtn:hover { background:#f9fafb; }
+    .cl2-abtn .i { font-size:14px; line-height:1; }
+    .cl2-abtn.blue { background:#2563eb; border-color:#2563eb; color:#fff; }
+    .cl2-abtn.blue:hover { background:#1d4ed8; }
+    .cl2-abtn.green { background:#16a34a; border-color:#16a34a; color:#fff; }
+    .cl2-abtn.green:hover { background:#15803d; }
+    .cl2-abtn.red { color:#b91c1c; border-color:#fecaca; }
+    .cl2-abtn.red:hover { background:#fef2f2; }
     .cl2-abtn:disabled { opacity:.4; cursor:not-allowed; }
 
-    .cl2-body { flex:1; display:grid; grid-template-columns:330px 1fr; min-height:0; overflow:hidden; }
+    .cl2-body { flex:1; display:grid; grid-template-columns:332px 1fr; min-height:0; overflow:hidden; }
 
-    /* 좌측 패널 */
-    .cl2-left { border-right:1px solid #c7c9d1; background:#f4f5f8; display:flex; flex-direction:column; min-height:0; }
-    .cl2-filter { padding:8px 10px; background:#fff; border-bottom:1px solid #d8dbe2; display:flex; flex-direction:column; gap:6px; }
-    .cl2-frow { display:flex; align-items:center; gap:5px; font-size:11.5px; color:#374151; }
-    .cl2-frow label { width:52px; font-weight:700; color:#4b5563; flex:0 0 auto; }
-    .cl2-inp { padding:4px 7px; border:1px solid #c7c9d1; border-radius:3px; font-size:11.5px; background:#fff; min-width:0; }
-    .cl2-views { display:inline-flex; border:1px solid #c7c9d1; border-radius:4px; overflow:hidden; }
-    .cl2-views button { padding:4px 10px; font-size:11px; font-weight:800; border:0; background:#fff; color:#6b7280; cursor:pointer; }
-    .cl2-views button.on { background:#1E40FA; color:#fff; }
+    /* 좌측: 전표 목록 */
+    .cl2-left { border-right:1px solid #e5e7eb; background:#fafbfc; display:flex; flex-direction:column; min-height:0; }
+    .cl2-filter { padding:10px 12px; background:#fff; border-bottom:1px solid #eef1f4; display:flex; flex-direction:column; gap:7px; }
+    .cl2-frow { display:flex; align-items:center; gap:6px; font-size:11.5px; color:#374151; }
+    .cl2-frow label { width:52px; font-weight:700; color:#6b7280; flex:0 0 auto; }
+    .cl2-inp { padding:6px 9px; border:1px solid #d1d5db; border-radius:7px; font-size:12px; background:#fff; min-width:0; outline:none; }
+    .cl2-inp:focus { border-color:#f59e0b; }
+    .cl2-views { display:inline-flex; border:1px solid #d1d5db; border-radius:8px; overflow:hidden; }
+    .cl2-views button { padding:5px 12px; font-size:11.5px; font-weight:800; border:0; background:#fff; color:#6b7280; cursor:pointer; }
+    .cl2-views button.on { background:#d97706; color:#fff; }
 
-    table.cl2-list { width:100%; border-collapse:collapse; font-size:12px; background:#fff; }
-    table.cl2-list th { position:sticky; top:0; background:#e8ebf2; border:1px solid #c7c9d1; padding:5px 6px; font-weight:700; color:#374151; font-size:11px; }
-    table.cl2-list td { border:1px solid #e2e5ec; padding:5px 6px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    table.cl2-list tr:hover td { background:#eef2ff; }
-    table.cl2-list tr.sel td { background:#2b4faa; color:#fff; }
-    table.cl2-list td.num { text-align:right; font-variant-numeric:tabular-nums; }
-    .cl2-st { font-size:10px; font-weight:800; padding:1px 6px; border-radius:3px; }
+    table.cl2-list { width:100%; border-collapse:collapse; font-size:12.5px; background:#fff; }
+    table.cl2-list th { position:sticky; top:0; z-index:1; background:#f3f4f6; border-bottom:1px solid #e5e7eb; padding:7px 8px; font-weight:700; color:#6b7280; font-size:11px; text-align:left; }
+    table.cl2-list td { border-bottom:1px solid #f1f5f9; padding:8px 8px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#1f2937; }
+    table.cl2-list tr:hover td { background:#f8fafc; }
+    table.cl2-list tr.sel td { background:#fff7ed; }
+    table.cl2-list tr.sel td:first-child { box-shadow:inset 3px 0 0 #d97706; }
+    table.cl2-list td.num { text-align:right; font-variant-numeric:tabular-nums; font-weight:600; }
+    .cl2-st { font-size:10px; font-weight:800; padding:2px 8px; border-radius:999px; }
     .cl2-st.parsed { background:#fef3c7; color:#92400e; }
     .cl2-st.confirmed { background:#d1fae5; color:#065f46; }
-    tr.sel .cl2-st.parsed, tr.sel .cl2-st.confirmed { background:rgba(255,255,255,.25); color:#fff; }
-    .cl2-vh td { background:#dde3ef !important; font-weight:850; cursor:pointer; }
-    .cl2-listfoot { background:#ffff99; border-top:2px solid #c7c9d1; padding:6px 10px; font-size:12px; font-weight:850; display:flex; justify-content:space-between; }
+    .cl2-vh td { background:#f8fafc !important; font-weight:850; cursor:pointer; border-top:1px solid #e5e7eb; }
+    .cl2-listfoot { background:#fff; border-top:2px solid #e5e7eb; padding:9px 12px; font-size:12.5px; font-weight:850; display:flex; justify-content:space-between; color:#111827; }
+    .cl2-listfoot span:last-child { color:#b45309; }
     .cl2-scroll { overflow-y:auto; flex:1; }
 
-    /* 우측 전표 */
+    /* 우측: 전표 */
     .cl2-right { display:flex; flex-direction:column; min-height:0; background:#fff; }
-    .cl2-vheader { padding:10px 14px; border-bottom:1px solid #d8dbe2; background:#fbfcfe; }
-    .cl2-vgrid { display:grid; grid-template-columns:64px 170px 64px 1fr; gap:6px 10px; align-items:center; max-width:760px; }
-    .cl2-vgrid label { font-size:11.5px; font-weight:700; color:#4b5563; }
+    .cl2-vheader { padding:12px 16px; border-bottom:1px solid #eef1f4; background:#fff; }
+    .cl2-vgrid { display:grid; grid-template-columns:64px 170px 64px 1fr; gap:7px 10px; align-items:center; max-width:780px; }
+    .cl2-vgrid label { font-size:11.5px; font-weight:700; color:#6b7280; }
     .cl2-vgrid .cl2-inp { width:100%; }
-    .cl2-vstate { display:flex; align-items:center; gap:10px; margin-top:7px; flex-wrap:wrap; }
+    .cl2-vstate { display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap; }
 
     .cl2-gridwrap { flex:1; overflow:auto; min-height:0; display:grid; grid-template-columns:1fr; }
     .cl2-gridwrap.with-img { grid-template-columns:minmax(0,1fr) 300px; }
-    .cl2-imgpane { border-left:1px solid #d8dbe2; background:#14161c; display:flex; align-items:flex-start; justify-content:center; overflow:auto; }
+    .cl2-imgpane { border-left:1px solid #e5e7eb; background:#0e1116; display:flex; align-items:flex-start; justify-content:center; overflow:auto; }
     .cl2-imgpane img { max-width:100%; }
 
     table.cl2-grid { width:100%; border-collapse:collapse; font-size:12px; }
-    table.cl2-grid th { position:sticky; top:0; z-index:2; background:#e8ebf2; border:1px solid #c7c9d1; padding:5px 5px; font-weight:700; color:#374151; font-size:11px; white-space:nowrap; }
-    table.cl2-grid td { border:1px solid #e2e5ec; padding:0; }
-    table.cl2-grid td.ro { padding:4px 6px; color:#6b7280; text-align:center; }
-    table.cl2-grid input { width:100%; border:0; padding:4px 6px; background:transparent; font-size:12px; outline:none; font-family:inherit; }
+    table.cl2-grid th { position:sticky; top:0; z-index:2; background:#f9fafb; border-bottom:2px solid #e5e7eb; padding:7px 6px; font-weight:700; color:#6b7280; font-size:11px; white-space:nowrap; text-align:left; }
+    table.cl2-grid td { border-bottom:1px solid #f1f5f9; border-right:1px solid #f8fafc; padding:0; }
+    table.cl2-grid td.ro { padding:5px 6px; color:#9ca3af; text-align:center; }
+    table.cl2-grid input { width:100%; border:0; padding:5px 7px; background:transparent; font-size:12px; outline:none; font-family:inherit; color:#1f2937; }
     table.cl2-grid input[type=number] { text-align:right; }
-    table.cl2-grid input:focus { background:#DEEBFF; box-shadow:inset 0 0 0 2px #1E40FA; }
-    table.cl2-grid td.calc { padding:4px 6px; text-align:right; font-variant-numeric:tabular-nums; background:#fafbfd; }
-    tr.l-matched td { background:#f2fdf5; } tr.l-predicted td { background:#fffce8; } tr.l-unknown td { background:#fff2f2; }
+    table.cl2-grid input:focus { background:#fff7ed; box-shadow:inset 0 0 0 2px #f59e0b; border-radius:3px; }
+    table.cl2-grid td.calc { padding:5px 7px; text-align:right; font-variant-numeric:tabular-nums; background:#fafbfd; font-weight:600; }
+    tr.l-matched td { background:#f4fdf7; } tr.l-predicted td { background:#fffdf0; } tr.l-unknown td { background:#fff5f5; }
     tr.l-skip td { opacity:.4; }
     tr.l-skip input { text-decoration:line-through; }
-    .cl2-code { font-size:10.5px; color:#1d4ed8; font-weight:700; padding:0 5px; white-space:nowrap; }
-    table.cl2-grid tfoot td { background:#ffff99; border:1px solid #d9d27a; font-weight:850; padding:6px; text-align:right; font-variant-numeric:tabular-nums; position:sticky; bottom:0; }
+    .cl2-code { font-size:10.5px; color:#2563eb; font-weight:700; padding:0 6px; white-space:nowrap; }
+    table.cl2-grid tfoot td { background:#fff; border-top:2px solid #e5e7eb; font-weight:850; padding:8px 7px; text-align:right; font-variant-numeric:tabular-nums; position:sticky; bottom:0; color:#111827; }
+    table.cl2-grid tfoot td:nth-last-child(3) { color:#b45309; }
 
     .cl2-msg { padding:5px 14px; font-size:12px; font-weight:700; }
     .cl2-empty { padding:60px 30px; text-align:center; color:#9ca3af; font-size:13px; }
-    .cl2-spin { display:inline-block; width:24px; height:24px; border:3px solid #e5e7eb; border-top-color:#1E40FA; border-radius:50%; animation:cl2spin 1s linear infinite; }
+    .cl2-spin { display:inline-block; width:24px; height:24px; border:3px solid #e5e7eb; border-top-color:#d97706; border-radius:50%; animation:cl2spin 1s linear infinite; }
     @keyframes cl2spin { to { transform:rotate(360deg); } }
     .cl2-queue { padding:6px 14px; background:#fffaf0; border-bottom:1px solid #fde2b0; font-size:11.5px; color:#b45309; display:flex; align-items:center; gap:8px; }
     .cl2-qbar { flex:1; height:7px; background:#fdebc8; border-radius:99px; overflow:hidden; }
     .cl2-qbar .fill { height:100%; background:linear-gradient(90deg,#d97706,#22c55e); transition:width .3s; }
   </style>
 
-  <!-- 타이틀바: E2E처럼 제목 + 우측 액션버튼 -->
+  <!-- 타이틀바: 제목 + 우측 액션버튼 -->
   <div class="cl2-titlebar">
-    <span class="cl2-title">매 입</span>
-    <span class="cl2-sub">대림컴퍼니 장부 · 사진(OCR)/수기 입력 → 검토 → 승인 → E2E</span>
+    <div class="cl2-tic">📒</div>
+    <div>
+      <div class="cl2-title">컴퍼니 매입</div>
+      <div class="cl2-sub">사진(OCR)·수기 입력 → 검토 → 승인 → E2E</div>
+    </div>
     <div class="cl2-actions">
       <input type="file" x-ref="file" multiple accept="image/*" style="display:none;" @change="onFileInput($event)">
       <button class="cl2-abtn blue" @click="createNew()"><span class="i">🆕</span>신규</button>
