@@ -306,12 +306,12 @@ function addStorageRuleOptions(companyStats) {
   }
 }
 
-function buildWorkflowOptions({ designIndex = [], designRoot = '', skipDirs = null, companyLimit = 5000, projectLimit = 1000 } = {}) {
+function buildWorkflowOptions({ designIndex = [], designRoot = '', skipDirs = null, companyLimit = 5000, projectLimit = 1000, includeIndex = true } = {}) {
   const companyStats = new Map();
   const projectStats = new Map();
   const currentYear = String(new Date().getFullYear());
   addFolderOptions(companyStats, projectStats, designRoot, skipDirs);
-  addIndexOptions(companyStats, projectStats, designIndex, skipDirs);
+  if (includeIndex) addIndexOptions(companyStats, projectStats, designIndex, skipDirs);
   addStorageRuleOptions(companyStats);
 
   const companies = Array.from(companyStats.values())
@@ -437,7 +437,7 @@ function resolveWorkflowStorage({ designRoot = '', designIndex = [], skipDirs = 
   if (!companyRaw) throw new Error('companyName required');
   if (!projectRaw) throw new Error('projectName required');
 
-  const options = buildWorkflowOptions({ designIndex, designRoot: root, skipDirs });
+  const options = buildWorkflowOptions({ designIndex, designRoot: root, skipDirs, includeIndex: false });
   const existingCompany = findCompanyForStorage(options, companyRaw);
   const storageRule = findStorageRule(companyRaw);
   const companyFolderName = storageRule?.companyFolder || existingCompany?.folderName || safePathPart(companyRaw, 'company');

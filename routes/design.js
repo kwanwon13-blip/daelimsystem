@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const db = require('../db');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const designWorkflowStorage = require('./lib/design-workflow-storage');
+const designIndexer = require('./lib/design-indexer');
 
 // 썸네일 캐시 폴더
 const THUMB_DIR = path.join(__dirname, '..', 'data', 'thumbs');
@@ -133,6 +134,7 @@ function designWorkflowOptions() {
     designIndex,
     designRoot: DESIGN_ROOT,
     skipDirs: SKIP_DIRS,
+    includeIndex: false,
   });
   designWorkflowOptionsCache = { key, value, cachedAt: Date.now() };
   return value;
@@ -143,8 +145,15 @@ function invalidateDesignWorkflowOptions() {
 }
 
 let designIndex = [];
-let designIndexStatus = { built: false, building: false, count: 0, lastBuilt: null, error: null };
+let designIndexStatus = { built: false, building: false, count: 0, lastBuilt: null, error: null, lastMode: null, lastFullBuilt: null, durationMs: 0, dirsScanned: 0, dirsReused: 0, fromDisk: false };
 let designWorkflowOptionsCache = { key: '', value: null, cachedAt: 0 };
+
+// 폴더 증분 인덱싱 캐시 + 디스크 영속화
+let designDirCache = new Map();
+let lastFullScanAt = 0;
+const MAX_DEPTH = 8;
+const FULL_RESCAN_MS = parseInt(process.env.DESIGN_FULL_RESCAN_MS) || 6 * 60 * 60 * 1000;
+const INDEX_CACHE_PATH = path.join(__dirname, '..', 'data', 'design-index-cache.json');
 
 // 건너뛸 시스템 폴더
 const SKIP_DIRS = new Set([
@@ -156,108 +165,83 @@ const SKIP_DIRS = new Set([
   '송지현 대리'
 ]);
 
-async function buildDesignIndexAsync(rootPath) {
-  const items = [];
-  const queue = [{ dir: rootPath, depth: 0 }];
-
-  while (queue.length > 0) {
-    const { dir, depth } = queue.shift();
-    if (depth > 8) continue;
-
-    // 10개 폴더마다 이벤트 루프 양보 (너무 자주 양보하면 오히려 느림)
-    if (items.length % 10 === 0) await new Promise(r => setImmediate(r));
-
-    let entries;
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
-    catch (e) { continue; }
-
-    // 해당 폴더의 .ai 파일 목록을 한 번에 수집 (이미지-AI 연결용)
-    const aiSet = new Set();
-    for (const e of entries) {
-      if (e.isFile() && e.name.toLowerCase().endsWith('.ai')) {
-        aiSet.add(path.basename(e.name, '.ai').toLowerCase());
-      }
-    }
-
-    for (const entry of entries) {
-      if (entry.name.startsWith('.') || entry.name.startsWith('$')) continue;
-      if (SKIP_DIRS.has(entry.name.toLowerCase())) continue;
-
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        queue.push({ dir: fullPath, depth: depth + 1 });
-      } else {
-        const ext = path.extname(entry.name).toLowerCase();
-        if (!INDEXED_EXTS.has(ext)) continue;
-        const fileType = EXT_TO_TYPE[ext];
-        const rel = path.relative(rootPath, fullPath);
-        const parts = rel.split(path.sep);
-        const baseName = path.basename(entry.name, ext);
-        // 이미지 파일일 때만 .ai 연결 파일 찾기 (기존 동작 유지)
-        let aiPath = null;
-        if (fileType === 'image') {
-          let hasAi = aiSet.has(baseName.toLowerCase());
-          let aiBaseName = baseName;
-          if (!hasAi) {
-            const stripped = baseName.replace(/-\d+$/, '');
-            if (stripped !== baseName && aiSet.has(stripped.toLowerCase())) {
-              hasAi = true;
-              aiBaseName = stripped;
-            }
-          }
-          if (hasAi) aiPath = path.join(dir, aiBaseName + '.ai');
-        }
-        let mtime = 0;
-        try { mtime = fs.statSync(fullPath).mtimeMs; } catch(e) {}
-        items.push({
-          path: fullPath, rel, parts, name: entry.name,
-          aiPath,
-          fileType, ext,
-          mtime,
-          searchText: rel.toLowerCase().replace(/\\/g, ' ').replace(/_/g, ' ')
-        });
-        if (items.length % 500 === 0) {
-          designIndexStatus.count = items.length;
-        }
-      }
-    }
-  }
-  return items;
-}
+// 인덱스 빌드 로직은 ./lib/design-indexer 로 이전됨 (buildDesignIndex)
 
 let designIndexTimer = null;
 
-function runDesignIndex() {
+function runDesignIndex(runOpts = {}) {
   if (designIndexStatus.building) return;
   if (!fs.existsSync(DESIGN_ROOT)) {
     designIndexStatus.error = `경로 없음: ${DESIGN_ROOT}`;
     console.log(`[시안검색] 경로 없음: ${DESIGN_ROOT}`);
     return;
   }
+  // 캐시가 비었으면(콜드 스타트) 무조건 전체 스캔
+  const force = !!runOpts.force || designDirCache.size === 0;
+  const mode = force ? 'full' : 'incremental';
   designIndexStatus.building = true;
   designIndexStatus.error = null;
-  console.log(`[시안검색] 인덱싱 시작... (${DESIGN_ROOT})`);
-  buildDesignIndexAsync(DESIGN_ROOT).then(idx => {
-    designIndex = idx;
-    designIndexStatus = { built: true, building: false, count: idx.length, lastBuilt: new Date().toISOString(), error: null };
+  const startedAt = Date.now();
+  console.log(`[시안검색] ${mode} 인덱싱 시작... (${DESIGN_ROOT})`);
+  designIndexer.buildDesignIndex(DESIGN_ROOT, {
+    force,
+    cache: designDirCache,
+    skipDirs: SKIP_DIRS,
+    indexedExts: INDEXED_EXTS,
+    extToType: EXT_TO_TYPE,
+    maxDepth: MAX_DEPTH,
+    onProgress: (n) => { designIndexStatus.count = n; },
+  }).then(({ items, dirsScanned, dirsReused }) => {
+    designIndex = items;
+    const nowIso = new Date().toISOString();
+    const durationMs = Date.now() - startedAt;
+    if (mode === 'full') lastFullScanAt = Date.now();
+    designIndexStatus = {
+      built: true, building: false, count: items.length, lastBuilt: nowIso, error: null,
+      lastMode: mode,
+      lastFullBuilt: mode === 'full' ? nowIso : (designIndexStatus.lastFullBuilt || null),
+      durationMs, dirsScanned, dirsReused, fromDisk: false,
+    };
     invalidateDesignWorkflowOptions();
-    console.log(`[시안검색] 완료: ${idx.length}개 파일`);
+    console.log(`[시안검색] ${mode} 완료: ${items.length}개 / 스캔 ${dirsScanned} 재사용 ${dirsReused} / ${durationMs}ms`);
+    designIndexer.saveIndexCache(INDEX_CACHE_PATH, designDirCache, DESIGN_ROOT)
+      .catch(e => console.warn('[시안검색] 캐시 저장 실패:', e.message));
   }).catch(e => {
     designIndexStatus = { ...designIndexStatus, building: false, error: e.message };
     console.log(`[시안검색] 오류: ${e.message}`);
   });
 }
 
+// 서버 시작 시 디스크 캐시 로드 → 즉시 검색 가능 (재시작 빈 구간 제거)
+function loadDesignCacheAtStartup() {
+  try {
+    const loaded = designIndexer.loadIndexCache(INDEX_CACHE_PATH, DESIGN_ROOT);
+    if (loaded) {
+      designDirCache = loaded.cache;
+      designIndex = loaded.items;
+      designIndexStatus = {
+        built: true, building: false, count: loaded.items.length, lastBuilt: null, error: null,
+        lastMode: 'disk', lastFullBuilt: null, durationMs: 0, dirsScanned: 0, dirsReused: 0, fromDisk: true,
+      };
+      console.log(`[시안검색] 디스크 캐시 로드: ${loaded.items.length}개 (즉시 검색 가능)`);
+    }
+  } catch (e) {
+    console.warn('[시안검색] 디스크 캐시 로드 실패:', e.message);
+  }
+}
+
 function startDesignIndexer() {
-  // 서버 시작 5초 후 첫 인덱싱
+  loadDesignCacheAtStartup();
+  // 서버 시작 5초 후 첫 인덱싱 (디스크 캐시 있으면 증분, 없으면 전체)
   setTimeout(() => {
     runDesignIndex();
-    // 이후 30분마다 자동 재인덱싱 (5분은 너무 빈번 → 서버 부담)
-    designIndexTimer = setInterval(runDesignIndex, 30 * 60 * 1000);
+    // 30분마다 자동: 마지막 전체 스캔 후 FULL_RESCAN_MS 경과 시 그 회차는 전체
+    designIndexTimer = setInterval(() => {
+      const needFull = !lastFullScanAt || (Date.now() - lastFullScanAt) >= FULL_RESCAN_MS;
+      runDesignIndex({ force: needFull });
+    }, 30 * 60 * 1000);
   }, 5000);
-  // fs.watch 제거 — D드라이브 전체 감시는 서버 성능 심각하게 저하
-  // 대신 수동 재인덱싱 버튼 또는 30분 자동 주기 사용
-  console.log(`[시안검색] 30분 주기 자동 인덱싱 설정 완료 (수동: 재인덱싱 버튼 사용)`);
+  console.log(`[시안검색] 30분 주기 자동 인덱싱 + 디스크 캐시 설정 완료`);
 }
 startDesignIndexer();
 
@@ -313,8 +297,8 @@ router.get('/design/search', requireAuth, (req, res) => {
   const keywords = q.split(/\s+/).filter(Boolean);
   const first = keywords[0];
   const rest = keywords.slice(1);
-  let matches = designIndex.filter(item => item.searchText.includes(first));
-  if (rest.length > 0) matches = matches.filter(item => rest.every(kw => item.searchText.includes(kw)));
+  let matches = designIndex.filter(item => (item.searchText || '').includes(first));
+  if (rest.length > 0) matches = matches.filter(item => rest.every(kw => (item.searchText || '').includes(kw)));
   // 회사명 필터 (건설사/발주처) — 공백 제거 비교 (검색어와 별개 AND)
   if (hasBrandFilter) {
     matches = matches.filter(item => matchesAnyDesignTerm(item, brandTerms));
@@ -784,8 +768,9 @@ router.get('/design/openfolder/:token', (req, res) => {
 
 router.post('/design/reindex', requireAuth, (req, res) => {
   if (designIndexStatus.building) return res.json({ building: true, message: '인덱싱 중...', count: designIndex.length });
-  runDesignIndex(); // 비동기 시작
-  res.json({ building: true, message: '인덱싱 시작됨 — 파일 수에 따라 수 분 소요될 수 있습니다', count: 0 });
+  const full = req.query.full === '1' || (req.body && req.body.full === true);
+  runDesignIndex({ force: full }); // 기본 증분, ?full=1 이면 전체
+  res.json({ building: true, message: full ? '전체 재인덱싱 시작됨' : '증분 재인덱싱 시작됨 (변경된 폴더만)', count: designIndex.length });
 });
 
 // 진단용 (관리자) — 브라우저에서 /api/design/debug 로 확인

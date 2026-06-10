@@ -128,6 +128,11 @@ function photosApp() {
     },
     closeModal() { this.selected = null; this.saveMsg = ''; },
 
+    confirmHidePhoto() {
+      if (typeof window === 'undefined' || typeof window.confirm !== 'function') return true;
+      return window.confirm('이 사진을 사진 라이브러리에서 숨길까요?\n숨긴 사진은 기본 목록에서 보이지 않고, 숨긴 것만 보기에서 다시 표시할 수 있습니다.');
+    },
+
     async save() {
       if (!this.selected) return;
       try {
@@ -155,6 +160,7 @@ function photosApp() {
     // 그리드에서 hover 버튼으로 빠른 토글 (모달 안 열고)
     async quickToggleHidden(p) {
       const newVal = !p.is_hidden;
+      if (newVal && !this.confirmHidePhoto()) return;
       const r = await fetch(`/api/photos/${p.id}/label`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -213,6 +219,7 @@ function photosApp() {
     async toggleHidden() {
       if (!this.selected) return;
       const newVal = !this.selected.is_hidden;
+      if (newVal && !this.confirmHidePhoto()) return;
       const r = await fetch(`/api/photos/${this.selected.id}/label`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
