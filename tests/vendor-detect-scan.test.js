@@ -25,6 +25,14 @@ async function makeXlsx(name, cells) {
   const f3 = await makeXlsx('vd_none_' + process.pid + '.xlsx', { A1: '판매현황', B3: '그냥상사' });
   assert.strictEqual(await rt.detectVendorFromAttachments([{ path: f3 }]), '');
 
-  for (const f of [f1, f2, f3]) { try { fs.unlinkSync(f); } catch (_) {} }
+  // ④ 등록(승격) 거래처 — 레지스트리 거래처명으로 동적 감지 (하드코딩 5사 밖)
+  const regPath = path.join(os.tmpdir(), 'vd_reg_' + process.pid + '.json');
+  fs.writeFileSync(regPath, JSON.stringify({ '엘지하우시스-ledger': { script: 'make_generated.py', name: '엘지하우시스' } }));
+  assert.strictEqual(rt.dynamicVendorSlugFromText('주식회사 엘지하우시스 판매현황', regPath), '엘지하우시스-ledger');
+  assert.strictEqual(rt.dynamicVendorSlugFromText('그냥상사 자료', regPath), '');
+  // anyVendorSlugFromText: 하드코딩 거래처 우선 동작은 그대로
+  assert.strictEqual(rt.anyVendorSlugFromText('퍼시스 마감'), 'persys-ledger');
+
+  for (const f of [f1, f2, f3, regPath]) { try { fs.unlinkSync(f); } catch (_) {} }
   console.log('PASS vendor-detect-scan');
 })().catch(e => { console.error('FAIL', e.message); process.exit(1); });

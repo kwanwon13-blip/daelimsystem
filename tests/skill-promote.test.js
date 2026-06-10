@@ -46,6 +46,13 @@ try {
   const slugs = reg.listReusableSlugs({ bundled: { 'persys-ledger': 'make_persys.py' }, registryPath });
   assert.ok(slugs.includes('persys-ledger') && slugs.includes('엘지하우시스-ledger'));
 
+  // listRegistryVendors — 내용감지용 거래처명 목록 + saveRegistry 후 캐시 무효화
+  const vendors1 = reg.listRegistryVendors(registryPath);
+  assert.ok(vendors1.some(v => v.slug === '엘지하우시스-ledger' && v.name === '엘지하우시스'));
+  reg.registerSkill(registryPath, '하임-ledger', { script: 'make_generated.py', name: '하임' });
+  const vendors2 = reg.listRegistryVendors(registryPath);
+  assert.ok(vendors2.some(v => v.name === '하임'), 'saveRegistry 후 캐시가 갱신돼야 함');
+
   // scriptSrcPath 분기
   const srcPy = path.join(tmp, 'src.py');
   fs.writeFileSync(srcPy, 'print(1)');

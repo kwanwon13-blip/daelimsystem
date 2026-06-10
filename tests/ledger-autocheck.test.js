@@ -53,6 +53,11 @@ const ac = require('../lib/ledger-autocheck');
     // 4행은 비움
     assert.strictEqual(ac.countNonEmptyRows(ws), 3);
   }
+  // --- countNonEmptyRows: 행 스캔 상한 (초대형 파일에서 점검이 오래 걸리지 않게) ---
+  {
+    const fakeWs = { rowCount: 999999, getRow: () => ({ eachCell: (opt, cb) => cb({ value: 'x' }) }) };
+    assert.strictEqual(ac.countNonEmptyRows(fakeWs, 10), 10);
+  }
   // --- autocheckLedger: 가짜 ExcelJS 주입 → 행 충분 → pass ---
   {
     const fakeWs = { rowCount: 3, getRow: () => ({ eachCell: (opt, cb) => cb({ value: 'x' }) }) };
