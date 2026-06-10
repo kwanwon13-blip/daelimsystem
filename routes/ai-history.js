@@ -3728,20 +3728,42 @@ router.post('/attachments', (req, res, next) => {
     try {
       // 한글 파일명 인코딩 복원
       const originalName = fixKoreanFilename(req.file.originalname || '');
-      const ext = path.extname(originalName).toLowerCase();
-      const kind = detectKind(req.file.mimetype, ext);
+      let ext = path.extname(originalName).toLowerCase();
+      let storedPath = req.file.path;     // 멀터가 확장자 보존(${ext})
+      let kind = detectKind(req.file.mimetype, ext);
+      let mime = req.file.mimetype || '';
+      // ── 입력 정규화: .xls/.csv/.xlsm → .xlsx 로 통일 (다운스트림은 .xlsx만 처리). .xlsx 는 그대로. ──
+      try {
+        const { normalizeToXlsx } = require('../lib/spreadsheet-normalize');
+        const norm = normalizeToXlsx(storedPath);
+        if (norm.converted) {
+          try { fs.unlinkSync(storedPath); } catch (_) {}
+          storedPath = norm.path; ext = '.xlsx'; kind = 'excel';
+          mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        }
+      } catch (e) {
+        // 조용한 실패 0 — 못 읽으면 명확히 알린다
+        if (e && e.code === 'SPREADSHEET_LIB_MISSING')
+          return res.status(503).json({ error: '.xls/.csv 변환 라이브러리가 설치되지 않았습니다. 관리자에게 "npm install xlsx" 요청 또는 엑셀에서 .xlsx 로 저장해 올려주세요.' });
+        if (e && e.code === 'SPREADSHEET_UNREADABLE')
+          return res.status(400).json({ error: '이 파일을 읽지 못했어요. 이카운트에서 .xlsx 로 저장해 다시 올려주세요.' });
+        // 그 외 예외는 원본 그대로 진행
+      }
       let excerpt = '';
-      const storedPath = req.file.path;
-      if (kind === 'excel') excerpt = await extractExcel(storedPath, originalName);
-      else if (kind === 'pdf') excerpt = await extractPdf(storedPath);
-      else if (kind === 'text') excerpt = extractText(storedPath);
-      // image/word 는 excerpt 없음 (word 는 mammoth 등 필요하면 추가)
+      try {
+        if (kind === 'excel') excerpt = await extractExcel(storedPath, originalName);
+        else if (kind === 'pdf') excerpt = await extractPdf(storedPath);
+        else if (kind === 'text') excerpt = extractText(storedPath);
+        // image/word 는 excerpt 없음
+      } catch (_) { excerpt = ''; } // 발췌 실패가 업로드를 막지 않게
+      let sizeFinal = req.file.size || 0;
+      try { sizeFinal = fs.statSync(storedPath).size; } catch (_) {}
       const att = ai.attachments.create({
         ownerId: req.user.userId,
         originalName,
         storedName: path.basename(storedPath),
-        mime: req.file.mimetype || '',
-        size: req.file.size || 0,
+        mime,
+        size: sizeFinal,
         kind,
         textExcerpt: excerpt
       });
