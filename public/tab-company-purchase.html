@@ -1,448 +1,279 @@
-<!-- tab-company-purchase.html — 컴퍼니 매입명세서 OCR + 엑셀 시트 편집 + E2E 출력 -->
-<div x-data="purchaseOcrApp()" x-init="init()" style="height:100%;display:flex;flex-direction:column;background:#f8f9fb;">
+<!-- tab-company-purchase.html — 컴퍼니 매입 (E2E 매입 화면 스타일 장부) -->
+<!-- 좌: 일자|매입처 전표목록 · 우: 전표 헤더+품목 그리드 · 신규/저장/승인/삭제 · OCR 사진 입력 -->
+<!-- ⚠️ 컴포넌트 JS는 public/company-purchase.js (템플릿 안 script 미실행 — statements.js 패턴) -->
+<div x-data="companyLedgerApp()" x-init="init()" style="height:100%;display:flex;flex-direction:column;background:#eceef2;font-family:'Malgun Gothic','맑은 고딕',sans-serif;">
   <style>
-    .pur-head { padding:10px 16px; background:#fff; border-bottom:1px solid #e5e7eb; display:flex; align-items:center; gap:10px; }
-    .pur-head h1 { font-size:14px; font-weight:700; color:#1f2937; }
-    .pur-head .sub { font-size:11px; color:#9ca3af; }
-    .pur-toolbar { padding:8px 16px; background:#fff; border-bottom:1px solid #e5e7eb; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-    .pur-btn {
-      padding:6px 14px; border:1px solid #d1d5db; border-radius:6px; background:#fff;
-      font-size:12px; cursor:pointer; display:inline-flex; align-items:center; gap:5px;
-    }
-    .pur-btn:hover { background:#f3f4f6; }
-    .pur-btn.primary { background:#4f6ef7; border-color:#4f6ef7; color:#fff; }
-    .pur-btn.primary:hover { background:#3b5fe6; }
-    .pur-btn.danger { background:#ef4444; border-color:#ef4444; color:#fff; }
-    .pur-btn:disabled { opacity:.4; cursor:not-allowed; }
+    /* ── E2E ERP 풍 ── */
+    .cl2-titlebar { display:flex; align-items:center; gap:10px; padding:8px 14px; background:#f7f8fa; border-bottom:1px solid #c7c9d1; }
+    .cl2-title { font-size:20px; font-weight:850; color:#d23a2e; letter-spacing:8px; }
+    .cl2-sub { font-size:11px; color:#6b7280; }
+    .cl2-actions { margin-left:auto; display:flex; gap:5px; }
+    .cl2-abtn { display:flex; flex-direction:column; align-items:center; gap:2px; min-width:52px; padding:5px 8px; background:#fff; border:1px solid #b9bdc9; border-radius:4px; font-size:11px; font-weight:700; color:#374151; cursor:pointer; }
+    .cl2-abtn:hover { background:#eef2ff; border-color:#7c8bd9; }
+    .cl2-abtn .i { font-size:15px; line-height:1; }
+    .cl2-abtn.blue { color:#1d4ed8; }
+    .cl2-abtn.green { color:#15803d; }
+    .cl2-abtn.red { color:#b91c1c; }
+    .cl2-abtn:disabled { opacity:.4; cursor:not-allowed; }
 
-    .pur-body { flex:1; overflow:hidden; display:flex; min-height:0; }
-    /* 좌: 이미지 미리보기 */
-    .pur-img-pane {
-      width:380px; background:#fff; border-right:1px solid #e5e7eb;
-      display:flex; flex-direction:column; padding:14px; overflow-y:auto;
-    }
-    .pur-drop {
-      flex:1; min-height:200px;
-      border:2px dashed #d1d5db; border-radius:10px;
-      display:flex; align-items:center; justify-content:center;
-      cursor:pointer; transition:all .15s;
-      background:#fafafa; position:relative; overflow:hidden;
-    }
-    .pur-drop:hover, .pur-drop.dragover { border-color:#4f6ef7; background:#eef2ff; }
-    .pur-drop.has-image { border-style:solid; padding:0; }
-    .pur-drop.has-image img { max-width:100%; max-height:100%; object-fit:contain; }
-    .pur-drop-hint { color:#6b7280; font-size:12px; text-align:center; padding:30px; }
-    .pur-drop-hint .icon { font-size:36px; margin-bottom:10px; opacity:.5; }
+    .cl2-body { flex:1; display:grid; grid-template-columns:330px 1fr; min-height:0; overflow:hidden; }
 
-    /* 우: 엑셀 그리드 */
-    .pur-grid-pane { flex:1; display:flex; flex-direction:column; overflow:hidden; }
-    .pur-meta {
-      padding:10px 14px; background:#fff; border-bottom:1px solid #e5e7eb;
-      display:flex; gap:14px; font-size:12px; align-items:center;
-    }
-    .pur-meta b { color:#1f2937; }
-    .pur-meta .stat { padding:3px 10px; border-radius:4px; background:#f3f4f6; font-size:11px; }
-    .pur-meta .stat.ok { background:#d1fae5; color:#065f46; }
-    .pur-meta .stat.warn { background:#fee2e2; color:#991b1b; }
+    /* 좌측 패널 */
+    .cl2-left { border-right:1px solid #c7c9d1; background:#f4f5f8; display:flex; flex-direction:column; min-height:0; }
+    .cl2-filter { padding:8px 10px; background:#fff; border-bottom:1px solid #d8dbe2; display:flex; flex-direction:column; gap:6px; }
+    .cl2-frow { display:flex; align-items:center; gap:5px; font-size:11.5px; color:#374151; }
+    .cl2-frow label { width:52px; font-weight:700; color:#4b5563; flex:0 0 auto; }
+    .cl2-inp { padding:4px 7px; border:1px solid #c7c9d1; border-radius:3px; font-size:11.5px; background:#fff; min-width:0; }
+    .cl2-views { display:inline-flex; border:1px solid #c7c9d1; border-radius:4px; overflow:hidden; }
+    .cl2-views button { padding:4px 10px; font-size:11px; font-weight:800; border:0; background:#fff; color:#6b7280; cursor:pointer; }
+    .cl2-views button.on { background:#1E40FA; color:#fff; }
 
-    .pur-grid-wrap { flex:1; overflow:auto; padding:0; background:#fff; }
-    table.pur-grid {
-      border-collapse:collapse; font-size:12px; width:100%; min-width:1100px;
-    }
-    table.pur-grid thead th {
-      background:#f9fafb; border-bottom:2px solid #d1d5db; padding:7px 8px;
-      text-align:left; font-weight:600; color:#374151;
-      position:sticky; top:0; z-index:5;
-    }
-    table.pur-grid tbody td {
-      border-bottom:1px solid #f3f4f6; padding:0;
-    }
-    table.pur-grid tbody tr.matched { background:#f0fdf4; }   /* 녹색 — 정확 매칭 */
-    table.pur-grid tbody tr.predicted { background:#fefce8; } /* 노란색 — 예측 (신규 등록 필요) */
-    table.pur-grid tbody tr.unknown { background:#fef2f2; }   /* 빨간색 — 직접 입력 */
-    table.pur-grid tbody tr.unmatched { background:#fef2f2; } /* 호환 */
-    table.pur-grid tbody tr.unmatched td input,
-    table.pur-grid tbody tr.unknown td input,
-    table.pur-grid tbody tr.predicted td input { background:transparent; }
-    table.pur-grid tbody tr.skip { opacity:.4; background:#f3f4f6; }
-    table.pur-grid tbody tr.skip td input { text-decoration:line-through; }
-    table.pur-grid input {
-      width:100%; border:none; padding:7px 8px; background:transparent;
-      font-size:12px; color:#1f2937;
-    }
-    table.pur-grid input[type=number] { text-align:right; }
-    table.pur-grid input:focus { outline:2px solid #4f6ef7; background:#fff; }
-    table.pur-grid td.num { text-align:right; padding:7px 8px; }
-    table.pur-grid td.action { text-align:center; padding:5px; }
-    table.pur-grid .row-no { color:#9ca3af; padding:7px 8px; text-align:center; font-size:11px; }
-    table.pur-grid .badge {
-      display:inline-block; padding:1px 6px; border-radius:3px; font-size:10px; font-weight:500;
-    }
-    table.pur-grid .badge.matched { background:#d1fae5; color:#065f46; }
-    table.pur-grid .badge.predicted { background:#fef3c7; color:#92400e; }
-    table.pur-grid .badge.unknown { background:#fee2e2; color:#991b1b; }
-    table.pur-grid .badge.auto { background:#d1fae5; color:#065f46; }
-    table.pur-grid .badge.learned { background:#dbeafe; color:#1e40af; }
-    table.pur-grid .badge.unmatched { background:#fee2e2; color:#991b1b; }
-    table.pur-grid .badge.skip { background:#e5e7eb; color:#6b7280; }
-    table.pur-grid tfoot td {
-      background:#f9fafb; border-top:2px solid #d1d5db; font-weight:700;
-      padding:8px; text-align:right;
-    }
+    table.cl2-list { width:100%; border-collapse:collapse; font-size:12px; background:#fff; }
+    table.cl2-list th { position:sticky; top:0; background:#e8ebf2; border:1px solid #c7c9d1; padding:5px 6px; font-weight:700; color:#374151; font-size:11px; }
+    table.cl2-list td { border:1px solid #e2e5ec; padding:5px 6px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    table.cl2-list tr:hover td { background:#eef2ff; }
+    table.cl2-list tr.sel td { background:#2b4faa; color:#fff; }
+    table.cl2-list td.num { text-align:right; font-variant-numeric:tabular-nums; }
+    .cl2-st { font-size:10px; font-weight:800; padding:1px 6px; border-radius:3px; }
+    .cl2-st.parsed { background:#fef3c7; color:#92400e; }
+    .cl2-st.confirmed { background:#d1fae5; color:#065f46; }
+    tr.sel .cl2-st.parsed, tr.sel .cl2-st.confirmed { background:rgba(255,255,255,.25); color:#fff; }
+    .cl2-vh td { background:#dde3ef !important; font-weight:850; cursor:pointer; }
+    .cl2-listfoot { background:#ffff99; border-top:2px solid #c7c9d1; padding:6px 10px; font-size:12px; font-weight:850; display:flex; justify-content:space-between; }
+    .cl2-scroll { overflow-y:auto; flex:1; }
 
-    .pur-empty { padding:60px; text-align:center; color:#9ca3af; }
-    .pur-loading { padding:40px; text-align:center; color:#4f6ef7; }
-    .pur-loading .spinner { display:inline-block; width:30px; height:30px; border:3px solid #e5e7eb; border-top-color:#4f6ef7; border-radius:50%; animation:spin 1s linear infinite; }
-    @keyframes spin { to { transform:rotate(360deg); } }
+    /* 우측 전표 */
+    .cl2-right { display:flex; flex-direction:column; min-height:0; background:#fff; }
+    .cl2-vheader { padding:10px 14px; border-bottom:1px solid #d8dbe2; background:#fbfcfe; }
+    .cl2-vgrid { display:grid; grid-template-columns:64px 170px 64px 1fr; gap:6px 10px; align-items:center; max-width:760px; }
+    .cl2-vgrid label { font-size:11.5px; font-weight:700; color:#4b5563; }
+    .cl2-vgrid .cl2-inp { width:100%; }
+    .cl2-vstate { display:flex; align-items:center; gap:10px; margin-top:7px; flex-wrap:wrap; }
+
+    .cl2-gridwrap { flex:1; overflow:auto; min-height:0; display:grid; grid-template-columns:1fr; }
+    .cl2-gridwrap.with-img { grid-template-columns:minmax(0,1fr) 300px; }
+    .cl2-imgpane { border-left:1px solid #d8dbe2; background:#14161c; display:flex; align-items:flex-start; justify-content:center; overflow:auto; }
+    .cl2-imgpane img { max-width:100%; }
+
+    table.cl2-grid { width:100%; border-collapse:collapse; font-size:12px; }
+    table.cl2-grid th { position:sticky; top:0; z-index:2; background:#e8ebf2; border:1px solid #c7c9d1; padding:5px 5px; font-weight:700; color:#374151; font-size:11px; white-space:nowrap; }
+    table.cl2-grid td { border:1px solid #e2e5ec; padding:0; }
+    table.cl2-grid td.ro { padding:4px 6px; color:#6b7280; text-align:center; }
+    table.cl2-grid input { width:100%; border:0; padding:4px 6px; background:transparent; font-size:12px; outline:none; font-family:inherit; }
+    table.cl2-grid input[type=number] { text-align:right; }
+    table.cl2-grid input:focus { background:#DEEBFF; box-shadow:inset 0 0 0 2px #1E40FA; }
+    table.cl2-grid td.calc { padding:4px 6px; text-align:right; font-variant-numeric:tabular-nums; background:#fafbfd; }
+    tr.l-matched td { background:#f2fdf5; } tr.l-predicted td { background:#fffce8; } tr.l-unknown td { background:#fff2f2; }
+    tr.l-skip td { opacity:.4; }
+    tr.l-skip input { text-decoration:line-through; }
+    .cl2-code { font-size:10.5px; color:#1d4ed8; font-weight:700; padding:0 5px; white-space:nowrap; }
+    table.cl2-grid tfoot td { background:#ffff99; border:1px solid #d9d27a; font-weight:850; padding:6px; text-align:right; font-variant-numeric:tabular-nums; position:sticky; bottom:0; }
+
+    .cl2-msg { padding:5px 14px; font-size:12px; font-weight:700; }
+    .cl2-empty { padding:60px 30px; text-align:center; color:#9ca3af; font-size:13px; }
+    .cl2-spin { display:inline-block; width:24px; height:24px; border:3px solid #e5e7eb; border-top-color:#1E40FA; border-radius:50%; animation:cl2spin 1s linear infinite; }
+    @keyframes cl2spin { to { transform:rotate(360deg); } }
+    .cl2-queue { padding:6px 14px; background:#fffaf0; border-bottom:1px solid #fde2b0; font-size:11.5px; color:#b45309; display:flex; align-items:center; gap:8px; }
+    .cl2-qbar { flex:1; height:7px; background:#fdebc8; border-radius:99px; overflow:hidden; }
+    .cl2-qbar .fill { height:100%; background:linear-gradient(90deg,#d97706,#22c55e); transition:width .3s; }
   </style>
 
-  <!-- 헤더 -->
-  <div class="pur-head">
-    <h1>📋 매입명세서 OCR</h1>
-    <div class="sub">사진 업로드 → AI 자동 인식 → 미매칭 라인은 빨간색으로 표시 → 직접 입력 후 E2E 엑셀 다운로드</div>
-  </div>
-
-  <!-- 툴바 -->
-  <div class="pur-toolbar">
-    <input type="file" x-ref="file" @change="onFileSelected($event)" accept="image/*" style="display:none;">
-    <button class="pur-btn primary" @click="$refs.file.click()" :disabled="loading">
-      📎 사진 선택
-    </button>
-    <button class="pur-btn" @click="reset()" :disabled="!hasResult">↺ 초기화</button>
-    <button class="pur-btn" @click="toggleHistory()" :class="{primary: showHistory}">
-      📋 처리이력 <span x-show="historyItems.length>0" style="opacity:.7;">(<span x-text="historyItems.length"></span>)</span>
-    </button>
-    <span style="flex:1"></span>
-    <button class="pur-btn primary" @click="exportExcel()" :disabled="!canExport">
-      ⬇ E2E 엑셀 다운로드
-    </button>
-  </div>
-
-  <!-- 처리이력 패널 -->
-  <div x-show="showHistory" x-transition style="background:#fff; border-bottom:1px solid #e5e7eb; max-height:300px; overflow-y:auto;">
-    <table style="width:100%; font-size:12px; border-collapse:collapse;">
-      <thead>
-        <tr style="background:#f9fafb; position:sticky; top:0;">
-          <th style="padding:8px; text-align:left; border-bottom:1px solid #e5e7eb;">처리시각</th>
-          <th style="padding:8px; text-align:left; border-bottom:1px solid #e5e7eb;">처리자</th>
-          <th style="padding:8px; text-align:left; border-bottom:1px solid #e5e7eb;">거래처</th>
-          <th style="padding:8px; text-align:left; border-bottom:1px solid #e5e7eb;">일자</th>
-          <th style="padding:8px; text-align:right; border-bottom:1px solid #e5e7eb;">합계</th>
-          <th style="padding:8px; text-align:center; border-bottom:1px solid #e5e7eb;">라인</th>
-          <th style="padding:8px; text-align:center; border-bottom:1px solid #e5e7eb;">상태</th>
-          <th style="padding:8px; text-align:center; border-bottom:1px solid #e5e7eb;">작업</th>
-        </tr>
-      </thead>
-      <tbody>
-        <template x-if="historyItems.length === 0">
-          <tr><td colspan="8" style="padding:30px; text-align:center; color:#9ca3af;">처리이력이 없습니다</td></tr>
-        </template>
-        <template x-for="h in historyItems" :key="h.id">
-          <tr style="border-bottom:1px solid #f3f4f6;">
-            <td style="padding:6px 8px;" x-text="formatTime(h.created_at)"></td>
-            <td style="padding:6px 8px;" x-text="h.user_name"></td>
-            <td style="padding:6px 8px;" x-text="h.vendor_name"></td>
-            <td style="padding:6px 8px;" x-text="h.trx_date"></td>
-            <td style="padding:6px 8px; text-align:right;" x-text="(h.total_amt||0).toLocaleString()"></td>
-            <td style="padding:6px 8px; text-align:center;" x-text="h.line_count"></td>
-            <td style="padding:6px 8px; text-align:center;">
-              <span class="badge" :class="h.status==='confirmed' ? 'auto' : 'unmatched'" x-text="h.status==='confirmed' ? '확정' : '검수중'"></span>
-            </td>
-            <td style="padding:6px 8px; text-align:center;">
-              <button class="pur-btn" style="padding:3px 8px; font-size:11px;" @click="loadHistory(h.id)">📂 열기</button>
-              <a class="pur-btn" style="padding:3px 8px; font-size:11px; text-decoration:none;" :href="'/api/company-purchase/history/'+h.id+'/export.xlsx'">⬇ 엑셀</a>
-            </td>
-          </tr>
-        </template>
-      </tbody>
-    </table>
-  </div>
-
-  <!-- 본문 -->
-  <div class="pur-body">
-    <!-- 좌: 이미지 -->
-    <div class="pur-img-pane">
-      <div class="pur-drop" :class="{ 'has-image': imageUrl, dragover: dragover }"
-           @click="!imageUrl && $refs.file.click()"
-           @dragover.prevent="dragover=true"
-           @dragleave="dragover=false"
-           @drop.prevent="onDrop($event)">
-        <template x-if="!imageUrl">
-          <div class="pur-drop-hint">
-            <div class="icon">📷</div>
-            <div>매입명세서 사진을<br>여기에 끌어놓거나 클릭</div>
-            <div style="margin-top:14px; font-size:11px; color:#9ca3af;">또는 <kbd style="background:#fff; border:1px solid #d1d5db; border-radius:4px; padding:1px 6px; font-family:Consolas,monospace;">Ctrl</kbd> + <kbd style="background:#fff; border:1px solid #d1d5db; border-radius:4px; padding:1px 6px; font-family:Consolas,monospace;">V</kbd> 붙여넣기</div>
-          </div>
-        </template>
-        <template x-if="imageUrl">
-          <img :src="imageUrl" alt="매입명세서">
-        </template>
-      </div>
+  <!-- 타이틀바: E2E처럼 제목 + 우측 액션버튼 -->
+  <div class="cl2-titlebar">
+    <span class="cl2-title">매 입</span>
+    <span class="cl2-sub">대림컴퍼니 장부 · 사진(OCR)/수기 입력 → 검토 → 승인 → E2E</span>
+    <div class="cl2-actions">
+      <input type="file" x-ref="file" multiple accept="image/*" style="display:none;" @change="onFileInput($event)">
+      <button class="cl2-abtn blue" @click="createNew()"><span class="i">🆕</span>신규</button>
+      <button class="cl2-abtn" @click="$refs.file.click()" :disabled="queue.running>0"><span class="i">📷</span>사진</button>
+      <button class="cl2-abtn" @click="save()" :disabled="!selectedId || saving"><span class="i">💾</span>저장</button>
+      <button class="cl2-abtn green" x-show="stStatus!=='confirmed'" @click="confirmSt()" :disabled="!selectedId || saving"><span class="i">✔</span>승인</button>
+      <button class="cl2-abtn" x-show="selectedId && stStatus==='confirmed'" x-cloak @click="reopenSt()" :disabled="saving"><span class="i">↩</span>반송</button>
+      <button class="cl2-abtn" @click="exportOne()" :disabled="!selectedId || saving"><span class="i">📊</span>E2E</button>
+      <button class="cl2-abtn red" @click="deleteSt()" :disabled="!selectedId"><span class="i">🗑</span>삭제</button>
     </div>
+  </div>
 
-    <!-- 우: 엑셀 그리드 -->
-    <div class="pur-grid-pane">
-      <!-- 메타 정보 -->
-      <template x-if="hasResult">
-        <div class="pur-meta">
-          <span>거래처: <b x-text="vendor.name || '-'"></b></span>
-          <span>일자: <input type="date" x-model="trxDate" style="border:1px solid #d1d5db; border-radius:4px; padding:2px 6px; font-size:12px;"></span>
-          <span class="stat ok">🟢 매칭 <b x-text="stats.matched"></b></span>
-          <span class="stat" style="background:#fef3c7; color:#92400e;" x-show="stats.predicted > 0">🟡 예측 <b x-text="stats.predicted"></b></span>
-          <span class="stat warn" x-show="stats.unknown > 0">🔴 신규 <b x-text="stats.unknown"></b></span>
-          <span class="stat">합계 <b x-text="totalAmt.toLocaleString() + '원'"></b></span>
+  <!-- 업로드 진행 -->
+  <div class="cl2-queue" x-show="queue.total>0" x-cloak>
+    <span x-text="queue.running>0 ? `📸 사진 ${queue.total}장 인식 중` : `✅ ${queue.total}장 완료`"></span>
+    <div class="cl2-qbar"><div class="fill" :style="`width:${queue.total?Math.round((queue.done+queue.failed)*100/queue.total):0}%`"></div></div>
+    <b x-text="`${queue.done+queue.failed}/${queue.total}` + (queue.failed?` · 실패 ${queue.failed}`:'')"></b>
+  </div>
+
+  <div class="cl2-body" @drop.prevent="onDrop($event)" @dragover.prevent>
+    <!-- ══ 좌: 전표 목록 ══ -->
+    <div class="cl2-left">
+      <div class="cl2-filter">
+        <div class="cl2-frow">
+          <label>등록일자</label>
+          <input type="date" class="cl2-inp" x-model="dateFrom" style="flex:1;">
+          <span>~</span>
+          <input type="date" class="cl2-inp" x-model="dateTo" style="flex:1;">
         </div>
-      </template>
-
-      <!-- 로딩 -->
-      <template x-if="loading">
-        <div class="pur-loading">
-          <div class="spinner"></div>
-          <div style="margin-top:14px;">사진 분석 중... (10~30초 소요)</div>
+        <div class="cl2-frow">
+          <label>거래처</label>
+          <input class="cl2-inp" x-model="searchQ" placeholder="검색" style="flex:1;">
+          <select class="cl2-inp" x-model="filterStatus" style="width:72px;">
+            <option value="">전체</option>
+            <option value="parsed">검토</option>
+            <option value="confirmed">승인</option>
+          </select>
         </div>
-      </template>
-
-      <!-- 빈 화면 -->
-      <template x-if="!loading && !hasResult">
-        <div class="pur-empty">
-          왼쪽에서 매입명세서 사진을 업로드하세요.<br>
-          <small>이노사인 / DSD리테일 / 정일안전 / 진기건설 / 디오테크 등 자동 인식</small>
+        <div class="cl2-frow">
+          <label>보기</label>
+          <div class="cl2-views">
+            <button :class="viewMode==='st'?'on':''" @click="viewMode='st'">일자별</button>
+            <button :class="viewMode==='vendor'?'on':''" @click="viewMode='vendor'">업체별</button>
+          </div>
+          <span style="flex:1"></span>
+          <button class="cl2-inp" style="cursor:pointer;" @click="loadList()">↻</button>
         </div>
-      </template>
+      </div>
 
-      <!-- 그리드 -->
-      <template x-if="!loading && hasResult">
-        <div class="pur-grid-wrap">
-          <table class="pur-grid">
-            <thead>
-              <tr>
-                <th style="width:40px;">#</th>
-                <th style="width:130px;">상품명</th>
-                <th style="width:140px;">규격</th>
-                <th style="width:60px;">수량</th>
-                <th style="width:80px;">단가</th>
-                <th style="width:90px;">금액</th>
-                <th style="width:80px;">세액</th>
-                <th style="width:90px;">합계</th>
-                <th style="width:100px;">상태</th>
-                <th style="width:70px;">스킵</th>
-                <th>OCR 원본</th>
-              </tr>
-            </thead>
-            <tbody>
-              <template x-for="(line, idx) in lines" :key="idx">
-                <tr :class="{ matched: line.status==='matched' && !line.skip, predicted: line.status==='predicted' && !line.skip, unknown: line.status==='unknown' && !line.skip, skip: line.skip }">
-                  <td class="row-no" x-text="line.row_no"></td>
-                  <td>
-                    <input type="text" x-model="line.item" :placeholder="line.status==='unknown' ? '품명 입력 (신규 규칙)' : ''" @input="line.status=line.item?(line.code?'matched':'predicted'):'unknown'; recalc()">
-                    <small x-show="line.code" style="color:#16a34a; font-size:10px; padding:0 8px;">📋 <span x-text="line.code"></span></small>
-                  </td>
-                  <td><input type="text" x-model="line.spec" :placeholder="line.status==='unknown' ? '규격 입력' : ''"></td>
-                  <td class="num"><input type="number" step="0.1" x-model.number="line.qty" @input="recalcLine(line)"></td>
-                  <td class="num"><input type="number" x-model.number="line.unit_price" @input="recalcLine(line)"></td>
-                  <td class="num"><input type="number" x-model.number="line.supply_amt" @input="recalcLine(line, 'supply')"></td>
-                  <td class="num"><input type="number" x-model.number="line.vat_amt"></td>
-                  <td class="num" x-text="(line.total_amt||0).toLocaleString()"></td>
-                  <td>
-                    <span class="badge" :class="line.skip ? 'skip' : line.status"
-                          x-text="line.skip ? '스킵' : (line.status==='matched' ? '✓ 매칭' : (line.status==='predicted' ? '⚠ 예측' : '✗ 신규'))"></span>
-                    <div x-show="line.status==='predicted' && line.match_suggestion" style="font-size:10px; color:#92400e; padding:2px 6px;">
-                      💡 <span x-text="line.match_reason"></span>
-                    </div>
-                    <div x-show="line.suggested_options && line.suggested_options.length" style="font-size:10px; color:#0369a1; padding:1px 6px;">
-                      🏷 <span x-text="(line.suggested_options||[]).join(', ')"></span>
-                    </div>
-                  </td>
-                  <td class="action">
-                    <input type="checkbox" x-model="line.skip" title="이 라인을 매입에서 제외 (예: 재단비)">
-                  </td>
-                  <td style="font-size:11px; color:#6b7280; padding:7px 8px;">
-                    <span x-text="line.ocr_text"></span>
-                    <small style="color:#9ca3af;" x-text="line.ocr_spec ? ' / ' + line.ocr_spec : ''"></small>
+      <div class="cl2-scroll">
+        <table class="cl2-list">
+          <thead>
+            <tr><th style="width:46px;">일자</th><th>매입처</th><th style="width:84px;">합계</th><th style="width:46px;">상태</th></tr>
+          </thead>
+          <tbody>
+            <!-- 일자별 -->
+            <template x-if="viewMode==='st'">
+              <template x-for="h in filtered" :key="h.id">
+                <tr :class="{sel: selectedId===h.id}" @click="openDetail(h.id)">
+                  <td x-text="fmtDateShort(h.trx_date) || '-'"></td>
+                  <td x-text="h.vendor_name || '(미입력)'"></td>
+                  <td class="num" x-text="fmt(h.total_amt)"></td>
+                  <td style="text-align:center;"><span class="cl2-st" :class="h.status==='confirmed'?'confirmed':'parsed'" x-text="h.status==='confirmed'?'승인':'검토'"></span></td>
+                </tr>
+              </template>
+            </template>
+            <!-- 업체별 (평탄화: 그룹헤더행 + 전표행) -->
+            <template x-if="viewMode==='vendor'">
+              <template x-for="row in vendorRows" :key="row.key">
+                <tr :class="row.t==='g' ? 'cl2-vh' : {sel: selectedId===row.h.id}"
+                    @click="row.t==='g' ? toggleVendor(row.g.name) : openDetail(row.h.id)">
+                  <td style="text-align:center;" x-text="row.t==='g' ? (expandedVendor===row.g.name?'▼':'▶') : fmtDateShort(row.h.trx_date)"></td>
+                  <td :style="row.t==='g' ? '' : 'padding-left:18px;'" x-text="row.t==='g' ? row.g.name : ((row.h.line_count||0)+'품목')"></td>
+                  <td class="num" x-text="row.t==='g' ? fmt(row.g.total) : fmt(row.h.total_amt)"></td>
+                  <td style="text-align:center;">
+                    <span x-show="row.t==='g'" style="font-size:11px;font-weight:800;" x-text="row.g.n+'건'"></span>
+                    <span x-show="row.t==='h'" class="cl2-st" :class="row.h && row.h.status==='confirmed'?'confirmed':'parsed'" x-text="row.h && row.h.status==='confirmed'?'승인':'검토'"></span>
                   </td>
                 </tr>
               </template>
-            </tbody>
-            <tfoot>
-              <tr>
-                <td colspan="5" style="text-align:left;">
-                  <small style="font-weight:400; color:#6b7280;">미매칭(빨간) 라인은 직접 입력 → 다음번엔 자동 매칭 (학습)</small>
-                </td>
-                <td x-text="(totalSupply||0).toLocaleString()"></td>
-                <td x-text="(totalVat||0).toLocaleString()"></td>
-                <td x-text="(totalAmt||0).toLocaleString()"></td>
-                <td colspan="3"></td>
-              </tr>
-            </tfoot>
-          </table>
+            </template>
+          </tbody>
+        </table>
+        <div x-show="filtered.length===0 && !loadingList" class="cl2-empty" style="padding:30px;">
+          전표 없음<br><small>🆕 신규(수기) 또는 📷 사진(OCR) / Ctrl+V</small>
+        </div>
+        <div x-show="loadingList" class="cl2-empty" style="padding:30px;"><span class="cl2-spin"></span></div>
+      </div>
+      <div class="cl2-listfoot">
+        <span>합계 <span x-text="filtered.length"></span>건</span>
+        <span x-text="fmt(sumFiltered)"></span>
+      </div>
+    </div>
+
+    <!-- ══ 우: 전표 ══ -->
+    <div class="cl2-right">
+      <template x-if="loadingDetail">
+        <div class="cl2-empty"><span class="cl2-spin"></span><div style="margin-top:10px;">불러오는 중…</div></div>
+      </template>
+
+      <template x-if="!loadingDetail && !selectedId">
+        <div class="cl2-empty">
+          왼쪽 목록에서 전표를 선택하거나<br>
+          <b>🆕 신규</b>(수기 입력) 또는 <b>📷 사진</b>(OCR)으로 시작하세요.
+        </div>
+      </template>
+
+      <template x-if="!loadingDetail && selectedId">
+        <div style="display:flex;flex-direction:column;min-height:0;flex:1;">
+          <!-- 전표 헤더 -->
+          <div class="cl2-vheader">
+            <div class="cl2-vgrid">
+              <label>등록일자</label>
+              <input class="cl2-inp" :value="fmtTime(createdAt)" disabled style="background:#f3f4f6;">
+              <label>발행일자</label>
+              <input type="date" class="cl2-inp" x-model="trxDate" style="max-width:170px;">
+              <label>거 래 처</label>
+              <input class="cl2-inp" x-model="vendor.name" style="font-weight:800;background:#e8f4fd;">
+              <label>사업자No</label>
+              <input class="cl2-inp" x-model="vendor.biz_no" placeholder="000-00-00000" style="max-width:170px;">
+              <label>비    고</label>
+              <input class="cl2-inp" x-model="memo" style="grid-column:2 / span 3;">
+            </div>
+            <div class="cl2-vstate">
+              <span class="cl2-st" :class="stStatus==='confirmed'?'confirmed':'parsed'" style="font-size:11.5px;padding:4px 10px;" x-text="stStatus==='confirmed'?'✔ 승인':'⏳ 검토'"></span>
+              <span style="font-size:11px;color:#6b7280;" x-show="isManual">⌨️ 수기 전표</span>
+              <button class="cl2-inp" style="cursor:pointer;" x-show="imageUrl" @click="showImage=!showImage" x-text="showImage?'📄 원본 닫기':'📄 원본 보기'"></button>
+              <button class="cl2-inp" style="cursor:pointer;" @click="addBlankLine()">+ 행 추가</button>
+              <span class="cl2-msg" x-show="saveMsg" x-cloak x-text="saveMsg" style="padding:0;"></span>
+              <span style="flex:1"></span>
+              <button class="cl2-inp" style="cursor:pointer;" @click="nextStatement()">다음 ▶</button>
+            </div>
+          </div>
+
+          <!-- 품목 그리드 (+ 원본 이미지) -->
+          <div class="cl2-gridwrap" :class="showImage && imageUrl ? 'with-img' : ''">
+            <div style="overflow:auto;min-width:0;">
+              <table class="cl2-grid">
+                <thead>
+                  <tr>
+                    <th style="width:30px;">순번</th>
+                    <th style="width:62px;">약어</th>
+                    <th style="min-width:150px;">상품명</th>
+                    <th style="width:90px;">비고</th>
+                    <th style="width:110px;">규격</th>
+                    <th style="width:52px;">수량</th>
+                    <th style="width:74px;">단가</th>
+                    <th style="width:84px;">금액</th>
+                    <th style="width:70px;">세액</th>
+                    <th style="width:86px;">합계금액</th>
+                    <th style="width:92px;">상품코드</th>
+                    <th style="width:28px;"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="(line, idx) in lines" :key="idx">
+                    <tr :class="[line.skip ? 'l-skip' : ('l-' + (line.status || 'unknown'))]">
+                      <td class="ro" x-text="idx+1"></td>
+                      <td><input type="text" x-model="line.short"></td>
+                      <td><input type="text" x-model="line.item" :placeholder="line.ocr_text ? 'OCR: '+line.ocr_text : '상품명'" :title="line.ocr_text ? 'OCR 원문: '+line.ocr_text+(line.ocr_spec?' / '+line.ocr_spec:'') : ''"></td>
+                      <td><input type="text" x-model="line.memo"></td>
+                      <td><input type="text" x-model="line.spec"></td>
+                      <td><input type="number" step="0.1" x-model.number="line.qty" @input="recalcLine(line)"></td>
+                      <td><input type="number" x-model.number="line.unit_price" @input="recalcLine(line)"></td>
+                      <td><input type="number" x-model.number="line.supply_amt" @input="recalcLine(line,'supply')"></td>
+                      <td><input type="number" x-model.number="line.vat_amt"></td>
+                      <td class="calc" x-text="fmt(line.total_amt)"></td>
+                      <td><span class="cl2-code" x-text="line.code || ''" :title="line.match_reason || ''"></span></td>
+                      <td class="ro" style="cursor:pointer;color:#b91c1c;" :title="line.skip?'다시 포함':'제외'" @click="line.qty||line.item ? (line.skip=!line.skip) : removeLine(idx)" x-text="line.skip?'↩':'✕'"></td>
+                    </tr>
+                  </template>
+                  <tr x-show="lines.length===0"><td colspan="12" style="text-align:center;padding:26px;color:#9ca3af;">품목 없음 — “+ 행 추가”</td></tr>
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colspan="5" style="text-align:left;font-weight:700;color:#6b7280;font-size:11px;">빨간 줄(신규)은 상품명 입력 → <b>승인</b> 시 학습</td>
+                    <td x-text="fmt(totalQty)"></td>
+                    <td></td>
+                    <td x-text="fmt(totalSupply)"></td>
+                    <td x-text="fmt(totalVat)"></td>
+                    <td x-text="fmt(totalAmt)"></td>
+                    <td colspan="2"></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <div class="cl2-imgpane" x-show="showImage && imageUrl" x-cloak>
+              <img :src="imageUrl" alt="원본 명세서">
+            </div>
+          </div>
         </div>
       </template>
     </div>
   </div>
 </div>
-
-<script>
-function purchaseOcrApp() {
-  return {
-    loading: false,
-    dragover: false,
-    imageUrl: '',
-    file: null,
-    currentId: null,
-    vendor: { name: '', biz_no: '' },
-    trxDate: '',
-    lines: [],
-    stats: { matched: 0, unmatched: 0, total: 0 },
-    showHistory: false,
-    historyItems: [],
-
-    init() {
-      this.loadHistoryList();
-      // Ctrl+V 붙여넣기 (페이지 전체에서 동작)
-      this._pasteHandler = (e) => {
-        if (this.loading) return;
-        // input/textarea 편집 중이면 인터셉트 안 함
-        const tg = e.target;
-        if (tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA' || tg.contentEditable === 'true')) {
-          // 단, 이미지가 클립보드에 있으면 붙여넣기 우선
-          const items = (e.clipboardData && e.clipboardData.items) || [];
-          let hasImage = false;
-          for (const it of items) if (it.type && it.type.startsWith('image/')) { hasImage = true; break; }
-          if (!hasImage) return;
-        }
-        const items = (e.clipboardData && e.clipboardData.items) || [];
-        for (const item of items) {
-          if (item.type && item.type.startsWith('image/')) {
-            e.preventDefault();
-            const blob = item.getAsFile();
-            if (blob) this.processFile(blob);
-            return;
-          }
-        }
-      };
-      document.addEventListener('paste', this._pasteHandler);
-    },
-    destroy() {
-      if (this._pasteHandler) document.removeEventListener('paste', this._pasteHandler);
-    },
-    formatTime(ts) {
-      if (!ts) return '';
-      const d = new Date(ts);
-      return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0') + ' ' +
-             String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
-    },
-    async loadHistoryList() {
-      try {
-        const r = await fetch('/api/company-purchase/history?limit=100', { credentials: 'include' });
-        const j = await r.json();
-        if (j.ok) this.historyItems = j.items || [];
-      } catch (e) {}
-    },
-    toggleHistory() {
-      this.showHistory = !this.showHistory;
-      if (this.showHistory) this.loadHistoryList();
-    },
-    async loadHistory(id) {
-      try {
-        const r = await fetch('/api/company-purchase/history/' + id, { credentials: 'include' });
-        const j = await r.json();
-        if (!j.ok) throw new Error(j.error || '실패');
-        this.currentId = j.id;
-        this.imageUrl = '/api/company-purchase/history/' + id + '/image';
-        this.vendor = j.vendor || {};
-        this.trxDate = j.trx_date || '';
-        this.lines = (j.lines || []).map(l => ({ ...l, total_amt: (Number(l.supply_amt)||0) + (Number(l.vat_amt)||0) }));
-        this.stats = j.stats || { matched: 0, unmatched: 0, total: 0 };
-        this.showHistory = false;
-      } catch (e) {
-        alert('이력 불러오기 실패: ' + e.message);
-      }
-    },
-
-    get hasResult() { return this.lines.length > 0; },
-    get canExport() { return this.lines.some(l => !l.skip && l.item); },
-    get totalSupply() { return this.lines.filter(l=>!l.skip).reduce((s,l)=>s+(Number(l.supply_amt)||0),0); },
-    get totalVat() { return this.lines.filter(l=>!l.skip).reduce((s,l)=>s+(Number(l.vat_amt)||0),0); },
-    get totalAmt() { return this.lines.filter(l=>!l.skip).reduce((s,l)=>s+(Number(l.total_amt)||0),0); },
-
-    onFileSelected(e) {
-      const f = e.target.files[0];
-      if (f) this.processFile(f);
-    },
-    onDrop(e) {
-      this.dragover = false;
-      const f = e.dataTransfer.files[0];
-      if (f) this.processFile(f);
-    },
-    async processFile(f) {
-      this.file = f;
-      this.imageUrl = URL.createObjectURL(f);
-      this.loading = true;
-      this.lines = [];
-      this.currentId = null;
-      try {
-        const fd = new FormData();
-        fd.append('file', f);
-        const r = await fetch('/api/company-purchase/parse', { method:'POST', body: fd, credentials:'include' });
-        const j = await r.json();
-        if (!j.ok) throw new Error(j.error || '실패');
-        this.currentId = j.id;
-        this.vendor = j.vendor || {};
-        this.trxDate = j.trx_date || '';
-        this.lines = (j.lines || []).map(l => ({ ...l, total_amt: (Number(l.supply_amt)||0) + (Number(l.vat_amt)||0) }));
-        this.stats = j.stats || { matched: 0, unmatched: 0, total: 0 };
-        this.loadHistoryList();  // 이력 갱신
-      } catch (e) {
-        alert('OCR 실패: ' + e.message);
-      } finally {
-        this.loading = false;
-      }
-    },
-    recalcLine(line, source) {
-      if (source === 'supply') {
-        line.vat_amt = Math.round((Number(line.supply_amt)||0) * 0.1);
-      } else {
-        line.supply_amt = Math.round((Number(line.qty)||0) * (Number(line.unit_price)||0));
-        line.vat_amt = Math.round(line.supply_amt * 0.1);
-      }
-      line.total_amt = (Number(line.supply_amt)||0) + (Number(line.vat_amt)||0);
-    },
-    recalc() {
-      this.stats.matched = this.lines.filter(l => l.matched && !l.skip).length;
-      this.stats.unmatched = this.lines.filter(l => !l.matched && !l.skip).length;
-    },
-    async exportExcel() {
-      try {
-        const r = await fetch('/api/company-purchase/export', {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: this.currentId,
-            trx_date: this.trxDate,
-            vendor_name: this.vendor.name,
-            lines: this.lines,
-          }),
-        });
-        if (!r.ok) {
-          const e = await r.json().catch(() => ({}));
-          throw new Error(e.error || 'export 실패');
-        }
-        const blob = await r.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        const fname = `매입_${this.trxDate || 'noday'}_${(this.vendor.name||'vendor').replace(/[^\w가-힣]/g, '')}.xlsx`;
-        a.href = url; a.download = fname; a.click();
-        URL.revokeObjectURL(url);
-      } catch (e) {
-        alert('엑셀 다운로드 실패: ' + e.message);
-      }
-    },
-    reset() {
-      this.imageUrl = ''; this.file = null; this.currentId = null;
-      this.lines = []; this.vendor = { name: '', biz_no: '' };
-      this.trxDate = ''; this.stats = { matched: 0, unmatched: 0, total: 0 };
-    },
-  };
-}
-</script>

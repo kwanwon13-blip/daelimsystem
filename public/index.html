@@ -33,7 +33,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 
   <!-- Material Symbols Outlined -->
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+  <!-- 아이콘 폰트 셀프호스팅 — 구글/인터넷 상태와 무관하게 아이콘 유지 (tests/font-link-consistency.test.js) -->
+  <link rel="stylesheet" href="/fonts/material-symbols.css" />
 
   <!-- 별도 파일 컴포넌트 -->
   <script src="/contacts.js"></script>
@@ -43,6 +44,8 @@
   <script src="/purchase-auto.js"></script>
   <script src="/orgchart.js"></script>
   <script src="/statements.js"></script>
+  <script src="/esm-purchase.js"></script>
+  <script src="/company-purchase.js"></script>
   <script src="/workflow.js"></script>
   <!-- Chart.js (홈 대시보드 그래프) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -1820,20 +1823,21 @@
             <span style="font-size:12px;">사진 라이브러리</span>
           </button>
         </template>
-        <template x-if="tabs.find(t=>t.id==='statements')">
-          <button @click="openStatementEntry('COMPANY')"
-            :class="currentTab === 'statements' && statementEntryCompany === 'COMPANY' ? 'active' : ''"
+        <!-- 매입: 에스엠/컴퍼니 완전 분리 — 각자 독립 탭으로 (합쳐진 statements 진입 금지) -->
+        <template x-if="tabs.find(t=>t.id==='companyPurchase')">
+          <button @click="currentTab = 'companyPurchase'"
+            :class="currentTab === 'companyPurchase' ? 'active' : ''"
             class="sidebar-nav-item w-full text-left">
-            <span class="material-symbols-outlined" style="font-size:17px">document_scanner</span>
-            <span style="font-size:12px;">컴퍼니 매입 OCR</span>
+            <span class="material-symbols-outlined" style="font-size:17px">receipt_long</span>
+            <span style="font-size:12px;">컴퍼니 매입</span>
           </button>
         </template>
-        <template x-if="tabs.find(t=>t.id==='statements')">
-          <button @click="openStatementEntry('SM')"
-            :class="currentTab === 'statements' && statementEntryCompany === 'SM' ? 'active' : ''"
+        <template x-if="tabs.find(t=>t.id==='esmPurchase')">
+          <button @click="currentTab = 'esmPurchase'"
+            :class="currentTab === 'esmPurchase' ? 'active' : ''"
             class="sidebar-nav-item w-full text-left">
             <span class="material-symbols-outlined" style="font-size:17px">document_scanner</span>
-            <span style="font-size:12px;">에스엠 매입 OCR</span>
+            <span style="font-size:12px;">에스엠 매입</span>
           </button>
         </template>
         <template x-if="tabs.find(t=>t.id==='contacts')">
@@ -4887,6 +4891,11 @@
         <!--INCLUDE:tab-purchase-auto.html-->
       </template>
 
+      <!-- 에스엠 매입 OCR 탭 (매입명세서 사진 → 매칭 → 이카운트용 엑셀) — 컴퍼니와 완전 분리 -->
+      <template x-if="currentTab === 'esmPurchase'">
+        <!--INCLUDE:tab-esm-purchase.html-->
+      </template>
+
       <!-- 컴퍼니 매입 OCR 탭 (매입명세서 사진 → 학습풀 매칭 → E2E 엑셀) -->
       <template x-if="currentTab === 'companyPurchase'">
         <!--INCLUDE:tab-company-purchase.html-->
@@ -6502,8 +6511,9 @@ function app() {
       // { id: 'ocr', label: 'OCR 텍스트 추출' },          // 숨김 — OCR 자동입력으로 흡수
       // { id: 'purchaseAuto', label: '매입 자동화' },     // 숨김 — OCR 자동입력으로 흡수
       { id: 'photos', label: '사진 라이브러리' },
-      { id: 'statements', label: 'OCR 자동입력' },
-      // { id: 'companyPurchase', label: '컴퍼니 매입 OCR' }, // 숨김 — statements의 회사별 매입 입구로 통합
+      // { id: 'statements', label: 'OCR 자동입력' },  // 숨김 — 에스엠/컴퍼니 매입 분리 (합쳐진 4분할 화면 진입 금지)
+      { id: 'esmPurchase', label: '에스엠 매입' },
+      { id: 'companyPurchase', label: '컴퍼니 매입' },
       { id: 'contacts', label: '연락처' },
       { id: 'workflow', label: '워크플로우' },
       { id: 'calendar', label: '캘린더' },
@@ -6629,7 +6639,9 @@ function app() {
           // { id: 'ocr', label: 'OCR 텍스트 추출' },          // 숨김 — OCR 자동입력으로 흡수
           // { id: 'purchaseAuto', label: '매입 자동화' },     // 숨김 — OCR 자동입력으로 흡수
           { id: 'photos', label: '사진 라이브러리' },
-          { id: 'statements', label: 'OCR 자동입력' },
+          // { id: 'statements', label: 'OCR 자동입력' },  // 숨김 — 에스엠/컴퍼니 매입 분리 (합쳐진 4분할 화면 진입 금지)
+          { id: 'esmPurchase', label: '에스엠 매입' },
+          { id: 'companyPurchase', label: '컴퍼니 매입' },
           { id: 'contacts', label: '연락처' }, { id: 'workflow', label: '워크플로우' }, { id: 'calendar', label: '캘린더' }, { id: 'notices', label: '공지사항' }, { id: 'settings', label: '설정' },
           { id: 'workspace', label: '워크스페이스' },
           { id: 'ai', label: 'AI 챗' },
@@ -6645,7 +6657,7 @@ function app() {
       }
       const perms = this.auth.permissions || [];
       // 권한 무관 — 아이디만 있으면 누구든 쓸 수 있는 공용 메뉴
-      const universalMenus = ['design', 'statements', 'photos', 'contacts', 'workflow'];
+      const universalMenus = ['design', 'photos', 'contacts', 'workflow'];  // statements 제외 — 매입은 esm/company 분리 탭으로
       const defaultMenus = ['home', 'quote', 'history', 'salesLookup', 'workspace', 'ai', 'gpsAttendance', ...universalMenus];
       const allowed = perms.length > 0
         ? ['home', ...perms, ...universalMenus]   // 권한 있어도 공용 메뉴는 강제 추가
@@ -7151,6 +7163,7 @@ function app() {
       statusFilter: '',              // '' | 'needsReview' | 'late'
       employees: [],
       summary: [],
+      calendarSummary: [],
       // ── 보정 요청 모달 (직원이 본인 출퇴근 보정 신청) ──
       fixModal: { open: false, date: '', inTime: '', outTime: '', reason: '' },
       requests: [],  // 보정 요청 목록 (관리자: 전체, 직원: 본인 것만)
@@ -7218,7 +7231,10 @@ function app() {
     // 날짜별 연차/반차 인원 집계 { 'YYYY-MM-DD': [{name, dept, leaveType, leaveLabel}, ...] }
     get calendarLeaveData() {
       const byDate = {};
-      for (const emp of this.attendance.summary) {
+      const source = this.attendance.viewMode === 'calendar'
+        ? (this.attendance.calendarSummary || [])
+        : (this.attendance.summary || []);
+      for (const emp of source) {
         for (const r of (emp.records || [])) {
           if (r.leaveType !== 'annual' && r.leaveType !== 'halfAM' && r.leaveType !== 'halfPM') continue;
           if (!byDate[r.date]) byDate[r.date] = [];
@@ -7281,7 +7297,7 @@ function app() {
         if (d.getFullYear() !== this.attendance.year || (d.getMonth()+1) !== this.attendance.month) {
           this.attendance.year = d.getFullYear();
           this.attendance.month = d.getMonth() + 1;
-          this.loadAttendanceSummary();
+          this.loadAttendanceCalendar();
         }
       } else {
         // day/week 모드 — calDate가 비어있으면 오늘로
@@ -7299,7 +7315,7 @@ function app() {
         }
         // calDate도 같이 동기화 (해당 월 1일)
         this.attendance.calDate = this.attendance.year + '-' + String(this.attendance.month).padStart(2,'0') + '-01';
-        this.loadAttendanceSummary();
+        this.loadAttendanceCalendar();
       } else {
         const d = this._parseDate(this.attendance.calDate);
         d.setDate(d.getDate() + (mode === 'week' ? -7 : -1));
@@ -7308,7 +7324,7 @@ function app() {
         if (d.getFullYear() !== this.attendance.year || (d.getMonth()+1) !== this.attendance.month) {
           this.attendance.year = d.getFullYear();
           this.attendance.month = d.getMonth() + 1;
-          this.loadAttendanceSummary();
+          this.loadAttendanceCalendar();
         }
       }
     },
@@ -7322,7 +7338,7 @@ function app() {
           this.attendance.month++;
         }
         this.attendance.calDate = this.attendance.year + '-' + String(this.attendance.month).padStart(2,'0') + '-01';
-        this.loadAttendanceSummary();
+        this.loadAttendanceCalendar();
       } else {
         const d = this._parseDate(this.attendance.calDate);
         d.setDate(d.getDate() + (mode === 'week' ? 7 : 1));
@@ -7330,7 +7346,7 @@ function app() {
         if (d.getFullYear() !== this.attendance.year || (d.getMonth()+1) !== this.attendance.month) {
           this.attendance.year = d.getFullYear();
           this.attendance.month = d.getMonth() + 1;
-          this.loadAttendanceSummary();
+          this.loadAttendanceCalendar();
         }
       }
     },
@@ -7340,7 +7356,7 @@ function app() {
       if (now.getFullYear() !== this.attendance.year || (now.getMonth()+1) !== this.attendance.month) {
         this.attendance.year = now.getFullYear();
         this.attendance.month = now.getMonth() + 1;
-        this.loadAttendanceSummary();
+        this.loadAttendanceCalendar();
       }
     },
     attCalHeader() {
@@ -7361,20 +7377,23 @@ function app() {
       const dows = ['일','월','화','수','목','금','토'];
       return (d.getMonth()+1) + '월 ' + d.getDate() + '일 (' + dows[d.getDay()] + ')';
     },
-    // 출퇴근 calendar 데이터에서 특정 날짜 records 가져오기 (필터 적용 후)
+    openAttendanceCalendar() {
+      this.attendance.viewMode = 'calendar';
+      this.attendance.yearView = false;
+      this.attendance.filterDept = '';
+      this.attendance.filterEmpId = '';
+      if (!this.attendance.calDate) this.attendance.calDate = this._fmtDate(new Date());
+      const d = this._parseDate(this.attendance.calDate);
+      if (d.getFullYear() !== this.attendance.year || (d.getMonth() + 1) !== this.attendance.month) {
+        this.attendance.year = d.getFullYear();
+        this.attendance.month = d.getMonth() + 1;
+      }
+      this.loadAttendanceCalendar();
+    },
+    // 출퇴근 calendar 데이터에서 특정 날짜 records 가져오기 (회사 전체 공유 달력)
     attCalRecordsForDate(dateStr) {
       const all = this.calendarLeaveData[dateStr] || [];
-      const f = this.attendance.filterDept || '';
-      const empId = this.attendance.filterEmpId || '';
-      // 부서/직원 필터
-      let recs = all.slice();
-      if (f) recs = recs.filter(r => r.dept === f);
-      if (empId) {
-        // employees 배열에서 id→name 매핑
-        const emp = (this.attendance.employees || []).find(e => e.id === empId);
-        if (emp) recs = recs.filter(r => r.name === emp.name);
-      }
-      return recs;
+      return all.slice();
     },
     // 주 뷰 cells (일~토 7개)
     attCalWeekCells() {
@@ -7487,14 +7506,6 @@ function app() {
           for (const r of data[date]) {
             records.push(r);
           }
-        }
-        // 부서/직원 필터 적용
-        const f = this.attendance.filterDept || '';
-        const empId = this.attendance.filterEmpId || '';
-        if (f) records = records.filter(r => r.dept === f);
-        if (empId) {
-          const emp = (this.attendance.employees || []).find(e => e.id === empId);
-          if (emp) records = records.filter(r => r.name === emp.name);
         }
       }
       for (const r of records) {
@@ -10138,6 +10149,40 @@ function app() {
       }
     },
 
+    async loadAttendanceCalendar(forceRefresh) {
+      if (!forceRefresh && this.attendance.loading) return;
+      if (this.attendance.departments.length === 0) await this.loadAttendanceOrder();
+
+      const { year, month } = this.attendance;
+      const cacheKey = `${year}-${month}_company-calendar`;
+      if (!forceRefresh && this.attendance._cache[cacheKey]) {
+        this.attendance.calendarSummary = this.attendance._cache[cacheKey];
+        return;
+      }
+
+      this.attendance.loading = true;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 25000);
+      try {
+        const url = `/api/attendance/summary?year=${year}&month=${month}&calendar=company`;
+        const r = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!r.ok) throw new Error(await r.text());
+        const data = await r.json();
+        this.attendance.calendarSummary = data;
+        this.attendance._cache[cacheKey] = data;
+      } catch (e) {
+        clearTimeout(timeoutId);
+        if (e.name === 'AbortError') {
+          this.showToast('회사 공유 달력을 불러오는 중 시간이 초과되었습니다.', 'error');
+        } else {
+          this.showToast('회사 공유 달력 조회 실패: ' + (e.message || e), 'error');
+        }
+      } finally {
+        this.attendance.loading = false;
+      }
+    },
+
     // 현재 월 메모리 캐시 무효화 (데이터 수정 후 호출)
     invalidateAttendanceCache() {
       const { year, month, filterEmpId } = this.attendance;
@@ -10145,6 +10190,7 @@ function app() {
       for (const k of Object.keys(this.attendance._cache)) {
         if (k.startsWith(`${year}-${month}_`)) delete this.attendance._cache[k];
       }
+      this.attendance.calendarSummary = [];
     },
 
     // ── 응급 복구: 서버 캐시 강제 삭제 ──

@@ -4,6 +4,12 @@
  */
 const express = require('express');
 const router = express.Router();
+
+// ── [임시 마운트] 에스엠 매입 OCR (routes/esm-purchase.js) ──
+// server.js 가 권한(deny)으로 잠겨 직접 라우트를 못 넣어, /api 에 이미 연결된 이 파일을 경유해 마운트.
+// 결과 경로: /api/esm-purchase/*  ·  권한이 풀리면 server.js 로 옮기는 게 깔끔(이 줄 삭제 + server.js 1줄).
+router.use('/esm-purchase', require('./esm-purchase'));
+
 const path = require('path');
 const fs = require('fs');
 const { execSync, spawn } = require('child_process');

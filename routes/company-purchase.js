@@ -205,9 +205,9 @@ function appendHistoryRow(entry) {
 }
 function readHistoryRows(limit = 100) {
   try {
-    return getDB().prepare(`SELECT id, created_at, updated_at, user_name, vendor_name, trx_date,
+    return getDB().prepare(`SELECT id, created_at, updated_at, user_name, vendor_name, vendor_biz_no, trx_date,
                                    total_amt, line_count, matched_count, status, image_filename
-                            FROM history ORDER BY created_at DESC LIMIT ?`).all(limit);
+                            FROM history ORDER BY trx_date DESC, created_at DESC LIMIT ?`).all(limit);
   } catch (e) { return []; }
 }
 function findHistoryRow(id) {
@@ -229,15 +229,30 @@ function updateHistoryRow(id, patch) {
     let merged = {}; try { merged = JSON.parse(cur.full_data || '{}'); } catch (_) {}
     merged = { ...merged, ...patch, updated_at: Date.now() };
     db.prepare(`UPDATE history SET
-      updated_at = ?, trx_date = ?, total_amt = ?, line_count = ?, status = ?, full_data = ?,
+      updated_at = ?, vendor_name = ?, vendor_biz_no = ?, trx_date = ?, total_amt = ?, line_count = ?, status = ?, full_data = ?,
       confirmed_by = COALESCE(?, confirmed_by), confirmed_at = COALESCE(?, confirmed_at)
       WHERE id = ?`).run(
-        Date.now(), merged.trx_date || '', merged.total_amt || 0,
+        Date.now(),
+        (merged.vendor && merged.vendor.name) || '',
+        (merged.vendor && merged.vendor.biz_no) || '',
+        merged.trx_date || '', merged.total_amt || 0,
         (merged.lines || []).filter(l => !l.skip).length,
         merged.status || 'parsed', JSON.stringify(merged),
         merged.confirmed_by || null, merged.confirmed_at || null, id);
     return true;
   } catch (e) { return false; }
+}
+function deleteHistoryRow(id) {
+  try {
+    const db = getDB();
+    const row = db.prepare(`SELECT image_filename FROM history WHERE id = ?`).get(id);
+    db.prepare(`DELETE FROM history WHERE id = ?`).run(id);
+    if (row && row.image_filename) {
+      const fp = path.join(UPLOAD_DIR, path.basename(row.image_filename));
+      try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch (_) {}
+    }
+    return true;
+  } catch (e) { console.error('[company-purchase] delete 실패:', e.message); return false; }
 }
 
 // ─── OCR 프롬프트 ───────────────────────────────
@@ -297,9 +312,9 @@ async function runOcr(filePath, mimeType) {
     }], { maxTokens: 8192, model: 'claude-sonnet-4-6' });
     return parseOcrJson(r.text || '');
   }
-  // CLI fallback
-  const cliPrompt = `${OCR_PROMPT}\n\n이미지 경로: ${path.resolve(filePath)}`;
-  const r = await claudeClient.runClaudeCli(cliPrompt, { timeoutMs: 120000 });
+  // CLI fallback — Read 도구 허용(--allowedTools Read) + 명시적 Read 지시 (헤드리스 권한 우회)
+  const cliPrompt = `${OCR_PROMPT}\n\n이미지 파일: ${path.resolve(filePath)}\n\n위 파일을 Read 도구로 열어 읽고, 위 지시대로 JSON만 출력해줘.`;
+  const r = await claudeClient.runClaudeCli(cliPrompt, { timeoutMs: 120000, allowedTools: 'Read' });
   return parseOcrJson(r.text || '');
 }
 
@@ -436,6 +451,43 @@ router.post('/parse', requireAuth, upload.single('file'), async (req, res) => {
   }
 });
 
+// ─── 학습 누적 헬퍼 (E2E export / 장부 확정 공용) ──
+// 사장님이 확정한 라인: ① OCR호칭→품명 매핑 학습 ② 학습풀(거래내역) 누적
+function accumulateLearning(vendor_name, trx_date, lines, userId) {
+  if (!Array.isArray(lines) || lines.length === 0) return;
+  if (vendor_name) {
+    for (const line of lines) {
+      if (line.skip) continue;
+      if (line.match_source === 'learned' || line.match_source === 'auto') continue;
+      if (line.item && line.ocr_text) {
+        saveLearnedMapping(vendor_name, line.ocr_text, line.ocr_spec || '', line.item, line.spec || '');
+      }
+    }
+  }
+  if (vendor_name && trx_date) {
+    let added = 0;
+    for (const line of lines) {
+      if (line.skip) continue;
+      if (!line.item) continue;
+      const ok = pool.addCompanyPurchaseLearned({
+        date: trx_date,
+        vendor: vendor_name,
+        item: line.item,
+        spec: line.spec || '',
+        qty: Number(line.qty) || 0,
+        price: Number(line.unit_price) || 0,
+        amount: Number(line.supply_amt) || 0,
+        memo: line.memo || '',
+        memoDetail: line.memoDetail || '',
+        addedBy: userId || 'unknown',
+        source: 'company-purchase-ocr',
+      });
+      if (ok) added++;
+    }
+    if (added > 0) console.log(`[company-purchase] 학습풀 자동 누적: ${added}행 (${vendor_name} ${trx_date})`);
+  }
+}
+
 // ─── E2E 양식 엑셀 출력 ──────────────────────────
 router.post('/export', requireAuth, express.json({ limit: '5mb' }), async (req, res) => {
   try {
@@ -476,39 +528,8 @@ router.post('/export', requireAuth, express.json({ limit: '5mb' }), async (req, 
     }
     ws.columns.forEach((col, i) => { col.width = [12, 10, 30, 22, 8, 10, 12, 10, 12, 14, 8][i] || 12; });
 
-    // 학습 매핑 저장 (사용자가 수동 입력한 라인들)
-    if (vendor_name) {
-      for (const line of lines) {
-        if (line.skip) continue;
-        if (line.match_source === 'learned' || line.match_source === 'auto') continue;
-        if (line.item && line.ocr_text) {
-          saveLearnedMapping(vendor_name, line.ocr_text, line.ocr_spec || '', line.item, line.spec || '');
-        }
-      }
-    }
-    // ★ 학습풀 자동 누적 — 사장님이 확정한 모든 라인을 학습풀에 추가
-    if (vendor_name && trx_date) {
-      let added = 0;
-      for (const line of lines) {
-        if (line.skip) continue;
-        if (!line.item) continue;
-        const ok = pool.addCompanyPurchaseLearned({
-          date: trx_date,
-          vendor: vendor_name,
-          item: line.item,
-          spec: line.spec || '',
-          qty: Number(line.qty) || 0,
-          price: Number(line.unit_price) || 0,
-          amount: Number(line.supply_amt) || 0,
-          memo: line.memo || '',
-          memoDetail: line.memoDetail || '',
-          addedBy: req.session?.userId || 'unknown',
-          source: 'company-purchase-ocr',
-        });
-        if (ok) added++;
-      }
-      if (added > 0) console.log(`[company-purchase] 학습풀 자동 누적: ${added}행 (${vendor_name} ${trx_date})`);
-    }
+    // 학습 누적 (확정과 동일 로직 — 헬퍼)
+    accumulateLearning(vendor_name, trx_date, lines, req.session?.userId);
 
     const fname = `매입_${trx_date || 'noday'}_${(vendor_name || 'vendor').replace(/[^\w가-힣]/g, '')}.xlsx`;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -571,6 +592,83 @@ router.get('/history/:id/export.xlsx', requireAuth, async (req, res) => {
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
+});
+
+// ─── 신규 전표 (수기 입력 — 사진 없이 작성, E2E '신규' 버튼) ──
+router.post('/history', requireAuth, express.json({ limit: '2mb' }), (req, res) => {
+  try {
+    const b = req.body || {};
+    const id = 'm' + Date.now() + crypto.randomBytes(2).toString('hex');
+    const today = new Date();
+    const kst = new Date(today.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+    const entry = {
+      id,
+      created_at: Date.now(),
+      user_id: req.session?.userId || 'unknown',
+      user_name: req.session?.userName || req.session?.userId || 'unknown',
+      image_filename: '',
+      vendor: { name: (b.vendor && b.vendor.name) || '', biz_no: (b.vendor && b.vendor.biz_no) || '' },
+      buyer: null,
+      trx_date: b.trx_date || kst,
+      memo: b.memo || '',
+      lines: Array.isArray(b.lines) ? b.lines : [],
+      stats: { total: 0, matched: 0, predicted: 0, unknown: 0, unmatched: 0 },
+      total_amt: 0,
+      status: 'parsed',
+      manual: true,
+    };
+    appendHistoryRow(entry);
+    res.json({ ok: true, id, statement: findHistoryRow(id) });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ─── 명세서 저장/확정 (장부 — export 없이 수정·상태변경) ──
+router.patch('/history/:id', requireAuth, express.json({ limit: '5mb' }), (req, res) => {
+  const cur = findHistoryRow(req.params.id);
+  if (!cur) return res.status(404).json({ ok: false, error: '없음' });
+  const b = req.body || {};
+  const patch = {};
+  if (b.vendor && typeof b.vendor === 'object') {
+    patch.vendor = { ...(cur.vendor || {}), name: b.vendor.name ?? (cur.vendor && cur.vendor.name) ?? '', biz_no: b.vendor.biz_no ?? (cur.vendor && cur.vendor.biz_no) ?? '' };
+  }
+  if (typeof b.trx_date === 'string') patch.trx_date = b.trx_date;
+  if (typeof b.memo === 'string') patch.memo = b.memo;
+  if (Array.isArray(b.lines)) {
+    patch.lines = b.lines;
+    patch.total_amt = b.lines.filter(l => !l.skip).reduce((s, l) => s + (Number(l.total_amt) || 0), 0);
+    patch.stats = {
+      total: b.lines.length,
+      matched: b.lines.filter(l => l.status === 'matched').length,
+      predicted: b.lines.filter(l => l.status === 'predicted').length,
+      unknown: b.lines.filter(l => l.status === 'unknown').length,
+      unmatched: b.lines.filter(l => l.status !== 'matched').length,
+    };
+  }
+  if (b.status === 'confirmed' || b.status === 'parsed') {
+    patch.status = b.status;
+    if (b.status === 'confirmed') {
+      patch.confirmed_by = req.session?.userId || 'unknown';
+      patch.confirmed_at = Date.now();
+    }
+  }
+  if (!updateHistoryRow(req.params.id, patch)) {
+    return res.status(500).json({ ok: false, error: '저장 실패' });
+  }
+  const after = findHistoryRow(req.params.id);
+  // 확정 시 학습 누적 (OCR 호칭 → 확정 품명, 거래내역 누적)
+  if (patch.status === 'confirmed') {
+    accumulateLearning((after.vendor && after.vendor.name) || '', after.trx_date || '', after.lines || [], req.session?.userId);
+  }
+  res.json({ ok: true, statement: after });
+});
+
+// ─── 명세서 삭제 (잘못 들어온 건 정리 — 원본 이미지도 함께) ──
+router.delete('/history/:id', requireAuth, (req, res) => {
+  const cur = findHistoryRow(req.params.id);
+  if (!cur) return res.status(404).json({ ok: false, error: '없음' });
+  res.json({ ok: deleteHistoryRow(req.params.id) });
 });
 
 // ─── Health ──────────────────────────────────────

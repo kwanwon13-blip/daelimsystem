@@ -1,0 +1,306 @@
+<!-- tab-esm-purchase.html — 대림에스엠 매입 OCR (A안: 좌 목록 / 우 상세) -->
+<!-- ⚠️ 컴퍼니와 완전 분리. API: /api/esm-purchase/*  출력: 이카운트용 엑셀 -->
+<div x-data="esmPurchaseApp()" x-init="init()" style="height:100%;display:flex;flex-direction:column;background:#eef1f6;">
+  <style>
+    .esm-head { background:linear-gradient(90deg,#1e40af,#2563eb); color:#fff; padding:13px 18px; display:flex; align-items:center; gap:12px; }
+    .esm-head .ic { width:36px; height:36px; border-radius:10px; background:rgba(255,255,255,.18); display:flex; align-items:center; justify-content:center; font-size:19px; }
+    .esm-head .h { font-size:16px; font-weight:850; }
+    .esm-head .s { font-size:11px; opacity:.85; margin-top:2px; }
+    .esm-head .out { margin-left:auto; font-size:11px; font-weight:800; background:rgba(255,255,255,.16); padding:5px 12px; border-radius:999px; }
+
+    .esm-toolbar { display:flex; align-items:center; gap:9px; padding:10px 16px; background:#fff; border-bottom:1px solid #e5e7eb; flex-wrap:wrap; }
+    .esm-btn { padding:7px 13px; border-radius:8px; font-size:12.5px; font-weight:700; border:1px solid #d1d5db; background:#fff; color:#374151; cursor:pointer; display:inline-flex; align-items:center; gap:5px; }
+    .esm-btn:hover { background:#f3f4f6; }
+    .esm-btn.primary { background:#2563eb; border-color:#2563eb; color:#fff; }
+    .esm-btn.primary:hover { background:#1d4ed8; }
+    .esm-btn.upload { background:#eff6ff; border-color:#bfdbfe; color:#1d4ed8; font-weight:800; }
+    .esm-btn.danger { color:#b91c1c; border-color:#fecaca; }
+    .esm-btn:disabled { opacity:.45; cursor:not-allowed; }
+    .esm-inp { padding:6px 10px; border:1px solid #d1d5db; border-radius:7px; font-size:12px; }
+
+    .esm-queue { margin:10px 16px 0; padding:9px 13px; background:#f0f7ff; border:1px solid #cfe2ff; border-radius:9px; font-size:12px; color:#1e40af; display:flex; align-items:center; gap:10px; }
+    .esm-qbar { flex:1; height:8px; background:#d6e6ff; border-radius:99px; overflow:hidden; }
+    .esm-qbar .fill { height:100%; background:linear-gradient(90deg,#2563eb,#22c55e); transition:width .3s; }
+
+    .esm-body { flex:1; display:grid; grid-template-columns:330px 1fr; min-height:0; overflow:hidden; }
+    .esm-list { border-right:1px solid #e5e7eb; background:#fafbfd; display:flex; flex-direction:column; min-height:0; }
+    .esm-list-head { padding:10px 14px; font-size:11px; font-weight:800; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; border-bottom:1px solid #eef1f6; }
+    .esm-list-scroll { overflow-y:auto; flex:1; }
+    .esm-row { padding:11px 14px; border-bottom:1px solid #eef1f6; cursor:pointer; border-left:3px solid transparent; }
+    .esm-row:hover { background:#f1f5fb; }
+    .esm-row.active { background:#eff6ff; border-left-color:#2563eb; }
+    .esm-row .r1 { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    .esm-row .vendor { font-size:13px; font-weight:800; color:#1f2937; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .esm-row .amt { font-size:13px; font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .esm-row .r2 { display:flex; justify-content:space-between; align-items:center; margin-top:5px; }
+    .esm-row .date { font-size:11px; color:#9ca3af; }
+    .esm-badge { font-size:10px; font-weight:800; padding:2px 8px; border-radius:999px; }
+    .esm-badge.parsed { background:#fef3c7; color:#92400e; }
+    .esm-badge.confirmed { background:#d1fae5; color:#065f46; }
+
+    .esm-detail { padding:14px 18px; overflow-y:auto; background:#fff; }
+    .esm-meta { display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+    .esm-meta .v { font-size:15px; font-weight:850; }
+    .esm-meta .k { font-size:11px; color:#9ca3af; }
+    .esm-cols { display:grid; grid-template-columns:300px 1fr; gap:16px; }
+    .esm-prev { background:#0e1116; border-radius:9px; min-height:300px; max-height:60vh; display:flex; align-items:center; justify-content:center; overflow:auto; }
+    .esm-prev img { max-width:100%; max-height:60vh; }
+    .esm-prev .ph { color:#6b7280; font-size:13px; text-align:center; line-height:1.7; padding:30px; }
+
+    table.esm-grid { width:100%; border-collapse:collapse; font-size:12px; }
+    table.esm-grid th { background:#f6f8fb; border-bottom:2px solid #e2e8f0; padding:7px; text-align:left; font-weight:800; color:#475569; font-size:11px; white-space:nowrap; }
+    table.esm-grid td { border-bottom:1px solid #f1f5f9; padding:0; }
+    table.esm-grid input { width:100%; border:0; padding:6px 7px; background:transparent; font-size:12px; outline:none; }
+    table.esm-grid input[type=number] { text-align:right; }
+    table.esm-grid input:focus { background:#eff6ff; box-shadow:inset 0 0 0 2px #2563eb; }
+    tr.matched { background:#f0fdf4; } tr.predicted { background:#fefce8; } tr.unknown { background:#fef2f2; }
+    .esm-sb { font-size:10px; font-weight:800; padding:1px 7px; border-radius:4px; white-space:nowrap; }
+    .esm-sb.matched { background:#d1fae5; color:#065f46; } .esm-sb.predicted { background:#fef3c7; color:#92400e; } .esm-sb.unknown { background:#fee2e2; color:#991b1b; }
+    table.esm-grid tfoot td { border-top:2px solid #e2e8f0; background:#f6f8fb; font-weight:850; padding:8px 7px; text-align:right; }
+    .esm-empty { padding:50px; text-align:center; color:#9ca3af; font-size:13px; }
+    .esm-spin { display:inline-block; width:26px; height:26px; border:3px solid #e5e7eb; border-top-color:#2563eb; border-radius:50%; animation:esmspin 1s linear infinite; }
+    @keyframes esmspin { to { transform:rotate(360deg); } }
+  </style>
+
+  <!-- 헤더 -->
+  <div class="esm-head">
+    <div class="ic">📋</div>
+    <div>
+      <div class="h">에스엠 매입 OCR</div>
+      <div class="s">대림에스엠 매입명세서 전용 · 사진 → AI 인식 → 검토 → 이카운트</div>
+    </div>
+    <div class="out">출력 ▸ 이카운트</div>
+  </div>
+
+  <!-- 툴바 -->
+  <div class="esm-toolbar">
+    <input type="file" x-ref="file" multiple accept="image/*" style="display:none;" @change="onFileInput($event)">
+    <button class="esm-btn upload" @click="$refs.file.click()" :disabled="queue.running>0">📎 사진 여러 장 추가 (끌어놓기/Ctrl+V)</button>
+    <button class="esm-btn" @click="loadList()">↻ 새로고침</button>
+    <span style="flex:1"></span>
+    <span style="font-size:11px;font-weight:700;color:#6b7280;" x-text="`총 ${list.length}건`"></span>
+  </div>
+
+  <!-- 배치 진행 -->
+  <div class="esm-queue" x-show="queue.total>0" x-cloak>
+    <span x-text="queue.running>0 ? `📸 사진 ${queue.total}장 — 한 장씩 인식 중` : `✅ ${queue.total}장 처리 완료`"></span>
+    <div class="esm-qbar"><div class="fill" :style="`width:${queue.total?Math.round((queue.done+queue.failed)*100/queue.total):0}%`"></div></div>
+    <b x-text="`${queue.done+queue.failed}/${queue.total}` + (queue.failed?` · 실패 ${queue.failed}`:'')"></b>
+  </div>
+
+  <!-- 본문: 좌 목록 / 우 상세 -->
+  <div class="esm-body" @drop.prevent="onDrop($event)" @dragover.prevent="dragover=true" @dragleave="dragover=false">
+    <!-- 좌: 명세서 목록 -->
+    <div class="esm-list">
+      <div class="esm-list-head">📁 에스엠 매입 명세서</div>
+      <div class="esm-list-scroll">
+        <template x-for="h in list" :key="h.id">
+          <div class="esm-row" :class="{active: selectedId===h.id}" @click="openDetail(h.id)">
+            <div class="r1">
+              <span class="vendor" x-text="h.vendor_name || '(거래처 미인식)'"></span>
+              <span class="amt" x-text="fmt(h.total_amt)+'원'"></span>
+            </div>
+            <div class="r2">
+              <span class="date" x-text="(h.trx_date||fmtTime(h.created_at)) + ` · ${h.line_count||0}건`"></span>
+              <span class="esm-badge" :class="h.status==='confirmed'?'confirmed':'parsed'" x-text="h.status==='confirmed'?'확정':'검토전'"></span>
+            </div>
+          </div>
+        </template>
+        <div x-show="list.length===0 && !loadingList" class="esm-empty">
+          아직 명세서가 없습니다.<br><small>위 <b>📎 사진 추가</b> 또는 끌어놓기 / Ctrl+V</small>
+        </div>
+        <div x-show="loadingList" class="esm-empty"><span class="esm-spin"></span></div>
+      </div>
+    </div>
+
+    <!-- 우: 선택 명세서 상세 -->
+    <div class="esm-detail">
+      <template x-if="loadingDetail">
+        <div class="esm-empty"><span class="esm-spin"></span><div style="margin-top:12px;">불러오는 중…</div></div>
+      </template>
+
+      <template x-if="!loadingDetail && !selectedId">
+        <div class="esm-empty">왼쪽에서 명세서를 선택하거나,<br>사진을 올려 시작하세요.</div>
+      </template>
+
+      <template x-if="!loadingDetail && selectedId">
+        <div>
+          <div class="esm-meta">
+            <div><div class="k">거래처</div><div class="v" x-text="vendor.name || '(미인식)'"></div></div>
+            <div><div class="k">일자</div><div class="v"><input type="date" x-model="trxDate" class="esm-inp" style="font-size:13px;"></div></div>
+            <div><div class="k">합계(부가세 포함)</div><div class="v" x-text="fmt(totalAmt)+'원'"></div></div>
+          </div>
+          <div class="esm-cols">
+            <!-- 원본 -->
+            <div class="esm-prev">
+              <template x-if="imageUrl"><img :src="imageUrl" alt="원본"></template>
+              <template x-if="!imageUrl"><div class="ph">📄 원본 명세서</div></template>
+            </div>
+            <!-- 품목 표 -->
+            <div>
+              <table class="esm-grid">
+                <thead>
+                  <tr><th>#</th><th>상품명</th><th>규격</th><th class="num">수량</th><th class="num">단가</th><th class="num">금액</th><th class="num">세액</th><th>상태</th><th></th></tr>
+                </thead>
+                <tbody>
+                  <template x-for="(line, idx) in lines" :key="idx">
+                    <tr :class="line.skip?'':line.status">
+                      <td style="padding:6px 7px;color:#9ca3af;text-align:center;" x-text="idx+1"></td>
+                      <td><input type="text" x-model="line.item" :placeholder="line.status==='unknown'?'품명 입력':''" @input="recalcLine(line)"></td>
+                      <td><input type="text" x-model="line.spec"></td>
+                      <td><input type="number" step="0.1" x-model.number="line.qty" @input="recalcLine(line)"></td>
+                      <td><input type="number" x-model.number="line.unit_price" @input="recalcLine(line)"></td>
+                      <td><input type="number" x-model.number="line.supply_amt" @input="recalcLine(line,'supply')"></td>
+                      <td><input type="number" x-model.number="line.vat_amt"></td>
+                      <td style="padding:5px 7px;">
+                        <span class="esm-sb" :class="line.status" x-text="line.status==='matched'?'✓매칭':(line.status==='predicted'?'⚠예측':'✗신규')"></span>
+                      </td>
+                      <td style="padding:5px 7px;text-align:center;">
+                        <span style="cursor:pointer;color:#cbd5e1;" title="이 줄 제외" @click="line.skip=!line.skip" x-text="line.skip?'↩':'✕'"></span>
+                      </td>
+                    </tr>
+                  </template>
+                  <tr x-show="lines.length===0"><td colspan="9" style="text-align:center;padding:24px;color:#9ca3af;">품목 없음</td></tr>
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colspan="5" style="text-align:left;font-weight:700;color:#6b7280;font-size:11px;">🔴 신규는 직접 입력 → 다음번 자동매칭(학습)</td>
+                    <td x-text="fmt(totalSupply)"></td>
+                    <td x-text="fmt(totalVat)"></td>
+                    <td colspan="2"></td>
+                  </tr>
+                </tfoot>
+              </table>
+
+              <!-- 액션 -->
+              <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <button class="esm-btn primary" @click="exportExcel()" :disabled="saving">⬇ 이카운트용 엑셀</button>
+                <button class="esm-btn danger" @click="deleteStatement()">🗑 삭제</button>
+                <span style="flex:1"></span>
+                <button class="esm-btn" @click="nextStatement()">다음 명세서 →</button>
+              </div>
+              <div style="margin-top:8px;font-size:11px;color:#9ca3af;">
+                🟢 매칭 <b x-text="(lines.filter(l=>l.status==='matched'&&!l.skip)).length"></b> ·
+                🟡 예측 <b x-text="(lines.filter(l=>l.status==='predicted'&&!l.skip)).length"></b> ·
+                🔴 신규 <b x-text="(lines.filter(l=>l.status==='unknown'&&!l.skip)).length"></b>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+</div>
+
+<script>
+function esmPurchaseApp() {
+  return {
+    list: [], loadingList: false,
+    selectedId: null, vendor: {}, buyer: null, trxDate: '', lines: [], stats: {},
+    imageUrl: '', loadingDetail: false,
+    queue: { total: 0, done: 0, failed: 0, running: 0 },
+    dragover: false, saving: false,
+
+    async init() {
+      await this.loadList();
+      this._paste = (e) => {
+        const items = (e.clipboardData && e.clipboardData.items) || [];
+        const imgs = [];
+        for (const it of items) if (it.type && it.type.startsWith('image/')) { const f = it.getAsFile(); if (f) imgs.push(f); }
+        if (imgs.length) { e.preventDefault(); this.uploadFiles(imgs); }
+      };
+      document.addEventListener('paste', this._paste);
+    },
+    destroy() { if (this._paste) document.removeEventListener('paste', this._paste); },
+
+    async loadList() {
+      this.loadingList = true;
+      try {
+        const r = await fetch('/api/esm-purchase/history?limit=200', { credentials: 'include' }).then(r => r.json());
+        if (r.ok) this.list = r.items || [];
+      } catch (e) {} finally { this.loadingList = false; }
+    },
+
+    onFileInput(e) { this.uploadFiles(e.target.files); e.target.value = ''; },
+    onDrop(e) { this.dragover = false; this.uploadFiles(e.dataTransfer.files); },
+
+    async uploadFiles(fileList) {
+      const files = Array.from(fileList).filter(f => (f.type || '').startsWith('image/'));
+      if (!files.length) return;
+      this.queue = { total: files.length, done: 0, failed: 0, running: files.length };
+      let firstNewId = null;
+      for (const f of files) {
+        try {
+          const fd = new FormData(); fd.append('file', f);
+          const r = await fetch('/api/esm-purchase/parse', { method: 'POST', body: fd, credentials: 'include' }).then(r => r.json());
+          if (r.ok) { this.queue.done++; if (!firstNewId) firstNewId = r.id; }
+          else { this.queue.failed++; }
+        } catch (e) { this.queue.failed++; }
+        this.queue.running = this.queue.total - this.queue.done - this.queue.failed;
+        await this.loadList();
+      }
+      this.queue.running = 0;
+      if (firstNewId) this.openDetail(firstNewId);
+    },
+
+    async openDetail(id) {
+      this.loadingDetail = true; this.selectedId = id;
+      try {
+        const r = await fetch('/api/esm-purchase/history/' + id, { credentials: 'include' }).then(r => r.json());
+        if (r.ok) {
+          this.vendor = r.vendor || {}; this.buyer = r.buyer || null;
+          this.trxDate = r.trx_date || '';
+          this.lines = (r.lines || []).map(l => ({ ...l, total_amt: (Number(l.supply_amt) || 0) + (Number(l.vat_amt) || 0) }));
+          this.stats = r.stats || {};
+          this.imageUrl = '/api/esm-purchase/history/' + id + '/image';
+        }
+      } catch (e) {} finally { this.loadingDetail = false; }
+    },
+
+    recalcLine(line, src) {
+      if (src === 'supply') { line.vat_amt = Math.round((Number(line.supply_amt) || 0) * 0.1); }
+      else { line.supply_amt = Math.round((Number(line.qty) || 0) * (Number(line.unit_price) || 0)); line.vat_amt = Math.round(line.supply_amt * 0.1); }
+      line.total_amt = (Number(line.supply_amt) || 0) + (Number(line.vat_amt) || 0);
+      if (src !== 'supply') line.status = line.item ? (line.code ? 'matched' : 'predicted') : 'unknown';
+    },
+    get totalSupply() { return this.lines.filter(l => !l.skip).reduce((s, l) => s + (Number(l.supply_amt) || 0), 0); },
+    get totalVat() { return this.lines.filter(l => !l.skip).reduce((s, l) => s + (Number(l.vat_amt) || 0), 0); },
+    get totalAmt() { return this.lines.filter(l => !l.skip).reduce((s, l) => s + (Number(l.total_amt) || 0), 0); },
+
+    async exportExcel() {
+      if (!this.selectedId) return;
+      this.saving = true;
+      try {
+        const r = await fetch('/api/esm-purchase/export', {
+          method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: this.selectedId, trx_date: this.trxDate, vendor_name: this.vendor.name, lines: this.lines }),
+        });
+        if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || '실패'); }
+        const blob = await r.blob(); const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url;
+        a.download = `에스엠매입_${this.trxDate || 'noday'}_${(this.vendor.name || 'vendor').replace(/[^\w가-힣]/g, '')}.xlsx`;
+        a.click(); URL.revokeObjectURL(url);
+        await this.loadList();
+      } catch (e) { alert('엑셀 실패: ' + e.message); } finally { this.saving = false; }
+    },
+
+    async deleteStatement() {
+      if (!this.selectedId) return;
+      if (!confirm('이 명세서를 삭제할까요?')) return;
+      try {
+        const r = await fetch('/api/esm-purchase/history/' + this.selectedId, { method: 'DELETE', credentials: 'include' }).then(r => r.json());
+        if (r.ok) { this.selectedId = null; this.lines = []; this.vendor = {}; this.imageUrl = ''; await this.loadList(); }
+        else alert('삭제 실패');
+      } catch (e) { alert(e.message); }
+    },
+
+    nextStatement() {
+      const i = this.list.findIndex(x => x.id === this.selectedId);
+      if (i >= 0 && i < this.list.length - 1) this.openDetail(this.list[i + 1].id);
+    },
+
+    fmt(n) { return (Number(n) || 0).toLocaleString(); },
+    fmtTime(ts) { if (!ts) return ''; const d = new Date(ts); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; },
+  };
+}
+</script>
