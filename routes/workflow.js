@@ -11,6 +11,7 @@ const designModule = require('./design');
 const mailRoute = require('./mail');
 const { isPathInside } = require('./lib/design-workflow-storage');
 const workflowStorageRules = require('./lib/workflow-storage-rules');
+const { createFileLocator } = require('./lib/workflow-file-locator');
 let sharp;
 try { sharp = require('sharp'); } catch (_) {}
 const { sendSmtpMail, normalizeEmailList } = mailRoute;
@@ -350,52 +351,47 @@ function allowedWorkflowFilePath(fullPath) {
   return null;
 }
 
-function fileDiskPath(file) {
-  const raw = String(file?.storedPath || file?.storedName || '');
-  const candidates = [];
-  if (raw) {
-    if (path.isAbsolute(raw)) {
-      candidates.push(raw);
-    } else {
-      candidates.push(path.resolve(FILE_DIR, raw.replace(/\\/g, '/')));
-    }
-  }
-  if (file?.storagePath) {
-    if (file.storedName) candidates.push(path.join(file.storagePath, file.storedName));
-    if (file.originalName) candidates.push(path.join(file.storagePath, safeFilePart(file.originalName, file.storedName || file.id || 'file')));
-  }
-  if (file?.storageRoot === 'design' && file?.storageBucket) {
-    const designRoot = path.resolve(designModule.getDesignRoot ? designModule.getDesignRoot() : 'D:\\');
-    if (file.storedName) candidates.push(path.resolve(designRoot, file.storageBucket, file.storedName));
-    if (file.originalName) candidates.push(path.resolve(designRoot, file.storageBucket, safeFilePart(file.originalName, file.storedName || file.id || 'file')));
-  }
-  if (file?.storageRoot === 'design' && file?.storageCompanyName && file?.storageProjectName) {
-    try {
-      const storageInfo = resolveWorkflowDesignStorage(
-        file.storageCompanyName,
-        file.storageProjectName,
-        safeYear(file.storageYear),
-        false,
-      );
-      if (storageInfo?.dir) {
-        if (file.storedName) candidates.push(path.resolve(storageInfo.dir, file.storedName));
-        if (file.originalName) candidates.push(path.resolve(storageInfo.dir, safeFilePart(file.originalName, file.storedName || file.id || 'file')));
-      }
-    } catch (_) {}
-  }
-  let firstAllowed = null;
-  for (const candidate of candidates) {
-    const allowed = allowedWorkflowFilePath(candidate);
-    if (!allowed) continue;
-    if (!firstAllowed) firstAllowed = allowed;
-    if (fs.existsSync(allowed)) return allowed;
-  }
-  return firstAllowed;
+let _fileLocator = null;
+function fileLocator() {
+  if (_fileLocator) return _fileLocator;
+  _fileLocator = createFileLocator({
+    fileDir: FILE_DIR,
+    getDesignRoot: () => (designModule.getDesignRoot ? designModule.getDesignRoot() : 'D:\\'),
+    resolveDesignStorage: (company, project, year) =>
+      resolveWorkflowDesignStorage(company, project, safeYear(year), false),
+    safeFilePart,
+    isPathInside,
+  });
+  return _fileLocator;
 }
 
+// 디스크 경로 해석 — 저장된 절대경로/디렉터리(싼 후보) 우선, 모두 없을 때만 네트워크 폴백.
+// 기존엔 design 파일마다 네트워크 디자인폴더 풀스캔을 "무조건" 먼저 했다 → 목록/상세 로드가 분 단위.
+function fileDiskPath(file) {
+  return fileLocator().diskPath(file);
+}
+
+// 표시용 존재여부 — 모듈 레벨 TTL 메모. 한 요청 안/요청 간 반복 stat 을 제거.
 function workflowFileExists(file) {
-  const full = fileDiskPath(file);
-  return !!(full && fs.existsSync(full));
+  return fileLocator().exists(file);
+}
+
+// 느린 요청 자가보고: 300ms 이상이거나 WORKFLOW_PERF_LOG 환경변수일 때만 1줄 출력.
+// 캐시가 더워지면 자동으로 조용해진다. (어디서 시간이 새는지 확인용)
+function workflowPerfSnapshot() {
+  return fileLocator().snapshotStats();
+}
+function logWorkflowPerf(label, t0, s0, extra = {}) {
+  const ms = Date.now() - t0;
+  if (ms < 300 && !process.env.WORKFLOW_PERF_LOG) return;
+  const s = fileLocator().snapshotStats();
+  console.log(`[workflow-perf] ${label} ${ms}ms`, {
+    ...extra,
+    diskPath: s.diskPathCalls - (s0.diskPathCalls || 0),
+    stat: s.existsChecks - (s0.existsChecks || 0),
+    memoHit: s.existsMemoHits - (s0.existsMemoHits || 0),
+    scan: s.expensiveResolves - (s0.expensiveResolves || 0),
+  });
 }
 
 function workflowFileExistsCached(file, cache = null) {
@@ -806,22 +802,81 @@ function eventTargetStageIds(event) {
   return normalizeTargetStageIds(event?.targetStageIds || event?.meta?.targetStageIds);
 }
 
-let orgCache = { at: 0, data: { users: [], departments: [] } };
+const ORG_STORE_PATH = path.join(DATA_DIR, '조직관리.json');
+let orgCache = { at: 0, data: { users: [], departments: [], companies: [] } };
+let orgRepairWarnedAt = 0;
+
+function normalizeOrgSnapshot(data = {}) {
+  return {
+    users: Array.isArray(data.users) ? data.users : [],
+    departments: Array.isArray(data.departments) ? data.departments : [],
+    companies: Array.isArray(data.companies) ? data.companies : [],
+  };
+}
+
+function unescapedQuoteCount(line) {
+  let count = 0;
+  for (let i = 0; i < line.length; i += 1) {
+    if (line[i] !== '"') continue;
+    let slashes = 0;
+    for (let j = i - 1; j >= 0 && line[j] === '\\'; j -= 1) slashes += 1;
+    if (slashes % 2 === 0) count += 1;
+  }
+  return count;
+}
+
+function repairDanglingJsonStringLines(raw) {
+  return String(raw || '')
+    .replace(/\0/g, '')
+    .split(/\r?\n/)
+    .map(line => {
+      if (unescapedQuoteCount(line) % 2 === 0) return line;
+      if (!/^\s*"[^"]+"\s*:/.test(line)) return line;
+      if (/,\s*$/.test(line)) return line.replace(/,\s*$/, '",');
+      return line.replace(/\s*$/, '"');
+    })
+    .join('\n');
+}
+
+function loadOrgSnapshotFromFile() {
+  try {
+    if (!fs.existsSync(ORG_STORE_PATH)) return null;
+    const raw = fs.readFileSync(ORG_STORE_PATH, 'utf8').replace(/\0/g, '');
+    try {
+      return normalizeOrgSnapshot(JSON.parse(raw));
+    } catch (_) {
+      const repaired = repairDanglingJsonStringLines(raw);
+      const parsed = JSON.parse(repaired);
+      const now = Date.now();
+      if (now - orgRepairWarnedAt > 60000) {
+        orgRepairWarnedAt = now;
+        console.warn('[workflow] 조직관리.json has dangling strings; using runtime repaired snapshot');
+      }
+      return normalizeOrgSnapshot(parsed);
+    }
+  } catch (e) {
+    const now = Date.now();
+    if (now - orgRepairWarnedAt > 60000) {
+      orgRepairWarnedAt = now;
+      console.warn('[workflow] org snapshot fallback failed:', e.message);
+    }
+    return null;
+  }
+}
 
 function loadOrgSnapshot() {
   const now = Date.now();
   if (now - orgCache.at < 1500) return orgCache.data;
+  const fromFile = loadOrgSnapshotFromFile();
+  if (fromFile && (fromFile.users.length || fromFile.departments.length || fromFile.companies.length)) {
+    orgCache = { at: now, data: fromFile };
+    return orgCache.data;
+  }
   try {
     const data = db.loadUsers ? db.loadUsers() : db.조직관리.load();
-    orgCache = {
-      at: now,
-      data: {
-        users: Array.isArray(data.users) ? data.users : [],
-        departments: Array.isArray(data.departments) ? data.departments : [],
-      },
-    };
+    orgCache = { at: now, data: normalizeOrgSnapshot(data) };
   } catch (_) {
-    orgCache = { at: now, data: { users: [], departments: [] } };
+    orgCache = { at: now, data: { users: [], departments: [], companies: [] } };
   }
   return orgCache.data;
 }
@@ -833,6 +888,44 @@ function loadFreshOrgSnapshot() {
 
 function lowerText(value) {
   return String(value || '').trim().toLowerCase();
+}
+
+function departmentMatchKey(value) {
+  return lowerText(value)
+    .replace(/^[\u2605\u2606\u25cf\u25cb\u25a0\u25a1\s]+/gu, '')
+    .replace(/[\u2605\u2606\u25cf\u25cb\u25a0\u25a1]/gu, '')
+    .replace(/[\s._\-()（）\[\]{}]/g, '');
+}
+
+function suggestedWorkflowStageDepartmentMap(org = loadOrgSnapshot()) {
+  const departments = workflowDepartmentOptions(org);
+  const used = new Set();
+  const out = {};
+  for (const stage of STAGES) {
+    const aliases = uniqueTexts([stage.label, ...(STAGE_DEPARTMENT_ALIASES[stage.id] || [])])
+      .map(departmentMatchKey)
+      .filter(Boolean);
+    if (!aliases.length) continue;
+    const candidates = departments
+      .map(dept => {
+        const key = departmentMatchKey(dept.name || dept.id);
+        if (!key || used.has(dept.id)) return null;
+        let score = 99;
+        for (const alias of aliases) {
+          if (key === alias) score = Math.min(score, 0);
+          else if (key.startsWith(alias) || alias.startsWith(key)) score = Math.min(score, 1);
+          else if (key.includes(alias) || alias.includes(key)) score = Math.min(score, 2);
+        }
+        return score < 99 ? { dept, score } : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.score - b.score || (a.dept.sortOrder - b.dept.sortOrder) || String(a.dept.name).localeCompare(String(b.dept.name), 'ko'));
+    if (candidates[0]) {
+      out[stage.id] = candidates[0].dept.id;
+      used.add(candidates[0].dept.id);
+    }
+  }
+  return out;
 }
 
 function stageDepartments(stageId, org = loadOrgSnapshot()) {
@@ -1437,6 +1530,54 @@ function isFileScheduleLate(file) {
   return available > wanted;
 }
 
+function factoryConfirmationFiles(data, job) {
+  if (!data || !job || !Array.isArray(data.files)) return [];
+  return data.files.filter(file => {
+    if (file.jobId !== job.id) return false;
+    const kind = file.kind || 'attachment';
+    if (!['proof', 'drawing', 'photo'].includes(kind)) return false;
+    const targetStages = fileTargetStageIds(file);
+    if (targetStages.includes('factory')) return true;
+    if (file.stageId === 'design') return true;
+    const labels = fileTargetLabels(file);
+    return labels.some(label => targetLabelStageIds(label, job).includes('factory'));
+  });
+}
+
+function hasFactorySeenFile(data, job, file) {
+  if (hasTargetRead(file, job)) return true;
+  const orders = Array.isArray(data?.orders) ? data.orders : [];
+  return orders.some(order => {
+    if (order.jobId !== job.id || order.status === 'cancelled') return false;
+    if (!orderTargetStageIds(order).includes('factory')) return false;
+    const ids = new Set(normalizeFileIds(order.fileIds || []));
+    if (!ids.has(file.id)) return false;
+    return !!(order.lastPublicViewedAt || order.lastPublicDownloadedAt || order.responseStatus);
+  });
+}
+
+function factoryConfirmationBlockers(data, job) {
+  const files = factoryConfirmationFiles(data, job);
+  if (!files.length) {
+    return [{ key: 'factoryProofMissing', label: '공장 확인 대상 시안 없음', count: 1 }];
+  }
+  const unread = files.filter(file => !hasFactorySeenFile(data, job, file)).length;
+  const missingDate = files.filter(file => !safeDate(file.factoryAvailableDate)).length;
+  const notConfirmed = files.filter(file => !['possible', 'confirmed'].includes(file.scheduleNegotiation || '')).length;
+  const blockers = [];
+  if (unread) blockers.push({ key: 'factoryFileUnread', label: '공장 시안 미확인', count: unread });
+  if (missingDate) blockers.push({ key: 'factoryAvailableDateMissing', label: '공장 가능일 미입력', count: missingDate });
+  if (notConfirmed) blockers.push({ key: 'factorySchedulePending', label: '공장 일정 미확인', count: notConfirmed });
+  return blockers;
+}
+
+function factoryConfirmationError(blockers = []) {
+  const detail = blockers
+    .map(b => `${b.label} ${b.count}`)
+    .join(' · ');
+  return `공장이 시안을 확인하고 가능일/일정 상태를 남겨야 다음 진행이 가능합니다.${detail ? ' (' + detail + ')' : ''}`;
+}
+
 function decorateWorkflowFile(file, viewerUser, job = null) {
   const exists = workflowFileExists(file);
   const image = isImageFile(file);
@@ -2039,22 +2180,25 @@ function orderChangeRequestCount(data, job) {
   }).length;
 }
 
-function completionBlockers(data, job) {
+function completionBlockers(data, job, opts = {}) {
   const blockers = [];
   const pendingStages = pendingStageCount(job);
   const pendingChecklist = pendingChecklistCount(job);
   const blockedStages = blockedStageCount(job);
-  const missingFiles = missingFileCount(data, job, data?.fileExistsCache || null);
+  // 목록/요약에서는 디스크 확인을 건너뛴다(skipFileExists) → 탭 열기 즉시. 상세에서 정확히 검증.
+  const missingFiles = opts.skipFileExists ? 0 : missingFileCount(data, job, data?.fileExistsCache || null);
   const pendingReviews = pendingReviewCount(data, job);
   const changeRequests = changeRequestCount(data, job);
   const lateSchedules = lateScheduleCount(data, job);
   const orderChangeRequests = orderChangeRequestCount(data, job);
   const pendingOrders = pendingOrderCount(data, job);
+  const factoryBlockers = factoryConfirmationBlockers(data, job);
   if (pendingStages) blockers.push({ key: 'pendingStages', label: '미완료 단계', count: pendingStages });
   if (pendingChecklist) blockers.push({ key: 'pendingChecklist', label: '미완료 체크', count: pendingChecklist });
   if (blockedStages) blockers.push({ key: 'blockedStages', label: '막힘 단계', count: blockedStages });
   if (missingFiles) blockers.push({ key: 'missingFiles', label: '서버 파일 없음', count: missingFiles });
   if (pendingReviews) blockers.push({ key: 'pendingReviews', label: '검토대기 파일', count: pendingReviews });
+  blockers.push(...factoryBlockers);
   if (changeRequests) blockers.push({ key: 'changeRequests', label: '수정/조정요청 파일', count: changeRequests });
   if (lateSchedules) blockers.push({ key: 'lateSchedules', label: '가능일 지연', count: lateSchedules });
   if (orderChangeRequests) blockers.push({ key: 'orderChangeRequests', label: '전달 조정요청', count: orderChangeRequests });
@@ -2070,6 +2214,32 @@ function userMatchTokens(req) {
 
 function isWorkflowAdmin(req) {
   return req?.user?.role === 'admin';
+}
+
+function canAbortEmptyJob(data, job, req) {
+  if (!job) return false;
+  if (!isWorkflowAdmin(req) && String(job.createdBy || '') !== String(req?.user?.userId || '')) return false;
+  const files = Array.isArray(data?.files) ? data.files.filter(file => file.jobId === job.id) : [];
+  const orders = Array.isArray(data?.orders) ? data.orders.filter(order => order.jobId === job.id) : [];
+  const events = Array.isArray(data?.events) ? data.events.filter(event => event.jobId === job.id) : [];
+  const hasUserWork = events.some(event => event.type && event.type !== 'create');
+  return files.length === 0 && orders.length === 0 && !hasUserWork;
+}
+
+function removeAutoCreatedProjectForJob(data, job) {
+  if (!job?.autoCreatedProjectId || !Array.isArray(data?.projects)) return false;
+  const key = workflowProjectKey(job.companyName, job.projectName);
+  if (!key) return false;
+  const hasOtherJob = (data.jobs || []).some(other => (
+    other.id !== job.id && workflowProjectKey(other.companyName, other.projectName) === key
+  ));
+  if (hasOtherJob) return false;
+  const idx = data.projects.findIndex(project => (
+    project.id === job.autoCreatedProjectId && workflowProjectKey(project.companyName, project.projectName) === key
+  ));
+  if (idx < 0) return false;
+  data.projects.splice(idx, 1);
+  return true;
 }
 
 function textMatchesToken(text, tokens) {
@@ -2139,8 +2309,8 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
   const fileExistsCache = options.fileExistsCache || data.fileExistsCache || null;
   const scopedData = { ...data, files, events, orders, fileExistsCache };
   const orderSummary = buildOrderSummary(scopedData, job);
-  const blockers = completionBlockers(scopedData, job);
-  const jobMissingFileCount = missingFileCount(scopedData, job, fileExistsCache);
+  const blockers = completionBlockers(scopedData, job, { skipFileExists: options.skipFileExists });
+  const jobMissingFileCount = options.skipFileExists ? 0 : missingFileCount(scopedData, job, fileExistsCache);
   const unreadFileCount = files.filter(f => isUnreadForViewer(f, viewerUser, job)).length;
   const unreadEventCount = events.filter(e => isUnreadEventForViewer(e, viewerUser, job)).length;
   const storedArchiveCount = Number(job.archiveFileCount);
@@ -2148,9 +2318,11 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
   const visualFiles = files
     .filter(f => isImageFile(f))
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
-  const primaryVisualFile = options.skipVisualFileExists
-    ? (visualFiles[0] && workflowFileExistsCached(visualFiles[0], fileExistsCache) ? visualFiles[0] : null)
-    : (visualFiles.find(f => workflowFileExistsCached(f, fileExistsCache)) || null);
+  const primaryVisualFile = options.skipFileExists
+    ? (visualFiles[0] || null)
+    : options.skipVisualFileExists
+      ? (visualFiles[0] && workflowFileExistsCached(visualFiles[0], fileExistsCache) ? visualFiles[0] : null)
+      : (visualFiles.find(f => workflowFileExistsCached(f, fileExistsCache)) || null);
   return {
     ...job,
     fileCount: files.length,
@@ -2288,7 +2460,7 @@ function buildSummary(data, req) {
       const scopedData = summaryDataForJob(job);
       const stage = STAGES.find(s => s.id === job.currentStage) || STAGES[0] || { id: 'design', label: '디자인' };
       const check = job.stageChecks?.[stage.id] || {};
-      const blockers = completionBlockers(scopedData, job);
+      const blockers = completionBlockers(scopedData, job, { skipFileExists: true });
       const dueDate = check.dueDate || job.dueDate || '';
       const stageOverdue = check.status !== 'done' && isPastDue(dueDate);
       return {
@@ -2324,11 +2496,12 @@ function buildSummary(data, req) {
     .slice(0, 8);
   const changeRequests = activeJobs.reduce((sum, job) => sum + changeRequestCount(summaryDataForJob(job), job), 0);
   const lateSchedules = activeJobs.reduce((sum, job) => sum + lateScheduleCount(summaryDataForJob(job), job), 0);
-  const readyToComplete = activeJobs.filter(job => completionBlockers(summaryDataForJob(job), job).length === 0).length;
+  const readyToComplete = activeJobs.filter(job => completionBlockers(summaryDataForJob(job), job, { skipFileExists: true }).length === 0).length;
   const scheduleItems = buildScheduleItems(data, req);
   return {
     active: activeJobs.length,
     done: data.jobs.filter(j => j.status === 'done').length,
+    cancelled: data.jobs.filter(j => j.status === 'cancelled').length,
     readyToComplete,
     overdue: activeJobs.filter(job => isOverdueJob(job) || overdueStageCount(job) > 0).length,
     overdueStages: activeJobs.reduce((sum, job) => sum + overdueStageCount(job), 0),
@@ -2380,6 +2553,139 @@ function uniqueStoredFileTarget(dir, wantedName) {
     idx += 1;
   }
   return { fileName, fullPath };
+}
+
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function storedNamePreservesOriginalName(storedName, originalSafeName) {
+  const stored = String(storedName || '').trim();
+  const safe = String(originalSafeName || '').trim();
+  if (!stored || !safe) return false;
+  if (stored === safe) return true;
+  const ext = path.extname(safe);
+  const base = safe.slice(0, safe.length - ext.length);
+  if (!base) return false;
+  return new RegExp(`^${escapeRegExp(base)} \\(\\d+\\)${escapeRegExp(ext)}$`).test(stored);
+}
+
+function moveWorkflowFile(source, target) {
+  try {
+    fs.renameSync(source, target);
+  } catch (e) {
+    if (e && e.code === 'EXDEV') {
+      fs.copyFileSync(source, target);
+      fs.unlinkSync(source);
+      return;
+    }
+    throw e;
+  }
+}
+
+function repairLegacyWorkflowFileStorage(data, options = {}) {
+  const dryRun = !!options.dryRun;
+  const limit = Math.max(1, Math.min(Number(options.limit || 200), 1000));
+  const result = {
+    checked: 0,
+    repairable: 0,
+    repaired: 0,
+    skipped: 0,
+    errors: 0,
+    changed: false,
+    items: [],
+  };
+  if (!data || !Array.isArray(data.files) || !Array.isArray(data.jobs)) return result;
+  const jobsById = new Map(data.jobs.map(job => [job.id, job]));
+  const storageInfoCache = new Map();
+  for (const file of data.files) {
+    if (result.checked >= limit) break;
+    result.checked += 1;
+    const job = jobsById.get(file.jobId);
+    if (!job || !file?.originalName) continue;
+    const originalSafeName = safeStoredFileName(file.originalName, file.storedName || file.id || 'file');
+    const currentStoredName = String(file.storedName || '').trim();
+    const needsDesignStorage = file.storageRoot !== 'design' || !file.storagePath || !file.storageBucket;
+    const needsOriginalName = !!currentStoredName && originalSafeName && !storedNamePreservesOriginalName(currentStoredName, originalSafeName);
+    if (!needsDesignStorage && !needsOriginalName) continue;
+
+    const source = fileDiskPath(file);
+    if (!source || !fs.existsSync(source)) {
+      result.skipped += 1;
+      continue;
+    }
+    const companyName = safeText(file.storageCompanyName || job.companyName, 120);
+    const projectName = safeText(file.storageProjectName || job.projectName || job.title, 160);
+    if (!companyName || !projectName) {
+      result.skipped += 1;
+      continue;
+    }
+
+    let storageInfo = null;
+    try {
+      const storageYear = safeYear(file.storageYear || safeDate(file.designDueDate).slice(0, 4) || job.storageYear || String(job.dueDate || '').slice(0, 4));
+      const cacheKey = `${companyName}\n${projectName}\n${storageYear}`;
+      if (!storageInfoCache.has(cacheKey)) {
+        storageInfoCache.set(cacheKey, resolveWorkflowDesignStorage(companyName, projectName, storageYear, true, { dryRun }));
+      }
+      storageInfo = storageInfoCache.get(cacheKey);
+    } catch (_) {
+      result.errors += 1;
+      continue;
+    }
+    if (!storageInfo?.dir || !fs.existsSync(storageInfo.dir)) {
+      result.skipped += 1;
+      continue;
+    }
+
+    const resolvedSource = path.resolve(source);
+    let targetFileName = originalSafeName;
+    let targetPath = path.resolve(storageInfo.dir, targetFileName);
+    result.repairable += 1;
+    try {
+      if (!isPathInside(storageInfo.dir, targetPath)) continue;
+      if (isPathInside(storageInfo.dir, resolvedSource) && storedNamePreservesOriginalName(path.basename(resolvedSource), originalSafeName)) {
+        targetFileName = path.basename(resolvedSource);
+        targetPath = resolvedSource;
+      } else if (resolvedSource.toLowerCase() !== targetPath.toLowerCase()) {
+        if (fs.existsSync(targetPath)) {
+          const unique = uniqueStoredFileTarget(storageInfo.dir, originalSafeName);
+          targetFileName = unique.fileName;
+          targetPath = unique.fullPath;
+        }
+        if (!dryRun) moveWorkflowFile(resolvedSource, targetPath);
+      }
+      if (!dryRun) {
+        file.storedName = targetFileName;
+        file.storedPath = targetPath;
+        file.storageRoot = 'design';
+        file.storageYear = storageInfo.year;
+        file.storageCompanyName = companyName;
+        file.storageProjectName = projectName;
+        file.storageBucket = storageInfo.rel;
+        file.storageRelDir = storageInfo.rel;
+        file.storagePath = storageInfo.dir;
+        file.storageNetPath = workflowDesignNetworkPath(storageInfo.dir);
+        file.storageFolderCreated = !!storageInfo.created;
+        file.storageFolderExistedBefore = !!storageInfo.existedBefore;
+        result.changed = true;
+      }
+      result.repaired += 1;
+      if (result.items.length < 50) {
+        result.items.push({
+          fileId: file.id,
+          originalName: file.originalName,
+          from: resolvedSource,
+          to: targetPath,
+          dryRun,
+        });
+      }
+    } catch (_) {
+      result.errors += 1;
+      continue;
+    }
+  }
+  return result;
 }
 
 const storage = multer.diskStorage({
@@ -2823,17 +3129,24 @@ router.get('/meta', (req, res) => {
     stages,
     statuses: STATUS_LABELS,
     checkStatuses: CHECK_STATUS_LABELS,
-    orderTargets: buildWorkflowOrderTargets(),
     orderStatuses: ORDER_STATUS_LABELS,
     publicBaseUrl: publicLink.publicBaseUrl,
     publicLink,
     departments: workflowDepartmentOptions(org),
     stageDepartmentMap,
+    suggestedStageDepartmentMap: suggestedWorkflowStageDepartmentMap(org),
     stageDepartmentMissingIds: stages.filter(stage => !stage.mappedDepartmentId).map(stage => stage.id),
     uploadLimits: {
       files: MAX_WORKFLOW_UPLOAD_FILES,
       fileSize: MAX_WORKFLOW_UPLOAD_FILE_SIZE,
     },
+  });
+});
+
+router.get('/order-targets', (req, res) => {
+  res.json({
+    ok: true,
+    orderTargets: buildWorkflowOrderTargets(),
   });
 });
 
@@ -2845,6 +3158,7 @@ router.get('/settings/departments', (req, res) => {
     stages,
     departments: workflowDepartmentOptions(org),
     stageDepartmentMap: storedWorkflowStageDepartmentMap(),
+    suggestedStageDepartmentMap: suggestedWorkflowStageDepartmentMap(org),
     stageDepartmentMissingIds: stages.filter(stage => !stage.mappedDepartmentId).map(stage => stage.id),
   });
 });
@@ -2870,6 +3184,7 @@ router.post('/settings/departments', requireAdmin, (req, res) => {
     stages,
     departments: workflowDepartmentOptions(refreshedOrg),
     stageDepartmentMap: storedWorkflowStageDepartmentMap(),
+    suggestedStageDepartmentMap: suggestedWorkflowStageDepartmentMap(refreshedOrg),
     stageDepartmentMissingIds: stages.filter(stage => !stage.mappedDepartmentId).map(stage => stage.id),
   });
 });
@@ -2911,6 +3226,7 @@ router.get('/settings/storage-rules', (req, res) => {
 router.post('/settings/storage-rules', requireAdmin, (req, res) => {
   try {
     const rule = workflowStorageRules.saveRule(req.body || {});
+    if (typeof designModule.invalidateWorkflowOptions === 'function') designModule.invalidateWorkflowOptions();
     res.json({
       ok: true,
       rule,
@@ -2924,6 +3240,7 @@ router.post('/settings/storage-rules', requireAdmin, (req, res) => {
 router.put('/settings/storage-rules/:id', requireAdmin, (req, res) => {
   try {
     const rule = workflowStorageRules.saveRule({ ...(req.body || {}), id: req.params.id });
+    if (typeof designModule.invalidateWorkflowOptions === 'function') designModule.invalidateWorkflowOptions();
     res.json({
       ok: true,
       rule,
@@ -2937,9 +3254,23 @@ router.put('/settings/storage-rules/:id', requireAdmin, (req, res) => {
 router.delete('/settings/storage-rules/:id', requireAdmin, (req, res) => {
   const ok = workflowStorageRules.deactivateRule(req.params.id);
   if (!ok) return res.status(404).json({ ok: false, error: '저장 규칙을 찾을 수 없습니다.' });
+  if (typeof designModule.invalidateWorkflowOptions === 'function') designModule.invalidateWorkflowOptions();
   res.json({
     ok: true,
     rules: workflowStorageRules.listRules({ includeInactive: true }),
+  });
+});
+
+router.post('/maintenance/repair-file-storage', requireAdmin, (req, res) => {
+  const data = loadStore();
+  const result = repairLegacyWorkflowFileStorage(data, {
+    dryRun: req.body?.dryRun === true,
+    limit: req.body?.limit,
+  });
+  if (result.changed) saveStore(data);
+  res.json({
+    ok: true,
+    ...result,
   });
 });
 
@@ -3048,6 +3379,8 @@ router.put('/projects/:id', (req, res) => {
 });
 
 router.get('/jobs', (req, res) => {
+  const __t0 = Date.now();
+  const __s0 = workflowPerfSnapshot();
   const data = loadStore();
   const q = safeText(req.query.q, 100).toLowerCase();
   const status = safeText(req.query.status, 30);
@@ -3065,7 +3398,8 @@ router.get('/jobs', (req, res) => {
     eventsByJob: workflowItemsByJob(data.events),
     ordersByJob: workflowItemsByJob(data.orders || []),
     fileExistsCache: new Map(),
-    skipVisualFileExists: true,
+    // 목록은 디스크 존재확인을 아예 건너뛴다 → 네트워크 드라이브와 무관하게 즉시. 상세에서 검증.
+    skipFileExists: true,
   };
   let jobs = data.jobs.slice();
   if (status && status !== 'all') jobs = jobs.filter(j => j.status === status);
@@ -3095,24 +3429,29 @@ router.get('/jobs', (req, res) => {
   });
   const total = jobs.length;
   const visibleJobs = limit ? jobs.slice(0, limit) : jobs;
+  const decoratedJobs = visibleJobs.map(job => decorateJob(data, job, req.user, decorateOptions));
+  const summary = buildSummary(data, req);
+  logWorkflowPerf('GET /jobs', __t0, __s0, { jobs: decoratedJobs.length, total });
   res.json({
     ok: true,
-    jobs: visibleJobs.map(job => decorateJob(data, job, req.user, decorateOptions)),
+    jobs: decoratedJobs,
     total,
     limit,
     limited: !!limit && total > visibleJobs.length,
-    summary: buildSummary(data, req),
+    summary,
   });
 });
 
 router.get('/jobs/:id', (req, res) => {
+  const __t0 = Date.now();
+  const __s0 = workflowPerfSnapshot();
   const data = loadStore();
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
   const files = data.files
     .filter(f => f.jobId === job.id)
     .map(f => decorateWorkflowFile(f, req.user, job));
-  res.json({
+  const payload = {
     ok: true,
     job: decorateJob(data, job, req.user),
     files,
@@ -3120,7 +3459,9 @@ router.get('/jobs/:id', (req, res) => {
     orderSummary: buildOrderSummary(data, job),
     deliverySummary: buildDeliverySummary(files, req.user, job),
     events: data.events.filter(e => e.jobId === job.id).map(e => decorateWorkflowEvent(e, req.user, job)),
-  });
+  };
+  logWorkflowPerf('GET /jobs/:id', __t0, __s0, { files: files.length });
+  res.json(payload);
 });
 
 router.post('/jobs', (req, res) => {
@@ -3146,7 +3487,10 @@ router.post('/jobs', (req, res) => {
   } catch (e) {
     return res.status(400).json({ error: '시안 저장 폴더를 만들 수 없습니다: ' + e.message });
   }
-  upsertWorkflowProject(data, { ...job, status: 'active', year: job.storageYear || String(job.dueDate || '').slice(0, 4) }, req, storageInfo);
+  const projectKey = workflowProjectKey(job.companyName, job.projectName);
+  const projectExistedBefore = projectKey && (data.projects || []).some(project => workflowProjectKey(project.companyName, project.projectName) === projectKey);
+  const project = upsertWorkflowProject(data, { ...job, status: 'active', year: job.storageYear || String(job.dueDate || '').slice(0, 4) }, req, storageInfo);
+  if (!projectExistedBefore && project?.id) job.autoCreatedProjectId = project.id;
   job.stageChecks.design.status = 'ready';
   job.stageChecks.design.updatedAt = job.updatedAt;
   data.jobs.push(job);
@@ -3155,11 +3499,29 @@ router.post('/jobs', (req, res) => {
   res.json({ ok: true, job: decorateJob(data, job, req.user) });
 });
 
+router.post('/jobs/:id/abort-empty', (req, res) => {
+  const data = loadStore();
+  const idx = data.jobs.findIndex(j => j.id === req.params.id);
+  const job = idx >= 0 ? data.jobs[idx] : null;
+  if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  if (!canAbortEmptyJob(data, job, req)) {
+    return res.status(400).json({ error: '이미 파일이나 전달 기록이 있는 작업은 자동 정리할 수 없습니다.' });
+  }
+  const projectRemoved = removeAutoCreatedProjectForJob(data, job);
+  data.jobs.splice(idx, 1);
+  if (Array.isArray(data.events)) {
+    data.events = data.events.filter(event => event.jobId !== job.id);
+  }
+  saveStore(data);
+  res.json({ ok: true, projectRemoved });
+});
+
 router.put('/jobs/:id', (req, res) => {
   const data = loadStore();
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
   const payload = normalizeJobPayload(req.body || {}, job);
+  const previousStatus = job.status || 'active';
   const at = nowIso();
   if (payload.status === 'done') {
     const nextJob = { ...job, ...payload };
@@ -3195,7 +3557,19 @@ router.put('/jobs/:id', (req, res) => {
     clearWorkflowCompletion(job);
     syncWorkflowStageFlow(job);
   }
-  addEvent(data, req, job.id, 'update', storageResult.changed ? '작업 정보 수정 · 저장 폴더 자동 준비' : '작업 정보 수정');
+  let eventType = 'update';
+  let eventMessage = storageResult.changed ? '작업 정보 수정 · 저장 폴더 자동 준비' : '작업 정보 수정';
+  if (previousStatus !== job.status && job.status === 'cancelled') {
+    eventType = 'cancel';
+    eventMessage = '작업 취소 표시 · 기록 보존';
+  } else if (previousStatus === 'cancelled' && job.status !== 'cancelled') {
+    eventType = 'restore';
+    eventMessage = `${STATUS_LABELS[job.status] || job.status || '진행'} 상태로 취소 복구`;
+  }
+  addEvent(data, req, job.id, eventType, eventMessage, {
+    previousStatus,
+    status: job.status,
+  });
   saveStore(data);
   res.json({ ok: true, job: decorateJob(data, job, req.user) });
 });
@@ -3209,6 +3583,21 @@ router.post('/jobs/:id/stages/:stageId', (req, res) => {
   const check = job.stageChecks[stage.id];
   const previousStatus = check.status || 'pending';
   const nextStatus = ['pending', 'ready', 'done', 'blocked'].includes(req.body.status) ? req.body.status : check.status;
+  const needsFactoryConfirmation = nextStatus === 'done'
+    && (
+      stage.id === 'factory'
+      || stage.id === 'delivery'
+      || (stage.id === 'management' && job.stageChecks.factory?.status === 'done')
+    );
+  if (needsFactoryConfirmation) {
+    const factoryBlockers = factoryConfirmationBlockers(data, job);
+    if (factoryBlockers.length) {
+      return res.status(400).json({
+        error: factoryConfirmationError(factoryBlockers),
+        blockers: factoryBlockers,
+      });
+    }
+  }
   const at = nowIso();
   check.status = nextStatus;
   check.assignee = safeText(req.body.assignee, 80);
@@ -3260,6 +3649,19 @@ router.post('/jobs/:id/handoff', (req, res) => {
   const next = STAGES[currentIdx + 1] || null;
   const message = safeText(req.body.message, 1000);
   const at = nowIso();
+
+  const needsFactoryConfirmation = current.id === 'factory'
+    || current.id === 'delivery'
+    || (current.id === 'management' && job.stageChecks.factory?.status === 'done');
+  if (needsFactoryConfirmation) {
+    const factoryBlockers = factoryConfirmationBlockers(data, job);
+    if (factoryBlockers.length) {
+      return res.status(400).json({
+        error: factoryConfirmationError(factoryBlockers),
+        blockers: factoryBlockers,
+      });
+    }
+  }
 
   const currentCheck = job.stageChecks[current.id];
   currentCheck.status = 'done';
@@ -3777,6 +4179,8 @@ router.post('/jobs/:id/files', workflowUploadFiles, (req, res) => {
     });
   }
   saveStore(data);
+  // 폴더가 새로 만들어졌을 수 있으니 해당 프로젝트의 폴더해석 캐시를 비운다(읽기 폴백이 최신 폴더를 보도록).
+  if (actualStorageInfo) fileLocator().invalidateResolve(storageCompanyName, storageProjectName, actualStorageInfo.year || storageYear);
   res.json({
     ok: true,
     files: uploaded.map(f => decorateWorkflowFile(f, req.user, job)),

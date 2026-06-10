@@ -134,6 +134,7 @@ function designWorkflowOptions() {
     designIndex,
     designRoot: DESIGN_ROOT,
     skipDirs: SKIP_DIRS,
+    includeIndex: false,
   });
   designWorkflowOptionsCache = { key, value, cachedAt: Date.now() };
   return value;
@@ -803,8 +804,10 @@ router.resolveWorkflowStorage = (opts = {}) => {
     skipDirs: SKIP_DIRS,
     ...opts,
   });
-  if (info.created) invalidateDesignWorkflowOptions();
+  if (info?.created) invalidateDesignWorkflowOptions();
   return info;
 };
+
+router.invalidateWorkflowOptions = invalidateDesignWorkflowOptions;
 
 module.exports = router;

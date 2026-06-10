@@ -1,18 +1,21 @@
 <!-- tab-statements.html — 명세서 일괄 스캔 + AI 추출 + 검토 + 엑셀 export -->
 <div x-data="statementsApp()" x-init="init()" class="p-6">
-  <!-- ═════ 회사 모드 화면 (COMPANY 매입/매출 = 엑셀창) ═════ -->
-  <template x-if="currentView==='company-buy' || currentView==='company-sell'">
+  <!-- ═════ 컴퍼니 매입 모드 (E2E 엑셀창) ═════ -->
+  <template x-if="currentView==='company-buy'">
     <div>
       <div class="mode-bar">
         <button class="back" @click="exitMode()">← 돌아가기</button>
         <span class="mode-badge-co">컴퍼니 (E2E)</span>
-        <span :class="currentView==='company-buy'?'mode-badge-buy':'mode-badge-sell'" x-text="currentView==='company-buy'?'매입':'매출'"></span>
+        <span class="mode-badge-buy">매입</span>
         <span class="mode-title">엑셀창 모드</span>
         <span style="color:#6b7280; font-size:12px;" x-text="`${(modeRows||[]).length}건 · ${filterMonth||'전체월'}`"></span>
         <div style="flex:1;"></div>
         <input type="month" class="st-input" x-model="filterMonth" @change="loadModeRows()" style="height:30px; font-size:12px;">
-        <button class="st-btn st-btn-ghost st-btn-sm" @click="rematchCompanySales()">↻ 학습 재매칭</button>
-        <a :href="exportUrl('COMPANY')" class="st-btn st-btn-primary st-btn-sm">📊 E2E 엑셀 다운로드</a>
+        <input type="file" multiple accept="image/*,application/pdf" x-ref="companyModeBuyFile" style="display:none;" @change="uploadFiles($event.target.files, { companyCode:'COMPANY', docClass:'매입' }); $event.target.value=''">
+        <input type="file" accept="image/*" x-ref="companyModeSplitFile" style="display:none;" @change="startSplitFromFiles($event.target.files, 'COMPANY', '매입'); $event.target.value=''">
+        <button class="st-btn st-btn-ghost st-btn-sm" @click="$refs.companyModeBuyFile.click()">파일 업로드</button>
+        <button class="st-btn st-btn-ghost st-btn-sm" @click="$refs.companyModeSplitFile.click()">사진 분할</button>
+        <button class="st-btn st-btn-primary st-btn-sm" @click="downloadModeExport('COMPANY')">📊 E2E 엑셀 다운로드</button>
       </div>
       <div class="mode-body company-mode-body">
         <!-- 좌측 엑셀 표 -->
@@ -72,6 +75,7 @@
             <div style="flex:1;"></div>
             <span style="font-size:12px; color:#6b7280;">합계:</span>
             <span style="font-weight:600; color:#1f2937;" x-text="modeSum().toLocaleString() + '원'"></span>
+            <button class="st-btn st-btn-ghost st-btn-sm" @click="saveModeRows()">수정 저장</button>
             <button class="st-btn st-btn-success st-btn-sm" @click="confirmAllInMode()">✓ 전체 확정</button>
           </div>
         </div>
@@ -103,15 +107,19 @@
     </div>
   </template>
 
-  <!-- ═════ 에스엠 이카운트 모드 (캡처 모방) ═════ -->
-  <template x-if="currentView==='sm-buy' || currentView==='sm-sell'">
+  <!-- ═════ 에스엠 매입 이카운트 모드 (캡처 모방) ═════ -->
+  <template x-if="currentView==='sm-buy'">
     <div>
       <!-- 이카운트 헤더바 (진한 파랑) -->
       <div style="background:#1E40FA; color:#fff; padding:6px 12px; font-size:12px; display:flex; align-items:center; gap:8px; border-radius:4px 4px 0 0;">
         <button @click="exitMode()" style="background:rgba(255,255,255,0.15); border:0; color:#fff; padding:3px 10px; border-radius:3px; font-size:11px; cursor:pointer;">← 돌아가기</button>
-        <span x-text="currentView==='sm-buy' ? '구매수정 [OCR 자동입력]' : '판매수정 [OCR 자동입력]'"></span>
+        <span>구매수정 [OCR 자동입력]</span>
         <div style="flex:1;"></div>
-        <a :href="exportUrl('SM')" style="background:rgba(255,255,255,0.15); border:0; color:#fff; padding:3px 10px; border-radius:3px; font-size:11px; text-decoration:none;">📊 엑셀</a>
+        <input type="file" multiple accept="image/*,application/pdf" x-ref="smModeBuyFile" style="display:none;" @change="uploadFiles($event.target.files, { companyCode:'SM', docClass:'매입' }); $event.target.value=''">
+        <input type="file" accept="image/*" x-ref="smModeSplitFile" style="display:none;" @change="startSplitFromFiles($event.target.files, 'SM', '매입'); $event.target.value=''">
+        <button @click="$refs.smModeBuyFile.click()" style="background:rgba(255,255,255,0.15); border:0; color:#fff; padding:3px 10px; border-radius:3px; font-size:11px; cursor:pointer;">파일 업로드</button>
+        <button @click="$refs.smModeSplitFile.click()" style="background:rgba(255,255,255,0.15); border:0; color:#fff; padding:3px 10px; border-radius:3px; font-size:11px; cursor:pointer;">사진 분할</button>
+        <button @click="downloadModeExport('SM')" style="background:rgba(255,255,255,0.15); border:0; color:#fff; padding:3px 10px; border-radius:3px; font-size:11px; cursor:pointer;">📊 엑셀</button>
       </div>
 
       <div style="background:#fff; border:1px solid #c7c9d1; border-top:0; border-radius:0 0 6px 6px; display:grid; grid-template-columns: 1.2fr 1fr; min-height:540px;">
@@ -119,14 +127,14 @@
         <div style="padding:14px; border-right:1px solid #c7c9d1; overflow:auto;">
           <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
             <span style="color:#c7c9d1; font-size:14px;">★</span>
-            <span style="font-weight:500; font-size:13px;" x-text="currentView==='sm-buy' ? '구매수정' : '판매수정'"></span>
+            <span style="font-weight:500; font-size:13px;">구매수정</span>
             <div style="flex:1;"></div>
             <button style="font-size:11px; padding:3px 10px; background:#fff; border:1px solid #c7c9d1; border-radius:3px;">확인취소</button>
             <button style="font-size:11px; padding:3px 10px; background:#fff; border:1px solid #c7c9d1; border-radius:3px;">Option</button>
             <button style="font-size:11px; padding:3px 10px; background:#fff; border:1px solid #c7c9d1; border-radius:3px;">도움말</button>
           </div>
           <div style="margin-bottom:10px;">
-            <span style="background:#1E40FA; color:#fff; font-size:11px; padding:4px 12px; border-radius:14px;" x-text="currentView==='sm-buy' ? '구매입력 ▼' : '거래명세서 ▼'"></span>
+            <span style="background:#1E40FA; color:#fff; font-size:11px; padding:4px 12px; border-radius:14px;">구매입력 ▼</span>
             <button style="background:#fff; border:1px solid #c7c9d1; padding:4px 8px; border-radius:14px; font-size:11px; margin-left:4px;">+</button>
           </div>
 
@@ -142,7 +150,7 @@
             </div>
             <span style="color:#444;">담당자</span>
             <input placeholder="담당자" style="height:24px; font-size:11px; border:1px solid #d4d6dd; border-radius:2px; padding:2px 4px;">
-            <span style="color:#444;" x-text="currentView==='sm-buy' ? '입고창고' : '출하창고'"></span>
+            <span style="color:#444;">입고창고</span>
             <div style="display:flex; gap:4px;">
               <input value="100" style="width:40px; height:24px; font-size:11px; border:1px solid #d4d6dd; border-radius:2px; padding:2px 4px;">
               <span style="line-height:24px;">본사창고</span>
@@ -161,7 +169,7 @@
           <div style="display:flex; gap:3px; flex-wrap:wrap; margin:8px 0; font-size:10px;">
             <button style="padding:2px 7px; background:#fff; border:1px solid #c7c9d1; border-radius:2px;">찾기(F3)</button>
             <button style="padding:2px 7px; background:#fff; border:1px solid #c7c9d1; border-radius:2px;">정렬</button>
-            <button style="padding:2px 7px; background:#fff; border:1px solid #c7c9d1; border-radius:2px;" x-text="currentView==='sm-buy' ? '거래내역보기(구매) ▼' : '거래내역보기(판매) ▼'"></button>
+            <button style="padding:2px 7px; background:#fff; border:1px solid #c7c9d1; border-radius:2px;">거래내역보기(구매) ▼</button>
             <button style="padding:2px 7px; background:#fff; border:1px solid #c7c9d1; border-radius:2px;">My품목 ▼</button>
             <button style="padding:2px 7px; background:#fff; border:1px solid #c7c9d1; border-radius:2px;">할인</button>
             <button style="padding:2px 7px; background:#fff; border:1px solid #c7c9d1; border-radius:2px;">전표불러오기</button>
@@ -213,9 +221,10 @@
           <!-- 하단 액션 -->
           <div style="display:flex; gap:4px; margin-top:14px; align-items:center;">
             <span style="color:#1E40FA; font-size:13px;">✈</span>
-            <button @click="ecountRegister(currentView==='sm-buy'?'매입':'매출', true)" style="padding:5px 14px; background:#1E40FA; color:#fff; border:0; border-radius:3px; font-size:11px; font-weight:500;" title="실제 등록 전 dry-run 검증">⚡ 이카운트 dry-run</button>
-            <button @click="ecountRegister(currentView==='sm-buy'?'매입':'매출', false)" style="padding:5px 14px; background:#dc2626; color:#fff; border:0; border-radius:3px; font-size:11px; font-weight:500;">🔴 실제 등록</button>
+            <button @click="ecountRegister('매입', true)" style="padding:5px 14px; background:#1E40FA; color:#fff; border:0; border-radius:3px; font-size:11px; font-weight:500;" title="실제 등록 전 dry-run 검증">⚡ 이카운트 dry-run</button>
+            <button @click="ecountRegister('매입', false)" style="padding:5px 14px; background:#dc2626; color:#fff; border:0; border-radius:3px; font-size:11px; font-weight:500;">🔴 실제 등록</button>
             <button class="back" @click="addBlankRow()" style="font-size:11px;">+ 행 추가</button>
+            <button class="back" @click="saveModeRows()" style="font-size:11px;">수정 저장</button>
             <div style="flex:1;"></div>
             <span style="color:#6b7280; font-size:11px;" x-text="`${(modeRows||[]).length}건 / 합계 ${modeSum().toLocaleString()}원`"></span>
           </div>
@@ -478,6 +487,16 @@
     .badge.confirmed { background:#d1fae5; color:#065f46; }
     .badge.rejected { background:#fee2e2; color:#991b1b; }
     .badge.type { background:#eef2ff; color:#4338ca; }
+    .st-val-chip { display:inline-flex; align-items:center; justify-content:center; min-width:54px; padding:3px 7px; border-radius:999px; font-size:10px; font-weight:800; border:1px solid #e5e7eb; background:#f9fafb; color:#4b5563; white-space:nowrap; }
+    .st-val-chip.ok { background:#ecfdf5; color:#047857; border-color:#a7f3d0; }
+    .st-val-chip.warn { background:#fffbeb; color:#92400e; border-color:#fde68a; }
+    .st-val-chip.bad { background:#fef2f2; color:#991b1b; border-color:#fecaca; }
+    .st-val-chip.unknown { background:#f3f4f6; color:#6b7280; }
+    .st-issues { display:flex; flex-direction:column; gap:6px; margin:10px 0 12px; }
+    .st-issue { border:1px solid #e5e7eb; border-radius:8px; padding:8px 9px; font-size:12px; line-height:1.35; color:#374151; background:#f9fafb; }
+    .st-issue.bad { border-color:#fecaca; background:#fef2f2; color:#991b1b; }
+    .st-issue.warn { border-color:#fde68a; background:#fffbeb; color:#92400e; }
+    .st-issue.info { border-color:#dbeafe; background:#eff6ff; color:#1d4ed8; }
 
     .st-shell { display:flex; flex-direction:column; gap:14px; }
     .st-topbar { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:14px; display:grid; grid-template-columns:minmax(260px,1fr) auto; gap:12px; align-items:center; }
@@ -503,6 +522,13 @@
     .st-upload-zone .material-symbols-outlined { font-size:34px; color:#2563eb; }
     .st-upload-title { font-size:15px; font-weight:800; color:#111827; }
     .st-upload-types { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; }
+    .st-company-upload-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+    .st-company-upload { border:1px solid #e5e7eb; border-left:4px solid var(--company-color); border-radius:8px; padding:12px; background:#fff; display:flex; flex-direction:column; gap:10px; }
+    .st-company-upload-head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .st-company-upload-title { color:#111827; font-size:14px; font-weight:850; }
+    .st-company-upload-erp { color:#6b7280; font-size:10px; font-weight:800; border:1px solid #e5e7eb; background:#f9fafb; border-radius:999px; padding:2px 7px; }
+    .st-company-upload-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+    .st-company-upload-actions .st-btn { width:100%; padding:7px 8px; font-size:11px; }
     .st-file-pill { border:1px solid #e5e7eb; background:#fff; color:#4b5563; border-radius:999px; padding:3px 9px; font-size:11px; font-weight:700; }
     .st-queue-card { margin-top:12px; padding:12px; border:1px solid #dbeafe; background:#eff6ff; border-radius:8px; }
     .st-queue-row { display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:12px; color:#1e3a8a; margin-bottom:7px; }
@@ -524,6 +550,20 @@
     .st-tool-btn:hover { border-color:#bfdbfe; background:#f8fbff; color:#1d4ed8; }
     .st-tool-btn .material-symbols-outlined { font-size:22px; }
 
+    .split-modal { background:#fff; border-radius:10px; width:min(1180px,96vw); max-height:94vh; display:grid; grid-template-columns:minmax(0,1fr) 280px; overflow:hidden; }
+    .split-stage { background:#111827; min-height:560px; max-height:94vh; overflow:auto; display:flex; align-items:center; justify-content:center; padding:18px; }
+    .split-image-wrap { position:relative; display:inline-block; max-width:100%; cursor:crosshair; user-select:none; touch-action:none; }
+    .split-image-wrap img { display:block; max-width:100%; max-height:calc(94vh - 36px); object-fit:contain; }
+    .split-box { position:absolute; border:2px solid #22c55e; background:rgba(34,197,94,.12); box-shadow:0 0 0 9999px rgba(0,0,0,.08); cursor:pointer; }
+    .split-box.active { border-color:#2563eb; background:rgba(37,99,235,.16); }
+    .split-box span { position:absolute; left:0; top:-24px; min-width:24px; padding:2px 7px; border-radius:999px; background:#2563eb; color:#fff; font-size:11px; font-weight:800; }
+    .split-side { padding:16px; overflow:auto; border-left:1px solid #e5e7eb; display:flex; flex-direction:column; gap:10px; }
+    .split-side h3 { margin:0; font-size:15px; color:#111827; }
+    .split-target-note { border:1px solid #dbeafe; background:#eff6ff; color:#1e40af; border-radius:8px; padding:8px 10px; font-size:12px; font-weight:800; line-height:1.35; }
+    .split-help { color:#6b7280; font-size:12px; line-height:1.45; }
+    .split-list { display:flex; flex-direction:column; gap:6px; }
+    .split-list button { text-align:left; justify-content:flex-start; }
+
     .st-bucket-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
     .st-bucket { background:#fff; border:1px solid #e5e7eb; border-left:4px solid var(--bucket-color); border-radius:8px; padding:13px; cursor:pointer; transition:box-shadow .15s, transform .15s, border-color .15s; min-height:118px; display:flex; flex-direction:column; gap:9px; }
     .st-bucket:hover { transform:translateY(-1px); box-shadow:0 6px 18px rgba(15,23,42,.08); border-color:#cbd5e1; }
@@ -542,7 +582,7 @@
       .st-bucket-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
     }
     @media (max-width: 720px) {
-      .st-bucket-grid, .st-tools, .st-pool-stats { grid-template-columns:1fr; }
+      .st-bucket-grid, .st-tools, .st-pool-stats, .st-company-upload-grid, .st-company-upload-actions { grid-template-columns:1fr; }
     }
 
     /* 모달 (검토) */
@@ -639,9 +679,7 @@
           <option value="COMPANY">컴퍼니</option>
         </select>
         <select class="st-input" x-model="filterClass" @change="load()" title="구분">
-          <option value="">매입+매출</option>
           <option value="매입">매입</option>
-          <option value="매출">매출</option>
         </select>
         <select class="st-input" x-model="filterStatus" @change="load()" title="상태">
           <option value="">전체</option>
@@ -664,30 +702,77 @@
       <div class="st-panel">
         <div class="st-panel-head">
           <span class="material-symbols-outlined">upload_file</span>
-          <div class="st-panel-title">파일 등록</div>
+          <div class="st-panel-title">매입 업무 선택</div>
           <div style="flex:1;"></div>
           <span class="st-chip">JPG</span>
           <span class="st-chip">PDF</span>
-          <span class="st-chip">PPTX</span>
+          <span class="st-chip">매입 MVP</span>
         </div>
         <div class="st-panel-body">
-          <div class="drop-zone st-upload-zone" @click="$refs.fileInput.click()" @dragover.prevent="dragOver=true" @dragleave="dragOver=false"
-            @drop.prevent="dragOver=false; uploadFiles($event.dataTransfer.files)" :class="dragOver?'dragover':''">
-            <span class="material-symbols-outlined">cloud_upload</span>
-            <div class="st-upload-title">이미지, PDF, PPTX 등록</div>
-            <div class="st-upload-types">
-              <span class="st-file-pill">명세서</span>
-              <span class="st-file-pill">세금계산서</span>
-              <span class="st-file-pill">영수증</span>
-              <span class="st-file-pill">시안</span>
+          <div class="st-company-upload-grid">
+            <div class="st-company-upload" style="--company-color:#d97706;" @dragover.prevent="dragOver=true" @dragleave="dragOver=false"
+              @drop.prevent="dragOver=false; uploadFiles($event.dataTransfer.files, { companyCode:'COMPANY', docClass:'매입' })">
+              <div class="st-company-upload-head">
+                <div>
+                  <div class="st-company-upload-title">컴퍼니 매입</div>
+                  <div style="font-size:11px; color:#6b7280; margin-top:2px;">E2E 업로드용 엑셀 흐름</div>
+                </div>
+                <span class="st-company-upload-erp">E2E</span>
+              </div>
+              <div class="st-upload-types">
+                <span class="st-file-pill">명세서</span>
+                <span class="st-file-pill">세금계산서</span>
+                <span class="st-file-pill">이미지/PDF</span>
+              </div>
+              <div class="st-company-upload-actions">
+                <button class="st-btn st-btn-primary st-btn-sm" @click="$refs.companyBuyFile.click()">
+                  <span class="material-symbols-outlined">upload_file</span> 파일 업로드
+                </button>
+                <button class="st-btn st-btn-ghost st-btn-sm" @click="$refs.splitCompanyBuyFile.click()">
+                  <span class="material-symbols-outlined">content_cut</span> 사진 분할
+                </button>
+                <button class="st-btn st-btn-ghost st-btn-sm" style="grid-column:1/-1;" @click="enterMode('COMPANY', '매입')">
+                  <span class="material-symbols-outlined">table_view</span> 컴퍼니 매입 검토 화면
+                </button>
+              </div>
             </div>
-            <div style="margin-top:10px; font-size:11px; color:#9ca3af;">
-              끌어놓기 · 클릭 · <kbd style="background:#fff; border:1px solid #d1d5db; border-radius:4px; padding:1px 6px; font-family:Consolas,monospace;">Ctrl</kbd> + <kbd style="background:#fff; border:1px solid #d1d5db; border-radius:4px; padding:1px 6px; font-family:Consolas,monospace;">V</kbd>
+            <div class="st-company-upload" style="--company-color:#2563eb;" @dragover.prevent="dragOver=true" @dragleave="dragOver=false"
+              @drop.prevent="dragOver=false; uploadFiles($event.dataTransfer.files, { companyCode:'SM', docClass:'매입' })">
+              <div class="st-company-upload-head">
+                <div>
+                  <div class="st-company-upload-title">에스엠 매입</div>
+                  <div style="font-size:11px; color:#6b7280; margin-top:2px;">이카운트 구매입력 흐름</div>
+                </div>
+                <span class="st-company-upload-erp">이카운트</span>
+              </div>
+              <div class="st-upload-types">
+                <span class="st-file-pill">명세서</span>
+                <span class="st-file-pill">세금계산서</span>
+                <span class="st-file-pill">이미지/PDF</span>
+              </div>
+              <div class="st-company-upload-actions">
+                <button class="st-btn st-btn-primary st-btn-sm" @click="$refs.smBuyFile.click()">
+                  <span class="material-symbols-outlined">upload_file</span> 파일 업로드
+                </button>
+                <button class="st-btn st-btn-ghost st-btn-sm" @click="$refs.splitSmBuyFile.click()">
+                  <span class="material-symbols-outlined">content_cut</span> 사진 분할
+                </button>
+                <button class="st-btn st-btn-ghost st-btn-sm" style="grid-column:1/-1;" @click="enterMode('SM', '매입')">
+                  <span class="material-symbols-outlined">table_view</span> 에스엠 매입 검토 화면
+                </button>
+              </div>
             </div>
           </div>
           <input type="file" multiple
-            accept="image/*,application/pdf,.pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-            x-ref="fileInput" style="display:none;" @change="uploadFiles($event.target.files); $event.target.value=''">
+            accept="image/*,application/pdf"
+            x-ref="companyBuyFile" style="display:none;" @change="uploadFiles($event.target.files, { companyCode:'COMPANY', docClass:'매입' }); $event.target.value=''">
+          <input type="file" multiple
+            accept="image/*,application/pdf"
+            x-ref="smBuyFile" style="display:none;" @change="uploadFiles($event.target.files, { companyCode:'SM', docClass:'매입' }); $event.target.value=''">
+          <input type="file" accept="image/*"
+            x-ref="splitCompanyBuyFile" style="display:none;" @change="startSplitFromFiles($event.target.files, 'COMPANY', '매입'); $event.target.value=''">
+          <input type="file" accept="image/*"
+            x-ref="splitSmBuyFile" style="display:none;" @change="startSplitFromFiles($event.target.files, 'SM', '매입'); $event.target.value=''">
 
           <div x-show="queue.total > 0" x-cloak class="st-queue-card">
             <div class="st-queue-row">
@@ -699,13 +784,13 @@
                 x-text="`${queue.total ? Math.round((queue.processed + queue.failed) * 100 / queue.total) : 0}%`"></div>
             </div>
             <div x-show="queue.processed + queue.failed === queue.total && queue.total > 0" x-cloak style="display:flex; align-items:center; gap:8px; margin-top:10px;">
-              <button class="st-btn st-btn-primary st-btn-sm" @click="enterMode('COMPANY', '매출')">
-                <span class="material-symbols-outlined">table_view</span> 컴퍼니 매출
+              <button class="st-btn st-btn-primary st-btn-sm" @click="enterMode('COMPANY', '매입')">
+                <span class="material-symbols-outlined">table_view</span> 컴퍼니 매입 검토
               </button>
-              <button class="st-btn st-btn-ghost st-btn-sm" @click="mergeByVendorDate('COMPANY', '매출')">
-                🔗 같은 거래처+일자 다시 병합
+              <button class="st-btn st-btn-primary st-btn-sm" @click="enterMode('SM', '매입')">
+                <span class="material-symbols-outlined">table_view</span> 에스엠 매입 검토
               </button>
-              <span style="font-size:11px; color:#1e40af;">완료 항목 검토 (자동 병합 됨)</span>
+              <span style="font-size:11px; color:#1e40af;">완료 항목은 회사별 매입 화면에서 검토</span>
             </div>
           </div>
         </div>
@@ -723,9 +808,7 @@
           </div>
           <div class="st-pool-stats">
             <div class="st-pool-stat"><b>SM 매입</b><span x-text="`${poolStats.SM_매입?.rows||0}행 · ${poolStats.SM_매입?.vendors||0}처`"></span></div>
-            <div class="st-pool-stat"><b>SM 매출</b><span x-text="`${poolStats.SM_매출?.rows||0}행 · ${poolStats.SM_매출?.projects||0}현장`"></span></div>
             <div class="st-pool-stat"><b>컴퍼니 매입</b><span x-text="`${poolStats.COMPANY_매입?.rows||0}행 · ${poolStats.COMPANY_매입?.vendors||0}처`"></span></div>
-            <div class="st-pool-stat"><b>컴퍼니 매출</b><span x-text="`${poolStats.COMPANY_매출?.rows||0}행 · ${poolStats.COMPANY_매출?.combos||0}패턴`"></span></div>
           </div>
           <div x-show="poolStats.ready===false" x-cloak style="margin-top:8px; padding:8px 9px; border:1px solid #fecaca; background:#fff; color:#991b1b; border-radius:6px; font-size:11px; line-height:1.45;">
             서버에 정답 엑셀이 없거나 0행입니다. 이 상태에서는 PPTX 자동 매칭을 중단합니다.
@@ -762,9 +845,7 @@
     <div class="st-bucket-grid">
       <template x-for="q in [
         {key:'SM_매입', company:'SM', class:'매입', label:'에스엠 매입', erp:'이카운트', color:'#2563eb', action:'등록 화면'},
-        {key:'SM_매출', company:'SM', class:'매출', label:'에스엠 매출', erp:'이카운트', color:'#059669', action:'등록 화면'},
         {key:'COMPANY_매입', company:'COMPANY', class:'매입', label:'컴퍼니 매입', erp:'E2E', color:'#d97706', action:'엑셀 화면'},
-        {key:'COMPANY_매출', company:'COMPANY', class:'매출', label:'컴퍼니 매출', erp:'E2E', color:'#dc2626', action:'엑셀 화면'},
       ]" :key="q.key">
         <button class="st-bucket" @click="enterMode(q.company, q.class)" :style="`--bucket-color:${q.color};`">
           <div class="st-bucket-top">
@@ -804,6 +885,7 @@
           <th style="width:100px; text-align:right;">부가세</th>
           <th style="width:120px; text-align:right;">합계</th>
           <th style="width:140px;">원본</th>
+          <th style="width:90px;">검증</th>
           <th style="width:150px;"></th>
         </tr>
       </thead>
@@ -827,6 +909,9 @@
             <td style="text-align:right; font-variant-numeric: tabular-nums;" x-text="s.vat_amount?.toLocaleString() || '-'"></td>
             <td style="text-align:right; font-variant-numeric: tabular-nums; font-weight:600;" x-text="s.total_amount?.toLocaleString() || '-'"></td>
             <td style="font-size:11px; color:#9ca3af;" x-text="s.source_file"></td>
+            <td>
+              <span class="st-val-chip" :class="workflowClass(s.workflow)" x-text="workflowLabel(s.workflow)"></span>
+            </td>
             <td @click.stop>
               <button class="st-btn st-btn-success st-btn-sm" x-show="s.status==='pending'" @click="confirm(s.id)">확정</button>
               <button class="st-btn st-btn-warn st-btn-sm" x-show="s.status==='pending'" @click="reject(s.id)">반려</button>
@@ -835,7 +920,7 @@
             </td>
           </tr>
         </template>
-        <tr x-show="items.length===0"><td colspan="10" style="text-align:center; padding:40px; color:#9ca3af;">명세서 없음</td></tr>
+        <tr x-show="items.length===0"><td colspan="11" style="text-align:center; padding:40px; color:#9ca3af;">명세서 없음</td></tr>
       </tbody>
     </table>
 
@@ -848,6 +933,199 @@
   </div>
   </div>
   <!-- ═════ /Overview ═════ -->
+
+  <div class="st-modal-bg" :class="split.open ? 'show' : ''" @click.self="closeSplitTool()" x-cloak>
+    <div class="split-modal" x-show="split.open" x-cloak>
+      <div class="split-stage">
+        <div class="split-image-wrap"
+          @pointerdown="splitPointerDown($event)"
+          @pointermove="splitPointerMove($event)"
+          @pointerup="splitPointerUp()"
+          @pointerleave="splitPointerUp()">
+          <img x-ref="splitImage" :src="split.imageUrl" alt="분할 원본">
+          <template x-for="(box, idx) in split.boxes" :key="idx">
+            <div class="split-box"
+              :class="idx === split.selectedIdx ? 'active' : ''"
+              :style="splitBoxStyle(box)"
+              @pointerdown.stop
+              @click.stop="split.selectedIdx = idx">
+              <span x-text="idx + 1"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+      <div class="split-side">
+        <div style="display:flex; align-items:flex-start; gap:8px;">
+          <div style="flex:1; min-width:0;">
+            <h3>명세서 사진 분할</h3>
+            <div class="split-help" x-text="split.file?.name || ''"></div>
+          </div>
+          <button class="st-btn st-btn-ghost st-btn-sm" @click="closeSplitTool()">닫기</button>
+        </div>
+        <div class="split-target-note"
+          x-text="`${split.companyCode === 'COMPANY' ? '컴퍼니' : '에스엠'} ${split.docClass} 명세서로 분리 저장됩니다.`"></div>
+        <div class="split-help">
+          사진 위에서 명세서 한 장씩 박스를 잡으세요. 겹쳐 찍은 사진은 박스를 여러 개 만들고, 잘못 잡은 박스는 선택 후 삭제하면 됩니다.
+        </div>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          <button class="st-btn st-btn-ghost st-btn-sm" @click="addFullSplitBox()">전체 추가</button>
+          <button class="st-btn st-btn-ghost st-btn-sm" @click="removeSplitBox()">선택 삭제</button>
+          <button class="st-btn st-btn-ghost st-btn-sm" @click="clearSplitBoxes()">전체 삭제</button>
+        </div>
+        <div class="split-list">
+          <template x-for="(box, idx) in split.boxes" :key="idx">
+            <button class="st-btn st-btn-ghost st-btn-sm" :class="idx === split.selectedIdx ? 'st-btn-primary' : ''" @click="split.selectedIdx = idx">
+              <span x-text="`명세서 ${idx + 1}`"></span>
+              <span style="margin-left:6px; color:#6b7280;" x-text="`${Math.round(box.w * 100)}% x ${Math.round(box.h * 100)}%`"></span>
+            </button>
+          </template>
+          <div x-show="!split.boxes.length" class="split-help">아직 분할 영역이 없습니다.</div>
+        </div>
+        <div class="split-help" x-text="split.msg"></div>
+        <button class="st-btn st-btn-primary" @click="saveSplitCrops()">
+          <span class="material-symbols-outlined">cloud_upload</span>
+          <span x-text="`${split.companyCode === 'COMPANY' ? '컴퍼니' : '에스엠'} ${split.docClass} 분할본 OCR 저장`"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="st-modal-bg" :class="selected ? 'show' : ''" @click.self="closeModal()" x-cloak>
+    <div class="st-modal" x-show="selected" x-cloak>
+      <div class="img-pane">
+        <template x-if="selected && (selected.source_file||'').toLowerCase().endsWith('.pdf')">
+          <iframe :src="`/api/statements/${selected.id}/file`"></iframe>
+        </template>
+        <template x-if="selected && !(selected.source_file||'').toLowerCase().endsWith('.pdf')">
+          <img :src="`/api/statements/${selected.id}/file`" alt="원본">
+        </template>
+      </div>
+
+      <div class="info-pane">
+        <div style="display:flex; align-items:flex-start; gap:10px;">
+          <div style="flex:1; min-width:0;">
+            <h3 x-text="selected?.source_file || '명세서 검토'"></h3>
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+              <span class="st-val-chip" :class="workflowClass(selected?.workflow)" x-text="workflowLabel(selected?.workflow)"></span>
+              <span class="st-chip" x-text="selected?.workflow?.companyLabel || selected?.company_code || '회사 미분류'"></span>
+              <span class="st-chip" x-text="selected?.workflow?.targetLabel || selected?.target_erp || '대상 미정'"></span>
+            </div>
+          </div>
+          <button class="st-btn st-btn-ghost st-btn-sm" @click="closeModal()">닫기</button>
+        </div>
+
+        <div class="st-issues" x-show="selected?.workflow?.issues?.length">
+          <template x-for="(issue, idx) in selected.workflow.issues" :key="idx">
+            <div class="st-issue" :class="issueClass(issue)">
+              <b x-text="issue.severity === 'error' ? '오류' : issue.severity === 'warning' ? '확인' : '정보'"></b>
+              <span x-text="issue.message"></span>
+            </div>
+          </template>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px 10px;">
+          <div>
+            <label>회사</label>
+            <select x-model="edit.company_code">
+              <option value="">미분류</option>
+              <option value="SM">대림에스엠</option>
+              <option value="COMPANY">대림컴퍼니</option>
+            </select>
+          </div>
+          <div>
+            <label>구분</label>
+            <select x-model="edit.doc_class">
+              <option value="매입">매입</option>
+            </select>
+          </div>
+          <div>
+            <label>일자</label>
+            <input type="date" x-model="edit.doc_date">
+          </div>
+          <div>
+            <label>문서 종류</label>
+            <input x-model="edit.doc_type">
+          </div>
+          <div style="grid-column:1 / -1;">
+            <label>거래처</label>
+            <input x-model="edit.norm_vendor">
+          </div>
+          <div>
+            <label>사업자번호</label>
+            <input x-model="edit.vendor_biz_no">
+          </div>
+          <div>
+            <label>상태</label>
+            <input :value="selected?.status || ''" readonly>
+          </div>
+          <div>
+            <label>공급가액</label>
+            <input type="number" x-model.number="edit.supply_amount">
+          </div>
+          <div>
+            <label>부가세</label>
+            <input type="number" x-model.number="edit.vat_amount">
+          </div>
+          <div>
+            <label>합계</label>
+            <input type="number" x-model.number="edit.total_amount">
+          </div>
+          <div style="grid-column:1 / -1;">
+            <label>메모</label>
+            <textarea rows="2" x-model="edit.notes"></textarea>
+          </div>
+        </div>
+
+        <div class="st-items" style="margin-top:14px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <b style="font-size:12px;">품목 라인</b>
+            <div style="flex:1;"></div>
+            <button class="st-btn st-btn-ghost st-btn-sm" @click="addEditItem()">행 추가</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th style="width:28px;">#</th>
+                <th>품목</th>
+                <th>규격</th>
+                <th style="width:58px;">수량</th>
+                <th style="width:76px;">단가</th>
+                <th style="width:84px;">공급가</th>
+                <th style="width:72px;">부가세</th>
+                <th style="width:32px;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(it, idx) in (edit.items || [])" :key="it.id || idx">
+                <tr>
+                  <td x-text="idx + 1"></td>
+                  <td><input x-model="it.item_name"></td>
+                  <td><input x-model="it.spec"></td>
+                  <td><input type="number" x-model.number="it.quantity" @input="recalcEditItem(it)"></td>
+                  <td><input type="number" x-model.number="it.unit_price" @input="recalcEditItem(it)"></td>
+                  <td><input type="number" x-model.number="it.amount" @input="it.vat=Math.round((Number(it.amount)||0)*0.1)"></td>
+                  <td><input type="number" x-model.number="it.vat"></td>
+                  <td><button class="st-btn st-btn-danger st-btn-sm" @click="removeEditItem(idx)">-</button></td>
+                </tr>
+              </template>
+              <tr x-show="!edit.items || edit.items.length===0">
+                <td colspan="8" style="text-align:center; color:#9ca3af; padding:10px;">품목 라인 없음</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div x-show="saveMsg" x-text="saveMsg" style="margin-top:10px; font-size:12px; color:#2563eb;"></div>
+        <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;">
+          <button class="st-btn st-btn-primary" @click="save()">저장 후 재검증</button>
+          <button class="st-btn st-btn-success" x-show="selected?.status==='pending'" @click="confirm(selected.id)">확정</button>
+          <button class="st-btn st-btn-warn" x-show="selected?.status==='pending'" @click="reject(selected.id)">반려</button>
+          <button class="st-btn st-btn-ghost" x-show="selected?.status!=='pending'" @click="reset(selected.id)">검토전으로</button>
+          <button class="st-btn st-btn-danger" x-show="selected?.status==='rejected'" @click="del()">삭제</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
 </div>
 

@@ -3,22 +3,33 @@ function statementsApp() {
   return {
     items: [], total: 0, limit: 100, offset: 0,
     stats: { total: 0, pending: 0, confirmed: 0, rejected: 0, byQuadrant: [], pendingByQuadrant: [] },
-    filterStatus: '', filterMonth: '', filterCompany: '', filterClass: '', searchQ: '',
+    filterStatus: '', filterMonth: '', filterCompany: '', filterClass: '매입', searchQ: '',
     queue: { total: 0, processed: 0, failed: 0, queueLen: 0, processing: 0 },
     queueTimer: null,
     dragOver: false,
     selected: null, edit: {}, saveMsg: '',
+    split: {
+      open: false, file: null, imageUrl: '', image: null,
+      boxes: [], selectedIdx: -1, drawing: false,
+      startX: 0, startY: 0, msg: '',
+      companyCode: 'COMPANY', docClass: '매입',
+    },
 
     // 모드 라우팅
-    currentView: 'overview',  // overview / company-buy / company-sell / sm-buy / sm-sell
+    currentView: 'overview',  // overview / company-buy / sm-buy
     modeRows: [], selectedRowIdx: -1,
 
     enterMode(company, cls) {
       const map = {
-        'COMPANY_매입': 'company-buy', 'COMPANY_매출': 'company-sell',
-        'SM_매입': 'sm-buy', 'SM_매출': 'sm-sell',
+        'COMPANY_매입': 'company-buy',
+        'SM_매입': 'sm-buy',
       };
-      this.currentView = map[`${company}_${cls}`] || 'overview';
+      const nextView = map[`${company}_${cls}`];
+      if (!nextView) {
+        alert('MVP에서는 컴퍼니 매입과 에스엠 매입만 진행합니다.');
+        return;
+      }
+      this.currentView = nextView;
       this.filterCompany = company;
       this.filterClass = cls;
       this.selectedRowIdx = -1;
@@ -47,29 +58,49 @@ function statementsApp() {
           if (!dt.ok) continue;
           const items = (dt.statement.items || []);
           if (items.length === 0) {
+            const displayVendor = st.norm_vendor || st.vendor_name || '';
+            const supply = Number(st.supply_amount) || 0;
+            const vat = Number(st.vat_amount) || 0;
+            const total = Number(st.total_amount) || (supply + vat);
             rows.push({
               _key: 'st_' + st.id,
               statement_id: st.id,
               source_file: st.source_file,
-              vendor: st.norm_vendor || st.vendor_name || '',
+              vendor: displayVendor,
+              vendor_biz_no: st.vendor_biz_no || '',
               uploaded_at: st.uploaded_at,
-              date: st.doc_date || '', name: st.norm_vendor || '', spec: '',
-              qty: 1, price: st.supply_amount || 0, amount: st.supply_amount || 0,
-              vat: st.vat_amount || 0, total: st.total_amount || 0,
-              notes: st.notes || '',
+              date: st.doc_date || '',
+              name: displayVendor ? displayVendor + ' 명세서 합계' : '명세서 합계',
+              spec: '품목 라인 미추출',
+              qty: 1, price: supply || total, amount: supply || total,
+              vat, total,
+              notes: [st.notes, '과거 데이터 매칭 여부와 관계없이 검토 대상으로 표시됨'].filter(Boolean).join(' / '),
+              _synthetic: true,
             });
+            rows[rows.length - 1]._original = {
+              name: rows[rows.length - 1].name,
+              spec: rows[rows.length - 1].spec,
+              qty: rows[rows.length - 1].qty,
+              price: rows[rows.length - 1].price,
+              amount: rows[rows.length - 1].amount,
+              vat: rows[rows.length - 1].vat,
+              total: rows[rows.length - 1].total,
+              notes: rows[rows.length - 1].notes,
+            };
           } else {
             for (const it of items) {
               const amt = Number(it.amount) || 0;
               rows.push({
                 _key: 'st_' + st.id + '_' + it.id,
                 statement_id: st.id,
+                item_id: it.id,
                 source_file: st.source_file,
                 vendor: st.norm_vendor || st.vendor_name || '',
+                vendor_biz_no: st.vendor_biz_no || '',
                 uploaded_at: st.uploaded_at,
                 date: st.doc_date || '',
                 name: it.item_name || '', spec: it.spec || '',
-                qty: it.quantity, price: it.unit_price,
+                qty: it.quantity, unit: it.unit || '', price: it.unit_price,
                 amount: amt, vat: it.vat || Math.round(amt * 0.1),
                 total: amt + (it.vat || Math.round(amt * 0.1)),
                 notes: it.notes || st.notes || '',
@@ -98,59 +129,154 @@ function statementsApp() {
       r.total = r.amount + r.vat;
     },
     addBlankRow() {
+      const base = this.selectedRow || {};
       this.modeRows = this.modeRows || [];
       this.modeRows.push({
         _key: 'new_' + Date.now(),
-        statement_id: null, source_file: '', vendor: '',
-        date: '', name: '', spec: '', qty: 0, price: 0, amount: 0, vat: 0, total: 0, notes: '',
+        statement_id: base.statement_id || null,
+        source_file: base.source_file || '',
+        vendor: base.vendor || '',
+        vendor_biz_no: base.vendor_biz_no || '',
+        uploaded_at: base.uploaded_at || '',
+        date: base.date || '',
+        name: '', spec: '', qty: 0, unit: '', price: 0, amount: 0, vat: 0, total: 0, notes: '',
       });
+      this.selectedRowIdx = this.modeRows.length - 1;
     },
     modeSum() {
       return (this.modeRows || []).reduce((s, r) => s + (Number(r.total) || 0), 0);
     },
-    exportUrl(company) {
+    isSyntheticRowUnchanged(r) {
+      if (!r?._synthetic || !r._original) return false;
+      return ['name', 'spec', 'qty', 'price', 'amount', 'vat', 'total', 'notes']
+        .every(k => String(r[k] ?? '') === String(r._original[k] ?? ''));
+    },
+    rowHasContent(r) {
+      return !!(
+        String(r?.name || '').trim()
+        || String(r?.spec || '').trim()
+        || String(r?.notes || '').trim()
+        || Number(r?.qty)
+        || Number(r?.price)
+        || Number(r?.amount)
+        || Number(r?.vat)
+      );
+    },
+    async saveModeRows(opts = {}) {
+      const rows = this.modeRows || [];
+      const statementIds = [...new Set(rows.map(r => r.statement_id).filter(Boolean))];
+      if (statementIds.length === 0) {
+        if (!opts.silent) alert('저장할 명세서가 없습니다. 먼저 업로드된 명세서 행을 선택하세요.');
+        return false;
+      }
+
+      for (const statementId of statementIds) {
+        const group = rows.filter(r => r.statement_id === statementId);
+        const first = group[0] || {};
+        const saveableRows = group.filter(r => this.rowHasContent(r) && !this.isSyntheticRowUnchanged(r));
+        const items = saveableRows.map(r => ({
+          item_code: r.item_code || '',
+          item_name: r.name || '',
+          spec: r.spec || '',
+          quantity: Number(r.qty) || 0,
+          unit: r.unit || '',
+          unit_price: Number(r.price) || 0,
+          amount: Number(r.amount) || 0,
+          vat: Number(r.vat) || 0,
+          notes: r.notes || '',
+        }));
+        const supply = items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
+        const vat = items.reduce((s, it) => s + (Number(it.vat) || 0), 0);
+        const fallbackSupply = group.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+        const fallbackVat = group.reduce((s, r) => s + (Number(r.vat) || 0), 0);
+        const body = {
+          company_code: this.filterCompany,
+          doc_class: this.filterClass,
+          doc_date: first.date || null,
+          vendor_name: first.vendor || null,
+          vendor_biz_no: first.vendor_biz_no || null,
+          norm_vendor: first.vendor || null,
+          supply_amount: supply || fallbackSupply || null,
+          vat_amount: vat || fallbackVat || null,
+          total_amount: (supply || fallbackSupply || 0) + (vat || fallbackVat || 0),
+          items,
+        };
+        const r = await fetch(`/api/statements/${statementId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }).then(r => r.json());
+        if (!r.ok) throw new Error(`명세서 #${statementId} 저장 실패`);
+      }
+
+      await this.loadModeRows();
+      await this.loadStats();
+      if (!opts.silent) alert(`${statementIds.length}개 명세서를 저장했습니다.`);
+      return true;
+    },
+    exportUrl(company, statementIds = []) {
       const p = new URLSearchParams();
       p.set('status', 'confirmed');
       if (company) p.set('companyCode', company);
       if (this.filterClass) p.set('docClass', this.filterClass);
       if (this.filterMonth) p.set('month', this.filterMonth);
+      if (statementIds.length) p.set('statementIds', statementIds.join(','));
       return '/api/statements/export.xlsx?' + p;
     },
     async confirmAllInMode() {
       if (!confirm(`현재 분할의 검토전 명세서 모두 확정?\n(이미 확정된 건 변경 없음)`)) return;
-      for (const r of (this.modeRows || [])) {
-        if (r.statement_id) {
-          try { await fetch(`/api/statements/${r.statement_id}/confirm`, {method:'POST'}); } catch(e){}
-        }
-      }
-      this.loadModeRows();
-      this.loadStats();
-    },
-    async rematchCompanySales() {
-      if (this.currentView !== 'company-sell') {
-        alert('컴퍼니 매출 화면에서만 재매칭할 수 있습니다.');
+      try {
+        const saved = await this.saveModeRows({ silent: true });
+        if (!saved) return;
+      } catch (e) {
+        alert('저장 실패로 확정을 중단합니다.\n' + e.message);
         return;
       }
-      if (!confirm('현재 조건의 검토전 컴퍼니 매출 행을 학습 엑셀 기준으로 다시 매칭할까요?\n확정된 행은 건드리지 않습니다.')) return;
+      const failed = [];
+      const statementIds = [...new Set((this.modeRows || []).map(r => r.statement_id).filter(Boolean))];
+      for (const statementId of statementIds) {
+        try {
+          const r = await fetch(`/api/statements/${statementId}/confirm`, { method: 'POST' }).then(r => r.json());
+          if (!r.ok) failed.push(`#${statementId}: ${this.formatWorkflowIssues(r.workflow)}`);
+        } catch(e) {
+          failed.push(`#${statementId}: ${e.message}`);
+        }
+      }
+      await this.loadModeRows();
+      await this.loadStats();
+      if (failed.length) alert('일부 명세서는 확정되지 않았습니다.\n\n' + failed.join('\n\n'));
+    },
+    async confirmModeStatementIds(statementIds) {
+      const failed = [];
+      for (const statementId of statementIds || []) {
+        try {
+          const r = await fetch(`/api/statements/${statementId}/confirm`, { method: 'POST' }).then(r => r.json());
+          if (!r.ok) failed.push(`#${statementId}: ${this.formatWorkflowIssues(r.workflow)}`);
+        } catch(e) {
+          failed.push(`#${statementId}: ${e.message}`);
+        }
+      }
+      await this.loadModeRows();
+      await this.loadStats();
+      return failed;
+    },
+    async downloadModeExport(company) {
+      const label = company === 'SM' ? '이카운트 엑셀' : 'E2E 엑셀';
+      if (!confirm(`현재 화면의 수정값을 저장하고 확정한 뒤 ${label}을 다운로드할까요?`)) return;
       try {
-        const r = await fetch('/api/statements/rematch-company-sales', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ month: this.filterMonth || null, status: 'pending' }),
-        }).then(r => r.json());
-        if (!r.ok) {
-          alert('재매칭 실패: ' + (r.error || '알 수 없는 오류'));
+        const saved = await this.saveModeRows({ silent: true });
+        if (!saved) return;
+        const statementIds = [...new Set((this.modeRows || []).map(r => r.statement_id).filter(Boolean))];
+        const failed = await this.confirmModeStatementIds(statementIds);
+        if (failed.length) {
+          alert('검증 실패로 다운로드를 중단합니다.\n\n' + failed.join('\n\n'));
           return;
         }
-        await this.loadModeRows();
-        await this.loadStats();
-        const msg = `스캔 ${r.scanned}행 / 매칭 ${r.matched}행 / 애매함 ${r.ambiguous}행 / 실패 ${r.failed}행`;
-        alert('학습 재매칭 완료\n' + msg);
+        window.location.href = this.exportUrl(company, statementIds);
       } catch (e) {
-        alert('재매칭 오류: ' + e.message);
+        alert('엑셀 다운로드 준비 실패: ' + e.message);
       }
     },
-
     // 학습 풀 통계
     poolStats: { loaded: false },
     async loadPoolStats() {
@@ -349,6 +475,12 @@ function statementsApp() {
         }
       }
       try {
+        const saved = await this.saveModeRows({ silent: true });
+        if (!saved) {
+          this.ecountMsg = '저장할 명세서가 없습니다.';
+          return;
+        }
+        const statementIds = [...new Set((this.modeRows || []).map(r => r.statement_id).filter(Boolean))];
         const r = await fetch('/api/statements/ecount/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -356,6 +488,7 @@ function statementsApp() {
             docClass,
             month: this.filterMonth || null,
             dryRun,
+            statementIds,
           }),
         }).then(r => r.json());
         if (r.ok && r.dryRun) {
@@ -390,8 +523,19 @@ function statementsApp() {
       await this.loadStats();
       await this.load();
       await this.loadPoolStats();
-      // Ctrl+V 붙여넣기 (페이지 어디서든)
+      this._entryHandler = (e) => {
+        const d = e.detail || {};
+        if (d.company) this.enterMode(d.company, d.cls || '매입');
+      };
+      window.addEventListener('statement-entry', this._entryHandler);
+      if (window.__statementEntry?.company) {
+        this.enterMode(window.__statementEntry.company, window.__statementEntry.cls || '매입');
+      }
+      // Ctrl+V 붙여넣기 (매입 MVP: 회사별 화면 안에서만 업로드)
       this._pasteHandler = (e) => {
+        const forcedTarget = this.currentView === 'company-buy'
+          ? { companyCode: 'COMPANY', docClass: '매입' }
+          : (this.currentView === 'sm-buy' ? { companyCode: 'SM', docClass: '매입' } : null);
         // input/textarea 안에 있고 클립보드에 이미지 없으면 인터셉트 안 함
         const tg = e.target;
         const items = (e.clipboardData && e.clipboardData.items) || [];
@@ -403,6 +547,10 @@ function statementsApp() {
           }
         }
         if (imgFiles.length === 0) return;  // 텍스트 붙여넣기는 그대로 통과
+        if (!forcedTarget) {
+          alert('먼저 컴퍼니 매입 또는 에스엠 매입 화면으로 들어간 뒤 사진을 붙여넣으세요.');
+          return;
+        }
         if (tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA' || tg.contentEditable === 'true')) {
           // 폼 안이지만 이미지 있으면 → 업로드 (텍스트 input 에는 어차피 이미지 못 넣음)
         }
@@ -416,12 +564,13 @@ function statementsApp() {
           const renamed = new File([f], `paste_${ts}.${ext}`, { type: f.type });
           dt.items.add(renamed);
         }
-        this.uploadFiles(dt.files);
+        this.uploadFiles(dt.files, forcedTarget);
       };
       document.addEventListener('paste', this._pasteHandler);
     },
     destroy() {
       if (this._pasteHandler) document.removeEventListener('paste', this._pasteHandler);
+      if (this._entryHandler) window.removeEventListener('statement-entry', this._entryHandler);
     },
     async loadStats() {
       try { const r = await fetch('/api/statements/stats').then(r=>r.json()); if (r.ok) this.stats = r; } catch(e) {}
@@ -441,11 +590,19 @@ function statementsApp() {
       } catch(e) { console.error(e); }
     },
 
-    async uploadFiles(fileList) {
+    async uploadFiles(fileList, opts = {}) {
       const files = Array.from(fileList);
       if (files.length === 0) return;
+      const targetCompany = ['COMPANY', 'SM'].includes(opts.companyCode) ? opts.companyCode : '';
+      const targetClass = opts.docClass === '매입' ? '매입' : '';
+      if (!targetCompany || !targetClass) {
+        alert('MVP에서는 컴퍼니 매입 또는 에스엠 매입 입구에서만 업로드할 수 있습니다.');
+        return;
+      }
       const fd = new FormData();
       for (const f of files) fd.append('files', f);
+      fd.append('companyCode', targetCompany);
+      fd.append('docClass', targetClass);
       try {
         const r = await fetch('/api/statements/upload-batch', { method: 'POST', body: fd }).then(r=>r.json());
         if (r.ok) {
@@ -453,6 +610,148 @@ function statementsApp() {
           this.startQueuePoll();
         }
       } catch(e) { alert('업로드 실패: '+e.message); }
+    },
+
+    startSplitFromFiles(fileList, companyCode = 'COMPANY', docClass = '매입') {
+      const file = Array.from(fileList || []).find(f => (f.type || '').startsWith('image/'));
+      if (!file) {
+        alert('사진 파일을 선택하세요.');
+        return;
+      }
+      this.openSplitTool(file, companyCode, docClass);
+    },
+    openSplitTool(file, companyCode = 'COMPANY', docClass = '매입') {
+      this.closeSplitTool();
+      const imageUrl = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        this.split.image = img;
+        this.split.msg = '사진 위에서 드래그해 명세서 영역을 잡으세요.';
+      };
+      img.src = imageUrl;
+      this.split = {
+        open: true,
+        file,
+        imageUrl,
+        image: img,
+        boxes: [],
+        selectedIdx: -1,
+        drawing: false,
+        startX: 0,
+        startY: 0,
+        companyCode,
+        docClass,
+        msg: '원본 사진을 여는 중...',
+      };
+    },
+    closeSplitTool(revoke = true) {
+      if (revoke && this.split?.imageUrl) URL.revokeObjectURL(this.split.imageUrl);
+      this.split = {
+        open: false, file: null, imageUrl: '', image: null,
+        boxes: [], selectedIdx: -1, drawing: false,
+        startX: 0, startY: 0, msg: '',
+        companyCode: 'COMPANY', docClass: '매입',
+      };
+    },
+    splitPoint(e) {
+      const img = this.$refs.splitImage;
+      if (!img) return null;
+      const rect = img.getBoundingClientRect();
+      const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+      return { x, y };
+    },
+    splitPointerDown(e) {
+      if (!this.split.open || !this.split.imageUrl) return;
+      const p = this.splitPoint(e);
+      if (!p) return;
+      this.split.drawing = true;
+      this.split.startX = p.x;
+      this.split.startY = p.y;
+      this.split.boxes.push({ x: p.x, y: p.y, w: 0.001, h: 0.001 });
+      this.split.selectedIdx = this.split.boxes.length - 1;
+    },
+    splitPointerMove(e) {
+      if (!this.split.drawing || this.split.selectedIdx < 0) return;
+      const p = this.splitPoint(e);
+      if (!p) return;
+      const x1 = Math.min(this.split.startX, p.x);
+      const y1 = Math.min(this.split.startY, p.y);
+      const x2 = Math.max(this.split.startX, p.x);
+      const y2 = Math.max(this.split.startY, p.y);
+      this.split.boxes[this.split.selectedIdx] = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+    },
+    splitPointerUp() {
+      if (!this.split.drawing) return;
+      const idx = this.split.selectedIdx;
+      this.split.drawing = false;
+      const b = this.split.boxes[idx];
+      if (!b || b.w < 0.025 || b.h < 0.025) {
+        this.split.boxes.splice(idx, 1);
+        this.split.selectedIdx = this.split.boxes.length ? this.split.boxes.length - 1 : -1;
+      }
+    },
+    splitBoxStyle(box) {
+      return `left:${box.x * 100}%;top:${box.y * 100}%;width:${box.w * 100}%;height:${box.h * 100}%;`;
+    },
+    addFullSplitBox() {
+      this.split.boxes.push({ x: 0.02, y: 0.02, w: 0.96, h: 0.96 });
+      this.split.selectedIdx = this.split.boxes.length - 1;
+    },
+    removeSplitBox(idx = this.split.selectedIdx) {
+      if (idx < 0) return;
+      this.split.boxes.splice(idx, 1);
+      this.split.selectedIdx = this.split.boxes.length ? Math.min(idx, this.split.boxes.length - 1) : -1;
+    },
+    clearSplitBoxes() {
+      this.split.boxes = [];
+      this.split.selectedIdx = -1;
+    },
+    async saveSplitCrops() {
+      if (!this.split.file || !this.split.image || !this.split.image.naturalWidth) {
+        alert('원본 사진을 아직 불러오는 중입니다.');
+        return;
+      }
+      const boxes = (this.split.boxes || [])
+        .filter(b => b.w > 0.025 && b.h > 0.025)
+        .slice()
+        .sort((a, b) => (a.y - b.y) || (a.x - b.x));
+      if (!boxes.length) {
+        alert('먼저 명세서 영역을 박스로 잡아주세요.');
+        return;
+      }
+      const img = this.split.image;
+      const base = (this.split.file.name || 'statement')
+        .replace(/\.[^.]+$/, '')
+        .replace(/[\\/:*?"<>|]+/g, '_')
+        .slice(0, 80);
+      const files = [];
+      for (let i = 0; i < boxes.length; i++) {
+        const b = boxes[i];
+        const sx = Math.max(0, Math.round(b.x * img.naturalWidth));
+        const sy = Math.max(0, Math.round(b.y * img.naturalHeight));
+        const sw = Math.max(1, Math.round(b.w * img.naturalWidth));
+        const sh = Math.max(1, Math.round(b.h * img.naturalHeight));
+        const canvas = document.createElement('canvas');
+        canvas.width = sw;
+        canvas.height = sh;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.94));
+        if (!blob) continue;
+        const no = String(i + 1).padStart(2, '0');
+        files.push(new File([blob], `${base}__crop_${no}.jpg`, { type: 'image/jpeg' }));
+      }
+      if (!files.length) {
+        alert('분할 이미지를 만들지 못했습니다.');
+        return;
+      }
+      this.split.msg = `${files.length}개 분할본을 OCR 큐에 넣는 중...`;
+      await this.uploadFiles(files, {
+        companyCode: this.split.companyCode,
+        docClass: this.split.docClass,
+      });
+      this.closeSplitTool();
     },
 
     startQueuePoll() {
@@ -467,6 +766,7 @@ function statementsApp() {
               clearInterval(this.queueTimer); this.queueTimer = null;
               await this.loadStats();
               await this.load();
+              if (['company-buy', 'sm-buy'].includes(this.currentView)) await this.loadModeRows();
             }
           }
         } catch(e) {}
@@ -496,6 +796,49 @@ function statementsApp() {
       } catch(e) { alert(e.message); }
     },
     closeModal() { this.selected = null; this.saveMsg = ''; },
+    workflowClass(wf) {
+      if (!wf) return 'unknown';
+      if ((wf.blockingCount || 0) > 0) return 'bad';
+      if ((wf.warningCount || 0) > 0) return 'warn';
+      return 'ok';
+    },
+    workflowLabel(wf) {
+      if (!wf) return '검증 대기';
+      if ((wf.blockingCount || 0) > 0) return `오류 ${wf.blockingCount}`;
+      if ((wf.warningCount || 0) > 0) return `확인 ${wf.warningCount}`;
+      return '통과';
+    },
+    issueClass(issue) {
+      return issue?.severity === 'error' ? 'bad' : (issue?.severity === 'warning' ? 'warn' : 'info');
+    },
+    formatWorkflowIssues(wf) {
+      const issues = wf?.issues || [];
+      if (!issues.length) return '검증 통과';
+      return issues.map((issue, idx) => `${idx + 1}. ${issue.message}`).join('\n');
+    },
+    addEditItem() {
+      if (!Array.isArray(this.edit.items)) this.edit.items = [];
+      this.edit.items.push({
+        item_name: '',
+        spec: '',
+        quantity: 1,
+        unit: '',
+        unit_price: 0,
+        amount: 0,
+        vat: 0,
+        notes: '',
+      });
+    },
+    removeEditItem(idx) {
+      if (!Array.isArray(this.edit.items)) return;
+      this.edit.items.splice(idx, 1);
+    },
+    recalcEditItem(it) {
+      const qty = Number(it.quantity) || 0;
+      const price = Number(it.unit_price) || 0;
+      if (qty && price) it.amount = Math.round(qty * price);
+      it.vat = Math.round((Number(it.amount) || 0) * 0.1);
+    },
 
     async save() {
       if (!this.selected) return;
@@ -512,7 +855,12 @@ function statementsApp() {
       } catch(e) { this.saveMsg = '에러: '+e.message; }
     },
     async confirm(id) {
-      await fetch(`/api/statements/${id}/confirm`, {method:'POST'});
+      const r = await fetch(`/api/statements/${id}/confirm`, {method:'POST'}).then(r => r.json());
+      if (!r.ok) {
+        if (this.selected?.id === id && r.workflow) this.selected.workflow = r.workflow;
+        alert('확정할 수 없습니다.\n\n' + this.formatWorkflowIssues(r.workflow));
+        return;
+      }
       await this.load(); await this.loadStats();
       if (this.selected?.id === id) this.closeModal();
     },
