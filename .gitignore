@@ -17,6 +17,9 @@ data/
 !서버_프록시모드_와치독.bat
 !서버_프록시모드실행.bat
 !git-pull-server.bat
+# Exception: Cloudflare 터널 시작 bat 도 서버 PC로 전파 (tunnel-env.bat 은 *.bat 규칙으로 계속 무시됨)
+!scripts/cloudflare-tunnel/tunnel-start.bat
+scripts/cloudflare-tunnel/cloudflared.exe
 package-lock.json
 *.bak
 
