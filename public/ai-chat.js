@@ -964,13 +964,14 @@ function renderSheetTable(sheet) {
       if (mergeMaps.skip[rowNumber + ':' + colNumber]) continue;
       const cell = cells[c] || {};
       const rawValue = styled ? (cell.v == null ? '' : String(cell.v)) : (cell == null ? '' : String(cell));
+      const dispValue = (styled && cell.fv != null && cell.fv !== '') ? String(cell.fv) : rawValue; // 서식 적용값(₩/천단위/%/날짜)
       const formula = styled && cell.f ? String(cell.f) : '';
       const value = formula || rawValue;
       const address = excelColName(colNumber) + rowNumber;
       const merge = mergeMaps.anchors[rowNumber + ':' + colNumber] || {};
       const span = (merge.colspan ? ' colspan="' + merge.colspan + '"' : '') + (merge.rowspan ? ' rowspan="' + merge.rowspan + '"' : '');
       const style = styled ? excelPreviewCellStyle(cell.style) : '';
-      html += '<td class="excel-cell" data-address="' + address + '" data-formula="' + escapeHtml(formula) + '" title="' + escapeHtml(value) + '"' + span + (style ? ' style="' + escapeHtml(style) + '"' : '') + '>' + escapeHtml(rawValue || formula) + '</td>';
+      html += '<td class="excel-cell" data-address="' + address + '" data-formula="' + escapeHtml(formula) + '" title="' + escapeHtml(value) + '"' + span + (style ? ' style="' + escapeHtml(style) + '"' : '') + '>' + escapeHtml(dispValue || formula) + '</td>';
     }
     html += '</tr>';
   }

@@ -3354,6 +3354,7 @@ function excelCellStyleForPreview(cell) {
   if (font.bold) style.bold = true;
   if (font.italic) style.italic = true;
   if (font.size) style.fontSize = Math.max(8, Math.min(28, Number(font.size)));
+  if (font.name) style.fontName = String(font.name);
   const fontColor = excelColorToCss(font.color);
   if (fontColor) style.color = fontColor;
   const bgColor = excelColorToCss(fill.fgColor) || excelColorToCss(fill.bgColor);
@@ -3373,6 +3374,7 @@ function excelCellStyleForPreview(cell) {
 }
 
 function sheetToPreview(sheet, limitRows = 200, limitCols = 60) {
+  const { formatByNumFmt } = require('../lib/numfmt-display');
   const maxRow = Math.min(limitRows, sheet.rowCount || sheet.actualRowCount || 0);
   const maxCol = Math.min(limitCols, sheet.columnCount || 0);
   const cols = [];
@@ -3390,9 +3392,18 @@ function sheetToPreview(sheet, limitRows = 200, limitCols = 60) {
       const value = excelCellToText(cell);
       const formula = cell.formula ? `=${cell.formula}` : '';
       if (value || formula) hasContent = true;
+      // numFmt 표시값(₩/천단위/%/날짜) — 원본과 다를 때만 fv 로 내려보냄
+      let fv = null;
+      const nf = cell.numFmt || (cell.style && cell.style.numFmt) || '';
+      if (nf) {
+        const raw = (cell.value && typeof cell.value === 'object' && 'result' in cell.value) ? cell.value.result : cell.value;
+        const f = formatByNumFmt(raw, nf);
+        if (f != null && String(f) !== String(raw)) fv = String(f);
+      }
       cells.push({
         v: value,
         f: formula,
+        fv: fv,
         style: excelCellStyleForPreview(cell),
       });
     }
@@ -3403,6 +3414,8 @@ function sheetToPreview(sheet, limitRows = 200, limitCols = 60) {
     rows,
     cols,
     merges: (sheet.model && Array.isArray(sheet.model.merges)) ? sheet.model.merges.slice(0, 500) : [],
+    frozenPane: (sheet.views && sheet.views[0] && (sheet.views[0].xSplit || sheet.views[0].ySplit))
+      ? { xSplit: sheet.views[0].xSplit || 0, ySplit: sheet.views[0].ySplit || 0 } : null,
   };
 }
 
