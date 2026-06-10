@@ -594,6 +594,36 @@ router.get('/history/:id/export.xlsx', requireAuth, async (req, res) => {
   }
 });
 
+// ─── 신규 전표 (수기 입력 — 사진 없이 작성, E2E '신규' 버튼) ──
+router.post('/history', requireAuth, express.json({ limit: '2mb' }), (req, res) => {
+  try {
+    const b = req.body || {};
+    const id = 'm' + Date.now() + crypto.randomBytes(2).toString('hex');
+    const today = new Date();
+    const kst = new Date(today.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+    const entry = {
+      id,
+      created_at: Date.now(),
+      user_id: req.session?.userId || 'unknown',
+      user_name: req.session?.userName || req.session?.userId || 'unknown',
+      image_filename: '',
+      vendor: { name: (b.vendor && b.vendor.name) || '', biz_no: (b.vendor && b.vendor.biz_no) || '' },
+      buyer: null,
+      trx_date: b.trx_date || kst,
+      memo: b.memo || '',
+      lines: Array.isArray(b.lines) ? b.lines : [],
+      stats: { total: 0, matched: 0, predicted: 0, unknown: 0, unmatched: 0 },
+      total_amt: 0,
+      status: 'parsed',
+      manual: true,
+    };
+    appendHistoryRow(entry);
+    res.json({ ok: true, id, statement: findHistoryRow(id) });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 // ─── 명세서 저장/확정 (장부 — export 없이 수정·상태변경) ──
 router.patch('/history/:id', requireAuth, express.json({ limit: '5mb' }), (req, res) => {
   const cur = findHistoryRow(req.params.id);
@@ -604,6 +634,7 @@ router.patch('/history/:id', requireAuth, express.json({ limit: '5mb' }), (req, 
     patch.vendor = { ...(cur.vendor || {}), name: b.vendor.name ?? (cur.vendor && cur.vendor.name) ?? '', biz_no: b.vendor.biz_no ?? (cur.vendor && cur.vendor.biz_no) ?? '' };
   }
   if (typeof b.trx_date === 'string') patch.trx_date = b.trx_date;
+  if (typeof b.memo === 'string') patch.memo = b.memo;
   if (Array.isArray(b.lines)) {
     patch.lines = b.lines;
     patch.total_amt = b.lines.filter(l => !l.skip).reduce((s, l) => s + (Number(l.total_amt) || 0), 0);
