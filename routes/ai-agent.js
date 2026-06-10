@@ -121,6 +121,7 @@ function persistAgentFiles({ userId, threadId, sessionId, files }) {
       out.push(artifactPayload(art));
     } catch (e) {
       console.warn('[ai-agent] artifact persist failed:', f.relPath, e.message);
+      (out.failures || (out.failures = [])).push(f.name || f.relPath);
     }
   }
   return out;
@@ -322,6 +323,9 @@ router.post('/run', async (req, res) => {
           sessionId: (lastDone && lastDone.sessionId) || (lastError && lastError.sessionId) || liveSessionId || '',
           files: remainingFiles,
         });
+        if (newlyCreated.failures && newlyCreated.failures.length) {
+          collectedOutput += `\n\n⚠️ 일부 결과 파일 저장에 실패했어요: ${newlyCreated.failures.join(', ')} — 잠시 후 다시 시도해 주세요.`;
+        }
         const createdArtifacts = liveArtifacts.concat(newlyCreated);
         const errorCode = (lastError && lastError.code) || null;
         const summary = buildAgentFinalContent({

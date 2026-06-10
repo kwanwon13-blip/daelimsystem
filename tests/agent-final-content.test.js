@@ -36,6 +36,12 @@ assert.ok(buildAgentFinalContent({ userStopped: true, createdArtifacts: [], fina
   const t = buildAgentFinalContent({ lastError: { message: 'x' }, errorCode: 'TEMPLATE_MISSING', createdArtifacts: [], finalFiles: [], collectedOutput: '' });
   assert.ok(t.includes(FRIENDLY_ERROR.TEMPLATE_MISSING.slice(0, 10)));
 }
+// ⑦ 미매핑 에러코드 → raw 메시지 대신 깔끔한 일반 안내 (그룹A 수리)
+{
+  const t = buildAgentFinalContent({ lastError: { message: 'ENOENT raw stack...' }, errorCode: 'WEIRD_NEW_CODE', createdArtifacts: [], finalFiles: [], collectedOutput: '' });
+  assert.ok(/끝내지 못했어요/.test(t), '미매핑 코드는 일반 안내로');
+  assert.ok(!t.startsWith('작업에 실패했어요: ENOENT'), 'raw 메시지가 헤드라인이 되면 안 됨');
+}
 // ⑥ 회귀: 템플릿 저장 경로 그대로
 assert.ok(buildAgentFinalContent({ lastDone: { templateSaved: ['전월.xlsx'] }, createdArtifacts: [], finalFiles: [] }).includes('템플릿 저장 완료'));
 

@@ -354,21 +354,39 @@ function attachToGeneration(aiMsg, ownerThreadId) {
   catch (e) { return; }
   state.attachES = es;
   const viewing = () => String(state.activeThreadId) === String(ownerThreadId);
+  // 워치독: 연결이 조용히 끊겨(에러도 done도 없이) 이벤트가 멎으면 UI 가 영영 "생성 중"에 갇히는 것 방지.
+  // 백엔드는 안 죽인다(명시적 stop 만 죽임). UI만 풀고, 대화를 다시 열면 재attach 로 이어진다.
+  let wd;
+  const bumpWd = () => {
+    clearTimeout(wd);
+    wd = setTimeout(() => {
+      if (state.attachES !== es) return;
+      aiMsg.streaming = false; aiMsg.thinkingActive = false;
+      if (viewing()) updateLastAIContent(aiMsg.content, false, ownerThreadId);
+      try { es.close(); } catch(_){} state.attachES = null;
+      loadThreads();
+    }, 180000);
+  };
+  bumpWd();
   es.addEventListener('snapshot', (ev) => {
     if (state.attachES !== es) return; // 스레드 전환 등으로 교체된 스트림이면 무시
+    bumpWd();
     try { const d = JSON.parse(ev.data); aiMsg.content = d.text || ''; if (viewing()) { updateLastAIContent(aiMsg.content, true, ownerThreadId); scrollToBottom(); } } catch(_){}
   });
   es.addEventListener('delta', (ev) => {
     if (state.attachES !== es) return;
+    bumpWd();
     try { const d = JSON.parse(ev.data); aiMsg.content += d.text || ''; if (viewing()) updateLastAIContent(aiMsg.content, true, ownerThreadId); } catch(_){}
   });
   es.addEventListener('thinking', (ev) => {
     if (state.attachES !== es) return;
+    bumpWd();
     try { const d = JSON.parse(ev.data); if (typeof d.text === 'string') aiMsg.thinking = (aiMsg.thinking || '') + d.text; aiMsg.thinkingActive = true; } catch(_){}
     if (viewing()) updateLastAIContent(aiMsg.content, true, ownerThreadId);
   });
   es.addEventListener('done', (ev) => {
     if (state.attachES !== es) return; // 교체된 스트림의 done 이 새 스트림 참조를 지우지 않게
+    clearTimeout(wd);
     try { const d = JSON.parse(ev.data); if (d.text) aiMsg.content = d.text; if (Array.isArray(d.artifacts)) aiMsg.artifacts = d.artifacts; } catch(_){}
     aiMsg.streaming = false; aiMsg.status = 'ok'; aiMsg.thinkingActive = false;
     if (viewing()) { updateLastAIContent(aiMsg.content, false, ownerThreadId); renderMessagesFull(); }
@@ -377,6 +395,7 @@ function attachToGeneration(aiMsg, ownerThreadId) {
   });
   es.addEventListener('error', (ev) => {
     if (state.attachES !== es) return;
+    clearTimeout(wd);
     // 서버가 보낸 event:error(데이터 있음) vs 연결 끊김(데이터 없음) 구분
     let serverErr = false;
     try { if (ev && ev.data) { const d = JSON.parse(ev.data); aiMsg.content = (d.text || aiMsg.content || '') + '\n\n**오류:** ' + (d.error || '오류'); aiMsg.streaming = false; aiMsg.status = 'error'; if (viewing()) updateLastAIContent(aiMsg.content, false, ownerThreadId); serverErr = true; } } catch(_){}

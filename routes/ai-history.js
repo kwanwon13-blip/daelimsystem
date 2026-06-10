@@ -2702,7 +2702,8 @@ router.post('/chat-stream-cli/stop', (req, res) => {
     return res.status(403).json({ error: '권한 없음' });
   }
   const ok = reg.abort(messageId);
-  res.json({ ok });   // 이후 라우터 catch/finalize 가 status='interrupted' 로 마무리
+  // ok=false 면 이미 끝났거나(레지스트리에서 빠짐) 생성 중이 아님 — 실패가 아니라 'not_generating' 으로 알림
+  res.json({ ok, reason: ok ? undefined : 'not_generating' });   // 이후 라우터 catch/finalize 가 status='interrupted' 로 마무리
 });
 
 // ──────────────────────────────────────────────────────────
