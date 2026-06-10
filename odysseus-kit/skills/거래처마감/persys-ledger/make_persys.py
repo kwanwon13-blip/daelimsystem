@@ -17,7 +17,7 @@
 import openpyxl
 from openpyxl import load_workbook
 from openpyxl.cell import MergedCell
-import copy, shutil, os, glob, unicodedata, re, tempfile, argparse, sys, json
+import copy, shutil, os, glob, unicodedata, re, tempfile, argparse, sys
 from datetime import datetime
 
 # ── 품목 분류 규칙 (입력 실수 보정) ──────────────────────────────────
@@ -227,15 +227,8 @@ def main():
 
     projects = {}
     warnings = []
-    recon_raw_rows = 0; recon_raw_total = 0.0
-    recon_excluded_rows = 0; recon_excluded_total = 0.0
-    recon_out_rows = 0; recon_out_total = 0.0
     for row_idx, row in enumerate(ws_raw.iter_rows(min_row=3, values_only=True), start=3):
         if row[0] is None: continue
-        _supply = row[8] or 0
-        recon_raw_rows += 1; recon_raw_total += _supply
-        if row[4] in SKIP_ITEMS:
-            recon_excluded_rows += 1; recon_excluded_total += _supply
         proj = row[2]
         if not proj: continue
         item = row[4]
@@ -249,19 +242,12 @@ def main():
             warnings.append(f'행{row_idx} [{proj}] {item} — 수량×단가={qty*unit_price:.0f} ≠ 공급가액({supply_amt})')
         projects.setdefault(proj, {'안전': [], '잡자재': []})
         projects[proj][cat].append((parse_date(row[0]), row[4], row[5], qty, unit_price, supply_amt))
-        recon_out_rows += 1; recon_out_total += (supply_amt or 0)
 
     if warnings:
         print(f'[WARN] 데이터 이상 {len(warnings)}건:')
         for w in warnings: print('  ', w)
     else:
         print('[OK] 단가/공급가액 검증 통과')
-
-    print('[RECON] ' + json.dumps({
-        'raw_rows': recon_raw_rows, 'raw_total': round(recon_raw_total),
-        'excluded_rows': recon_excluded_rows, 'excluded_total': round(recon_excluded_total),
-        'excluded_note': '매출할인', 'out_rows': recon_out_rows, 'out_total': round(recon_out_total),
-    }, ensure_ascii=False))
 
     header = ws_raw.cell(row=1, column=1).value or ''
     m = re.search(r'(\d{4}/\d{2}/\d{2})\s*~\s*(\d{4}/\d{2}/\d{2})', header)

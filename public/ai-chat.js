@@ -147,6 +147,10 @@ $('newChatBtn').addEventListener('click', () => {
 if ($('skillTemplatesBtn')) {
   $('skillTemplatesBtn').addEventListener('click', () => openSkillTemplatesModal());
 }
+// 회사 기억 보기/관리 (관리자 전용 화면)
+if ($('companyMemoryBtn')) {
+  $('companyMemoryBtn').addEventListener('click', () => openCompanyMemoryModal());
+}
 
 // 이미지 모드
 imageModeBtn.addEventListener('click', () => {
@@ -350,17 +354,39 @@ function attachToGeneration(aiMsg, ownerThreadId) {
   catch (e) { return; }
   state.attachES = es;
   const viewing = () => String(state.activeThreadId) === String(ownerThreadId);
+  // 워치독: 연결이 조용히 끊겨(에러도 done도 없이) 이벤트가 멎으면 UI 가 영영 "생성 중"에 갇히는 것 방지.
+  // 백엔드는 안 죽인다(명시적 stop 만 죽임). UI만 풀고, 대화를 다시 열면 재attach 로 이어진다.
+  let wd;
+  const bumpWd = () => {
+    clearTimeout(wd);
+    wd = setTimeout(() => {
+      if (state.attachES !== es) return;
+      aiMsg.streaming = false; aiMsg.thinkingActive = false;
+      if (viewing()) updateLastAIContent(aiMsg.content, false, ownerThreadId);
+      try { es.close(); } catch(_){} state.attachES = null;
+      loadThreads();
+    }, 180000);
+  };
+  bumpWd();
   es.addEventListener('snapshot', (ev) => {
+    if (state.attachES !== es) return; // 스레드 전환 등으로 교체된 스트림이면 무시
+    bumpWd();
     try { const d = JSON.parse(ev.data); aiMsg.content = d.text || ''; if (viewing()) { updateLastAIContent(aiMsg.content, true, ownerThreadId); scrollToBottom(); } } catch(_){}
   });
   es.addEventListener('delta', (ev) => {
+    if (state.attachES !== es) return;
+    bumpWd();
     try { const d = JSON.parse(ev.data); aiMsg.content += d.text || ''; if (viewing()) updateLastAIContent(aiMsg.content, true, ownerThreadId); } catch(_){}
   });
   es.addEventListener('thinking', (ev) => {
+    if (state.attachES !== es) return;
+    bumpWd();
     try { const d = JSON.parse(ev.data); if (typeof d.text === 'string') aiMsg.thinking = (aiMsg.thinking || '') + d.text; aiMsg.thinkingActive = true; } catch(_){}
     if (viewing()) updateLastAIContent(aiMsg.content, true, ownerThreadId);
   });
   es.addEventListener('done', (ev) => {
+    if (state.attachES !== es) return; // 교체된 스트림의 done 이 새 스트림 참조를 지우지 않게
+    clearTimeout(wd);
     try { const d = JSON.parse(ev.data); if (d.text) aiMsg.content = d.text; if (Array.isArray(d.artifacts)) aiMsg.artifacts = d.artifacts; } catch(_){}
     aiMsg.streaming = false; aiMsg.status = 'ok'; aiMsg.thinkingActive = false;
     if (viewing()) { updateLastAIContent(aiMsg.content, false, ownerThreadId); renderMessagesFull(); }
@@ -368,6 +394,8 @@ function attachToGeneration(aiMsg, ownerThreadId) {
     loadThreads();
   });
   es.addEventListener('error', (ev) => {
+    if (state.attachES !== es) return;
+    clearTimeout(wd);
     // 서버가 보낸 event:error(데이터 있음) vs 연결 끊김(데이터 없음) 구분
     let serverErr = false;
     try { if (ev && ev.data) { const d = JSON.parse(ev.data); aiMsg.content = (d.text || aiMsg.content || '') + '\n\n**오류:** ' + (d.error || '오류'); aiMsg.streaming = false; aiMsg.status = 'error'; if (viewing()) updateLastAIContent(aiMsg.content, false, ownerThreadId); serverErr = true; } } catch(_){}
@@ -477,11 +505,13 @@ function buildArtifactEl(art) {
   div.className = 'artifact-card';
   const isImg = (art.kind === 'image') || /^image\//.test(art.mime || '');
   const iconName = isImg ? 'image' : (art.kind === 'excel' ? 'table_chart' : (art.kind === 'pdf' ? 'picture_as_pdf' : (art.kind === 'svg' ? 'shapes' : 'description')));
-  const dlUrl = art.id ? '/api/ai/artifacts/' + art.id + '/download' : (art.url || '#');
+  // art.id 는 URL·HTML 속성에 들어가므로 인코딩 — 따옴표가 살아남아 href 를 탈출하는 XSS 차단
+  const aid = (art.id != null && art.id !== '') ? encodeURIComponent(String(art.id)) : null;
+  const dlUrl = aid ? '/api/ai/artifacts/' + aid + '/download' : (art.url || '#');
   const filename = escapeHtml(art.filename || art.original_name || '파일');
   // HTML/SVG 는 "새 창 열기" 도 추가 (인터랙티브)
-  const canOpenInNewTab = art.id && (art.kind === 'html' || art.kind === 'svg');
-  const inlineUrl = art.id ? '/api/ai/artifacts/' + art.id + '/download?inline=1' : null;
+  const canOpenInNewTab = aid && (art.kind === 'html' || art.kind === 'svg');
+  const inlineUrl = aid ? '/api/ai/artifacts/' + aid + '/download?inline=1' : null;
   div.innerHTML =
     '<div class="artifact-icon"><span class="material-symbols-outlined">' + iconName + '</span></div>' +
     '<div class="artifact-info">' +
@@ -489,7 +519,7 @@ function buildArtifactEl(art) {
       '<div class="artifact-meta">' + (art.kind || '') + (art.size ? ' · ' + formatBytes(art.size) : '') + '</div>' +
       '<div class="artifact-actions">' +
         '<a href="' + dlUrl + '" class="artifact-btn" download><span class="material-symbols-outlined">download</span>다운로드</a>' +
-        (art.id ? '<button class="artifact-btn" data-preview-id="' + art.id + '" data-preview-kind="' + (art.kind || '') + '" data-preview-name="' + filename + '"><span class="material-symbols-outlined">visibility</span>미리보기</button>' : '') +
+        (aid ? '<button class="artifact-btn" data-preview-id="' + aid + '" data-preview-kind="' + escapeHtml(art.kind || '') + '" data-preview-name="' + filename + '"><span class="material-symbols-outlined">visibility</span>미리보기</button>' : '') +
         (canOpenInNewTab ? '<a href="' + inlineUrl + '" target="_blank" rel="noopener noreferrer" class="artifact-btn" title="새 탭에서 풀화면 실행"><span class="material-symbols-outlined">open_in_new</span>새 창</a>' : '') +
       '</div>' +
     '</div>';
@@ -934,13 +964,14 @@ function renderSheetTable(sheet) {
       if (mergeMaps.skip[rowNumber + ':' + colNumber]) continue;
       const cell = cells[c] || {};
       const rawValue = styled ? (cell.v == null ? '' : String(cell.v)) : (cell == null ? '' : String(cell));
+      const dispValue = (styled && cell.fv != null && cell.fv !== '') ? String(cell.fv) : rawValue; // 서식 적용값(₩/천단위/%/날짜)
       const formula = styled && cell.f ? String(cell.f) : '';
       const value = formula || rawValue;
       const address = excelColName(colNumber) + rowNumber;
       const merge = mergeMaps.anchors[rowNumber + ':' + colNumber] || {};
       const span = (merge.colspan ? ' colspan="' + merge.colspan + '"' : '') + (merge.rowspan ? ' rowspan="' + merge.rowspan + '"' : '');
       const style = styled ? excelPreviewCellStyle(cell.style) : '';
-      html += '<td class="excel-cell" data-address="' + address + '" data-formula="' + escapeHtml(formula) + '" title="' + escapeHtml(value) + '"' + span + (style ? ' style="' + escapeHtml(style) + '"' : '') + '>' + escapeHtml(rawValue || formula) + '</td>';
+      html += '<td class="excel-cell" data-address="' + address + '" data-formula="' + escapeHtml(formula) + '" title="' + escapeHtml(value) + '"' + span + (style ? ' style="' + escapeHtml(style) + '"' : '') + '>' + escapeHtml(dispValue || formula) + '</td>';
     }
     html += '</tr>';
   }
@@ -2021,6 +2052,80 @@ function openSkillTemplatesModal() {
     }
   }
   loadSummary();
+}
+
+// 회사 기억 관리 모달 (관리자 전용) — 사용중/검토대기/삭제 탭 + 수동추가
+function openCompanyMemoryModal() {
+  if (!document.getElementById('cmModalStyles')) {
+    const s = document.createElement('style'); s.id = 'cmModalStyles';
+    s.textContent = '.cm-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:2000}'
+      + '.cm-modal{background:#fff;border-radius:14px;padding:20px;width:600px;max-width:94vw;max-height:86vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.25)}'
+      + '.cm-modal h3{font-size:15px;font-weight:700;margin:0 0 4px;color:#1f2937}.cm-sub{font-size:12px;color:#9ca3af;margin:0 0 12px}'
+      + '.cm-tabs{display:flex;gap:6px;margin-bottom:10px}.cm-tab{padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;background:#f3f4f6;color:#4b5563;border:none}.cm-tab.on{background:#4f6ef7;color:#fff}'
+      + '.cm-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px solid #f1f3f5}'
+      + '.cm-c{font-size:13px;color:#374151;word-break:break-all}.cm-meta{font-size:11px;color:#9ca3af;margin-top:2px}'
+      + '.cm-btns{flex:none;display:flex;gap:4px}.cm-btns button{border:none;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:600;cursor:pointer}'
+      + '.cm-approve{background:#dcfce7;color:#15803d}.cm-pin{background:#eef2ff;color:#4f46e5}.cm-del{background:#fef2f2;color:#dc2626}'
+      + '.cm-add{display:flex;gap:6px;margin:10px 0}.cm-add input,.cm-add select{padding:6px 8px;border:1px solid #d1d5db;border-radius:7px;font-size:12px}.cm-add input{flex:1}'
+      + '.cm-add button{background:linear-gradient(135deg,#4f6ef7,#7c5cff);color:#fff;border:none;border-radius:7px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer}'
+      + '.cm-empty{font-size:12px;color:#9ca3af;padding:10px 0}.cm-close{margin-top:12px;padding:8px 16px;border-radius:8px;border:none;background:#f3f4f6;color:#4b5563;font-weight:600;cursor:pointer}';
+    document.head.appendChild(s);
+  }
+  const bg = document.createElement('div'); bg.className = 'cm-bg';
+  bg.innerHTML = '<div class="cm-modal">'
+    + '<h3>🧠 회사 기억</h3><p class="cm-sub">AI가 우리 회사 업무에 대해 기억하는 내용입니다. 위험 항목은 "검토 대기"에 모입니다. (관리자 전용)</p>'
+    + '<div class="cm-tabs"><button class="cm-tab on" data-st="active">사용 중</button><button class="cm-tab" data-st="pending">검토 대기</button><button class="cm-tab" data-st="archived">삭제됨</button></div>'
+    + '<div class="cm-add"><select class="cm-cat"><option>거래처</option><option>품목</option><option>규칙</option><option>용어</option></select>'
+    + '<input class="cm-input" placeholder="회사 기억 직접 추가 (예: 한신공영은 부가세 별도)"><button class="cm-addbtn">추가</button></div>'
+    + '<div class="cm-body"><div class="cm-empty">불러오는 중…</div></div>'
+    + '<button class="cm-close">닫기</button></div>';
+  document.body.appendChild(bg);
+  const body = bg.querySelector('.cm-body');
+  let curStatus = 'active';
+  const close = () => { try { document.body.removeChild(bg); } catch (_) {} };
+  bg.addEventListener('click', e => { if (e.target === bg) close(); });
+  bg.querySelector('.cm-close').addEventListener('click', close);
+  bg.querySelectorAll('.cm-tab').forEach(t => t.addEventListener('click', () => {
+    bg.querySelectorAll('.cm-tab').forEach(x => x.classList.remove('on')); t.classList.add('on');
+    curStatus = t.dataset.st; load();
+  }));
+  bg.querySelector('.cm-addbtn').addEventListener('click', async () => {
+    const content = bg.querySelector('.cm-input').value.trim(); if (!content) return;
+    const category = bg.querySelector('.cm-cat').value;
+    try { const r = await fetch('/api/ai/memory', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ content, category }) });
+      if (!r.ok) throw new Error('추가 실패'); bg.querySelector('.cm-input').value = ''; load();
+    } catch (e) { alert(e.message); }
+  });
+  async function act(id, p, opt) { try { const r = await fetch('/api/ai/memory/' + id + p, Object.assign({ credentials: 'include' }, opt || {})); if (!r.ok) throw new Error('실패'); load(); } catch (e) { alert(e.message); } }
+  async function load() {
+    body.innerHTML = '<div class="cm-empty">불러오는 중…</div>';
+    try {
+      const r = await fetch('/api/ai/memory?status=' + curStatus, { credentials: 'include' });
+      if (!r.ok) throw new Error('권한 없음 또는 오류 (' + r.status + ')');
+      const d = await r.json(); const items = d.items || [];
+      if (!items.length) { body.innerHTML = '<div class="cm-empty">항목이 없습니다.</div>'; return; }
+      body.innerHTML = items.map(m => {
+        const btns = curStatus === 'pending'
+          ? '<button class="cm-approve" data-act="approve">승인</button><button class="cm-del" data-act="del">버림</button>'
+          : curStatus === 'active'
+            ? ('<button class="cm-pin" data-act="pin">' + (m.pinned ? '고정해제' : '📌고정') + '</button><button class="cm-del" data-act="del">삭제</button>')
+            : '';
+        return '<div class="cm-row" data-id="' + m.id + '" data-pinned="' + (m.pinned ? 1 : 0) + '"><div><div class="cm-c">' + escapeHtml(m.content) + '</div>'
+          + '<div class="cm-meta">' + escapeHtml(m.category || '기타') + ' · ' + (m.source_kind || 'auto') + ' · ' + (m.hit_count || 1) + '회</div></div>'
+          + '<div class="cm-btns">' + btns + '</div></div>';
+      }).join('');
+      body.querySelectorAll('.cm-row').forEach(row => {
+        const id = row.dataset.id;
+        row.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => {
+          const a = b.dataset.act;
+          if (a === 'approve') act(id, '/approve', { method: 'POST' });
+          else if (a === 'del') act(id, '', { method: 'DELETE' });
+          else if (a === 'pin') act(id, '/pin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pinned: row.dataset.pinned !== '1' }) });
+        }));
+      });
+    } catch (e) { body.innerHTML = '<div class="cm-empty">' + escapeHtml(e.message) + '</div>'; }
+  }
+  load();
 }
 
 async function loadThreadsByProject() {

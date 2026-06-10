@@ -2452,7 +2452,13 @@ router.post('/chat-stream-cli', async (req, res) => {
   const detectedSkillSlug = detectLedgerSkillSlug(prompt, attachments);
   const skillInstructionHint = loadSkillInstructionBlock(detectedSkillSlug);
   const autoWorkflowHint = buildAutoWorkflowHint(prompt, attachments);
-  const fullPrompt = knowledgeBlock + templatePrefix + pageCtx + attachmentBlock + skillInstructionHint + autoWorkflowHint + priorBlock + prompt;
+  // 회사 공유 기억 주입 (있으면 더 똑똑, 실패해도 빈 문자열)
+  let memoryBlock = '';
+  try {
+    const chatMemory = require('../lib/chat-memory');
+    memoryBlock = chatMemory.getInjectionContext({ scope: 'company', prompt: String(prompt || ''), maxChars: 6000 });
+  } catch (_) { memoryBlock = ''; }
+  const fullPrompt = knowledgeBlock + memoryBlock + templatePrefix + pageCtx + attachmentBlock + skillInstructionHint + autoWorkflowHint + priorBlock + prompt;
 
   // 사용자 메시지 저장
   ai.threads.addMessage(thread.id, {
@@ -2514,6 +2520,8 @@ router.post('/chat-stream-cli', async (req, res) => {
           for (const e of fs.readdirSync(d, { withFileTypes: true })) {
             const full = path.join(d, e.name);
             if (e.isDirectory()) { walk(full); continue; }
+            // 내부/제어 파일(_system.txt = 시스템 프롬프트, 기타 _·. 시작)은 산출물 아님 → 첨부 금지(노출 방지)
+            if (e.name.startsWith('_') || e.name.startsWith('.')) continue;
             const ext = path.extname(e.name).toLowerCase();
             if (!ALLOWED.includes(ext)) continue;
             try {
@@ -2592,6 +2600,23 @@ router.post('/chat-stream-cli', async (req, res) => {
     ai.threads.autoTitleIfEmpty(thread.id);
 
     reg.finish(aiMsg.id, 'ok', { threadId: thread.id, messageId: aiMsg.id, text: finalText, durationMs, artifacts });
+
+    // 회사 기억 자동 학습 (비차단, 대화당 1회 디바운스, 실패 무해)
+    try {
+      const chatMemory = require('../lib/chat-memory');
+      const { callClaudeCli } = require('../lib/claude-cli');
+      if (!global.__cmExtractAt) global.__cmExtractAt = {};
+      const cmKey = String(thread.id);
+      const cmLastAt = global.__cmExtractAt[cmKey] || 0;
+      if (Date.now() - cmLastAt > 60000 && typeof callClaudeCli === 'function') {  // 대화당 60초 1회
+        global.__cmExtractAt[cmKey] = Date.now();
+        const cmLlm = (p) => callClaudeCli(p).then(r => (r && (r.text || r)) || '').catch(() => '');
+        setImmediate(() => {
+          chatMemory.extractAndStore(cmLlm, { userText: String(prompt || ''), aiText: finalText, threadId: thread.id, userId: req.user.userId })
+            .catch(() => {});
+        });
+      }
+    } catch (_) {}
   } catch (e) {
     // 중단(stop) vs 진짜 오류 구분. 어느 쪽이든 여태 생성된 텍스트는 보존.
     const recNow = reg.get(aiMsg.id);
@@ -2677,7 +2702,8 @@ router.post('/chat-stream-cli/stop', (req, res) => {
     return res.status(403).json({ error: '권한 없음' });
   }
   const ok = reg.abort(messageId);
-  res.json({ ok });   // 이후 라우터 catch/finalize 가 status='interrupted' 로 마무리
+  // ok=false 면 이미 끝났거나(레지스트리에서 빠짐) 생성 중이 아님 — 실패가 아니라 'not_generating' 으로 알림
+  res.json({ ok, reason: ok ? undefined : 'not_generating' });   // 이후 라우터 catch/finalize 가 status='interrupted' 로 마무리
 });
 
 // ──────────────────────────────────────────────────────────
@@ -3328,6 +3354,7 @@ function excelCellStyleForPreview(cell) {
   if (font.bold) style.bold = true;
   if (font.italic) style.italic = true;
   if (font.size) style.fontSize = Math.max(8, Math.min(28, Number(font.size)));
+  if (font.name) style.fontName = String(font.name);
   const fontColor = excelColorToCss(font.color);
   if (fontColor) style.color = fontColor;
   const bgColor = excelColorToCss(fill.fgColor) || excelColorToCss(fill.bgColor);
@@ -3347,6 +3374,7 @@ function excelCellStyleForPreview(cell) {
 }
 
 function sheetToPreview(sheet, limitRows = 200, limitCols = 60) {
+  const { formatByNumFmt } = require('../lib/numfmt-display');
   const maxRow = Math.min(limitRows, sheet.rowCount || sheet.actualRowCount || 0);
   const maxCol = Math.min(limitCols, sheet.columnCount || 0);
   const cols = [];
@@ -3364,9 +3392,18 @@ function sheetToPreview(sheet, limitRows = 200, limitCols = 60) {
       const value = excelCellToText(cell);
       const formula = cell.formula ? `=${cell.formula}` : '';
       if (value || formula) hasContent = true;
+      // numFmt 표시값(₩/천단위/%/날짜) — 원본과 다를 때만 fv 로 내려보냄
+      let fv = null;
+      const nf = cell.numFmt || (cell.style && cell.style.numFmt) || '';
+      if (nf) {
+        const raw = (cell.value && typeof cell.value === 'object' && 'result' in cell.value) ? cell.value.result : cell.value;
+        const f = formatByNumFmt(raw, nf);
+        if (f != null && String(f) !== String(raw)) fv = String(f);
+      }
       cells.push({
         v: value,
         f: formula,
+        fv: fv,
         style: excelCellStyleForPreview(cell),
       });
     }
@@ -3377,6 +3414,8 @@ function sheetToPreview(sheet, limitRows = 200, limitCols = 60) {
     rows,
     cols,
     merges: (sheet.model && Array.isArray(sheet.model.merges)) ? sheet.model.merges.slice(0, 500) : [],
+    frozenPane: (sheet.views && sheet.views[0] && (sheet.views[0].xSplit || sheet.views[0].ySplit))
+      ? { xSplit: sheet.views[0].xSplit || 0, ySplit: sheet.views[0].ySplit || 0 } : null,
   };
 }
 
@@ -3702,20 +3741,42 @@ router.post('/attachments', (req, res, next) => {
     try {
       // 한글 파일명 인코딩 복원
       const originalName = fixKoreanFilename(req.file.originalname || '');
-      const ext = path.extname(originalName).toLowerCase();
-      const kind = detectKind(req.file.mimetype, ext);
+      let ext = path.extname(originalName).toLowerCase();
+      let storedPath = req.file.path;     // 멀터가 확장자 보존(${ext})
+      let kind = detectKind(req.file.mimetype, ext);
+      let mime = req.file.mimetype || '';
+      // ── 입력 정규화: .xls/.csv/.xlsm → .xlsx 로 통일 (다운스트림은 .xlsx만 처리). .xlsx 는 그대로. ──
+      try {
+        const { normalizeToXlsx } = require('../lib/spreadsheet-normalize');
+        const norm = normalizeToXlsx(storedPath);
+        if (norm.converted) {
+          try { fs.unlinkSync(storedPath); } catch (_) {}
+          storedPath = norm.path; ext = '.xlsx'; kind = 'excel';
+          mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        }
+      } catch (e) {
+        // 조용한 실패 0 — 못 읽으면 명확히 알린다
+        if (e && e.code === 'SPREADSHEET_LIB_MISSING')
+          return res.status(503).json({ error: '.xls/.csv 변환 라이브러리가 설치되지 않았습니다. 관리자에게 "npm install xlsx" 요청 또는 엑셀에서 .xlsx 로 저장해 올려주세요.' });
+        if (e && e.code === 'SPREADSHEET_UNREADABLE')
+          return res.status(400).json({ error: '이 파일을 읽지 못했어요. 이카운트에서 .xlsx 로 저장해 다시 올려주세요.' });
+        // 그 외 예외는 원본 그대로 진행
+      }
       let excerpt = '';
-      const storedPath = req.file.path;
-      if (kind === 'excel') excerpt = await extractExcel(storedPath, originalName);
-      else if (kind === 'pdf') excerpt = await extractPdf(storedPath);
-      else if (kind === 'text') excerpt = extractText(storedPath);
-      // image/word 는 excerpt 없음 (word 는 mammoth 등 필요하면 추가)
+      try {
+        if (kind === 'excel') excerpt = await extractExcel(storedPath, originalName);
+        else if (kind === 'pdf') excerpt = await extractPdf(storedPath);
+        else if (kind === 'text') excerpt = extractText(storedPath);
+        // image/word 는 excerpt 없음
+      } catch (_) { excerpt = ''; } // 발췌 실패가 업로드를 막지 않게
+      let sizeFinal = req.file.size || 0;
+      try { sizeFinal = fs.statSync(storedPath).size; } catch (_) {}
       const att = ai.attachments.create({
         ownerId: req.user.userId,
         originalName,
         storedName: path.basename(storedPath),
-        mime: req.file.mimetype || '',
-        size: req.file.size || 0,
+        mime,
+        size: sizeFinal,
         kind,
         textExcerpt: excerpt
       });
@@ -4056,6 +4117,51 @@ router.post('/upscale', async (req, res) => {
 router.get('/upscale/recommend', (req, res) => {
   const hint = req.query.hint || '';
   res.json({ ok: true, model: recommendUpscaleModel(hint) });
+});
+
+// ── 회사 기억 관리 (관리자 전용) ──
+function requireMemoryAdmin(req, res) {
+  if (!req.user || req.user.role !== 'admin') { res.status(403).json({ error: '관리자 전용' }); return false; }
+  return true;
+}
+const chatMemory = require('../lib/chat-memory');
+
+// 목록(상태별) + 통계
+router.get('/memory', (req, res) => {
+  if (!requireMemoryAdmin(req, res)) return;
+  const status = req.query.status || null;       // pending|active|archived
+  const category = req.query.category || null;
+  res.json({ ok: true, stats: chatMemory.stats('company'), items: chatMemory.listMemory({ scope: 'company', status, category }) });
+});
+// 수동 추가(관리자 직접) → manual 출처(위험검사는 store 가 함)
+router.post('/memory', (req, res) => {
+  if (!requireMemoryAdmin(req, res)) return;
+  const { content, category } = req.body || {};
+  if (!content || !String(content).trim()) return res.status(400).json({ error: 'content 필수' });
+  const r = chatMemory.addMemory({ content: String(content).trim(), category: category || '기타', createdBy: req.user.userId, sourceKind: 'manual' });
+  res.json({ ok: !r.rejected, result: r });
+});
+// pending 승인
+router.post('/memory/:id/approve', (req, res) => {
+  if (!requireMemoryAdmin(req, res)) return;
+  res.json({ ok: chatMemory.approveMemory(parseInt(req.params.id, 10)) });
+});
+// 고정/해제
+router.post('/memory/:id/pin', (req, res) => {
+  if (!requireMemoryAdmin(req, res)) return;
+  res.json({ ok: chatMemory.setPinned(parseInt(req.params.id, 10), !!(req.body && req.body.pinned)) });
+});
+// 내용 수정
+router.put('/memory/:id', (req, res) => {
+  if (!requireMemoryAdmin(req, res)) return;
+  const { content, category } = req.body || {};
+  if (!content) return res.status(400).json({ error: 'content 필수' });
+  res.json({ ok: chatMemory.updateContent(parseInt(req.params.id, 10), String(content), category) });
+});
+// 삭제(soft archive)
+router.delete('/memory/:id', (req, res) => {
+  if (!requireMemoryAdmin(req, res)) return;
+  res.json({ ok: chatMemory.archiveMemory(parseInt(req.params.id, 10)) });
 });
 
 module.exports = router;

@@ -485,6 +485,141 @@ router.post('/:id/process', requireAuth, (req, res) => {
   res.json({ ok: true, status: doc.status });
 });
 
+// ── 결재 취소요청 (본인이 승인된 문서 취소 요청) ──
+router.post('/:id/cancel-request', requireAuth, (req, res) => {
+  const uData = db.loadUsers();
+  const doc = (uData.approvals || []).find(d => d.id === req.params.id);
+  if (!doc) return res.status(404).json({ error: '문서 없음' });
+  if (doc.authorId !== req.user.userId) {
+    return res.status(403).json({ error: '본인이 기안한 문서만 취소 요청할 수 있습니다' });
+  }
+  if (doc.status !== 'approved') {
+    return res.status(400).json({ error: '승인 완료된 문서만 취소 요청할 수 있습니다' });
+  }
+  const { reason } = req.body;
+  if (!reason || !String(reason).trim()) {
+    return res.status(400).json({ error: '취소 사유를 입력해주세요' });
+  }
+
+  doc.status = 'cancel_requested';
+  doc.cancelReason = String(reason).trim();
+  doc.cancelRequestedAt = new Date().toISOString();
+  db.saveUsers(uData);
+
+  auditLog(req.user.userId, '결재 취소요청', `${doc.title} — ${doc.cancelReason}`);
+
+  // 원래 결재자에게 알림
+  const approverId = doc.effectiveApproverId || doc.approverId;
+  if (approverId) {
+    notify(approverId, 'approval',
+      `${req.user.name}님이 "${doc.title}" 취소를 요청했습니다`,
+      'approvals');
+  }
+
+  res.json({ ok: true, status: doc.status });
+});
+
+// ── 결재 취소요청 처리 (원래 결재자 또는 관리자가 승인/반려) ──
+router.post('/:id/cancel-process', requireAuth, (req, res) => {
+  const uData = db.loadUsers();
+  const doc = (uData.approvals || []).find(d => d.id === req.params.id);
+  if (!doc) return res.status(404).json({ error: '문서 없음' });
+
+  // 권한: 원래 결재자 또는 관리자
+  const approverId = doc.effectiveApproverId || doc.approverId;
+  if (approverId !== req.user.userId && req.user.role !== 'admin') {
+    return res.status(403).json({ error: '취소 처리 권한이 없습니다' });
+  }
+  if (doc.status !== 'cancel_requested') {
+    return res.status(400).json({ error: '취소요청 상태가 아닙니다' });
+  }
+
+  const { action, comment } = req.body;
+  if (action !== 'approved' && action !== 'rejected') {
+    return res.status(400).json({ error: 'action은 approved 또는 rejected여야 합니다' });
+  }
+
+  if (action === 'approved') {
+    // 취소 승인 → 문서 cancelled 처리 + 연차/출퇴근 마크 제거
+    doc.status = 'cancelled';
+    doc.cancelProcessedAt = new Date().toISOString();
+    doc.cancelProcessedBy = req.user.userId;
+    doc.cancelComment = comment || '';
+    db.saveUsers(uData);
+
+    // 휴가 취소 → 연차 기록 + 출퇴근 마크 제거 (rejected 시와 같은 처리)
+    if (doc.type === 'leave') {
+      try {
+        const leaveData = db['연차관리'].load();
+        if (leaveData.leaveRecords) {
+          const before = leaveData.leaveRecords.length;
+          leaveData.leaveRecords = leaveData.leaveRecords.filter(r => r.approvalId !== doc.id);
+          const removed = before - leaveData.leaveRecords.length;
+          if (removed > 0) {
+            db['연차관리'].save(leaveData);
+            console.log(`✅ 휴가 취소 → 연차 기록 ${removed}건 제거: ${doc.authorName} (결재 ${doc.id})`);
+          }
+        }
+      } catch (e) {
+        console.error('휴가 취소 → 연차 기록 제거 실패:', e.message);
+      }
+      try {
+        const attData = db.출퇴근관리.load();
+        if (attData.attendanceNotes) {
+          let removed = 0;
+          for (const key of Object.keys(attData.attendanceNotes)) {
+            if (attData.attendanceNotes[key].approvalId === doc.id) {
+              delete attData.attendanceNotes[key];
+              removed++;
+            }
+          }
+          if (removed > 0) {
+            db.출퇴근관리.save(attData);
+            console.log(`✅ 휴가 취소 → 출퇴근 노트 ${removed}건 제거: ${doc.authorName} (결재 ${doc.id})`);
+          }
+        }
+      } catch (e) {
+        console.error('휴가 취소 → 출퇴근 노트 제거 실패:', e.message);
+      }
+    }
+    // 시간외근무 취소 → 야근 인정 마크 제거
+    if (doc.type === '시간외근무' && doc.formData) {
+      try {
+        const attData = db.출퇴근관리.load();
+        if (attData.overtimeApprovals) {
+          const key = `${doc.authorName}_${doc.formData.date}`;
+          if (attData.overtimeApprovals[key] && attData.overtimeApprovals[key].approvalId === doc.id) {
+            delete attData.overtimeApprovals[key];
+            db.출퇴근관리.save(attData);
+            console.log(`✅ 시간외근무 취소 → 인정 마크 제거: ${doc.authorName} ${doc.formData.date}`);
+          }
+        }
+      } catch (e) {
+        console.error('시간외근무 취소 → 마크 제거 실패:', e.message);
+      }
+    }
+
+    auditLog(req.user.userId, '결재 취소승인', `${doc.title} — ${doc.cancelReason || ''}`);
+    notify(doc.authorId, 'approval',
+      `${req.user.name}님이 "${doc.title}" 취소를 승인했습니다`,
+      'approvals');
+  } else {
+    // 취소 반려 → 다시 approved 로 복귀
+    doc.status = 'approved';
+    doc.cancelRejectedAt = new Date().toISOString();
+    doc.cancelRejectedBy = req.user.userId;
+    doc.cancelComment = comment || '';
+    db.saveUsers(uData);
+
+    auditLog(req.user.userId, '결재 취소반려', `${doc.title} — ${comment || ''}`);
+    notify(doc.authorId, 'approval',
+      `${req.user.name}님이 "${doc.title}" 취소 요청을 반려했습니다`,
+      'approvals');
+  }
+
+  res.json({ ok: true, status: doc.status });
+});
+
 // 결재 문서 삭제 (소프트 삭제)
 router.delete('/:id', requireAuth, (req, res) => {
   const uData = db.loadUsers();
