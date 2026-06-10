@@ -27,9 +27,14 @@ async function makeXlsx(name, cells) {
 
   // ④ 등록(승격) 거래처 — 레지스트리 거래처명으로 동적 감지 (하드코딩 5사 밖)
   const regPath = path.join(os.tmpdir(), 'vd_reg_' + process.pid + '.json');
-  fs.writeFileSync(regPath, JSON.stringify({ '엘지하우시스-ledger': { script: 'make_generated.py', name: '엘지하우시스' } }));
+  fs.writeFileSync(regPath, JSON.stringify({
+    '엘지하우시스-ledger': { script: 'make_generated.py', name: '엘지하우시스' },
+    '대명-ledger': { script: 'make_generated.py', name: '대명' }, // 2글자 → 내용 자동감지 제외
+  }));
   assert.strictEqual(rt.dynamicVendorSlugFromText('주식회사 엘지하우시스 판매현황', regPath), '엘지하우시스-ledger');
   assert.strictEqual(rt.dynamicVendorSlugFromText('그냥상사 자료', regPath), '');
+  // 오탐 방지: 2글자 '대명'이 '대명건설'에 부분일치해도 매칭 안 함
+  assert.strictEqual(rt.dynamicVendorSlugFromText('대명건설 외 1건', regPath), '');
   // anyVendorSlugFromText: 하드코딩 거래처 우선 동작은 그대로
   assert.strictEqual(rt.anyVendorSlugFromText('퍼시스 마감'), 'persys-ledger');
 

@@ -355,16 +355,20 @@ function attachToGeneration(aiMsg, ownerThreadId) {
   state.attachES = es;
   const viewing = () => String(state.activeThreadId) === String(ownerThreadId);
   es.addEventListener('snapshot', (ev) => {
+    if (state.attachES !== es) return; // 스레드 전환 등으로 교체된 스트림이면 무시
     try { const d = JSON.parse(ev.data); aiMsg.content = d.text || ''; if (viewing()) { updateLastAIContent(aiMsg.content, true, ownerThreadId); scrollToBottom(); } } catch(_){}
   });
   es.addEventListener('delta', (ev) => {
+    if (state.attachES !== es) return;
     try { const d = JSON.parse(ev.data); aiMsg.content += d.text || ''; if (viewing()) updateLastAIContent(aiMsg.content, true, ownerThreadId); } catch(_){}
   });
   es.addEventListener('thinking', (ev) => {
+    if (state.attachES !== es) return;
     try { const d = JSON.parse(ev.data); if (typeof d.text === 'string') aiMsg.thinking = (aiMsg.thinking || '') + d.text; aiMsg.thinkingActive = true; } catch(_){}
     if (viewing()) updateLastAIContent(aiMsg.content, true, ownerThreadId);
   });
   es.addEventListener('done', (ev) => {
+    if (state.attachES !== es) return; // 교체된 스트림의 done 이 새 스트림 참조를 지우지 않게
     try { const d = JSON.parse(ev.data); if (d.text) aiMsg.content = d.text; if (Array.isArray(d.artifacts)) aiMsg.artifacts = d.artifacts; } catch(_){}
     aiMsg.streaming = false; aiMsg.status = 'ok'; aiMsg.thinkingActive = false;
     if (viewing()) { updateLastAIContent(aiMsg.content, false, ownerThreadId); renderMessagesFull(); }
@@ -372,6 +376,7 @@ function attachToGeneration(aiMsg, ownerThreadId) {
     loadThreads();
   });
   es.addEventListener('error', (ev) => {
+    if (state.attachES !== es) return;
     // 서버가 보낸 event:error(데이터 있음) vs 연결 끊김(데이터 없음) 구분
     let serverErr = false;
     try { if (ev && ev.data) { const d = JSON.parse(ev.data); aiMsg.content = (d.text || aiMsg.content || '') + '\n\n**오류:** ' + (d.error || '오류'); aiMsg.streaming = false; aiMsg.status = 'error'; if (viewing()) updateLastAIContent(aiMsg.content, false, ownerThreadId); serverErr = true; } } catch(_){}
@@ -481,11 +486,13 @@ function buildArtifactEl(art) {
   div.className = 'artifact-card';
   const isImg = (art.kind === 'image') || /^image\//.test(art.mime || '');
   const iconName = isImg ? 'image' : (art.kind === 'excel' ? 'table_chart' : (art.kind === 'pdf' ? 'picture_as_pdf' : (art.kind === 'svg' ? 'shapes' : 'description')));
-  const dlUrl = art.id ? '/api/ai/artifacts/' + art.id + '/download' : (art.url || '#');
+  // art.id 는 URL·HTML 속성에 들어가므로 인코딩 — 따옴표가 살아남아 href 를 탈출하는 XSS 차단
+  const aid = (art.id != null && art.id !== '') ? encodeURIComponent(String(art.id)) : null;
+  const dlUrl = aid ? '/api/ai/artifacts/' + aid + '/download' : (art.url || '#');
   const filename = escapeHtml(art.filename || art.original_name || '파일');
   // HTML/SVG 는 "새 창 열기" 도 추가 (인터랙티브)
-  const canOpenInNewTab = art.id && (art.kind === 'html' || art.kind === 'svg');
-  const inlineUrl = art.id ? '/api/ai/artifacts/' + art.id + '/download?inline=1' : null;
+  const canOpenInNewTab = aid && (art.kind === 'html' || art.kind === 'svg');
+  const inlineUrl = aid ? '/api/ai/artifacts/' + aid + '/download?inline=1' : null;
   div.innerHTML =
     '<div class="artifact-icon"><span class="material-symbols-outlined">' + iconName + '</span></div>' +
     '<div class="artifact-info">' +
@@ -493,7 +500,7 @@ function buildArtifactEl(art) {
       '<div class="artifact-meta">' + (art.kind || '') + (art.size ? ' · ' + formatBytes(art.size) : '') + '</div>' +
       '<div class="artifact-actions">' +
         '<a href="' + dlUrl + '" class="artifact-btn" download><span class="material-symbols-outlined">download</span>다운로드</a>' +
-        (art.id ? '<button class="artifact-btn" data-preview-id="' + art.id + '" data-preview-kind="' + (art.kind || '') + '" data-preview-name="' + filename + '"><span class="material-symbols-outlined">visibility</span>미리보기</button>' : '') +
+        (aid ? '<button class="artifact-btn" data-preview-id="' + aid + '" data-preview-kind="' + escapeHtml(art.kind || '') + '" data-preview-name="' + filename + '"><span class="material-symbols-outlined">visibility</span>미리보기</button>' : '') +
         (canOpenInNewTab ? '<a href="' + inlineUrl + '" target="_blank" rel="noopener noreferrer" class="artifact-btn" title="새 탭에서 풀화면 실행"><span class="material-symbols-outlined">open_in_new</span>새 창</a>' : '') +
       '</div>' +
     '</div>';
