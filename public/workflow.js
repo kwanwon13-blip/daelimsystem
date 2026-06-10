@@ -29,6 +29,11 @@ function workflowApp() {
     query: '',
     statusFilter: 'active',
     scopeFilter: 'all',
+    wfDateFrom: '',
+    wfDateTo: '',
+    wfVendor: '',
+    boardSort: 'date',
+    boardTeam: '', // '' 전체 / 'welding' 용접팀 / 'output' 출력팀
     newOpen: false,
     newFiles: [],
     newUploadDragOver: false,
@@ -84,6 +89,7 @@ function workflowApp() {
     },
     commentText: '',
     handoffText: '',
+    factoryDatePending: {}, // {jobId: 'YYYY-MM-DD'} 공장 완료가능일 미확정/수정중 값 (수락 전)
     uploadStageId: 'design',
     uploadKind: 'proof',
     uploadCompanyName: '',
@@ -667,15 +673,75 @@ function workflowApp() {
       return this.jobsByStage?.[stageId] || [];
     },
 
+    // 사람별 정렬 시 칸별 그룹 기준 사람 — 디자인=발주자 / 공장=공장으로 넘긴 사람 / 경영관리=공장완료자
+    groupActor(job, stageId) {
+      if (!job) return '미지정';
+      if (stageId === 'design') return job.createdByName || '미지정';
+      if (stageId === 'factory') return this.stageActor(job, 'design') || job.createdByName || '미지정';
+      if (stageId === 'delivery') return this.stageActor(job, 'factory') || this.stageActor(job, 'design') || job.createdByName || '미지정';
+      return job.createdByName || '미지정';
+    },
+
+    // 보드 한 칸을 정렬/그룹해서 반환. 날짜별=단일그룹(마감순), 사람별=사람별 그룹(소제목용)
+    boardGroups(stageId) {
+      const byDate = (a, b) => String(a.dueDate || '9999-99-99').localeCompare(String(b.dueDate || '9999-99-99')) || String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+      const jobs = (this.jobsForStage(stageId) || []).slice();
+      if (this.boardSort !== 'person') {
+        return [{ key: '__all', person: '', jobs: jobs.sort(byDate) }];
+      }
+      const map = new Map();
+      for (const job of jobs) {
+        const p = this.groupActor(job, stageId);
+        if (!map.has(p)) map.set(p, []);
+        map.get(p).push(job);
+      }
+      return [...map.entries()]
+        .sort((a, b) => String(a[0]).localeCompare(String(b[0]), 'ko'))
+        .map(([person, js]) => ({ key: person, person, jobs: js.sort(byDate) }));
+    },
+
     rebuildJobsByStage() {
       const grouped = {};
       for (const stage of this.stages || []) grouped[stage.id] = [];
       for (const job of this.jobs || []) {
+        if (!this.boardFilterMatch(job)) continue;
         for (const stage of this.stages || []) {
           if (this.jobBelongsToStage(job, stage.id)) grouped[stage.id].push(job);
         }
       }
       this.jobsByStage = grouped;
+    },
+
+    // E2E 스타일 실시간 필터: 기간(마감일) + 업체 + 텍스트
+    boardFilterMatch(job) {
+      if (!job) return false;
+      const due = String(job.dueDate || '').slice(0, 10);
+      if (this.wfDateFrom && (!due || due < this.wfDateFrom)) return false;
+      if (this.wfDateTo && (!due || due > this.wfDateTo)) return false;
+      const v = (this.wfVendor || '').trim().toLowerCase();
+      if (v && !String(job.companyName || '').toLowerCase().includes(v)) return false;
+      const q = (this.query || '').trim().toLowerCase();
+      if (q) {
+        const hay = `${job.title || ''} ${job.companyName || ''} ${job.projectName || ''} ${job.completionCode || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      // 공장 팀 필터 — 용접팀/출력팀이 자기 시안 있는 작업만 보기
+      if (this.boardTeam === 'welding' && !(job.weldingFileCount > 0)) return false;
+      if (this.boardTeam === 'output' && !(job.outputFileCount > 0)) return false;
+      return true;
+    },
+
+    wfFilterReset() {
+      this.wfDateFrom = ''; this.wfDateTo = ''; this.wfVendor = ''; this.query = '';
+      this.rebuildJobsByStage();
+    },
+
+    wfFilterActive() {
+      return !!(this.wfDateFrom || this.wfDateTo || (this.wfVendor || '').trim() || (this.query || '').trim());
+    },
+
+    wfVisibleCount() {
+      return (this.stages || []).reduce((n, s) => n + (this.jobsForStage(s.id) || []).length, 0);
     },
 
     jobBelongsToStage(job, stageId) {
@@ -764,7 +830,7 @@ function workflowApp() {
       if (type === 'order_public_reply') return '전달 회신';
       if (type === 'order_public_download') return '다운로드';
       if (type === 'order_public_view') return '열람';
-      if (type === 'file_schedule') return '일정';
+      if (type === 'file_schedule' || type === 'schedule') return '일정';
       if (type === 'review') return '검토';
       if (type === 'handoff' || type === 'stage') return '전달';
       return '메모';
@@ -2671,8 +2737,32 @@ function workflowApp() {
     stageHandoffLabel(stageId) {
       if (stageId === 'design') return '완료가능일 확정';
       if (stageId === 'factory') return '완료';
-      if (stageId === 'delivery') return '수령';
+      if (stageId === 'delivery') return '납품준비';
       return '다음 단계';
+    },
+
+    // 보드 카드 전체 색칠용 상태 클래스 (한눈에 진행/지연/완료/마감임박)
+    cardStateClass(job) {
+      if (!job) return '';
+      if (job.status === 'cancelled') return 'st-cancelled';
+      if (job.status === 'done') return 'st-done';
+      if (job.overdue) return 'st-overdue';
+      if (job.blockedStageCount) return 'st-blocked';
+      if (job.lateScheduleCount || job.scheduleLate) return 'st-late';
+      const d = job.dueDate || (job.nextStageDue && job.nextStageDue.dueDate) || '';
+      const m = String(d).match(/(\d{4})-(\d{2})-(\d{2})/);
+      if (m) {
+        const due = new Date(+m[1], +m[2] - 1, +m[3]);
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const days = Math.round((due - today) / 86400000);
+        if (days <= 2) return 'st-soon';
+      }
+      return 'st-active';
+    },
+
+    // 단계별 처리자 (누가 발주/공장확인/최종체크) — stageChecks.completedByName
+    stageActor(job, stageId) {
+      return (job && job.stageChecks && job.stageChecks[stageId] && job.stageChecks[stageId].completedByName) || '';
     },
 
     handoffLabel() {
@@ -2690,8 +2780,70 @@ function workflowApp() {
     async cardHandoff(jobId, stageId = '') {
       await this.selectJob(jobId, stageId);
       if (!this.detail || !this.detail.job) return;
-      if (!confirm(`${this.detail.job.title || '작업'}\n\n${this.handoffLabel()} 하시겠어요?`)) return;
+      const label = this.handoffLabel();
+      const who = this.detail.job.projectName || this.detail.job.companyName || this.detail.job.title || '작업';
+      const cur = this.currentStage();
+      // 특이사항은 디자인팀이 시안 넘길 때(design→공장)만 입력받는다. 공장 완료/납품준비 단계는 단순 확인.
+      if (cur && cur.id === 'design') {
+        const note = window.prompt(`${who}\n\n[${label}] 시안에 평상시와 다른 특이사항이 있으면 적어주세요.\n공장(대림컴퍼니)이 받을 때 꼭 확인합니다. (없으면 빈칸으로 확인)`, '');
+        if (note === null) return; // 취소
+        this.handoffText = (note || '').trim();
+      } else {
+        if (!confirm(`${who}\n\n${label} 하시겠어요?`)) return;
+      }
       await this.handoffJob();
+    },
+
+    // 공장 완료가능일 표시값 — 수정중(pending)이면 그 값, 아니면 저장값 또는 요청날짜(기본)
+    cardFactoryDateValue(job) {
+      const p = job && this.factoryDatePending[job.id];
+      return (p !== undefined && p !== null) ? p : ((job && (job.factoryAvailableDate || job.dueDate)) || '');
+    },
+    // 아직 수락(확정) 전이거나, 사용자가 날짜를 바꿔 다시 수락이 필요한 상태 → [수락] 노출
+    cardDateDirty(job) {
+      if (!job) return false;
+      if (!job.factoryAvailableDate) return true; // 한 번도 수락 안 함
+      const p = this.factoryDatePending[job.id];
+      return p !== undefined && p !== null && p !== job.factoryAvailableDate;
+    },
+
+    // 공장 카드에서 완료가능일 수락/저장 — 빈값이면 요청날짜로. 요청일과 다르면 서버가 디자인팀에 자동 알림(지연이면 긴급).
+    async cardSetFactoryDate(jobId, value) {
+      const job = (this.jobs || []).find(j => j.id === jobId);
+      if (!job) return;
+      const v = value || job.dueDate || '';
+      if (!v) { alert('요청날짜가 없어 완료가능일을 정할 수 없습니다.'); return; }
+      this.saving = true;
+      try {
+        const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(jobId), {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...job, factoryAvailableDate: v }),
+        });
+        const d = await r.json();
+        if (!r.ok || !d.ok) throw new Error(d.error || '저장 실패');
+        delete this.factoryDatePending[jobId]; // 확정 — 수정중 표시 해제
+        await this.loadJobs();
+        if (this.detail && this.detail.job && this.detail.job.id === jobId) await this.refreshDetail(false);
+      } catch (e) { alert(e.message); }
+      finally { this.saving = false; }
+    },
+
+    // 실수로 다음 단계로 넘긴 작업을 이전 단계로 되돌림 (과거내역=완료면 배송 단계로 복구)
+    async cardStepBack(jobId) {
+      const job = (this.jobs || []).find(j => j.id === jobId);
+      const who = (job && (job.projectName || job.companyName || job.title)) || '작업';
+      if (!confirm(`${who}\n\n이전 단계로 되돌릴까요?\n(실수로 넘겼을 때 — 한 단계 뒤로)`)) return;
+      this.saving = true;
+      try {
+        const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(jobId) + '/stepback', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+        });
+        const d = await r.json();
+        if (!r.ok || !d.ok) throw new Error(d.error || '되돌리기 실패');
+        await this.loadJobs();
+        if (this.detail && this.detail.job && this.detail.job.id === jobId) await this.refreshDetail(false);
+      } catch (e) { alert(e.message); }
+      finally { this.saving = false; }
     },
 
     async createJob() {
@@ -3220,7 +3372,7 @@ function workflowApp() {
       const img = event?.target;
       if (!img) return;
       img.style.visibility = '';
-      const holder = img.closest ? img.closest('.wf-proof-thumb, .wf-card-visual') : null;
+      const holder = img.closest ? img.closest('.wf-proof-thumb, .wf-card-visual, .wf-rc-thumb') : null;
       if (holder) holder.classList.remove('image-failed');
     },
 
@@ -3234,7 +3386,7 @@ function workflowApp() {
         img.src = fallback;
         return;
       }
-      const holder = img.closest ? img.closest('.wf-proof-thumb, .wf-card-visual') : null;
+      const holder = img.closest ? img.closest('.wf-proof-thumb, .wf-card-visual, .wf-rc-thumb') : null;
       if (holder) holder.classList.add('image-failed');
       img.style.visibility = 'hidden';
     },
@@ -3272,6 +3424,32 @@ function workflowApp() {
     openFilePreview(file) {
       if (!file || !file.isImage) return;
       this.filePreview = { open: true, file, zoom: 1, fit: true };
+    },
+
+    // 보드 컴팩트 카드의 썸네일 클릭 → 시안 크게 보기(시안검색과 같은 확대 모달).
+    // decorateJob 의 primaryVisualFile 은 항상 이미지지만 isImage 플래그가 없어 보강해서 넘긴다.
+    openCardPreview(job) {
+      const f = job && job.primaryVisualFile;
+      if (!f) return;
+      this.openFilePreview({ ...f, isImage: true });
+    },
+
+    // 공장 팀 분배(전상현) — 시안 파일을 용접/출력으로 배정. 같은 팀 다시 누르면 해제(미배정).
+    teamLabel(team) { return team === 'welding' ? '용접' : team === 'output' ? '출력' : ''; },
+    async assignFileTeam(file, team) {
+      if (!this.detail || !this.detail.job || !file) return;
+      const next = (file.team === team) ? '' : team;
+      try {
+        const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/files/' + encodeURIComponent(file.id) + '/team', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ team: next }),
+        });
+        const d = await r.json();
+        if (!r.ok || !d.ok) throw new Error(d.error || '팀 배정 실패');
+        file.team = next;
+        await this.loadJobs();
+        await this.refreshDetail(false);
+      } catch (e) { alert(e.message); }
     },
 
     fitPreview() {
@@ -3394,30 +3572,50 @@ function workflowApp() {
       return base + (query ? '?' + query : '');
     },
 
-    // B. 외부(터널) 받기 링크 — 과거내역·전달에서 외부업체에게 주는 공개 ZIP 링크
-    jobExternalArchiveUrl(job) {
-      const rel = job && job.publicArchiveUrl ? job.publicArchiveUrl : '';
-      if (!rel) return '';
-      return this.absoluteUrl(rel);
-    },
-
-    hasExternalArchiveLink(job) {
-      return !!(this.activePublicWorkflowBaseUrl() && job && job.publicArchiveUrl
-        && Number(job.archiveFileCount || job.fileCount || 0));
-    },
-
-    async copyJobExternalLink(job) {
-      if (!this.activePublicWorkflowBaseUrl()) {
-        return alert('외부 다운로드 주소(터널)가 설정되지 않았습니다.\n설정 → "외부 다운로드 주소"에 Cloudflare 터널 주소를 등록하면 외부 받기 링크를 만들 수 있어요.');
-      }
-      const url = this.jobExternalArchiveUrl(job);
-      if (!url) return alert('이 작업에는 외부로 보낼 완료 파일이 없습니다.');
-      try {
-        await navigator.clipboard.writeText(url);
-        alert('외부 받기 링크를 복사했습니다.\n\n' + url);
-      } catch (_) {
-        window.prompt('외부 받기 링크 (Ctrl+C 로 복사하세요)', url);
-      }
+    // 🖨 납품 지시서 인쇄 — 경영관리팀이 종이로 출력해 (컴퓨터를 못 다루는) 납품팀에 전달.
+    //    일정 '정상/지연'을 크게 찍어주는 게 핵심.
+    printDeliverySheet(job) {
+      const j = job || (this.detail && this.detail.job) || {};
+      const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const due = j.dueDate || '';
+      const fac = j.factoryAvailableDate || '';
+      const late = !!(due && fac && fac > due);
+      const status = !fac ? { t: '일정 미정', c: '#6b7280', bg: '#f3f4f6' } : (late ? { t: '일정 지연', c: '#b91c1c', bg: '#fee2e2' } : { t: '일정 정상', c: '#15803d', bg: '#dcfce7' });
+      const printedAt = new Date().toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+      const row = (k, v) => `<tr><th>${esc(k)}</th><td>${esc(v || '-')}</td></tr>`;
+      const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>납품 지시서 ${esc(j.completionCode || j.title || '')}</title>
+<style>
+*{box-sizing:border-box;} body{font-family:'Malgun Gothic','맑은 고딕',sans-serif;color:#111;margin:0;padding:26px;}
+h1{font-size:22px;margin:0 0 2px;} .sub{color:#555;font-size:12px;margin-bottom:14px;}
+.status{margin:14px 0;padding:18px;border-radius:10px;text-align:center;border:2px solid ${status.c};background:${status.bg};}
+.status .big{font-size:34px;font-weight:900;color:${status.c};letter-spacing:2px;}
+.status .dates{margin-top:8px;font-size:14px;color:#333;}
+table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px;}
+th,td{border:1px solid #cbd5e1;padding:9px 11px;text-align:left;} th{background:#f1f5f9;width:120px;font-weight:800;color:#334155;}
+.foot{margin-top:24px;font-size:11px;color:#888;display:flex;justify-content:space-between;}
+.sign{margin-top:28px;display:flex;gap:40px;font-size:13px;} .sign div{flex:1;border-top:1px solid #333;padding-top:6px;}
+@media print{body{padding:14px;} .noprint{display:none;}}
+</style></head><body>
+<h1>대림에스엠 · 납품 지시서</h1>
+<div class="sub">인쇄 ${esc(printedAt)} · 코드 ${esc(j.completionCode || '미발번')}</div>
+<div class="status"><div class="big">${status.t}</div><div class="dates">요청일 <b>${esc(due || '-')}</b> &nbsp;/&nbsp; 공장 완료가능일 <b>${esc(fac || '-')}</b></div></div>
+<table>
+${row('업체', j.companyName)}
+${row('현장', j.projectName)}
+${row('작업', j.title)}
+${row('발주(올린이)', j.createdByName)}
+${row('공장 확인', (j.stageChecks && j.stageChecks.factory && j.stageChecks.factory.completedByName) || '')}
+${row('파일', (j.visualFileCount || 0) + '장(이미지) / 전체 ' + (j.fileCount || 0))}
+${row('메모', j.summary)}
+</table>
+<div class="sign"><div>납품 담당 확인</div><div>수령 확인</div></div>
+<div class="foot"><span>대림에스엠 워크플로우</span><span>${esc(j.completionCode || '')}</span></div>
+<div class="noprint" style="margin-top:18px;text-align:center;"><button onclick="window.print()" style="padding:10px 22px;font-size:15px;font-weight:800;background:#2563eb;color:#fff;border:0;border-radius:8px;cursor:pointer;">🖨 인쇄</button></div>
+</body></html>`;
+      const w = window.open('', '_blank', 'width=720,height=940');
+      if (!w) return alert('팝업이 차단되었습니다. 브라우저 팝업 허용 후 다시 눌러주세요.');
+      w.document.open(); w.document.write(html); w.document.close(); w.focus();
+      setTimeout(() => { try { w.print(); } catch (_) {} }, 350);
     },
 
     eventTime(ts) {

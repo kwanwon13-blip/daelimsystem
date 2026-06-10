@@ -93,7 +93,7 @@ const rules = require('../routes/lib/workflow-stage-rules');
   // factory done → 제작완료일 + 코드 세팅
   const jobs = [];
   const job = {
-    stageChecks: { factory: { status: 'done', completedAt: '2026-06-09T02:00:00.000Z' } },
+    stageChecks: { design: { status: 'done' }, factory: { status: 'done', completedAt: '2026-06-09T02:00:00.000Z' } },
   };
   jobs.push(job);
   rules.syncFactoryCompletion(jobs, job, '2026-06-09T09:00:00.000Z', { userId: 'u1', userName: '공장장' });
@@ -105,7 +105,7 @@ const rules = require('../routes/lib/workflow-stage-rules');
 {
   // factory 단계 완료시각이 없으면 at 으로 대체
   const jobs = [];
-  const job = { stageChecks: { factory: { status: 'done', completedAt: '' } } };
+  const job = { stageChecks: { design: { status: 'done' }, factory: { status: 'done', completedAt: '' } } };
   jobs.push(job);
   rules.syncFactoryCompletion(jobs, job, '2026-06-09T09:00:00.000Z', {});
   assert.strictEqual(job.completedAt, '2026-06-09T09:00:00.000Z', 'factory completedAt 없으면 at 사용');
@@ -124,7 +124,7 @@ const rules = require('../routes/lib/workflow-stage-rules');
   jobs.push(job);
   rules.syncFactoryCompletion(jobs, job, '2026-06-09T09:00:00.000Z', {});
   assert.strictEqual(job.completedAt, '', 'factory 미완료면 제작완료일 초기화');
-  assert.strictEqual(job.completionCode, '', 'factory 미완료면 코드 초기화');
+  assert.strictEqual(job.completionCode, '20260609-001', '영구고정 — factory 미완료(reopen)여도 코드 보존');
 }
 
 {
@@ -133,7 +133,7 @@ const rules = require('../routes/lib/workflow-stage-rules');
   const job = {
     completedAt: '2026-06-09T02:00:00.000Z',
     completionCode: '20260609-001',
-    stageChecks: { factory: { status: 'done', completedAt: '2026-06-09T02:00:00.000Z' } },
+    stageChecks: { design: { status: 'done' }, factory: { status: 'done', completedAt: '2026-06-09T02:00:00.000Z' } },
   };
   jobs.push(job);
   rules.syncFactoryCompletion(jobs, job, '2026-06-10T09:00:00.000Z', {});
@@ -177,6 +177,47 @@ const rules = require('../routes/lib/workflow-stage-rules');
   rules.syncFactoryCompletion(jobs, job, '2026-06-09T09:00:00.000Z', {});
   assert.strictEqual(job.completionCode, '20260609-001', '수령 시 발번된 코드 보존(미발번 방지)');
   assert.strictEqual(job.completedAt, '2026-06-09T02:00:00.000Z', '제작완료일 보존');
+}
+
+// ---------------------------------------------------------------------------
+// 완료코드 영구고정 (송장번호) — 한 번 발급되면 reopen·다른날 재완료해도 안 바뀜
+// ---------------------------------------------------------------------------
+{
+  const jobs = [];
+  const job = { completionCode: '20260610-001', completedAt: '2026-06-11T05:00:00.000Z' };
+  jobs.push(job);
+  const code = rules.assignCompletionCode(jobs, job);
+  assert.strictEqual(code, '20260610-001', '완료일이 6/11 이어도 기존 코드(6/10) 유지(영구고정)');
+}
+
+{
+  // reopen(factory 미완료) 해도 completionCode 는 보존, completedAt/완료자만 초기화
+  const jobs = [];
+  const job = {
+    completedAt: '2026-06-10T02:00:00.000Z', completionCode: '20260610-001', completedByName: '공장장',
+    stageChecks: { design: { status: 'done' }, factory: { status: 'ready' } },
+  };
+  jobs.push(job);
+  rules.syncFactoryCompletion(jobs, job, '2026-06-11T09:00:00.000Z', {});
+  assert.strictEqual(job.completedAt, '', 'reopen 시 제작완료일 초기화');
+  assert.strictEqual(job.completionCode, '20260610-001', 'reopen 해도 완료코드(송장번호)는 영구 보존');
+}
+
+// ---------------------------------------------------------------------------
+// 순서 종속 — design 이 done 아니면 factory done 이어도 코드 발번 안 함(정합성)
+// ---------------------------------------------------------------------------
+{
+  const jobs = [];
+  const job = {
+    stageChecks: {
+      design: { status: 'ready' }, // 디자인 미완
+      factory: { status: 'done', completedAt: '2026-06-10T02:00:00.000Z' },
+    },
+  };
+  jobs.push(job);
+  rules.syncFactoryCompletion(jobs, job, '2026-06-10T09:00:00.000Z', {});
+  assert.strictEqual(job.completionCode || '', '', '앞단계(design) 미완이면 완료코드 발번 안 함');
+  assert.strictEqual(job.completedAt || '', '', '앞단계 미완이면 제작완료일도 없음');
 }
 
 console.log('workflow-stage-rules: all assertions passed');

@@ -29,11 +29,11 @@ function completionCodeDatePart(job) {
   return m ? m[1] + m[2] + m[3] : '';
 }
 
-// 일별 순번 완료코드(YYYYMMDD-NNN) 발번. 같은 날짜면 기존 코드 유지(멱등).
+// 일별 순번 완료코드(YYYYMMDD-NNN) 발번. 한 번 발급되면 영구 고정(송장번호) — reopen·재완료해도 안 바뀜.
 function assignCompletionCode(jobs, job) {
+  if (job.completionCode) return job.completionCode; // 영구고정
   const ymd = completionCodeDatePart(job);
-  if (!ymd) return job.completionCode || '';
-  if (job.completionCode && job.completionCode.slice(0, 8) === ymd) return job.completionCode;
+  if (!ymd) return '';
   let max = 0;
   for (const j of (jobs || [])) {
     if (j === job) continue;
@@ -49,8 +49,11 @@ function assignCompletionCode(jobs, job) {
 
 // 제작완료 동기화: factory 단계 done 여부에 따라 제작완료일/코드/완료자를 세팅 또는 초기화.
 function syncFactoryCompletion(jobs, job, at, actor = {}) {
-  const factoryCheck = job && job.stageChecks && job.stageChecks.factory;
-  const factoryDone = !!(factoryCheck && factoryCheck.status === 'done');
+  const checks = (job && job.stageChecks) || {};
+  // 제작완료 = factory done AND 앞단계(design) done (순서 종속 — 정합성)
+  const designDone = !!(checks.design && checks.design.status === 'done');
+  const factoryCheck = checks.factory;
+  const factoryDone = !!(factoryCheck && factoryCheck.status === 'done' && designDone);
   if (factoryDone) {
     if (!job.completedAt) job.completedAt = factoryCheck.completedAt || at || '';
     if (!job.completedBy) job.completedBy = actor.userId || '';
@@ -60,7 +63,7 @@ function syncFactoryCompletion(jobs, job, at, actor = {}) {
     job.completedAt = '';
     job.completedBy = '';
     job.completedByName = '';
-    job.completionCode = '';
+    // completionCode 는 영구고정(송장번호) — reopen 해도 보존
   }
   return job;
 }

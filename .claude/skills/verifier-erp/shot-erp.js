@@ -61,6 +61,11 @@ async function clickByText(page, selector, regex) {
   await snap('02-workflow-board');
   console.log('   (탭:', t2, ')');
 
+  // ②-b 사람별 정렬 토글
+  const sortBtn = await clickByText(page, '.wf-views button', /사람별/);
+  await sleep(900);
+  if (sortBtn) await snap('05-person-sort');
+
   // ③ 상세 — factory 단계 잡(검증E): 요청날짜🔒 + 완료가능일 입력 확인
   const c1 = await clickByText(page, '.wf-card', /검증E/);
   await sleep(1200);
