@@ -2,18 +2,20 @@
 rem ============================================================
 rem  Install Cloudflare Tunnel as a Windows SERVICE (run on SERVER PC)
 rem  - runs in background, NO window, auto-starts on reboot
-rem  - RIGHT-CLICK this file -> "Run as administrator"
+rem  - JUST DOUBLE-CLICK. it will auto-request admin (click YES on the popup).
 rem  - after this, you can close the tunnel-start.bat window for good
 rem  - to remove later:  cloudflared.exe service uninstall
 rem ============================================================
-cd /d %~dp0
 
+rem --- self-elevate: if not admin, relaunch elevated (UAC popup) ---
 net session >nul 2>&1
 if errorlevel 1 (
-  echo [error] Administrator required. Right-click this file and choose "Run as administrator".
-  pause
-  exit /b 1
+  echo [admin] requesting administrator - click YES on the popup ...
+  powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+  exit /b
 )
+
+cd /d %~dp0
 
 if exist tunnel-env.bat call tunnel-env.bat
 if "%TUNNEL_TOKEN%"=="" (
