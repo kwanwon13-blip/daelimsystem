@@ -91,10 +91,35 @@
 
 ## 9. 범위
 - **포함**: 자가검산(JS측 + persys 레퍼런스 + 생성지시문), 입력 정규화(.xls/.csv/.xlsm→.xlsx), 조용한 실패 제거.
-- **비포함(별도)**: 나머지 4개 스크립트 `[RECON]`(점진), `.xls→.xlsx` 양식(template) 서식 완전보존, **엑셀 미리보기 충실도**(별도 조사 진행 중).
+- **비포함(별도)**: 나머지 4개 스크립트 `[RECON]`(점진), `.xls→.xlsx` 양식(template) 서식 완전보존, **미리보기 픽셀-동일**(LibreOffice PDF, Option B). 미리보기 충실도 개선(Option A)은 아래 **Part C**로 포함.
 
 ## 10. 구현 시 정할 것
 - 검산 허용오차(amountTol/rowTol) 기본값 — persys 실제 파일로 보정.
 - 정규화를 업로드 핸들러 vs 첨부 해소 시점 중 어디서 — 업로드 권장(정식 .xlsx 1개).
 - `.xlsm` 매크로 손실 허용(마감엔 데이터만 필요) 확인.
 - SheetJS 버전 고정·설치 가이드(서버 PC 포함).
+
+---
+
+## Part C — 미리보기 충실도 개선 (Option A, 무설치)
+
+### C.1 목표
+현재 미리보기는 ~70%(병합·열너비·폰트·색·테두리·정렬·다중시트 보존). 잃는 것 중 **실무에 중요한 숫자서식(₩/천단위/%)·날짜·고정창**을 추가해 82~83%로. 새 패키지·외부 서비스 없음(exceljs 기존). 픽셀-동일(LibreOffice)은 비범위.
+
+### C.2 백엔드 (routes/ai-history.js)
+- `excelCellStyleForPreview()`(~3349)에 `cell.numFmt`(또는 `cell.style.numFmt`) + `font.name` 캡처.
+- `sheetToPreview()`(~3375)에 셀별 `numFmt`·원본값 전달 + 시트 `frozenPane`(`sheet.views[0].xSplit/ySplit`) 추출.
+- 날짜 변환은 기존 `excelSerialDateToText`/`parseDateStyleIds`(~3525-3579) 재사용.
+
+### C.3 프론트 (public/ai-chat.js, ai-chat.html)
+- 순수 함수 `formatCellByNumFmt(rawValue, numFmt)` — ₩통화/천단위/백분율/날짜를 표시형으로. (단위테스트 대상)
+- `renderSheetTable()`(~936)에서 셀 출력 시 위 함수 적용.
+- 고정창: `frozenPane` 기준 CSS `position:sticky` 클래스(ai-chat.html ~213).
+
+### C.4 범위
+- 포함: ₩/천단위/% 숫자서식, 날짜서식, 고정창(근사).
+- 비포함: 조건부서식·차트·도형, 정확한 폰트종류(웹폰트 fallback), 픽셀-동일(=Option B 별도).
+
+### C.5 테스트
+- `formatCellByNumFmt` 순수 단위테스트(₩/천단위/%/날짜/일반 통과).
+- 픽스처 xlsx(numFmt·병합·고정창 포함) → 미리보기 JSON에 numFmt·frozenPane 실림 확인.
