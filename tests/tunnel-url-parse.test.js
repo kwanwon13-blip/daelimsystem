@@ -1,5 +1,22 @@
 const assert = require('node:assert');
-const { parseTunnelUrl } = require('../scripts/cloudflare-tunnel/tunnel-quick.js');
+const { parseTunnelUrl, buildCloudflaredArgs } = require('../scripts/cloudflare-tunnel/tunnel-quick.js');
+
+// 실행 모드: TUNNEL_TOKEN 있으면 named(고정주소) 토큰 실행, 없으면 quick tunnel
+assert.deepStrictEqual(
+  buildCloudflaredArgs({ TUNNEL_TOKEN: 'tok-abc' }, 'http://127.0.0.1:3000'),
+  ['tunnel', '--no-autoupdate', 'run', '--token', 'tok-abc'],
+  '토큰 있으면 named tunnel 실행',
+);
+assert.deepStrictEqual(
+  buildCloudflaredArgs({}, 'http://127.0.0.1:3000'),
+  ['tunnel', '--no-autoupdate', '--url', 'http://127.0.0.1:3000'],
+  '토큰 없으면 quick tunnel',
+);
+assert.deepStrictEqual(
+  buildCloudflaredArgs({ TUNNEL_TOKEN: '   ' }, 'http://127.0.0.1:3000'),
+  ['tunnel', '--no-autoupdate', '--url', 'http://127.0.0.1:3000'],
+  '공백 토큰은 무시',
+);
 
 // cloudflared quick tunnel 출력에서 공개 URL 추출
 assert.strictEqual(

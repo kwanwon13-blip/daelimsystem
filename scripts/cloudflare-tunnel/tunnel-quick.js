@@ -25,6 +25,13 @@ function parseTunnelUrl(line) {
   return m ? m[0] : '';
 }
 
+// 실행 모드 결정: TUNNEL_TOKEN 있으면 named tunnel(고정주소·Cloudflare 계정), 없으면 quick tunnel(주소 변동)
+function buildCloudflaredArgs(env, origin) {
+  const token = String((env && env.TUNNEL_TOKEN) || '').trim();
+  if (token) return ['tunnel', '--no-autoupdate', 'run', '--token', token];
+  return ['tunnel', '--no-autoupdate', '--url', origin];
+}
+
 async function registerPublicBaseUrl(erpBase, url, adminId, adminPw) {
   const lr = await fetch(erpBase + '/api/auth/login', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -49,10 +56,21 @@ function main() {
   const localExe = path.join(__dirname, 'cloudflared.exe');
   const BIN = process.env.CLOUDFLARED || (fs.existsSync(localExe) ? localExe : 'cloudflared');
 
-  console.log(`[tunnel] origin=${ORIGIN} → trycloudflare (등록 대상 ERP: ${ERP_BASE})`);
-  const child = spawn(BIN, ['tunnel', '--no-autoupdate', '--url', ORIGIN], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const args = buildCloudflaredArgs(process.env, ORIGIN);
+  const tokenMode = args.includes('--token');
+  console.log(tokenMode
+    ? `[tunnel] named tunnel(고정주소) 토큰 모드 — 호스트네임은 Cloudflare 대시보드/API 설정을 따름`
+    : `[tunnel] quick tunnel — origin=${ORIGIN} (등록 대상 ERP: ${ERP_BASE})`);
+  const child = spawn(BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
-  let registered = false;
+  // 토큰 모드: 주소가 고정이라 자동 등록 불필요(최초 1회 PUBLIC_HOSTNAME 등록만 지원)
+  if (tokenMode && process.env.PUBLIC_HOSTNAME) {
+    registerPublicBaseUrl(ERP_BASE, `https://${process.env.PUBLIC_HOSTNAME.replace(/^https?:\/\//, '')}`, ADMIN_ID, ADMIN_PW)
+      .then(() => console.log('[tunnel] 고정 호스트네임 ERP 등록 완료'))
+      .catch(e => console.error('[tunnel] 고정 호스트네임 등록 실패:', e.message));
+  }
+
+  let registered = tokenMode; // 토큰 모드는 trycloudflare URL 파싱 안 함
   const onLine = async (chunk) => {
     const text = chunk.toString();
     process.stdout.write(text);
@@ -83,5 +101,5 @@ function main() {
   });
 }
 
-module.exports = { parseTunnelUrl, registerPublicBaseUrl };
+module.exports = { parseTunnelUrl, buildCloudflaredArgs, registerPublicBaseUrl };
 if (require.main === module) main();
