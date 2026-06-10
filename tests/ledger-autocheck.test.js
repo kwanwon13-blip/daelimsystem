@@ -109,5 +109,24 @@ const ac = require('../lib/ledger-autocheck');
     assert.strictEqual(v.status, 'pass');
   }
 
+  // --- autocheckLedger: recon 있으면 합계 검산 반영 (가짜 ExcelJS) ---
+  {
+    const fakeWs = { rowCount: 3, getRow: () => ({ eachCell: (opt, cb) => cb({ value: 'x' }) }) };
+    function FakeWB() { this.worksheets = [fakeWs]; this.xlsx = { readFile: async () => {} }; }
+    const stdout = '[RECON] {"raw_rows":10,"raw_total":1000,"excluded_rows":0,"excluded_total":0,"out_rows":10,"out_total":900}';
+    const v = await ac.autocheckLedger({ files: [{ name: 'a.xlsx', relPath: 'a.xlsx' }], dir: '/tmp', stdout }, { ExcelJS: { Workbook: FakeWB } });
+    assert.strictEqual(v.status, 'warn');       // 1000 ≠ 900+0 → 합계 불일치
+    assert.ok(/합계/.test(v.text));              // 표시에 사유
+    assert.ok(v.recon && v.recon.raw_total === 1000);
+  }
+  // --- recon 없으면 기존 보수적 점검 그대로(폴백) ---
+  {
+    const fakeWs = { rowCount: 3, getRow: () => ({ eachCell: (opt, cb) => cb({ value: 'x' }) }) };
+    function FakeWB() { this.worksheets = [fakeWs]; this.xlsx = { readFile: async () => {} }; }
+    const v = await ac.autocheckLedger({ files: [{ name: 'a.xlsx', relPath: 'a.xlsx' }], dir: '/tmp', stdout: '[OK]' }, { ExcelJS: { Workbook: FakeWB } });
+    assert.strictEqual(v.status, 'pass');
+    assert.ok(!v.recon);
+  }
+
   console.log('PASS ledger-autocheck');
 })().catch(e => { console.error(e); process.exit(1); });
