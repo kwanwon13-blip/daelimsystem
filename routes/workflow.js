@@ -3623,10 +3623,20 @@ router.post('/jobs', (req, res) => {
   if (!payload.title) {
     payload.title = payload.projectName || (payload.companyName ? `${payload.companyName} 작업` : '워크플로우 작업');
   }
+  // 특이사항은 등록 시 디자인팀이 적어서 넘김('없음'은 빈값으로 정규화 — 배지/팝업 안 띄움)
+  const rawNote = safeText(req.body.handoffNote, 1000).trim();
+  const createNote = (rawNote === '없음' || rawNote === '없음.') ? '' : rawNote;
   const job = {
     id: makeId('wf'),
     publicToken: makeUniquePublicToken(data),
     ...payload,
+    handoffNote: createNote,
+    handoffNoteAt: createNote ? nowIso() : '',
+    handoffNoteFrom: createNote ? userName(req) : '',
+    handoffNoteFromStage: createNote ? 'design' : '',
+    handoffNoteAckBy: '',
+    handoffNoteAckByName: '',
+    handoffNoteAckAt: '',
     stageChecks: newStageChecks(),
     currentStage: 'design',
     createdBy: req.user?.userId || '',
@@ -3706,6 +3716,21 @@ router.put('/jobs/:id', (req, res) => {
     payload.companyName = job.companyName;
     companyLocked = true;
     addEvent(data, req, job.id, 'update', `회사명 변경 차단: ${companyFrom} → ${companyTo} · 팀장/관리자만 가능`, { companyChangeBlocked: true });
+  }
+
+  // 특이사항은 공장이 가져가기 전(디자인 단계)에만 수정 — 내용이 바뀌면 공장 확인 기록 리셋
+  if (job.currentStage === 'design' && req.body.handoffNote !== undefined) {
+    const rawNote = safeText(req.body.handoffNote, 1000).trim();
+    const nextNote = (rawNote === '없음' || rawNote === '없음.') ? '' : rawNote;
+    if (nextNote !== String(job.handoffNote || '')) {
+      job.handoffNote = nextNote;
+      job.handoffNoteAt = nextNote ? at : '';
+      job.handoffNoteFrom = nextNote ? userName(req) : '';
+      job.handoffNoteFromStage = nextNote ? 'design' : '';
+      job.handoffNoteAckBy = '';
+      job.handoffNoteAckByName = '';
+      job.handoffNoteAckAt = '';
+    }
   }
   if (payload.status === 'done' && previousStatus !== 'done') {
     // 완료 게이트는 '미완→완료 신규 전이'에만 적용. 이미 완료된 과거내역의 단순 편집은 통과.
@@ -3911,11 +3936,17 @@ router.post('/jobs/:id/handoff', (req, res) => {
   currentCheck.completedByName = currentCheck.completedByName || userName(req);
   currentCheck.updatedAt = at;
   if (message) currentCheck.note = currentCheck.note ? `${currentCheck.note}\n${message}` : message;
-  // 전달 특이사항(평상시와 다른 점) — 받는 사람이 확인하도록 잡 레벨에 기록. 빈 메시지면 이전 특이사항 해제.
-  job.handoffNote = message || '';
-  job.handoffNoteAt = message ? at : '';
-  job.handoffNoteFrom = message ? userName(req) : '';
-  job.handoffNoteFromStage = message ? current.id : '';
+  // 특이사항은 '등록 시' 디자인팀이 적는 게 기본(풀 모델 — 공장이 [가져오기] 누름).
+  // 핸드오프 메시지가 따로 오면 그걸로 갱신하고 확인 기록 리셋, 빈 메시지면 등록된 특이사항 보존.
+  if (message) {
+    job.handoffNote = message;
+    job.handoffNoteAt = at;
+    job.handoffNoteFrom = userName(req);
+    job.handoffNoteFromStage = current.id;
+    job.handoffNoteAckBy = '';
+    job.handoffNoteAckByName = '';
+    job.handoffNoteAckAt = '';
+  }
 
   syncWorkflowStageFlow(job, at);
   if (job.status === 'hold') job.status = 'active';
@@ -3943,6 +3974,26 @@ router.post('/jobs/:id/handoff', (req, res) => {
 
   job.updatedAt = at;
   saveStore(data);
+  res.json({ ok: true, job: decorateJob(data, job, req.user) });
+});
+
+// 특이사항 확인(공장 팝업의 [확인했습니다]) — 누가/언제 확인했는지 기록, 디자인팀에 알림
+router.post('/jobs/:id/handoff-note/ack', (req, res) => {
+  const data = loadStore();
+  const job = data.jobs.find(j => j.id === req.params.id);
+  if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  if (!job.handoffNote) return res.status(400).json({ error: '확인할 특이사항이 없습니다.' });
+  if (!job.handoffNoteAckAt) {
+    job.handoffNoteAckBy = req.user?.userId || '';
+    job.handoffNoteAckByName = userName(req);
+    job.handoffNoteAckAt = nowIso();
+    job.updatedAt = job.handoffNoteAckAt;
+    addEvent(data, req, job.id, 'update', `특이사항 확인 — ${job.handoffNoteAckByName}`, {
+      handoffNoteAck: true,
+      targetStageIds: ['design'],
+    });
+    saveStore(data);
+  }
   res.json({ ok: true, job: decorateJob(data, job, req.user) });
 });
 

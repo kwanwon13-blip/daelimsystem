@@ -34,7 +34,8 @@ function workflowApp() {
     wfVendor: '',
     boardSort: 'date',
     boardTeam: '', // '' 전체 / 'welding' 용접팀 / 'output' 출력팀
-    boardFocus: '', // '' = 모든 칸 동일 / stageId 또는 'archive' = 그 칸만 크게(나머지는 시안 레일)
+    boardFocus: '', // '' = 모든 칸 동일 / stageId = 그 칸만 크게(나머지는 시안 레일)
+    boardView: 'board', // 'board' 진행 3칸 / 'archive' 과거내역 별도 보기(상단 버튼)
     newOpen: false,
     newFiles: [],
     newUploadDragOver: false,
@@ -91,6 +92,7 @@ function workflowApp() {
     commentText: '',
     handoffText: '',
     factoryDatePending: {}, // {jobId: 'YYYY-MM-DD'} 공장 완료가능일 미확정/수정중 값 (수락 전)
+    noteAckOpen: false, // 특이사항 확인 팝업 (공장이 미확인 특이사항 있는 작업을 열면 자동)
     uploadStageId: 'design',
     uploadKind: 'proof',
     uploadCompanyName: '',
@@ -142,6 +144,7 @@ function workflowApp() {
       deliveryDate: '',
       priority: 'normal',
       summary: '',
+      handoffNote: '', // 특이사항 — 등록 시 필수(없으면 [없음] 버튼으로 '없음')
     },
 
     async init() {
@@ -2798,13 +2801,13 @@ function workflowApp() {
       const cur = this.currentStage();
       // 특이사항은 디자인팀이 시안 넘길 때(design→공장)만 입력받는다. 공장 완료/납품준비 단계는 단순 확인.
       if (cur && cur.id === 'design') {
+        // 풀 모델: 공장이 [가져오기]를 누른다. 특이사항은 등록 때 디자인팀이 이미 적어둠 — 여기선 보여주고 확인만.
         const due = this.detail.job.dueDate || '미정';
-        const note = window.prompt(
-          `${who}\n요청날짜 ${due} 로 공장(대림컴퍼니)에 넘깁니다.\n` +
-          `※ 날짜 조율은 여기가 아니라, 공장이 받은 뒤 공장 칸 카드의 [가능일] 칸에서 수정·[수락]합니다.\n\n` +
-          `평소와 다른 특이사항이 있으면 적어주세요. 없으면 그냥 [확인].`, '');
-        if (note === null) return; // 취소
-        this.handoffText = (note || '').trim();
+        const note = String(this.detail.job.handoffNote || '').trim() || '없음';
+        if (!confirm(
+          `${who}\n요청날짜 ${due}\n\n[디자인팀 특이사항]\n${note}\n\n` +
+          `확인했으면 공장으로 가져옵니다.\n(가능일 조율은 가져온 뒤 공장 칸의 [가능일]에서)`)) return;
+        this.handoffText = '';
       } else {
         if (!confirm(`${who}\n\n${label} 하시겠어요?`)) return;
       }
@@ -2874,6 +2877,10 @@ function workflowApp() {
       if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
       if (!this.newFiles.length) {
         return alert('시안 파일을 먼저 올려주세요.');
+      }
+      // 특이사항 필수 — 평소와 다른 점이 없으면 [없음] 버튼(또는 '없음' 입력)
+      if (!String(this.form.handoffNote || '').trim()) {
+        return alert('특이사항을 적어주세요.\n평소와 다른 점이 없으면 [없음] 버튼을 누르면 됩니다.');
       }
       if (this.newFiles.length && (!String(this.form.companyName || '').trim() || !String(this.form.projectName || '').trim())) {
         return alert('시안 파일을 같이 올릴 때는 회사명과 프로젝트명을 입력하세요.');
@@ -2962,6 +2969,7 @@ function workflowApp() {
         deliveryDate: '',
         priority: 'normal',
         summary: '',
+        handoffNote: '',
       };
     },
 
@@ -3013,6 +3021,30 @@ function workflowApp() {
       this.selectedId = id;
       this.selectedWorkStageId = stageId || '';
       await this.refreshDetail(true);
+      // 공장이 미확인 특이사항 있는 작업을 열면 팝업으로 강제 인지 (확인 누르면 기록 + 디자인팀 알림)
+      const j = this.detail && this.detail.job;
+      this.noteAckOpen = !!(j && j.handoffNote && !j.handoffNoteAckAt && j.currentStage === 'factory' && j.status === 'active');
+    },
+
+    // 특이사항 [확인했습니다] — 누가 확인했는지 서버 기록
+    async ackHandoffNote() {
+      if (!this.detail || !this.detail.job) return;
+      this.saving = true;
+      try {
+        const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/handoff-note/ack', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+        });
+        const d = await r.json();
+        if (!r.ok || !d.ok) throw new Error(d.error || '확인 처리 실패');
+        this.noteAckOpen = false;
+        await this.refreshDetail(false);
+      } catch (e) { alert(e.message); }
+      finally { this.saving = false; }
+    },
+
+    // 팀 미배정 시안 수 (분배 배너용)
+    detailUnassignedCount() {
+      return ((this.detail && this.detail.files) || []).filter(f => f.isImage && f.team !== 'welding' && f.team !== 'output').length;
     },
 
     async openUnreadFile(item) {

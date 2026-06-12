@@ -139,6 +139,42 @@
   .wf-rename-text{font-size:12.5px;font-weight:800;color:#312e81;word-break:break-all;line-height:1.4;}
   .wf-rename-body small{font-size:10px;color:#6366f1;}
   .wf-rc-flag.rename{background:#eef2ff;border-color:#c7d2fe;color:#4338ca;}
+  /* 등록 모달 특이사항 필수칸 */
+  .wf-note-req{font-size:10px;font-weight:900;color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;border-radius:4px;padding:0 6px;}
+  .wf-note-empty{border-color:#fca5a5 !important;background:#fff7f7;}
+  /* 특이사항 확인 팝업(공장 강제 인지) */
+  .wf-noteack-modal{position:fixed;inset:0;z-index:10000;background:rgba(3,7,18,.55);display:flex;align-items:center;justify-content:center;padding:16px;}
+  .wf-noteack-panel{width:min(440px,94vw);background:#fff;border-radius:12px;box-shadow:0 24px 70px rgba(0,0,0,.4);border-top:5px solid #ea580c;padding:18px 20px;display:flex;flex-direction:column;gap:10px;}
+  .wf-noteack-head{display:flex;align-items:center;gap:7px;font-size:14.5px;font-weight:900;color:#9a3412;}
+  .wf-noteack-head .material-symbols-outlined{font-size:20px;color:#ea580c;}
+  .wf-noteack-text{font-size:15px;font-weight:700;color:#1f2937;line-height:1.5;white-space:pre-wrap;word-break:break-word;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:11px 13px;}
+  .wf-noteack-meta{font-size:11px;color:#9ca3af;}
+  /* 팀 미배정 안내 배너 (공장/배송 — 시안을 용접/출력으로 나누라고 크게 띄움) */
+  .wf-teambanner{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px;padding:9px 12px;background:#fffbeb;border:1px solid #fde68a;border-left:4px solid #f59e0b;border-radius:8px;}
+  .wf-teambanner-msg{display:flex;align-items:center;gap:7px;min-width:0;font-size:12.5px;font-weight:800;color:#92400e;line-height:1.35;}
+  .wf-teambanner-msg .material-symbols-outlined{font-size:19px;color:#f59e0b;flex:0 0 auto;}
+  .wf-teambanner-msg b{color:#b45309;font-weight:900;}
+  .wf-teambanner-act{display:flex;gap:6px;flex:0 0 auto;}
+  .wf-teambanner-act button{height:28px;padding:0 11px;border-radius:7px;border:1px solid #d1d5db;background:#fff;font-size:12px;font-weight:900;cursor:pointer;color:#374151;}
+  .wf-teambanner-act button:first-child{border-color:#fdba74;color:#c2410c;background:#fff7ed;}
+  .wf-teambanner-act button:last-child{border-color:#93c5fd;color:#1d4ed8;background:#eff6ff;}
+  .wf-teambanner-act button:disabled{opacity:.5;cursor:default;}
+  /* 상단 보기 전환(진행 보드 / 과거내역) — 컴퍼니매입식 세그먼트 탭 */
+  .wf-board-tabs{display:inline-flex;gap:4px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:9px;padding:3px;margin-left:10px;flex:0 0 auto;}
+  .wf-board-tabs button{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 13px;border:0;border-radius:7px;background:transparent;color:#64748b;font-size:12.5px;font-weight:900;cursor:pointer;}
+  .wf-board-tabs button .material-symbols-outlined{font-size:17px;}
+  .wf-board-tabs button.on{background:#fff;color:#0f172a;box-shadow:0 1px 3px rgba(15,23,42,.12);}
+  .wf-board-tabs .wf-tabcount{background:#e2e8f0;color:#475569;border-radius:999px;padding:0 6px;font-size:10.5px;font-weight:900;}
+  .wf-board-tabs button.on .wf-tabcount{background:#dbeafe;color:#1d4ed8;}
+  /* 보기 래퍼: 보드 묶음을 통째로 토글. .wf-board와 동일한 세로 플렉스라 칸 높이(flex:1) 그대로 동작 */
+  .wf-view-board{display:flex;flex-direction:column;min-height:0;flex:1;}
+  /* 과거내역 전용 보기(전체폭 그리드) */
+  .wf-view-archive{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px;padding:10px 2px 2px;}
+  .wf-arc-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:0 0 auto;}
+  .wf-arc-title{display:flex;align-items:center;gap:6px;font-size:14px;font-weight:900;color:#334155;}
+  .wf-arc-title .material-symbols-outlined{font-size:19px;color:#64748b;}
+  .wf-arc-q{flex:1;min-width:200px;max-width:440px;box-sizing:border-box;}
+  .wf-arc-grid{flex:1;min-height:0;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:8px;align-content:start;padding:2px 4px 8px 0;}
   /* 핵심 날짜 카드 (단계별 — 공장은 완료가능일 강조) */
   .wf-keybox{display:flex;flex-direction:column;gap:6px;padding:11px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;}
   .wf-keybox-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
@@ -431,6 +467,10 @@
     <section class="wf-board">
       <div class="wf-toolbar">
         <h2>워크플로우</h2>
+        <div class="wf-board-tabs">
+          <button type="button" :class="boardView==='board'?'on':''" @click="boardView='board'"><span class="material-symbols-outlined">dashboard</span>진행 보드</button>
+          <button type="button" :class="boardView==='archive'?'on':''" @click="boardView='archive'"><span class="material-symbols-outlined">inventory_2</span>과거내역<span class="wf-tabcount" x-show="archiveFiltered().length" x-text="archiveFiltered().length"></span></button>
+        </div>
         <div style="flex:1"></div>
         <button class="wf-btn ghost" @click="toggleDepartmentMappingPanel()">
           <span class="material-symbols-outlined" style="font-size:16px;">account_tree</span>
@@ -439,6 +479,8 @@
         <button class="wf-btn ghost" @click="openProjectPanel()"><span class="material-symbols-outlined" style="font-size:16px;">folder_managed</span>프로젝트</button>
         <button class="wf-btn primary" @click="openNewJobModal()"><span class="material-symbols-outlined" style="font-size:16px;">add</span>시안</button>
       </div>
+
+      <div class="wf-view-board" x-show="boardView==='board'">
       <div class="wf-filterbar">
         <div class="wf-e2e-filter">
           <span class="wf-e2e-lbl">마감</span>
@@ -698,7 +740,7 @@
                         <span class="wf-rc-date" x-show="(cardDeadline(job)||{}).date" x-text="(cardDeadline(job)||{}).date"></span>
                         <span class="wf-rc-person" x-show="groupActor(job, stage.id) && groupActor(job, stage.id) !== '미지정'"><span class="material-symbols-outlined" style="font-size:12px;">person</span><span x-text="groupActor(job, stage.id)"></span></span>
                         <span style="flex:1"></span>
-                        <button type="button" class="wf-rc-btn" @click.stop="cardHandoff(job.id, stage.id)" x-show="job.status!=='done' && job.status!=='cancelled'">공장으로</button>
+                        <button type="button" class="wf-rc-btn" @click.stop="cardHandoff(job.id, stage.id)" x-show="job.status!=='done' && job.status!=='cancelled'" title="대림컴퍼니(공장)가 이 발주를 가져갑니다 — 특이사항 확인 후 공장 칸으로 이동">가져오기</button>
                       </div>
                     </template>
                     <template x-if="stage.id==='factory'">
@@ -738,24 +780,18 @@
           </div>
         </template>
 
-        <!-- 과거내역(완료 보관) — 맨 오른쪽 별도 칸 + 검색 -->
-        <div class="wf-col wf-col-archive" :class="[boardFocus==='archive' ? 'focus' : '', (boardFocus && boardFocus!=='archive') ? 'mini' : '']"
-          @click="(boardFocus && boardFocus!=='archive') ? setBoardFocus('archive') : null">
-          <div class="wf-col-head">
-            <span class="wf-col-headlabel" style="display:flex;align-items:center;gap:5px;min-width:0;">
-              <span class="material-symbols-outlined" style="font-size:16px;">inventory_2</span>
-              <span class="wf-col-name">과거내역</span>
-            </span>
-            <span style="display:flex;align-items:center;gap:4px;flex:0 0 auto;">
-              <span class="wf-chip" x-text="archiveFiltered().length"></span>
-              <button type="button" class="wf-colzoom" x-show="boardFocus!=='archive'" @click.stop="setBoardFocus('archive')" title="이 칸 크게 보기"><span class="material-symbols-outlined">open_in_full</span></button>
-              <button type="button" class="wf-colzoom on" x-show="boardFocus==='archive'" @click.stop="clearBoardFocus()" title="원래대로 — 모든 칸 동일 크기"><span class="material-symbols-outlined">close_fullscreen</span></button>
-            </span>
-          </div>
-          <div class="wf-arc-search">
-            <input class="wf-input" style="width:100%;box-sizing:border-box;" x-model="archiveQuery" placeholder="🔍 코드·업체·현장 검색">
-          </div>
-          <div class="wf-col-list">
+      </div>
+      </div>
+
+      <!-- 과거내역 — 상단 [과거내역] 버튼으로 들어오는 별도 보기(전체폭 그리드) -->
+      <div class="wf-view-archive" x-show="boardView==='archive'" x-cloak>
+        <div class="wf-arc-bar">
+          <span class="wf-arc-title"><span class="material-symbols-outlined">inventory_2</span>과거내역<span class="wf-chip" x-text="archiveFiltered().length"></span></span>
+          <input class="wf-input wf-arc-q" x-model="archiveQuery" placeholder="🔍 코드·업체·현장 검색">
+          <span style="flex:1"></span>
+          <button type="button" class="wf-btn ghost" @click="boardView='board'" title="진행 보드로 돌아가기"><span class="material-symbols-outlined" style="font-size:16px;">arrow_back</span>진행 보드</button>
+        </div>
+        <div class="wf-arc-grid">
             <template x-for="job in archiveFiltered()" :key="'arc-'+job.id">
               <div class="wf-card wf-rowcard" role="button" tabindex="0" :class="selectedId===job.id ? 'active' : ''" @click="selectJob(job.id, 'delivery')">
                 <template x-if="job.primaryVisualFile">
@@ -783,7 +819,6 @@
               </div>
             </template>
             <div class="wf-empty" x-show="!archiveFiltered().length">완료된 작업이 없습니다</div>
-          </div>
         </div>
       </div>
     </section>
@@ -986,6 +1021,17 @@
                 </span>
               </div>
               <div class="wf-section-body">
+                <!-- 팀 분배 안내 배너 — 공장/배송 단계에서 미배정 시안이 있으면 크게 떠서 놓치지 않게 -->
+                <div class="wf-teambanner" x-show="(detail.job.currentStage==='factory'||detail.job.currentStage==='delivery') && detailUnassignedCount()>0" x-cloak>
+                  <div class="wf-teambanner-msg">
+                    <span class="material-symbols-outlined">call_split</span>
+                    <span><b x-text="detailUnassignedCount()"></b>장이 아직 팀 미배정 — 각 시안 위 <b>용접/출력</b>으로 나눠주세요</span>
+                  </div>
+                  <div class="wf-teambanner-act" x-show="(detail.files||[]).filter(f=>f.isImage).length>1">
+                    <button type="button" @click="assignTeamBulk('welding')" :disabled="saving">모두 용접</button>
+                    <button type="button" @click="assignTeamBulk('output')" :disabled="saving">모두 출력</button>
+                  </div>
+                </div>
                 <div class="wf-upload-panel" x-show="uploadOpen && canUploadToCurrentJob()" x-cloak>
                   <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;">
                     <span class="wf-chip unread" x-text="parallelStageLabel('·') + ' 자동전달'"></span>
@@ -1684,6 +1730,14 @@
           <label>메모</label>
           <textarea class="wf-textarea" x-model="form.summary" placeholder="전달할 내용을 짧게 입력"></textarea>
         </div>
+        <div class="wf-field wf-note-field">
+          <label style="display:flex;align-items:center;gap:6px;">
+            특이사항 <span class="wf-note-req">필수</span>
+            <span style="flex:1"></span>
+            <button type="button" class="wf-btn ghost" style="height:24px;padding:0 8px;font-size:11px;" @click="form.handoffNote='없음'" title="평소와 다른 점이 없으면 누르세요">없음</button>
+          </label>
+          <textarea class="wf-textarea" :class="String(form.handoffNote||'').trim() ? '' : 'wf-note-empty'" x-model="form.handoffNote" placeholder="평소와 다른 점 — 공장이 가져갈 때 팝업으로 확인합니다 (없으면 [없음] 클릭)" style="min-height:52px;"></textarea>
+        </div>
       </div>
       <div class="wf-dialog-foot">
         <div class="wf-creator" title="담당자는 로그인 사용자로 자동 저장됩니다.">
@@ -1697,6 +1751,19 @@
       </div>
     </div>
   </div>
+<!-- 특이사항 확인 팝업 — 공장이 미확인 특이사항 작업을 열면 자동으로 떠서 강제 인지 -->
+<div class="wf-noteack-modal" x-show="noteAckOpen && detail && detail.job && detail.job.handoffNote" x-cloak @keydown.window.escape="noteAckOpen=false">
+  <div class="wf-noteack-panel">
+    <div class="wf-noteack-head"><span class="material-symbols-outlined">push_pin</span>디자인팀 특이사항 — 꼭 확인하세요</div>
+    <div class="wf-noteack-text" x-text="detail?.job?.handoffNote"></div>
+    <div class="wf-noteack-meta" x-text="'작성 ' + ((detail?.job?.handoffNoteFrom) || '') + ((detail?.job?.handoffNoteAt) ? ' · ' + wfShortDate(detail.job.handoffNoteAt) : '')"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px;">
+      <button type="button" class="wf-btn ghost" @click="noteAckOpen=false" title="다음에 열면 다시 뜹니다">나중에</button>
+      <button type="button" class="wf-btn primary" @click="ackHandoffNote()" :disabled="saving">확인했습니다</button>
+    </div>
+  </div>
+</div>
+
 <div class="wf-preview-modal" x-show="filePreview.open" x-cloak @click.self="closeFilePreview()" @keydown.window.escape="closeFilePreview()" @keydown.window.arrow-left="filePreview.open && stepPreview(-1)" @keydown.window.arrow-right="filePreview.open && stepPreview(1)">
   <div class="wf-preview-panel">
     <div class="wf-preview-head">
