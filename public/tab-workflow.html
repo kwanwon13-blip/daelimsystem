@@ -979,6 +979,8 @@
                 </span>
                 <span style="display:flex;align-items:center;gap:6px;flex:0 0 auto;">
                   <span class="wf-muted" x-show="!canUploadToCurrentJob()">보관 완료</span>
+                  <button type="button" class="wf-team-btn weld" style="height:26px;" x-show="(detail.job.currentStage==='factory'||detail.job.currentStage==='delivery') && (detail.files||[]).filter(f=>f.isImage).length>1" @click="assignTeamBulk('welding')" :disabled="saving" title="모든 시안을 용접팀으로 한 번에">모두 용접</button>
+                  <button type="button" class="wf-team-btn out" style="height:26px;" x-show="(detail.job.currentStage==='factory'||detail.job.currentStage==='delivery') && (detail.files||[]).filter(f=>f.isImage).length>1" @click="assignTeamBulk('output')" :disabled="saving" title="모든 시안을 출력팀으로 한 번에">모두 출력</button>
                   <a class="wf-btn" x-show="filteredFiles().length" style="height:26px;padding:0 8px;" :href="smartArchiveUrl()" title="전체 파일을 ZIP으로 받습니다">전체 받기</a>
                   <button class="wf-btn ghost" x-show="canUploadToCurrentJob()" style="height:26px;padding:0 8px;" @click="uploadOpen = !uploadOpen" x-text="uploadOpen ? '닫기' : '시안 올리기'"></button>
                 </span>

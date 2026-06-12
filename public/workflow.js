@@ -2118,8 +2118,12 @@ function workflowApp() {
     },
 
     // 상세 기본뷰 시안 타일 — 그림(미리보기) 먼저, AI/기타 파일 뒤. 파일명·칩 없이 타일만.
+    // 상단 팀 필터(용접팀/출력팀)가 켜져 있으면 그 팀에 배정된 시안만 — 팀별 분업 뷰.
     detailTiles() {
-      const files = (this.detail && this.detail.files) ? this.detail.files.slice() : [];
+      let files = (this.detail && this.detail.files) ? this.detail.files.slice() : [];
+      if (this.boardTeam === 'welding' || this.boardTeam === 'output') {
+        files = files.filter(f => f.team === this.boardTeam);
+      }
       return files.sort((a, b) =>
         (((b.isImage && b.exists !== false) ? 1 : 0) - ((a.isImage && a.exists !== false) ? 1 : 0))
         || String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
@@ -3471,10 +3475,40 @@ function workflowApp() {
       try {
         const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(job.id));
         const d = await r.json();
-        if (r.ok && d && Array.isArray(d.files)) list = d.files.filter(x => x.isImage && x.exists !== false);
+        if (r.ok && d && Array.isArray(d.files)) {
+          list = d.files.filter(x => x.isImage && x.exists !== false);
+          // 팀 필터가 켜져 있으면 그 팀 시안만 넘겨보기 (팀별 분업)
+          if (this.boardTeam === 'welding' || this.boardTeam === 'output') {
+            const teamOnly = list.filter(x => x.team === this.boardTeam);
+            if (teamOnly.length) list = teamOnly;
+          }
+        }
       } catch (_) {}
       if (list && list.length) this.openFilePreview(list[0], list);
       else this.openFilePreview({ ...f, isImage: true });
+    },
+
+    // 시안 일괄 팀 배정 — 여러 장을 한 번에 용접/출력으로 (이미 같은 팀인 파일은 건너뜀)
+    async assignTeamBulk(team) {
+      if (!this.detail || !this.detail.job) return;
+      const targets = (this.detail.files || []).filter(f => f.isImage && f.team !== team);
+      if (!targets.length) { alert('이미 전부 ' + this.teamLabel(team) + '팀입니다.'); return; }
+      const label = this.teamLabel(team);
+      if (!confirm(`시안 ${targets.length}장을 전부 [${label}]팀으로 배정할까요?\n(개별 조정은 각 장 아래 토글로)`)) return;
+      this.saving = true;
+      try {
+        for (const f of targets) {
+          const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/files/' + encodeURIComponent(f.id) + '/team', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ team }),
+          });
+          const d = await r.json();
+          if (!r.ok || !d.ok) throw new Error(d.error || '팀 배정 실패');
+        }
+        await this.loadJobs();
+        await this.refreshDetail(false);
+      } catch (e) { alert(e.message); }
+      finally { this.saving = false; }
     },
 
     // 칸 포커스 — 누른 칸만 크게, 나머지는 시안 썸네일 레일. 해제하면 모든 칸 동일 복귀.
