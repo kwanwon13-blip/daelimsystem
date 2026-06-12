@@ -114,7 +114,8 @@
   /* === 컴팩트 줄카드 (하루 20건+ 대량 대응): 제목·마감·발주자·완료버튼만, 나머지는 클릭→상세 === */
   .wf-rowcard{padding:6px 9px 7px;display:flex;flex-direction:row;align-items:center;gap:8px;}
   .wf-rowcard.active{padding:7px 9px 8px;}
-  .wf-rc-thumb{flex:0 0 auto;width:38px;height:38px;border-radius:6px;overflow:hidden;border:1px solid rgba(15,23,42,.1);background:#eef2f7;padding:0;cursor:zoom-in;display:block;transition:transform .12s ease,box-shadow .12s ease;}
+  .wf-rc-thumb{flex:0 0 auto;width:38px;height:38px;border-radius:6px;overflow:hidden;border:1px solid rgba(15,23,42,.1);background:#eef2f7;padding:0;cursor:zoom-in;display:block;position:relative;transition:transform .12s ease,box-shadow .12s ease;}
+  .wf-rc-more{position:absolute;right:1px;bottom:1px;background:rgba(15,23,42,.74);color:#fff;font-size:9px;font-weight:800;border-radius:4px;padding:0 4px;line-height:13px;pointer-events:none;}
   .wf-rc-thumb:hover{transform:scale(1.06);box-shadow:0 2px 8px rgba(15,23,42,.22);}
   .wf-rc-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
   .wf-rc-thumb.image-failed{display:none;}
@@ -675,8 +676,9 @@
                 <template x-for="job in grp.jobs" :key="job.id">
                 <div class="wf-card wf-rowcard text-left" role="button" tabindex="0" :class="[cardStateClass(job), (selectedId===job.id && (!selectedWorkStageId || selectedWorkStageId===stage.id)) ? 'active' : '', job.status === 'cancelled' ? 'cancelled' : '']" @click="selectJob(job.id, stage.id)">
                   <template x-if="job.primaryVisualFile">
-                    <button type="button" class="wf-rc-thumb" @click.stop="openCardPreview(job)" title="클릭하면 시안 크게 보기">
+                    <button type="button" class="wf-rc-thumb" @click.stop="openCardPreview(job)" :title="'클릭하면 시안 크게 보기' + ((job.visualFileCount||0)>1 ? ' · 총 ' + job.visualFileCount + '장 ◀▶로 넘기기' : '')">
                       <img :src="job.primaryVisualFile.thumbUrl || job.primaryVisualFile.previewUrl" loading="lazy" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, job.primaryVisualFile.previewUrl)">
+                      <span class="wf-rc-more" x-show="(job.visualFileCount||0)>1" x-text="'+' + (job.visualFileCount - 1)"></span>
                     </button>
                   </template>
                   <div class="wf-rc-minititle" x-text="(job.projectName || job.companyName || job.title || '현장 미지정').slice(0, 8)"></div>
@@ -757,8 +759,9 @@
             <template x-for="job in archiveFiltered()" :key="'arc-'+job.id">
               <div class="wf-card wf-rowcard" role="button" tabindex="0" :class="selectedId===job.id ? 'active' : ''" @click="selectJob(job.id, 'delivery')">
                 <template x-if="job.primaryVisualFile">
-                  <button type="button" class="wf-rc-thumb" @click.stop="openCardPreview(job)" title="클릭하면 시안 크게 보기">
+                  <button type="button" class="wf-rc-thumb" @click.stop="openCardPreview(job)" :title="'클릭하면 시안 크게 보기' + ((job.visualFileCount||0)>1 ? ' · 총 ' + job.visualFileCount + '장 ◀▶로 넘기기' : '')">
                     <img :src="job.primaryVisualFile.thumbUrl || job.primaryVisualFile.previewUrl" loading="lazy" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, job.primaryVisualFile.previewUrl)">
+                    <span class="wf-rc-more" x-show="(job.visualFileCount||0)>1" x-text="'+' + (job.visualFileCount - 1)"></span>
                   </button>
                 </template>
                 <div class="wf-rc-minititle" x-text="(job.projectName || job.companyName || job.title || '현장 미지정').slice(0, 8)"></div>
@@ -1045,7 +1048,7 @@
                   <template x-for="file in detailTiles()" :key="'tile-'+file.id">
                     <div class="wf-feed-item">
                       <template x-if="file.isImage && file.exists!==false">
-                        <div class="wf-feed-imgbox" role="button" tabindex="0" @click="openFilePreview(file)" :title="(file.originalName || '시안') + ' — 클릭하면 크게 보기(확대/원본)'">
+                        <div class="wf-feed-imgbox" role="button" tabindex="0" @click="openFilePreview(file, detailTiles())" :title="(file.originalName || '시안') + ' — 클릭하면 크게 보기 · ◀▶로 넘기기'">
                           <img :src="filePreviewUrl(file) || fileThumbUrl(file)" loading="lazy" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, fileThumbUrl(file))">
                           <span class="wf-feed-zoom"><span class="material-symbols-outlined">zoom_in</span></span>
                           <a class="wf-tile-dl" :href="smartFileUrl(file)" @click.stop title="이 파일 받기"><span class="material-symbols-outlined" style="font-size:14px;">download</span></a>
@@ -1069,7 +1072,7 @@
                 <div class="wf-gallery proof-strip" x-show="detailMoreOpen && visualFiles().length">
                   <template x-for="file in visualFiles()" :key="file.id">
                     <article class="wf-proof-card" :data-workflow-file-id="file.id" :class="[(isUnreadFile(file) ? 'unread' : ''), (file.urgent ? 'urgent' : ''), (expandedFileId === file.id ? 'active' : '')]">
-                      <button class="wf-proof-thumb" @click="openFilePreview(file)">
+                      <button class="wf-proof-thumb" @click="openFilePreview(file, visualFiles())">
                         <img :src="fileThumbUrl(file)" :alt="file.originalName" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, filePreviewUrl(file))">
                         <span class="wf-proof-badge" x-text="fileKindLabel(file.kind)"></span>
                       </button>
@@ -1692,11 +1695,14 @@
       </div>
     </div>
   </div>
-<div class="wf-preview-modal" x-show="filePreview.open" x-cloak @click.self="closeFilePreview()" @keydown.window.escape="closeFilePreview()">
+<div class="wf-preview-modal" x-show="filePreview.open" x-cloak @click.self="closeFilePreview()" @keydown.window.escape="closeFilePreview()" @keydown.window.arrow-left="filePreview.open && stepPreview(-1)" @keydown.window.arrow-right="filePreview.open && stepPreview(1)">
   <div class="wf-preview-panel">
     <div class="wf-preview-head">
       <strong x-text="filePreview.file?.originalName || '시안 미리보기'"></strong>
       <div class="wf-preview-tools">
+        <button class="wf-btn" style="height:28px;" x-show="previewCount()>1" @click="stepPreview(-1)" title="이전 시안 (←)">◀</button>
+        <span class="wf-chip" style="height:28px;background:#1e293b;color:#fff;border-color:#334155;" x-show="previewCount()>1" x-text="(filePreview.index+1) + ' / ' + previewCount()"></span>
+        <button class="wf-btn" style="height:28px;" x-show="previewCount()>1" @click="stepPreview(1)" title="다음 시안 (→)">▶</button>
         <button class="wf-btn" style="height:28px;background:#fff;color:#111827;" @click="fitPreview()">맞춤</button>
         <button class="wf-btn" style="height:28px;background:#fff;color:#111827;" @click="actualPreview()">100%</button>
         <button class="wf-btn" style="height:28px;background:#fff;color:#111827;" @click="zoomPreview(-0.25)">-</button>

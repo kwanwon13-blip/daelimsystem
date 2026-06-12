@@ -103,7 +103,7 @@ function workflowApp() {
     uploadProgress: { active: false, percent: 0, text: '' },
     fileStageFilter: 'all',
     fileKindFilter: 'all',
-    filePreview: { open: false, file: null, zoom: 1, fit: true },
+    filePreview: { open: false, file: null, zoom: 1, fit: true, list: [], index: 0 },
     expandedFileId: '',
     highlightedEventId: '',
     quickFactoryOrderSaving: false,
@@ -3440,17 +3440,41 @@ function workflowApp() {
       return parts.join('\n');
     },
 
-    openFilePreview(file) {
+    // list 를 주면 ◀▶/화살표키로 같은 작업의 시안을 넘겨볼 수 있다 (시안 여러 장 대응)
+    openFilePreview(file, list = null) {
       if (!file || !file.isImage) return;
-      this.filePreview = { open: true, file, zoom: 1, fit: true };
+      const imgs = Array.isArray(list) ? list.filter(f => f && f.isImage && f.exists !== false) : [];
+      const index = imgs.length ? Math.max(0, imgs.findIndex(f => f.id === file.id)) : 0;
+      this.filePreview = { open: true, file, zoom: 1, fit: true, list: imgs.length ? imgs : [file], index };
     },
 
-    // 보드 컴팩트 카드의 썸네일 클릭 → 시안 크게 보기(시안검색과 같은 확대 모달).
-    // decorateJob 의 primaryVisualFile 은 항상 이미지지만 isImage 플래그가 없어 보강해서 넘긴다.
-    openCardPreview(job) {
+    previewCount() { return (this.filePreview.list || []).length; },
+
+    // 확대 모달에서 이전/다음 시안 (순환)
+    stepPreview(delta) {
+      const list = this.filePreview.list || [];
+      if (!this.filePreview.open || list.length < 2) return;
+      const n = list.length;
+      const idx = ((this.filePreview.index + delta) % n + n) % n;
+      this.filePreview.index = idx;
+      this.filePreview.file = list[idx];
+      this.filePreview.fit = true;
+      this.filePreview.zoom = 1;
+    },
+
+    // 보드 컴팩트 카드의 썸네일 클릭 → 시안 크게 보기 + 그 작업의 모든 시안 넘겨보기.
+    // 보드 목록엔 대표 1장뿐이라 상세를 불러 전체 목록을 확보(실패 시 대표 1장만).
+    async openCardPreview(job) {
       const f = job && job.primaryVisualFile;
       if (!f) return;
-      this.openFilePreview({ ...f, isImage: true });
+      let list = null;
+      try {
+        const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(job.id));
+        const d = await r.json();
+        if (r.ok && d && Array.isArray(d.files)) list = d.files.filter(x => x.isImage && x.exists !== false);
+      } catch (_) {}
+      if (list && list.length) this.openFilePreview(list[0], list);
+      else this.openFilePreview({ ...f, isImage: true });
     },
 
     // 칸 포커스 — 누른 칸만 크게, 나머지는 시안 썸네일 레일. 해제하면 모든 칸 동일 복귀.
@@ -3549,7 +3573,7 @@ function workflowApp() {
     },
 
     closeFilePreview() {
-      this.filePreview = { open: false, file: null, zoom: 1, fit: true };
+      this.filePreview = { open: false, file: null, zoom: 1, fit: true, list: [], index: 0 };
     },
 
     fileTypeLabel(file) {
