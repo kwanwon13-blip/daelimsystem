@@ -13,6 +13,7 @@ const { isPathInside } = require('./lib/design-workflow-storage');
 const workflowStorageRules = require('./lib/workflow-storage-rules');
 const { createFileLocator } = require('./lib/workflow-file-locator');
 const stageRules = require('./lib/workflow-stage-rules');
+const renameLib = require('./lib/workflow-rename');
 let sharp;
 try { sharp = require('sharp'); } catch (_) {}
 const { sendSmtpMail, normalizeEmailList } = mailRoute;
@@ -678,6 +679,109 @@ function applyWorkflowDesignStorage(job, create = false) {
 
 function userName(req) {
   return req.user?.name || req.user?.userId || 'unknown';
+}
+
+// 현장명 변경 승인권자 — 관리자 또는 조직도에서 자기 부서의 팀장(departments[].leaderId)
+function isWorkflowApprover(req) {
+  if ((req.user?.role || '') === 'admin') return true;
+  try {
+    const org = loadOrgSnapshotFromFile();
+    const me = (org?.users || []).find(u => u.userId === req.user?.userId);
+    if (!me || !me.department) return false;
+    const dept = (org?.departments || []).find(d => d.id === me.department);
+    return !!(dept && dept.leaderId === me.id);
+  } catch (_) { return false; }
+}
+
+// 현장명 변경 실행(팀장 승인 후에만 호출) — 디스크 폴더 rename + 같은 현장의 모든 작업·파일 경로 일괄 갱신.
+// 폴더가 없으면 DB만 갱신. 같은 이름 폴더가 이미 있으면 충돌 에러(throw).
+function executeProjectRename(data, req, anchorJob, newNameRaw) {
+  const company = String(anchorJob.companyName || '');
+  const oldName = String(anchorJob.projectName || '');
+  const newName = safeText(newNameRaw, 160).trim();
+  if (!newName) throw new Error('새 현장명이 비어 있습니다.');
+  if (!oldName || newName === oldName) throw new Error('바꿀 현장명이 기존과 같습니다.');
+  const at = nowIso();
+
+  // 1) 디스크 폴더 rename (실제 폴더가 있을 때만)
+  let oldDir = String(anchorJob.storagePath || '');
+  if (!oldDir || !fs.existsSync(oldDir)) {
+    const info = resolveWorkflowDesignStorage(company, oldName, safeYear(String(anchorJob.dueDate || '').slice(0, 4)), false);
+    oldDir = (info && info.dir) || '';
+  }
+  let newDir = '';
+  let oldLeaf = '';
+  let newLeaf = '';
+  if (oldDir && fs.existsSync(oldDir)) {
+    oldLeaf = path.basename(oldDir);
+    newLeaf = safeFilePart(renameLib.buildRenamedLeaf(oldLeaf, oldName, newName), newName);
+    newDir = path.join(path.dirname(oldDir), newLeaf);
+    if (path.resolve(newDir) === path.resolve(oldDir)) {
+      newDir = '';
+    } else {
+      if (fs.existsSync(newDir)) throw new Error('같은 이름의 폴더가 이미 있습니다: ' + newLeaf);
+      fs.renameSync(oldDir, newDir);
+    }
+  }
+
+  // 2) 같은 현장(회사+현장명)의 모든 작업 갱신
+  //    경로 메타데이터(버킷/leaf/넷패스)는 '실제로 rename 된 폴더(prefix 일치)' 잡에만 적용 —
+  //    연도·루트가 다른 형제 폴더 잡의 버킷을 존재하지 않는 폴더로 깨뜨리지 않음 (감사 #6,#7,#15)
+  const targetJobs = data.jobs.filter(j => String(j.companyName || '') === company && String(j.projectName || '') === oldName);
+  for (const j of targetJobs) {
+    j.projectName = newName;
+    if (newDir) {
+      const beforePath = String(j.storagePath || '');
+      const afterPath = renameLib.replacePathPrefix(beforePath, oldDir, newDir);
+      if (afterPath !== beforePath) {
+        j.storagePath = afterPath;
+        j.storageBucket = renameLib.replaceBucketLeaf(j.storageBucket, oldLeaf, newLeaf);
+        j.storageProjectFolder = newLeaf;
+        j.storageNetPath = workflowDesignNetworkPath(j.storagePath);
+        if (j.archiveStorageBucket) j.archiveStorageBucket = renameLib.replaceBucketLeaf(j.archiveStorageBucket, oldLeaf, newLeaf);
+      }
+    }
+    if (j.renameRequest && j.renameRequest.to && j.renameRequest.to !== newName) {
+      // 내용이 다른 경쟁 변경요청을 정리할 때는 흔적을 남김 (감사 #13,#19)
+      addEvent(data, req, j.id, 'update', `경쟁 변경요청 자동 종료: ${j.renameRequest.from} → ${j.renameRequest.to} ('${newName}' 승인으로 정리)`, { renameSuperseded: true });
+    }
+    delete j.renameRequest;
+    j.updatedAt = at;
+    addEvent(data, req, j.id, 'update', `현장명 변경: ${oldName} → ${newName} (팀장 승인 · 폴더 동기화)`, { projectRename: true });
+  }
+
+  // 3) 같은 현장의 모든 파일 — 실제 경로가 바뀐 파일만 버킷/넷패스 동기화 (감사 #7,#17)
+  for (const f of (data.files || [])) {
+    if (String(f.storageCompanyName || '') !== company || String(f.storageProjectName || '') !== oldName) continue;
+    f.storageProjectName = newName;
+    if (newDir) {
+      const beforeStored = String(f.storedPath || '');
+      const beforeStorage = String(f.storagePath || '');
+      f.storedPath = renameLib.replacePathPrefix(beforeStored, oldDir, newDir);
+      f.storagePath = renameLib.replacePathPrefix(beforeStorage, oldDir, newDir);
+      if (f.storedPath !== beforeStored || f.storagePath !== beforeStorage) {
+        f.storageBucket = renameLib.replaceBucketLeaf(f.storageBucket, oldLeaf, newLeaf);
+        if (f.storagePath) f.storageNetPath = workflowDesignNetworkPath(f.storagePath);
+        if (f.storageRelDir) f.storageRelDir = f.storageBucket;
+      }
+    }
+  }
+
+  // 4) 프로젝트 목록 이름 갱신 (새 이름 항목이 이미 있으면 옛 항목 제거)
+  if (Array.isArray(data.projects)) {
+    const oldKey = workflowProjectKey(company, oldName);
+    const newKey = workflowProjectKey(company, newName);
+    const mine = data.projects.find(p => workflowProjectKey(p.companyName, p.projectName) === oldKey);
+    const dupe = data.projects.find(p => workflowProjectKey(p.companyName, p.projectName) === newKey);
+    if (mine && dupe && dupe !== mine) data.projects = data.projects.filter(p => p !== mine);
+    else if (mine) { mine.projectName = newName; mine.updatedAt = at; }
+  }
+
+  // 5) 경로/존재여부 캐시 + 디자인 회사·현장 옵션 캐시 비우기 — 다음 조회부터 새 경로/이름으로
+  try { fileLocator().clear(); } catch (_) {}
+  try { if (typeof designModule.invalidateWorkflowOptions === 'function') designModule.invalidateWorkflowOptions(); } catch (_) {}
+
+  return { jobs: targetJobs.length, oldDir, newDir };
 }
 
 function normalizeChecklist(stageId, prev = []) {
@@ -3574,6 +3678,35 @@ router.put('/jobs/:id', (req, res) => {
   const previousStatus = job.status || 'active';
   const prevFactoryDate = job.factoryAvailableDate || '';
   const at = nowIso();
+
+  // 현장명 변경은 팀장 승인제 — PUT 으로 직접 못 바꿈(폴더·파일 경로가 같이 움직여야 해서).
+  // 승인권자는 즉시 실행하되, 디스크 rename 은 모든 검증을 통과한 뒤 저장 직전에 1회만 수행한다.
+  // (먼저 rename 하고 뒤의 검증이 400 을 내면 디스크만 바뀌고 DB 는 옛 이름으로 남는 분리가 생김 — 감사 #2,#3,#10)
+  const approver = isWorkflowApprover(req);
+  const renameFrom = String(job.projectName || '').trim();
+  const renameTo = safeText(payload.projectName, 160).trim();
+  let renamed = false;
+  let renamePending = false;
+  let pendingRenameTo = '';
+  if (renameFrom && renameTo && renameTo !== renameFrom) {
+    payload.projectName = job.projectName; // PUT 본문으로는 어떤 경우에도 직접 변경 안 됨
+    if (approver) {
+      pendingRenameTo = renameTo; // 저장 직전에 실행
+    } else {
+      job.renameRequest = { from: renameFrom, to: renameTo, requestedBy: req.user?.userId || '', requestedByName: userName(req), at };
+      renamePending = true;
+      addEvent(data, req, job.id, 'update', `현장명 변경 요청: ${renameFrom} → ${renameTo} · 팀장 승인 대기`, { renameRequested: true });
+    }
+  }
+  // 회사명 변경도 저장 폴더 정체성을 가르므로 승인권자(팀장/관리자) 전용 — 일반 직원은 차단 (감사 #4)
+  const companyFrom = String(job.companyName || '').trim();
+  const companyTo = safeText(payload.companyName, 120).trim();
+  let companyLocked = false;
+  if (companyFrom && companyTo && companyTo !== companyFrom && !approver) {
+    payload.companyName = job.companyName;
+    companyLocked = true;
+    addEvent(data, req, job.id, 'update', `회사명 변경 차단: ${companyFrom} → ${companyTo} · 팀장/관리자만 가능`, { companyChangeBlocked: true });
+  }
   if (payload.status === 'done' && previousStatus !== 'done') {
     // 완료 게이트는 '미완→완료 신규 전이'에만 적용. 이미 완료된 과거내역의 단순 편집은 통과.
     const nextJob = { ...job, ...payload };
@@ -3628,7 +3761,73 @@ router.put('/jobs/:id', (req, res) => {
       urgent: late,
     });
   }
-  saveStore(data);
+  // 승인권자의 현장명 변경 — 모든 검증을 통과한 지금 시점에 디스크 rename + 일괄 갱신 실행
+  let renameInfo = null;
+  if (pendingRenameTo) {
+    try { renameInfo = executeProjectRename(data, req, job, pendingRenameTo); renamed = true; }
+    catch (e) { return res.status(400).json({ error: '현장명 변경 실패: ' + e.message }); }
+    try { applyWorkflowDesignStorage(job); } catch (_) {}
+    upsertWorkflowProject(data, {
+      ...job,
+      status: workflowProjectStatusFromJobs(data, job.companyName, job.projectName, ['done', 'cancelled'].includes(job.status) ? 'done' : 'active'),
+      year: job.storageYear || String(job.dueDate || '').slice(0, 4),
+    }, req, null);
+  }
+  try {
+    saveStore(data);
+  } catch (e) {
+    // 저장 실패 → 방금 한 디스크 rename 을 역롤백해 디스크-DB 분리 방지 (감사 #10)
+    if (renameInfo && renameInfo.oldDir && renameInfo.newDir) {
+      try { fs.renameSync(renameInfo.newDir, renameInfo.oldDir); } catch (_) {}
+      try { fileLocator().clear(); } catch (_) {}
+    }
+    return res.status(500).json({ error: '저장 실패: ' + e.message + (renameInfo ? ' (현장명 변경은 되돌렸습니다)' : '') });
+  }
+  res.json({ ok: true, job: decorateJob(data, job, req.user), renamed, renamePending, companyLocked });
+});
+
+// 현장명 변경 승인/거절 — 팀장(부서 leaderId) 또는 관리자만
+router.post('/jobs/:id/rename/decision', (req, res) => {
+  const data = loadStore();
+  const job = data.jobs.find(j => j.id === req.params.id);
+  if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  if (!isWorkflowApprover(req)) return res.status(403).json({ error: '팀장(또는 관리자)만 승인할 수 있습니다.' });
+  const reqInfo = job.renameRequest;
+  if (!reqInfo || !reqInfo.to) return res.status(400).json({ error: '대기 중인 현장명 변경 요청이 없습니다.' });
+  const accept = req.body.accept === true || String(req.body.accept) === 'true';
+  let renameInfo = null;
+  if (accept) {
+    try { renameInfo = executeProjectRename(data, req, job, reqInfo.to); } // 내부에서 같은 현장 전체 renameRequest 정리
+    catch (e) { return res.status(400).json({ error: '현장명 변경 실패: ' + e.message }); }
+    // 새 이름 기준으로 스토리지/프로젝트 목록 상태 재정렬 (감사 #23)
+    try { applyWorkflowDesignStorage(job); } catch (_) {}
+    upsertWorkflowProject(data, {
+      ...job,
+      status: workflowProjectStatusFromJobs(data, job.companyName, job.projectName, ['done', 'cancelled'].includes(job.status) ? 'done' : 'active'),
+      year: job.storageYear || String(job.dueDate || '').slice(0, 4),
+    }, req, null);
+  } else {
+    // 거절은 같은 현장의 동일(from→to) 요청 전체에 적용 — 승인(전체 정리)과 대칭 (감사 #14)
+    const rejectAt = nowIso();
+    for (const j of data.jobs) {
+      if (String(j.companyName || '') !== String(job.companyName || '')) continue;
+      const rr = j.renameRequest;
+      if (rr && rr.from === reqInfo.from && rr.to === reqInfo.to) {
+        delete j.renameRequest;
+        j.updatedAt = rejectAt;
+        addEvent(data, req, j.id, 'update', `현장명 변경 거절: ${reqInfo.from} → ${reqInfo.to}`, { renameRejected: true });
+      }
+    }
+  }
+  try {
+    saveStore(data);
+  } catch (e) {
+    if (renameInfo && renameInfo.oldDir && renameInfo.newDir) {
+      try { fs.renameSync(renameInfo.newDir, renameInfo.oldDir); } catch (_) {}
+      try { fileLocator().clear(); } catch (_) {}
+    }
+    return res.status(500).json({ error: '저장 실패: ' + e.message + (renameInfo ? ' (현장명 변경은 되돌렸습니다)' : '') });
+  }
   res.json({ ok: true, job: decorateJob(data, job, req.user) });
 });
 
@@ -4003,20 +4202,26 @@ router.post('/jobs/:id/orders/:orderId/email', async (req, res) => {
       attachments: mailFiles.attachments,
     });
 
+    // 메일 전송(await) 동안 다른 요청이 스토어를 바꿨을 수 있음 — stale 스냅샷을 그대로 저장하면
+    // 그 사이 변경(예: 승인된 현장명 변경)이 통째로 롤백됨(감사 #1 critical). 최신 스토어를 다시 읽어 그 위에 기록.
+    const fresh = loadStore();
+    const freshJob = fresh.jobs.find(j => j.id === req.params.id) || job;
+    const freshOrder = (fresh.orders || []).find(o => o.jobId === req.params.id && o.id === req.params.orderId) || order;
+
     const sentAt = nowIso();
-    order.deliveryMethod = 'email';
-    order.mailStatus = 'sent';
-    order.mailSentAt = sentAt;
-    order.mailSentBy = req.user?.userId || '';
-    order.mailSentByName = userName(req);
-    order.mailTo = toList.join(', ');
-    order.mailCc = ccList.join(', ');
-    order.recipientEmail = toList.join(', ');
-    order.recipientCc = ccList.join(', ');
-    order.mailSubject = subject;
-    const recipientSavedToVendor = rememberWorkflowVendorEmail(order, toList[0]);
-    if (!Array.isArray(order.mailHistory)) order.mailHistory = [];
-    order.mailHistory.push({
+    freshOrder.deliveryMethod = 'email';
+    freshOrder.mailStatus = 'sent';
+    freshOrder.mailSentAt = sentAt;
+    freshOrder.mailSentBy = req.user?.userId || '';
+    freshOrder.mailSentByName = userName(req);
+    freshOrder.mailTo = toList.join(', ');
+    freshOrder.mailCc = ccList.join(', ');
+    freshOrder.recipientEmail = toList.join(', ');
+    freshOrder.recipientCc = ccList.join(', ');
+    freshOrder.mailSubject = subject;
+    const recipientSavedToVendor = rememberWorkflowVendorEmail(freshOrder, toList[0]);
+    if (!Array.isArray(freshOrder.mailHistory)) freshOrder.mailHistory = [];
+    freshOrder.mailHistory.push({
       to: toList,
       cc: ccList,
       subject,
@@ -4028,15 +4233,15 @@ router.post('/jobs/:id/orders/:orderId/email', async (req, res) => {
       publicUrl,
       recipientSavedToVendor,
     });
-    if (['draft', 'requested'].includes(order.status || 'draft')) order.status = 'sent';
-    order.updatedAt = sentAt;
-    order.updatedBy = req.user?.userId || '';
-    order.updatedByName = userName(req);
-    job.updatedAt = sentAt;
+    if (['draft', 'requested'].includes(freshOrder.status || 'draft')) freshOrder.status = 'sent';
+    freshOrder.updatedAt = sentAt;
+    freshOrder.updatedBy = req.user?.userId || '';
+    freshOrder.updatedByName = userName(req);
+    freshJob.updatedAt = sentAt;
 
-    addEvent(data, req, job.id, 'order_email', `제작 파일 메일 발송 · ${order.targetName} · ${toList.join(', ')}`, {
-      orderId: order.id,
-      targetName: order.targetName,
+    addEvent(fresh, req, freshJob.id, 'order_email', `제작 파일 메일 발송 · ${freshOrder.targetName} · ${toList.join(', ')}`, {
+      orderId: freshOrder.id,
+      targetName: freshOrder.targetName,
       to: toList,
       cc: ccList,
       fileCount: files.length,
@@ -4044,15 +4249,15 @@ router.post('/jobs/:id/orders/:orderId/email', async (req, res) => {
       publicUrl,
       recipientSavedToVendor,
       targetStageIds: ['delivery'],
-      eventTargetLabel: stageTargetLabels(job, ['delivery']).join(', '),
+      eventTargetLabel: stageTargetLabels(freshJob, ['delivery']).join(', '),
     });
-    saveStore(data);
+    saveStore(fresh);
     res.json({
       ok: true,
-      order: decorateOrder(data, job, order),
-      orders: data.orders.filter(o => o.jobId === job.id).map(o => decorateOrder(data, job, o)),
-      orderSummary: buildOrderSummary(data, job),
-      job: decorateJob(data, job, req.user),
+      order: decorateOrder(fresh, freshJob, freshOrder),
+      orders: (fresh.orders || []).filter(o => o.jobId === freshJob.id).map(o => decorateOrder(fresh, freshJob, o)),
+      orderSummary: buildOrderSummary(fresh, freshJob),
+      job: decorateJob(fresh, freshJob, req.user),
       recipientSavedToVendor,
       message: `${toList.join(', ')}로 발송 완료${recipientSavedToVendor ? ' · 업체 메일 저장' : ''}`,
     });
@@ -4093,8 +4298,9 @@ router.post('/jobs/:id/files', workflowUploadFiles, (req, res) => {
       : (requestedTargetLabel ? uniqueTexts([requestedTargetLabel]) : autoTargetLabels);
   const targetLabel = targetLabels.join(', ') || targetUserName || stageAssignee;
   const storageYear = safeYear(req.body.storageYear || safeDate(req.body.designDueDate).slice(0, 4));
-  const storageCompanyName = bodyText(req.body, 'storageCompanyName', 120) || safeText(job.companyName, 120);
-  const storageProjectName = bodyText(req.body, 'storageProjectName', 160) || safeText(job.projectName || job.title, 160);
+  // 서버의 현재 회사·현장명 우선 — 개명 직후 stale 클라이언트가 옛 이름 폴더를 재생성하는 것 방지 (감사 #11)
+  const storageCompanyName = safeText(job.companyName, 120) || bodyText(req.body, 'storageCompanyName', 120);
+  const storageProjectName = safeText(job.projectName, 160) || bodyText(req.body, 'storageProjectName', 160) || safeText(job.title, 160);
   if (!storageCompanyName || !storageProjectName) {
     for (const file of req.files || []) {
       try { fs.unlinkSync(path.join(FILE_DIR, file.filename)); } catch (_) {}
@@ -4376,8 +4582,10 @@ router.get('/jobs/:id/files/archive', async (req, res) => {
   const filters = archiveFilters(req.query);
   const archive = await buildJobArchive(data, job, filters);
   if (!archive) return res.status(404).send('no files');
-  addEvent(data, req, job.id, 'archive', `파일 묶음 다운로드 ${archive.files.length}개`, { ...filters, count: archive.files.length });
-  saveStore(data);
+  // ZIP 생성(await) 동안의 다른 변경을 덮어쓰지 않도록 최신 스토어에 이벤트만 기록 (감사 #1 critical)
+  const fresh = loadStore();
+  addEvent(fresh, req, job.id, 'archive', `파일 묶음 다운로드 ${archive.files.length}개`, { ...filters, count: archive.files.length });
+  saveStore(fresh);
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Content-Disposition', attachmentDisposition(archive.filename));
   res.setHeader('Cache-Control', 'private, max-age=60');

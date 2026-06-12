@@ -19,7 +19,7 @@
   .wf-views button.on{background:#2563eb;color:#fff;}
   .wf-views button.on.welding{background:#ea580c;}
   .wf-views button.on.output{background:#2563eb;}
-  .wf-board-empty{display:flex;align-items:center;justify-content:center;gap:10px;padding:44px 16px;color:#64748b;font-size:14px;font-weight:700;}
+  .wf-board-empty{display:flex;align-items:center;justify-content:center;gap:10px;padding:44px 16px;color:#475569;font-size:14px;font-weight:700;}
   .wf-toolbar h2{font-size:15px;font-weight:800;margin:0;color:#111827;}
   .wf-input,.wf-select,.wf-textarea{border:1px solid #cfd6e3;border-radius:6px;background:#fff;color:#1f2937;font-size:12px;outline:none;}
   .wf-input,.wf-select{height:34px;padding:0 9px;}
@@ -67,14 +67,37 @@
   .wf-creator{height:34px;display:flex;align-items:center;gap:5px;border:1px solid #e1e6ef;border-radius:6px;background:#fff;padding:0 9px;color:#475569;font-size:11px;font-weight:800;min-width:0;}
   .wf-creator span:last-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .wf-columns{flex:1;min-height:0;display:flex;overflow:auto;background:#eef2f7;}
-  .wf-col{flex:1 0 300px;min-width:280px;border-right:1px solid #dfe4ed;display:flex;flex-direction:column;}
-  .wf-col.is-empty{flex:0 0 86px;min-width:86px;background:#f8fafc;}
+  /* 기본: 모든 칸 동일 폭(빈 칸도 안 쪼그라듦 — 들쭉날쭉 방지). 확대는 사용자가 ⤢ 로 명시적으로. */
+  .wf-col{flex:1 1 0;min-width:240px;border-right:1px solid #dfe4ed;display:flex;flex-direction:column;transition:flex .18s ease,min-width .18s ease;}
   .wf-col:last-child{border-right:none;}
   .wf-col-head{height:42px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;background:#f8fafc;border-bottom:1px solid #dfe4ed;font-size:12px;font-weight:800;color:#374151;}
-  .wf-col.is-empty .wf-col-head{height:100%;flex-direction:column;justify-content:flex-start;gap:8px;padding:10px 6px;border-bottom:none;}
-  .wf-col.is-empty .wf-col-head > span:first-child{flex-direction:column;text-align:center;line-height:1.2;}
-  .wf-col.is-empty .wf-col-list{display:none;}
   .wf-col-list{padding:8px;display:flex;flex-direction:column;gap:6px;overflow:auto;}
+  /* 칸 확대/원복 버튼 */
+  .wf-colzoom{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border:1px solid #cbd5e1;border-radius:5px;background:#fff;color:#64748b;cursor:pointer;padding:0;}
+  .wf-colzoom:hover{background:#eff6ff;border-color:#93c5fd;color:#2563eb;}
+  .wf-colzoom.on{background:#2563eb;border-color:#2563eb;color:#fff;}
+  .wf-colzoom .material-symbols-outlined{font-size:14px;}
+  /* 포커스 모드: 보고 있는 칸만 크게, 나머지는 시안 썸네일 레일 */
+  .wf-col.focus{flex:4 1 0;min-width:460px;}
+  .wf-col.mini{flex:0 0 96px;min-width:96px;background:#f8fafc;cursor:pointer;}
+  .wf-col.mini:hover{background:#eef2f7;}
+  .wf-col.mini .wf-col-head{padding:0 5px;}
+  .wf-col.mini .wf-col-name{display:none;}
+  .wf-col.mini .wf-colzoom{display:none;}
+  .wf-col.mini .wf-col-list{padding:5px;gap:5px;}
+  .wf-col.mini .wf-grp-head{display:none;}
+  .wf-col.mini .wf-card{flex-direction:column;padding:4px;gap:3px;align-items:stretch;}
+  .wf-col.mini .wf-rc-main{display:none;}
+  .wf-col.mini .wf-rc-thumb{width:100%;height:58px;border-radius:5px;}
+  .wf-col.mini .wf-rc-thumb:hover{transform:none;}
+  .wf-col.mini .wf-rc-minititle{display:block;}
+  .wf-col.mini .wf-arc-search{display:none;}
+  .wf-rc-minititle{display:none;font-size:9.5px;font-weight:800;color:#334155;text-align:center;line-height:1.25;word-break:break-all;}
+  /* 상세 닫기(✕) — 닫으면 보드가 전체 폭 */
+  .wf-detail-head{position:relative;}
+  .wf-detail-close{position:absolute;top:10px;right:10px;width:26px;height:26px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#64748b;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0;z-index:2;}
+  .wf-detail-close:hover{background:#fef2f2;border-color:#fca5a5;color:#dc2626;}
+  .wf-detail-close .material-symbols-outlined{font-size:16px;}
   .wf-card{border:1px solid #d8dee9;border-radius:8px;background:#fff;padding:8px 9px;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.04);transition:border-color .16s ease,box-shadow .16s ease,padding .16s ease;}
   .wf-card.active{border-color:#2563eb;box-shadow:0 0 0 2px rgba(37,99,235,.12);padding:10px;}
   .wf-card.cancelled{border-color:#fecaca;background:#fff7f7;}
@@ -105,6 +128,14 @@
   .wf-special-note-body strong{font-size:11.5px;font-weight:900;color:#9a3412;}
   .wf-special-note-text{font-size:12.5px;font-weight:700;color:#7c2d12;white-space:pre-wrap;word-break:break-word;line-height:1.4;}
   .wf-special-note-body small{font-size:10px;color:#c2670a;}
+  /* 현장명 변경 요청(팀장 승인) 배너 + 카드 플래그 */
+  .wf-rename-banner{display:flex;gap:8px;align-items:flex-start;margin-top:8px;padding:8px 10px;background:#eef2ff;border:1px solid #c7d2fe;border-left:3px solid #4f46e5;border-radius:6px;}
+  .wf-rename-banner>.material-symbols-outlined{font-size:18px;color:#4f46e5;flex:0 0 auto;margin-top:1px;}
+  .wf-rename-body{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px;}
+  .wf-rename-body strong{font-size:11.5px;font-weight:900;color:#3730a3;}
+  .wf-rename-text{font-size:12.5px;font-weight:800;color:#312e81;word-break:break-all;line-height:1.4;}
+  .wf-rename-body small{font-size:10px;color:#6366f1;}
+  .wf-rc-flag.rename{background:#eef2ff;border-color:#c7d2fe;color:#4338ca;}
   /* 핵심 날짜 카드 (단계별 — 공장은 완료가능일 강조) */
   .wf-keybox{display:flex;flex-direction:column;gap:6px;padding:11px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;}
   .wf-keybox-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
@@ -113,6 +144,26 @@
   .wf-keybox-date.hot{padding:6px;margin:-2px;border-radius:8px;background:#eff6ff;}
   .wf-keybox-date.hot label{color:#1d4ed8;}
   .wf-keybox-date.hot input{border-color:#60a5fa !important;border-width:2px !important;}
+  .wf-keybox-text{font-size:14.5px;font-weight:900;color:#111827;padding:5px 0;font-variant-numeric:tabular-nums;}
+  /* 상세 기본뷰 시안 세로 피드 — 이미지가 패널 폭으로 크게, 아래로 내리며 봄. 클릭=확대 */
+  .wf-feed{display:flex;flex-direction:column;gap:12px;}
+  .wf-feed-item{display:flex;flex-direction:column;gap:5px;min-width:0;}
+  .wf-feed-imgbox{position:relative;width:100%;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;background:#f8fafc;cursor:zoom-in;}
+  .wf-feed-imgbox img{width:100%;height:auto;display:block;}
+  .wf-feed-imgbox:hover{border-color:#94a3b8;box-shadow:0 2px 10px rgba(15,23,42,.10);}
+  .wf-feed-zoom{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:7px;background:rgba(15,23,42,.55);color:#fff;display:inline-flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s ease;pointer-events:none;}
+  .wf-feed-zoom .material-symbols-outlined{font-size:18px;}
+  .wf-feed-imgbox:hover .wf-feed-zoom{opacity:1;}
+  .wf-feed-filebar{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;}
+  .wf-feed-filebar.missing{opacity:.6;}
+  .wf-feed-ext{flex:0 0 auto;font-size:11px;font-weight:900;color:#fff;background:#0f172a;border-radius:5px;padding:3px 7px;letter-spacing:.5px;}
+  .wf-feed-name{font-size:11.5px;font-weight:700;color:#64748b;}
+  .wf-tile-dl{position:absolute;bottom:8px;right:8px;width:26px;height:26px;border-radius:6px;background:rgba(255,255,255,.94);border:1px solid #cbd5e1;display:inline-flex;align-items:center;justify-content:center;color:#475569;text-decoration:none;}
+  .wf-tile-dl:hover{background:#fff;border-color:#94a3b8;}
+  .wf-tile-teams{display:flex;gap:3px;max-width:220px;}
+  .wf-tile-teams button{flex:1;height:23px;font-size:10.5px;font-weight:800;border:1px solid #cbd5e1;background:#fff;border-radius:5px;color:#64748b;cursor:pointer;padding:0;}
+  .wf-tile-teams button.on.weld{background:#fff7ed;border-color:#fb923c;color:#c2410c;}
+  .wf-tile-teams button.on.out{background:#eff6ff;border-color:#60a5fa;color:#1d4ed8;}
   .wf-rc-late{display:inline-flex;flex:0 0 auto;color:#b91c1c;}
   .wf-rc-late .material-symbols-outlined{font-size:15px;}
   .wf-rc-dot{flex:0 0 auto;width:7px;height:7px;border-radius:50%;background:#2563eb;}
@@ -596,19 +647,24 @@
       </div>
 
       <div class="wf-board-empty" x-show="wfFilterActive() && wfVisibleCount()===0" x-cloak>
-        <span class="material-symbols-outlined">search_off</span>
+        <span class="material-symbols-outlined" style="color:#2563eb;">search_off</span>
         <span>조건에 맞는 작업이 없습니다.</span>
-        <button class="wf-btn ghost" @click="wfFilterReset()">필터 초기화</button>
+        <button class="wf-btn primary" @click="wfFilterReset()">필터 초기화</button>
       </div>
       <div class="wf-columns" x-show="!(wfFilterActive() && wfVisibleCount()===0)">
         <template x-for="stage in stages" :key="stage.id">
-          <div class="wf-col" :class="jobsForStage(stage.id).length ? 'has-jobs' : 'is-empty'">
+          <div class="wf-col" :class="[jobsForStage(stage.id).length ? 'has-jobs' : 'is-empty', boardFocus===stage.id ? 'focus' : '', (boardFocus && boardFocus!==stage.id) ? 'mini' : '']"
+            @click="(boardFocus && boardFocus!==stage.id) ? setBoardFocus(stage.id) : null">
             <div class="wf-col-head">
-              <span style="display:flex;align-items:center;gap:5px;">
+              <span class="wf-col-headlabel" style="display:flex;align-items:center;gap:5px;min-width:0;">
                 <span class="material-symbols-outlined" style="font-size:16px;" x-text="stage.icon"></span>
-                <span x-text="stage.label"></span>
+                <span class="wf-col-name" x-text="stage.label"></span>
               </span>
-              <span class="wf-chip" x-text="jobsForStage(stage.id).length"></span>
+              <span style="display:flex;align-items:center;gap:4px;flex:0 0 auto;">
+                <span class="wf-chip" x-text="jobsForStage(stage.id).length"></span>
+                <button type="button" class="wf-colzoom" x-show="boardFocus!==stage.id" @click.stop="setBoardFocus(stage.id)" title="이 칸 크게 보기 (나머지는 시안만 작게)"><span class="material-symbols-outlined">open_in_full</span></button>
+                <button type="button" class="wf-colzoom on" x-show="boardFocus===stage.id" @click.stop="clearBoardFocus()" title="원래대로 — 모든 칸 동일 크기"><span class="material-symbols-outlined">close_fullscreen</span></button>
+              </span>
             </div>
             <div class="wf-col-list">
               <template x-for="grp in boardGroups(stage.id)" :key="grp.key">
@@ -621,11 +677,13 @@
                       <img :src="job.primaryVisualFile.thumbUrl || job.primaryVisualFile.previewUrl" loading="lazy" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, job.primaryVisualFile.previewUrl)">
                     </button>
                   </template>
+                  <div class="wf-rc-minititle" x-text="(job.projectName || job.companyName || job.title || '').slice(0, 8)"></div>
                   <div class="wf-rc-main">
                   <div class="wf-rc-top">
                     <span class="wf-rc-title" :title="(job.projectName||'') + (job.companyName ? ' / '+job.companyName : '')" x-text="job.projectName || job.companyName || job.title || '현장 미지정'"></span>
                     <span class="wf-rc-co" x-show="job.projectName && job.companyName" x-text="'· ' + job.companyName"></span>
                     <span class="wf-rc-flag" x-show="job.handoffNote" :title="'전달 특이사항(확인): ' + job.handoffNote">📌특이</span>
+                    <span class="wf-rc-flag rename" x-show="job.renameRequest" :title="'현장명 변경 대기(팀장 승인): ' + ((job.renameRequest||{}).from||'') + ' → ' + ((job.renameRequest||{}).to||'')">📝이름변경</span>
                     <span class="wf-rc-late" x-show="job.scheduleLate" title="일정지연"><span class="material-symbols-outlined">warning</span></span>
                     <span class="wf-rc-dot" x-show="job.urgentFileCount" style="background:#ef4444;" title="긴급"></span>
                     <span class="wf-rc-dot" x-show="!job.urgentFileCount && (job.unreadCount || job.unreadFileCount)" :title="'확인 ' + (job.unreadCount || job.unreadFileCount)"></span>
@@ -677,13 +735,18 @@
         </template>
 
         <!-- 과거내역(완료 보관) — 맨 오른쪽 별도 칸 + 검색 -->
-        <div class="wf-col wf-col-archive">
+        <div class="wf-col wf-col-archive" :class="[boardFocus==='archive' ? 'focus' : '', (boardFocus && boardFocus!=='archive') ? 'mini' : '']"
+          @click="(boardFocus && boardFocus!=='archive') ? setBoardFocus('archive') : null">
           <div class="wf-col-head">
-            <span style="display:flex;align-items:center;gap:5px;">
+            <span class="wf-col-headlabel" style="display:flex;align-items:center;gap:5px;min-width:0;">
               <span class="material-symbols-outlined" style="font-size:16px;">inventory_2</span>
-              <span>과거내역</span>
+              <span class="wf-col-name">과거내역</span>
             </span>
-            <span class="wf-chip" x-text="archiveFiltered().length"></span>
+            <span style="display:flex;align-items:center;gap:4px;flex:0 0 auto;">
+              <span class="wf-chip" x-text="archiveFiltered().length"></span>
+              <button type="button" class="wf-colzoom" x-show="boardFocus!=='archive'" @click.stop="setBoardFocus('archive')" title="이 칸 크게 보기"><span class="material-symbols-outlined">open_in_full</span></button>
+              <button type="button" class="wf-colzoom on" x-show="boardFocus==='archive'" @click.stop="clearBoardFocus()" title="원래대로 — 모든 칸 동일 크기"><span class="material-symbols-outlined">close_fullscreen</span></button>
+            </span>
           </div>
           <div class="wf-arc-search">
             <input class="wf-input" style="width:100%;box-sizing:border-box;" x-model="archiveQuery" placeholder="🔍 코드·업체·현장 검색">
@@ -696,9 +759,11 @@
                     <img :src="job.primaryVisualFile.thumbUrl || job.primaryVisualFile.previewUrl" loading="lazy" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, job.primaryVisualFile.previewUrl)">
                   </button>
                 </template>
+                <div class="wf-rc-minititle" x-text="(job.projectName || job.companyName || job.title || '').slice(0, 8)"></div>
                 <div class="wf-rc-main">
                   <div class="wf-rc-top">
                     <span class="wf-rc-title" :title="(job.projectName||'') + (job.companyName ? ' / '+job.companyName : '')" x-text="job.projectName || job.companyName || job.title || '현장 미지정'"></span>
+                    <span class="wf-rc-flag rename" x-show="job.renameRequest" :title="'현장명 변경 대기(팀장 승인): ' + ((job.renameRequest||{}).from||'') + ' → ' + ((job.renameRequest||{}).to||'')">📝</span>
                     <span class="wf-code" x-text="job.completionCode || '미발번'"></span>
                   </div>
                   <div class="wf-rc-bot">
@@ -726,7 +791,8 @@
       <template x-if="detail && detail.job">
         <div style="height:100%;display:flex;flex-direction:column;">
           <div class="wf-detail-head">
-            <div class="wf-detail-title" x-text="detail.job.title || '워크플로우 작업'"></div>
+            <button type="button" class="wf-detail-close" @click="closeDetail()" title="상세 닫기 — 보드를 넓게"><span class="material-symbols-outlined">close</span></button>
+            <div class="wf-detail-title" style="padding-right:30px;" x-text="detail.job.title || '워크플로우 작업'"></div>
             <div class="wf-detail-subtitle">
               <span x-text="detail.job.companyName || '-'"></span>
               <span>·</span>
@@ -746,6 +812,18 @@
                 <div class="wf-special-note-text" x-text="detail.job.handoffNote"></div>
                 <small x-show="detail.job.handoffNoteFrom" x-text="(detail.job.handoffNoteFromStage ? stageLabel(detail.job.handoffNoteFromStage) + ' · ' : '') + (detail.job.handoffNoteFrom || '') + (detail.job.handoffNoteAt ? ' · ' + wfShortDate(detail.job.handoffNoteAt) : '')"></small>
               </div>
+            </div>
+            <div class="wf-rename-banner" x-show="detail.job.renameRequest" x-cloak>
+              <span class="material-symbols-outlined">drive_file_rename_outline</span>
+              <div class="wf-rename-body">
+                <strong>현장명 변경 요청 — 팀장 승인 대기</strong>
+                <div class="wf-rename-text" x-text="((detail.job.renameRequest||{}).from || '') + ' → ' + ((detail.job.renameRequest||{}).to || '')"></div>
+                <small x-text="'요청 ' + ((detail.job.renameRequest||{}).requestedByName || '') + ' · 승인하면 디스크 폴더·파일 경로까지 함께 변경됩니다'"></small>
+              </div>
+              <span style="display:flex;gap:5px;flex:0 0 auto;align-items:center;" x-show="canApproveRename()">
+                <button type="button" class="wf-btn primary" @click="decideRename(true)" :disabled="saving">승인</button>
+                <button type="button" class="wf-btn ghost" @click="decideRename(false)" :disabled="saving">거절</button>
+              </span>
             </div>
             <div class="wf-archive-strip" x-show="detail.job.status === 'done'" x-cloak>
               <div>
@@ -773,13 +851,23 @@
           <div class="wf-detail-body">
             <div class="wf-keybox" style="order:-1" x-show="detail.job.status!=='done' && detail.job.status!=='cancelled'" x-cloak>
               <div class="wf-keybox-row">
-                <div class="wf-keybox-date">
-                  <label>요청날짜 <span class="wf-muted" style="font-weight:600;">디자인팀</span><span x-show="detail.job.currentStage!=='design'" title="디자인팀만 수정"> 🔒</span></label>
-                  <input class="wf-input" type="date" x-model="detail.job.dueDate" :disabled="detail.job.currentStage!=='design'" @change="saveJob()">
+                <div class="wf-keybox-date" :class="detail.job.currentStage==='design' ? 'hot' : ''">
+                  <label>요청날짜 <span class="wf-muted" style="font-weight:600;">디자인팀</span></label>
+                  <template x-if="detail.job.currentStage==='design'">
+                    <input class="wf-input" type="date" x-model="detail.job.dueDate" @change="saveJob()">
+                  </template>
+                  <template x-if="detail.job.currentStage!=='design'">
+                    <div class="wf-keybox-text" x-text="detail.job.dueDate || '-'"></div>
+                  </template>
                 </div>
                 <div class="wf-keybox-date" :class="detail.job.currentStage==='factory' ? 'hot' : ''">
-                  <label>완료가능일 <span class="wf-muted" style="font-weight:600;">공장</span><span x-show="detail.job.currentStage!=='factory'" title="공장(대림컴퍼니)만 수정"> 🔒</span></label>
-                  <input class="wf-input" type="date" x-model="detail.job.factoryAvailableDate" :disabled="detail.job.currentStage!=='factory'" @change="saveJob()">
+                  <label>완료가능일 <span class="wf-muted" style="font-weight:600;">공장</span></label>
+                  <template x-if="detail.job.currentStage==='factory'">
+                    <input class="wf-input" type="date" x-model="detail.job.factoryAvailableDate" @change="saveJob()">
+                  </template>
+                  <template x-if="detail.job.currentStage!=='factory'">
+                    <div class="wf-keybox-text" x-text="detail.job.factoryAvailableDate || '미정'"></div>
+                  </template>
                 </div>
               </div>
               <div class="wf-muted" x-show="detail.job.currentStage==='factory'" style="font-size:11px;">날짜를 고르면 자동 저장 · 요청일과 다르면 디자인팀에 자동 알림</div>
@@ -821,6 +909,7 @@
                   </div>
                   <div class="wf-field">
                     <input class="wf-input" list="wfDetailProjectNames" x-model="detail.job.projectName" placeholder="현장">
+                    <div class="wf-muted" style="font-size:10px;">현장명 변경은 팀장 승인 후 적용 — 승인되면 디스크 폴더까지 함께 바뀝니다 (탐색기에서 직접 바꾸지 마세요)</div>
                     <div class="wf-project-picks" x-show="workflowProjectSuggestions(detail.job.companyName, 8, detail.job.projectName).length">
                       <template x-for="project in workflowProjectSuggestions(detail.job.companyName, 8, detail.job.projectName)" :key="'detail-project-'+project.name">
                         <button type="button" class="wf-project-pick" @click="detail.job.projectName = project.name">
@@ -837,16 +926,6 @@
                     </div>
                   </div>
                   <div class="wf-field">
-                    <label class="wf-date-label">요청날짜<span x-show="detail.job.currentStage !== 'design'" title="디자인팀만 수정할 수 있습니다"> 🔒</span></label>
-                    <input class="wf-input" type="date" x-model="detail.job.dueDate" :disabled="detail.job.currentStage !== 'design'">
-                  </div>
-                  <div class="wf-field" x-show="detail.job.currentStage !== 'design'" x-cloak>
-                    <label class="wf-date-label">완료가능일<span x-show="detail.job.currentStage !== 'factory'" title="대림컴퍼니(공장)만 수정할 수 있습니다"> 🔒</span></label>
-                    <input class="wf-input" type="date" x-model="detail.job.factoryAvailableDate" :disabled="detail.job.currentStage !== 'factory'">
-                    <div class="wf-muted" x-show="detail.job.currentStage === 'factory'" style="font-size:10.5px;">요청일 <b x-text="detail.job.dueDate || '-'"></b> · 같으면 그대로 진행, 다르면 저장 시 디자인팀에 자동 알림</div>
-                    <div x-show="detail.job.scheduleLate" style="font-size:11px;color:#b91c1c;font-weight:900;">⚠ 요청일보다 늦음 — 디자인팀에 지연 알림됨</div>
-                  </div>
-                  <div class="wf-field">
                     <label class="wf-date-label">배송예정</label>
                     <input class="wf-input" type="date" x-model="detail.job.deliveryDate">
                   </div>
@@ -860,12 +939,6 @@
             <section class="wf-section" x-show="detailMoreOpen" x-cloak>
               <div class="wf-section-title"><span class="material-symbols-outlined" style="font-size:16px;">task_alt</span>단계</div>
               <div class="wf-section-body">
-                <div class="wf-handoff" x-show="detail.job.status !== 'done' && detail.job.status !== 'cancelled'">
-                  <input class="wf-input" x-model="handoffText" placeholder="특이사항 (평상시와 다른 점 — 받는 사람이 확인)">
-                  <button class="wf-btn primary" @click="handoffJob()" :disabled="saving" x-text="handoffLabel()"></button>
-                  <div class="wf-muted" style="grid-column:1 / -1;font-size:10.5px;">평상시와 다른 점이 있으면 여기에 적어 넘기세요 — 받는 사람 카드에 📌특이 표시가 뜨고 상세 맨 위에 강조됩니다.</div>
-                  <div class="wf-muted" style="grid-column:1 / -1;" x-show="detail.job.completionBlockers && detail.job.completionBlockers.length" x-text="completionBlockerText(detail.job)"></div>
-                </div>
                 <template x-for="stage in stages" :key="stage.id">
                   <div class="wf-stage-block" :class="isStageOverdue(stage.id) ? 'overdue' : ''">
                     <div class="wf-stage-row">
@@ -895,12 +968,13 @@
 
             <section class="wf-section">
               <div class="wf-section-title" style="justify-content:space-between;">
-                <span style="display:flex;align-items:center;gap:6px;">
-                  <span class="material-symbols-outlined" style="font-size:16px;">cloud_upload</span>시안 등록
+                <span style="display:flex;align-items:center;gap:6px;min-width:0;">
+                  <span class="material-symbols-outlined" style="font-size:16px;">imagesmode</span>
+                  <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" x-text="'시안 ' + detailTiles().length + '개 — ' + (detail.job.companyName || '-') + (detail.job.projectName ? ' · ' + detail.job.projectName : '')"></span>
                 </span>
-                <span style="display:flex;align-items:center;gap:6px;">
-                  <span class="wf-muted" x-text="'등록자 ' + currentUserLabel()"></span>
+                <span style="display:flex;align-items:center;gap:6px;flex:0 0 auto;">
                   <span class="wf-muted" x-show="!canUploadToCurrentJob()">보관 완료</span>
+                  <a class="wf-btn" x-show="filteredFiles().length" style="height:26px;padding:0 8px;" :href="smartArchiveUrl()" title="전체 파일을 ZIP으로 받습니다">전체 받기</a>
                   <button class="wf-btn ghost" x-show="canUploadToCurrentJob()" style="height:26px;padding:0 8px;" @click="uploadOpen = !uploadOpen" x-text="uploadOpen ? '닫기' : '시안 올리기'"></button>
                 </span>
               </div>
@@ -964,13 +1038,33 @@
                     <span class="wf-muted" x-show="deliveryPendingTargets()" x-text="'미확인 대상: ' + deliveryPendingTargets()"></span>
                   </div>
                 </div>
-                <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
-                  <span class="wf-muted" x-text="'시안 ' + visualFiles().length + '개'"></span>
-                  <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end;">
-                    <a class="wf-btn" x-show="filteredFiles().length" :href="smartArchiveUrl()" title="접속 위치에 맞는 파일을 ZIP으로 받습니다">파일 받기</a>
-                  </div>
+                <!-- 기본뷰: 시안 세로 피드 — 이미지가 패널 폭으로 크게, 아래로 내리며 봄. 클릭=확대(시안검색식). AI/누락 파일은 슬림 바. -->
+                <div class="wf-feed" x-show="!detailMoreOpen && detailTiles().length" x-cloak>
+                  <template x-for="file in detailTiles()" :key="'tile-'+file.id">
+                    <div class="wf-feed-item">
+                      <template x-if="file.isImage && file.exists!==false">
+                        <div class="wf-feed-imgbox" role="button" tabindex="0" @click="openFilePreview(file)" :title="(file.originalName || '시안') + ' — 클릭하면 크게 보기(확대/원본)'">
+                          <img :src="filePreviewUrl(file) || fileThumbUrl(file)" loading="lazy" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, fileThumbUrl(file))">
+                          <span class="wf-feed-zoom"><span class="material-symbols-outlined">zoom_in</span></span>
+                          <a class="wf-tile-dl" :href="smartFileUrl(file)" @click.stop title="이 파일 받기"><span class="material-symbols-outlined" style="font-size:14px;">download</span></a>
+                        </div>
+                      </template>
+                      <template x-if="!(file.isImage && file.exists!==false)">
+                        <div class="wf-feed-filebar" :class="file.exists===false ? 'missing' : ''" :title="file.originalName || ''">
+                          <span class="wf-feed-ext" x-text="file.exists===false ? '⚠' : fileTypeLabel(file)"></span>
+                          <span class="wf-feed-name" x-text="file.exists===false ? '서버 파일 없음' : (fileTypeLabel(file) + ' 파일')"></span>
+                          <span style="flex:1"></span>
+                          <a class="wf-rc-icon" x-show="file.exists!==false" :href="smartFileUrl(file)" @click.stop title="이 파일 받기"><span class="material-symbols-outlined">download</span></a>
+                        </div>
+                      </template>
+                      <div class="wf-tile-teams" x-show="detail.job.currentStage==='factory' || detail.job.currentStage==='delivery'">
+                        <button type="button" :class="file.team==='welding' ? 'on weld' : ''" @click="assignFileTeam(file, 'welding')">용접</button>
+                        <button type="button" :class="file.team==='output' ? 'on out' : ''" @click="assignFileTeam(file, 'output')">출력</button>
+                      </div>
+                    </div>
+                  </template>
                 </div>
-                <div class="wf-gallery proof-strip" x-show="visualFiles().length">
+                <div class="wf-gallery proof-strip" x-show="detailMoreOpen && visualFiles().length">
                   <template x-for="file in visualFiles()" :key="file.id">
                     <article class="wf-proof-card" :data-workflow-file-id="file.id" :class="[(isUnreadFile(file) ? 'unread' : ''), (file.urgent ? 'urgent' : ''), (expandedFileId === file.id ? 'active' : '')]">
                       <button class="wf-proof-thumb" @click="openFilePreview(file)">
@@ -1053,7 +1147,7 @@
                     </article>
                   </template>
                 </div>
-                <div class="wf-gallery" x-show="sourceFiles().length">
+                <div class="wf-gallery" x-show="detailMoreOpen && sourceFiles().length">
                   <template x-for="file in sourceFiles()" :key="file.id">
                     <article class="wf-file-card" :data-workflow-file-id="file.id" :class="[(isUnreadFile(file) ? 'unread' : ''), (file.urgent ? 'urgent' : ''), (expandedFileId === file.id ? 'active' : '')]">
                       <div class="wf-file-icon" :class="file.isAi ? 'ai' : ''" x-text="fileTypeLabel(file)"></div>

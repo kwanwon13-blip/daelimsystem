@@ -34,6 +34,7 @@ function workflowApp() {
     wfVendor: '',
     boardSort: 'date',
     boardTeam: '', // '' 전체 / 'welding' 용접팀 / 'output' 출력팀
+    boardFocus: '', // '' = 모든 칸 동일 / stageId 또는 'archive' = 그 칸만 크게(나머지는 시안 레일)
     newOpen: false,
     newFiles: [],
     newUploadDragOver: false,
@@ -2116,6 +2117,14 @@ function workflowApp() {
       return this.filteredFiles().filter(file => !file.isImage || file.exists === false);
     },
 
+    // 상세 기본뷰 시안 타일 — 그림(미리보기) 먼저, AI/기타 파일 뒤. 파일명·칩 없이 타일만.
+    detailTiles() {
+      const files = (this.detail && this.detail.files) ? this.detail.files.slice() : [];
+      return files.sort((a, b) =>
+        (((b.isImage && b.exists !== false) ? 1 : 0) - ((a.isImage && a.exists !== false) ? 1 : 0))
+        || String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    },
+
     orders() {
       return this.detail?.orders || [];
     },
@@ -2808,8 +2817,14 @@ function workflowApp() {
     },
 
     // 공장 카드에서 완료가능일 수락/저장 — 빈값이면 요청날짜로. 요청일과 다르면 서버가 디자인팀에 자동 알림(지연이면 긴급).
+    // 보드 캐시가 오래됐을 수 있어 서버 최신본 위에 날짜만 얹어 보냄 — stale 현장명이 개명 요청을 유발하는 사고 방지(감사 #5).
     async cardSetFactoryDate(jobId, value) {
-      const job = (this.jobs || []).find(j => j.id === jobId);
+      let job = (this.jobs || []).find(j => j.id === jobId);
+      try {
+        const fr = await fetch('/api/workflow/jobs/' + encodeURIComponent(jobId));
+        const fd = await fr.json();
+        if (fr.ok && fd && fd.job) job = fd.job;
+      } catch (_) {}
       if (!job) return;
       const v = value || job.dueDate || '';
       if (!v) { alert('요청날짜가 없어 완료가능일을 정할 수 없습니다.'); return; }
@@ -2821,6 +2836,7 @@ function workflowApp() {
         });
         const d = await r.json();
         if (!r.ok || !d.ok) throw new Error(d.error || '저장 실패');
+        if (d.renamed || d.renamePending) alert('주의: 화면 정보가 오래되어 현장명 변경이 함께 처리됐습니다. 새로고침 후 확인하세요.');
         delete this.factoryDatePending[jobId]; // 확정 — 수정중 표시 해제
         await this.loadJobs();
         if (this.detail && this.detail.job && this.detail.job.id === jobId) await this.refreshDetail(false);
@@ -3051,6 +3067,9 @@ function workflowApp() {
         });
         const d = await r.json();
         if (!r.ok || !d.ok) throw new Error(d.error || '저장 실패');
+        if (d.renamePending) alert('현장명 변경은 팀장 승인 후 적용됩니다.\n변경 요청을 보냈습니다 — 승인 전까지는 기존 이름으로 표시됩니다.\n(승인되면 폴더까지 함께 바뀝니다)');
+        else if (d.renamed) alert('현장명 변경 완료 — 디스크 폴더와 파일 경로까지 함께 변경했습니다.');
+        if (d.companyLocked) alert('회사명 변경은 팀장(또는 관리자)만 할 수 있습니다 — 기존 회사명을 유지했습니다.');
         await this.loadDesignWorkflowOptions(true);
         await this.loadJobs();
         await this.refreshDetail(false);
@@ -3432,6 +3451,47 @@ function workflowApp() {
       const f = job && job.primaryVisualFile;
       if (!f) return;
       this.openFilePreview({ ...f, isImage: true });
+    },
+
+    // 칸 포커스 — 누른 칸만 크게, 나머지는 시안 썸네일 레일. 해제하면 모든 칸 동일 복귀.
+    setBoardFocus(id) { this.boardFocus = id || ''; },
+    clearBoardFocus() { this.boardFocus = ''; },
+
+    // 상세 닫기 — 선택 해제 → 보드가 전체 폭으로
+    closeDetail() {
+      this.selectedId = '';
+      this.selectedWorkStageId = '';
+      this.detail = null;
+    },
+
+    // 현장명 변경 승인권자 — 관리자 또는 조직도 팀장(isTeamLeader, /api/auth/me 제공)
+    canApproveRename() {
+      const u = this.currentUser;
+      return !!(u && (u.role === 'admin' || u.isTeamLeader));
+    },
+
+    // 현장명 변경 승인/거절 (팀장 전용) — 승인하면 디스크 폴더·파일 경로까지 서버가 일괄 변경
+    async decideRename(accept) {
+      if (!this.detail || !this.detail.job || !this.detail.job.renameRequest) return;
+      try { await this.loadAuth(); } catch (_) {} // 조직도 팀장 변경이 페이지 로드 후 있었을 수 있어 권한 재확인(감사 #24)
+      const rr = this.detail.job.renameRequest;
+      const msg = accept
+        ? `현장명 변경 승인\n\n${rr.from} → ${rr.to}\n\n디스크 폴더와 파일 경로도 함께 변경됩니다.`
+        : `현장명 변경 거절\n\n${rr.from} → ${rr.to}`;
+      if (!confirm(msg)) return;
+      this.saving = true;
+      try {
+        const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/rename/decision', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accept: !!accept }),
+        });
+        const d = await r.json();
+        if (!r.ok || !d.ok) throw new Error(d.error || '처리 실패');
+        await this.loadDesignWorkflowOptions(true);
+        await this.loadJobs();
+        await this.refreshDetail(false);
+      } catch (e) { alert(e.message); }
+      finally { this.saving = false; }
     },
 
     // 공장 팀 분배(전상현) — 시안 파일을 용접/출력으로 배정. 같은 팀 다시 누르면 해제(미배정).
