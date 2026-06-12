@@ -2798,7 +2798,11 @@ function workflowApp() {
       const cur = this.currentStage();
       // 특이사항은 디자인팀이 시안 넘길 때(design→공장)만 입력받는다. 공장 완료/납품준비 단계는 단순 확인.
       if (cur && cur.id === 'design') {
-        const note = window.prompt(`${who}\n\n[${label}] 시안에 평상시와 다른 특이사항이 있으면 적어주세요.\n공장(대림컴퍼니)이 받을 때 꼭 확인합니다. (없으면 빈칸으로 확인)`, '');
+        const due = this.detail.job.dueDate || '미정';
+        const note = window.prompt(
+          `${who}\n요청날짜 ${due} 로 공장(대림컴퍼니)에 넘깁니다.\n` +
+          `※ 날짜 조율은 여기가 아니라, 공장이 받은 뒤 공장 칸 카드의 [가능일] 칸에서 수정·[수락]합니다.\n\n` +
+          `평소와 다른 특이사항이 있으면 적어주세요. 없으면 그냥 [확인].`, '');
         if (note === null) return; // 취소
         this.handoffText = (note || '').trim();
       } else {

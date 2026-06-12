@@ -711,7 +711,7 @@
                         <div class="wf-rc-line">
                         <button type="button" class="wf-rc-undo" @click.stop="cardStepBack(job.id)" title="실수로 받았으면 디자인팀으로 되돌리기"><span class="material-symbols-outlined">undo</span></button>
                         <a class="wf-rc-icon" :href="job.archiveUrl" @click.stop x-show="job.fileCount" title="시안 받기"><span class="material-symbols-outlined">download</span></a>
-                        <span class="wf-rc-dlabel">완료</span>
+                        <span class="wf-rc-dlabel">가능일</span>
                         <input class="wf-rc-dateinput" type="date" :value="cardFactoryDateValue(job)" @click.stop @change.stop="factoryDatePending[job.id] = $event.target.value" title="완료가능일 — 요청일이 기본값. 바꾸면 [수락]을 눌러 확정(요청일과 다르면 디자인팀에 자동 알림)">
                         <button type="button" class="wf-rc-btn ok" @click.stop="cardSetFactoryDate(job.id, cardFactoryDateValue(job))" x-show="cardDateDirty(job)" title="이 날짜로 확정">수락</button>
                         <button type="button" class="wf-rc-btn" @click.stop="cardHandoff(job.id, stage.id)" x-show="!cardDateDirty(job) && job.status!=='done' && job.status!=='cancelled'">완료</button>
