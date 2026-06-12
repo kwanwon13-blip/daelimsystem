@@ -1,9 +1,12 @@
 <div class="wf-tab-root">
 <style>
   /* 보드+상세 최소폭 합이 화면을 넘지 않게(1280~1440 노트북에서 상세 ✕가 잘리던 문제) */
-  .wf-shell{height:calc(100vh - 112px);min-height:680px;display:grid;grid-template-columns:minmax(380px,1fr) minmax(400px,600px);gap:14px;color:#1f2937;}
+  .wf-shell{height:calc(100vh - 112px);min-height:680px;display:grid;grid-template-columns:minmax(320px,1fr) 10px var(--wf-detail-w,540px);gap:0;color:#1f2937;}
   .wf-shell.no-detail{grid-template-columns:minmax(0,1fr);}
-  .wf-shell.no-detail .wf-detail{display:none;}
+  .wf-shell.no-detail .wf-detail,.wf-shell.no-detail .wf-resizer{display:none;}
+  .wf-resizer{cursor:col-resize;display:flex;align-items:center;justify-content:center;background:transparent;touch-action:none;}
+  .wf-resizer:hover .wf-resizer-grip,.wf-resizer.drag .wf-resizer-grip{background:#2563eb;height:64px;}
+  .wf-resizer-grip{width:4px;height:46px;border-radius:3px;background:#cbd5e1;transition:background .15s,height .15s;}
   .wf-board,.wf-detail{background:#fff;border:1px solid #dfe4ed;border-radius:8px;overflow:hidden;}
   .wf-board{display:flex;flex-direction:column;}
   .wf-toolbar{min-height:58px;display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #e5e9f1;background:#fbfcfe;flex-wrap:wrap;}
@@ -175,6 +178,36 @@
   .wf-arc-title .material-symbols-outlined{font-size:19px;color:#64748b;}
   .wf-arc-q{flex:1;min-width:200px;max-width:440px;box-sizing:border-box;}
   .wf-arc-grid{flex:1;min-height:0;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:8px;align-content:start;padding:2px 4px 8px 0;}
+  /* 주간 제작 일정 보기 — 월~일 7칸, 각 칸 용접/출력 2레인 */
+  .wf-view-week{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px;padding:10px 2px 2px;}
+  .wf-week-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;flex:0 0 auto;}
+  .wf-week-nav{display:flex;align-items:center;gap:6px;}
+  .wf-week-nav button{height:30px;padding:0 10px;border:1px solid #cbd5e1;border-radius:7px;background:#fff;color:#334155;font-size:12px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;}
+  .wf-week-nav button:hover{background:#f1f5f9;}
+  .wf-week-range{font-size:13.5px;font-weight:900;color:#334155;margin-left:4px;}
+  .wf-week-sum{display:flex;gap:6px;flex-wrap:wrap;}
+  .wf-week-sumitem{font-size:12px;font-weight:800;padding:4px 10px;border-radius:999px;}
+  .wf-week-sumitem.weld{background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;}
+  .wf-week-sumitem.out{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;}
+  .wf-week-sumitem.un{background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;}
+  .wf-week-grid{flex:1;min-height:0;overflow:auto;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;align-items:stretch;}
+  .wf-week-day{display:flex;flex-direction:column;gap:5px;background:#f8fafc;border:1px solid #e5e9f1;border-radius:8px;padding:6px;min-height:120px;}
+  .wf-week-day.today{border-color:#2563eb;box-shadow:0 0 0 1px #2563eb inset;}
+  .wf-week-day.weekend{background:#f9fafb;}
+  .wf-week-dhead{display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:900;color:#334155;padding-bottom:3px;border-bottom:1px solid #e5e9f1;}
+  .wf-week-dow{font-size:10.5px;color:#94a3b8;font-weight:800;}
+  .wf-week-day.today .wf-week-dow{color:#2563eb;}
+  .wf-week-lane{display:flex;flex-direction:column;gap:3px;}
+  .wf-week-lanehead{font-size:10px;font-weight:900;color:#94a3b8;display:flex;gap:4px;}
+  .wf-week-lane.weld .wf-week-lanehead{color:#c2410c;}
+  .wf-week-lane.out .wf-week-lanehead{color:#1d4ed8;}
+  .wf-week-lane.un .wf-week-lanehead{color:#64748b;}
+  .wf-week-chip{text-align:left;border:1px solid #e5e9f1;border-radius:5px;padding:3px 6px;font-size:11px;font-weight:700;cursor:pointer;background:#fff;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;width:100%;box-sizing:border-box;}
+  .wf-week-chip.weld{border-left:3px solid #ea580c;}
+  .wf-week-chip.out{border-left:3px solid #2563eb;}
+  .wf-week-chip.un{border-left:3px dashed #94a3b8;}
+  .wf-week-chip:hover{background:#f1f5f9;}
+  .wf-week-lane-empty{font-size:10.5px;color:#cbd5e1;padding:1px 2px;}
   /* 핵심 날짜 카드 (단계별 — 공장은 완료가능일 강조) */
   .wf-keybox{display:flex;flex-direction:column;gap:6px;padding:11px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;}
   .wf-keybox-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
@@ -434,7 +467,7 @@
   .wf-event.active{border-left-color:#f59e0b;background:#fffbeb;box-shadow:0 0 0 1px #fde68a inset;}
   .wf-muted{color:#6b7280;font-size:11px;}
   .wf-empty{height:100%;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:13px;}
-  @media (max-width:1200px){.wf-shell{grid-template-columns:1fr;height:auto}.wf-detail{min-height:620px}.wf-columns{height:560px}.wf-summary{grid-template-columns:repeat(2,1fr)}.wf-new{grid-template-columns:1fr 1fr}.wf-new .wf-btn.primary{width:100%;justify-content:center;}}
+  @media (max-width:1200px){.wf-shell{grid-template-columns:1fr;height:auto}.wf-resizer{display:none}.wf-detail{min-height:620px}.wf-columns{height:560px}.wf-summary{grid-template-columns:repeat(2,1fr)}.wf-new{grid-template-columns:1fr 1fr}.wf-new .wf-btn.primary{width:100%;justify-content:center;}}
 </style>
 
 <div class="fade-in" x-data="workflowApp()" x-init="init()">
@@ -469,6 +502,7 @@
         <h2>워크플로우</h2>
         <div class="wf-board-tabs">
           <button type="button" :class="boardView==='board'?'on':''" @click="boardView='board'"><span class="material-symbols-outlined">dashboard</span>진행 보드</button>
+          <button type="button" :class="boardView==='week'?'on':''" @click="boardView='week'"><span class="material-symbols-outlined">calendar_month</span>주간 일정</button>
           <button type="button" :class="boardView==='archive'?'on':''" @click="boardView='archive'"><span class="material-symbols-outlined">inventory_2</span>과거내역<span class="wf-tabcount" x-show="archiveFiltered().length" x-text="archiveFiltered().length"></span></button>
         </div>
         <div style="flex:1"></div>
@@ -783,6 +817,52 @@
       </div>
       </div>
 
+      <!-- 주간 일정 — 제작 중(공장·배송) 작업을 완료가능일(없으면 납기일) 기준 월~일로, 용접/출력 2레인 -->
+      <div class="wf-view-week" x-show="boardView==='week'" x-cloak>
+        <div class="wf-week-bar">
+          <div class="wf-week-nav">
+            <button @click="weekShift(-7)" title="지난주"><span class="material-symbols-outlined" style="font-size:18px;">chevron_left</span></button>
+            <button @click="weekThis()">이번주</button>
+            <button @click="weekShift(7)" title="다음주"><span class="material-symbols-outlined" style="font-size:18px;">chevron_right</span></button>
+            <span class="wf-week-range" x-text="weekRangeLabel()"></span>
+          </div>
+          <div class="wf-week-sum">
+            <span class="wf-week-sumitem weld">용접 <b x-text="weekTeamTotal('welding')"></b></span>
+            <span class="wf-week-sumitem out">출력 <b x-text="weekTeamTotal('output')"></b></span>
+            <span class="wf-week-sumitem un" x-show="weekTeamTotal('unassigned')">미배정 <b x-text="weekTeamTotal('unassigned')"></b></span>
+          </div>
+        </div>
+        <div class="wf-week-grid">
+          <template x-for="day in weekDays()" :key="day.date">
+            <div class="wf-week-day" :class="day.isToday?'today':(day.isWeekend?'weekend':'')">
+              <div class="wf-week-dhead"><span x-text="day.month+'/'+day.dnum"></span><span class="wf-week-dow" x-text="day.dow"></span></div>
+              <div class="wf-week-lane weld">
+                <div class="wf-week-lanehead">용접 <span x-text="weekJobs(day.date,'welding').length"></span></div>
+                <template x-for="job in weekJobs(day.date,'welding')" :key="'w'+day.date+job.id">
+                  <button type="button" class="wf-week-chip weld" @click="selectJob(job.id, job.currentStage)" :title="(job.projectName||'')+' '+(job.companyName||'')" x-text="job.projectName||job.companyName||job.title||'현장'"></button>
+                </template>
+                <div class="wf-week-lane-empty" x-show="!weekJobs(day.date,'welding').length">·</div>
+              </div>
+              <div class="wf-week-lane out">
+                <div class="wf-week-lanehead">출력 <span x-text="weekJobs(day.date,'output').length"></span></div>
+                <template x-for="job in weekJobs(day.date,'output')" :key="'o'+day.date+job.id">
+                  <button type="button" class="wf-week-chip out" @click="selectJob(job.id, job.currentStage)" :title="(job.projectName||'')+' '+(job.companyName||'')" x-text="job.projectName||job.companyName||job.title||'현장'"></button>
+                </template>
+                <div class="wf-week-lane-empty" x-show="!weekJobs(day.date,'output').length">·</div>
+              </div>
+              <template x-if="weekJobs(day.date,'unassigned').length">
+                <div class="wf-week-lane un">
+                  <div class="wf-week-lanehead">미배정 <span x-text="weekJobs(day.date,'unassigned').length"></span></div>
+                  <template x-for="job in weekJobs(day.date,'unassigned')" :key="'u'+day.date+job.id">
+                    <button type="button" class="wf-week-chip un" @click="selectJob(job.id, job.currentStage)" :title="(job.projectName||'')+' '+(job.companyName||'')" x-text="job.projectName||job.companyName||job.title||'현장'"></button>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+      </div>
+
       <!-- 과거내역 — 상단 [과거내역] 버튼으로 들어오는 별도 보기(전체폭 그리드) -->
       <div class="wf-view-archive" x-show="boardView==='archive'" x-cloak>
         <div class="wf-arc-bar">
@@ -822,6 +902,8 @@
         </div>
       </div>
     </section>
+
+    <div class="wf-resizer" @mousedown="startDetailResize($event)" @dblclick="resetDetailWidth()" title="드래그하여 상세 폭 조절 · 더블클릭 기본값"><span class="wf-resizer-grip"></span></div>
 
     <aside class="wf-detail">
       <template x-if="!detail">

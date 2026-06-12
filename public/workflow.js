@@ -35,7 +35,8 @@ function workflowApp() {
     boardSort: 'date',
     boardTeam: '', // '' 전체 / 'welding' 용접팀 / 'output' 출력팀
     boardFocus: '', // '' = 모든 칸 동일 / stageId = 그 칸만 크게(나머지는 시안 레일)
-    boardView: 'board', // 'board' 진행 3칸 / 'archive' 과거내역 별도 보기(상단 버튼)
+    boardView: 'board', // 'board' 진행 3칸 / 'week' 주간일정 / 'archive' 과거내역 (상단 탭)
+    weekAnchor: '', // 주간달력 기준 월요일(YYYY-MM-DD), 빈값이면 이번주
     newOpen: false,
     newFiles: [],
     newUploadDragOver: false,
@@ -178,6 +179,7 @@ function workflowApp() {
         });
         window.__workflowDepartmentsChangedListenerInstalled = true;
       }
+      try { const _dw = localStorage.getItem('wfDetailW'); if (_dw && /^\d{2,4}px$/.test(_dw)) document.documentElement.style.setProperty('--wf-detail-w', _dw); } catch (_) {}
       await Promise.all([this.loadAuth(), this.loadMeta()]);
       this.loadPublicLinkSettings();
       if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
@@ -3550,6 +3552,88 @@ function workflowApp() {
     // 칸 포커스 — 누른 칸만 크게, 나머지는 시안 썸네일 레일. 해제하면 모든 칸 동일 복귀.
     setBoardFocus(id) { this.boardFocus = id || ''; },
     clearBoardFocus() { this.boardFocus = ''; },
+
+    // 상세 폭 드래그 조절 — 핸들을 좌우로 끌면 상세가 넓어/좁아지고 보드(1fr)가 반대로 늘어남
+    startDetailResize(e) {
+      const shell = e.target.closest('.wf-shell');
+      if (!shell) return;
+      const detailEl = shell.querySelector('.wf-detail');
+      const startW = (detailEl && detailEl.offsetWidth) || 540;
+      const startX = e.clientX;
+      const handle = e.currentTarget;
+      handle.classList.add('drag');
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'col-resize';
+      const move = (ev) => {
+        const dx = startX - ev.clientX; // 왼쪽으로 끌면 상세가 넓어짐
+        const maxW = Math.max(360, shell.offsetWidth - 340); // 보드 최소 ~340px 보장
+        const w = Math.max(360, Math.min(startW + dx, maxW));
+        document.documentElement.style.setProperty('--wf-detail-w', w + 'px');
+      };
+      const up = () => {
+        handle.classList.remove('drag');
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+        try { const cur = document.documentElement.style.getPropertyValue('--wf-detail-w'); if (cur) localStorage.setItem('wfDetailW', cur.trim()); } catch (_) {}
+      };
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+      e.preventDefault();
+    },
+    resetDetailWidth() {
+      document.documentElement.style.removeProperty('--wf-detail-w');
+      try { localStorage.removeItem('wfDetailW'); } catch (_) {}
+    },
+
+    // ── 주간 제작 일정(공장·배송 단계) — 완료가능일(없으면 요청 납기일) 기준, 용접/출력 2레인 ──
+    wfYmd(dt) { const y = dt.getFullYear(), m = String(dt.getMonth() + 1).padStart(2, '0'), d = String(dt.getDate()).padStart(2, '0'); return `${y}-${m}-${d}`; },
+    weekMonday(d) { const dt = new Date(d); dt.setHours(0, 0, 0, 0); const off = (dt.getDay() + 6) % 7; dt.setDate(dt.getDate() - off); return dt; },
+    weekDays() {
+      const base = this.weekAnchor ? new Date(this.weekAnchor + 'T00:00:00') : this.weekMonday(new Date());
+      const today = this.wfYmd(new Date());
+      const dows = ['월', '화', '수', '목', '금', '토', '일'];
+      return Array.from({ length: 7 }, (_, i) => {
+        const dt = new Date(base); dt.setDate(base.getDate() + i);
+        const ds = this.wfYmd(dt);
+        return { date: ds, dow: dows[i], dnum: dt.getDate(), month: dt.getMonth() + 1, isToday: ds === today, isWeekend: i >= 5 };
+      });
+    },
+    jobSchedDate(job) { return (job && (job.factoryAvailableDate || job.dueDate)) || ''; },
+    weekJobs(dateStr, team) {
+      return (this.jobs || []).filter(j => {
+        if (j.status !== 'active') return false;
+        if (j.currentStage !== 'factory' && j.currentStage !== 'delivery') return false;
+        if (this.jobSchedDate(j) !== dateStr) return false;
+        const w = j.weldingFileCount || 0, o = j.outputFileCount || 0, u = j.unassignedFileCount || 0;
+        if (team === 'welding') return w > 0;
+        if (team === 'output') return o > 0;
+        if (team === 'unassigned') return u > 0 && w === 0 && o === 0;
+        return true;
+      });
+    },
+    weekTeamTotal(team) {
+      const days = this.weekDays().map(d => d.date);
+      const seen = new Set();
+      (this.jobs || []).forEach(j => {
+        if (j.status !== 'active') return;
+        if (j.currentStage !== 'factory' && j.currentStage !== 'delivery') return;
+        if (!days.includes(this.jobSchedDate(j))) return;
+        const w = j.weldingFileCount || 0, o = j.outputFileCount || 0, u = j.unassignedFileCount || 0;
+        if (team === 'welding' && w > 0) seen.add(j.id);
+        else if (team === 'output' && o > 0) seen.add(j.id);
+        else if (team === 'unassigned' && u > 0 && w === 0 && o === 0) seen.add(j.id);
+      });
+      return seen.size;
+    },
+    weekShift(deltaDays) {
+      const base = this.weekAnchor ? new Date(this.weekAnchor + 'T00:00:00') : this.weekMonday(new Date());
+      base.setDate(base.getDate() + deltaDays);
+      this.weekAnchor = this.wfYmd(this.weekMonday(base));
+    },
+    weekThis() { this.weekAnchor = this.wfYmd(this.weekMonday(new Date())); },
+    weekRangeLabel() { const d = this.weekDays(); if (!d.length) return ''; return `${d[0].month}/${d[0].dnum} ~ ${d[6].month}/${d[6].dnum}`; },
 
     // 상세 닫기 — 선택 해제 → 보드가 전체 폭으로
     closeDetail() {
