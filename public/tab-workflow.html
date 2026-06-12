@@ -1,6 +1,7 @@
 <div class="wf-tab-root">
 <style>
-  .wf-shell{height:calc(100vh - 112px);min-height:680px;display:grid;grid-template-columns:minmax(640px,1fr) minmax(520px,620px);gap:14px;color:#1f2937;}
+  /* 보드+상세 최소폭 합이 화면을 넘지 않게(1280~1440 노트북에서 상세 ✕가 잘리던 문제) */
+  .wf-shell{height:calc(100vh - 112px);min-height:680px;display:grid;grid-template-columns:minmax(380px,1fr) minmax(400px,600px);gap:14px;color:#1f2937;}
   .wf-shell.no-detail{grid-template-columns:minmax(0,1fr);}
   .wf-shell.no-detail .wf-detail{display:none;}
   .wf-board,.wf-detail{background:#fff;border:1px solid #dfe4ed;border-radius:8px;overflow:hidden;}
@@ -78,10 +79,11 @@
   .wf-colzoom.on{background:#2563eb;border-color:#2563eb;color:#fff;}
   .wf-colzoom .material-symbols-outlined{font-size:14px;}
   /* 포커스 모드: 보고 있는 칸만 크게, 나머지는 시안 썸네일 레일 */
-  .wf-col.focus{flex:4 1 0;min-width:460px;}
+  .wf-col.focus{flex:4 1 0;min-width:380px;}
   .wf-col.mini{flex:0 0 96px;min-width:96px;background:#f8fafc;cursor:pointer;}
   .wf-col.mini:hover{background:#eef2f7;}
-  .wf-col.mini .wf-col-head{padding:0 5px;}
+  .wf-col.mini .wf-col-head{flex-direction:column;justify-content:center;gap:2px;height:auto;min-height:42px;padding:5px 4px;}
+  .wf-col.mini .wf-col-headlabel{justify-content:center;}
   .wf-col.mini .wf-col-name{display:none;}
   .wf-col.mini .wf-colzoom{display:none;}
   .wf-col.mini .wf-col-list{padding:5px;gap:5px;}
@@ -677,7 +679,7 @@
                       <img :src="job.primaryVisualFile.thumbUrl || job.primaryVisualFile.previewUrl" loading="lazy" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, job.primaryVisualFile.previewUrl)">
                     </button>
                   </template>
-                  <div class="wf-rc-minititle" x-text="(job.projectName || job.companyName || job.title || '').slice(0, 8)"></div>
+                  <div class="wf-rc-minititle" x-text="(job.projectName || job.companyName || job.title || '현장 미지정').slice(0, 8)"></div>
                   <div class="wf-rc-main">
                   <div class="wf-rc-top">
                     <span class="wf-rc-title" :title="(job.projectName||'') + (job.companyName ? ' / '+job.companyName : '')" x-text="job.projectName || job.companyName || job.title || '현장 미지정'"></span>
@@ -759,7 +761,7 @@
                     <img :src="job.primaryVisualFile.thumbUrl || job.primaryVisualFile.previewUrl" loading="lazy" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, job.primaryVisualFile.previewUrl)">
                   </button>
                 </template>
-                <div class="wf-rc-minititle" x-text="(job.projectName || job.companyName || job.title || '').slice(0, 8)"></div>
+                <div class="wf-rc-minititle" x-text="(job.projectName || job.companyName || job.title || '현장 미지정').slice(0, 8)"></div>
                 <div class="wf-rc-main">
                   <div class="wf-rc-top">
                     <span class="wf-rc-title" :title="(job.projectName||'') + (job.companyName ? ' / '+job.companyName : '')" x-text="job.projectName || job.companyName || job.title || '현장 미지정'"></span>
