@@ -1716,11 +1716,18 @@ function decorateWorkflowFile(file, viewerUser, job = null) {
   const image = isImageFile(file);
   const originalSafeName = safeStoredFileName(file.originalName || file.storedName || file.id || 'file');
   const storedName = String(file.storedName || '').trim();
-  const publicDownloadUrl = exists && file.publicToken ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/download` : '';
-  const publicPreviewUrl = exists && file.publicToken && image ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/preview` : '';
-  const publicThumbUrl = exists && file.publicToken && image ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/thumb` : '';
+  // 외부 공개 파일 토큰/링크는 admin·생성자·공장/경영관리 담당에게만. 그 외 뷰어에겐 토큰 제거 + 링크 빈값(유출 차단)
+  const _vuF = viewerUser || {};
+  const canSeePublicLink = _vuF.role === 'admin'
+    || (!!job && !!_vuF.userId && String(_vuF.userId).toLowerCase() === String(job.createdBy || '').toLowerCase())
+    || canDeptActOnStage({ user: _vuF }, 'factory')
+    || canDeptActOnStage({ user: _vuF }, 'delivery');
+  const publicDownloadUrl = canSeePublicLink && exists && file.publicToken ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/download` : '';
+  const publicPreviewUrl = canSeePublicLink && exists && file.publicToken && image ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/preview` : '';
+  const publicThumbUrl = canSeePublicLink && exists && file.publicToken && image ? `/api/workflow/public/files/${encodeURIComponent(file.publicToken)}/thumb` : '';
+  const { publicToken: _publicTokenOmitF, ...fileSafe } = file;
   return {
-    ...file,
+    ...fileSafe,
     exists,
     missing: !exists,
     isImage: image,
@@ -2400,31 +2407,52 @@ function isJobCreator(job, req) {
   const uid = String(req?.user?.userId || '').trim().toLowerCase();
   return !!uid && String(job?.createdBy || '').trim().toLowerCase() === uid;
 }
+// ── 인가 전용 부서-단계 매처(알림 매처와 분리) ──
+// 알림용 viewerMatchesStageTarget은 양방향 substring이라 인가엔 부적합('영업관리팀'이 '영업'으로 delivery 오매칭, '출력팀'이 어떤 별칭과도 비겹쳐 차단 등).
+// 인가는: 명시 팀매칭(stageDepartmentMap, 정확 id) OR 인가별칭 풀네임 정확일치만. 이름토큰·짧은단편 사용 안 함.
+const STAGE_AUTHZ_ALIASES = {
+  design: ['디자인팀', '디자인'],
+  factory: ['대림컴퍼니', '공장', '공장팀', '생산팀', '제작팀', '용접팀', '출력팀'],
+  delivery: ['경영관리팀', '경영관리'],
+};
+function canDeptActOnStage(req, stageId) {
+  if (!STAGES.some(s => s.id === stageId)) return false;
+  const org = loadOrgSnapshot();
+  const me = (org.users || []).find(u => lowerText(u.userId) === lowerText(req?.user?.userId));
+  const deptVal = (me && me.department) || req?.user?.department || '';
+  if (!deptVal) return false;
+  const dept = (org.departments || []).find(d => lowerText(d.id) === lowerText(deptVal) || lowerText(d.name) === lowerText(deptVal));
+  const deptId = lowerText(dept ? dept.id : deptVal);
+  const deptKey = departmentMatchKey(dept ? dept.name : deptVal);
+  const mappedId = lowerText(storedWorkflowStageDepartmentMap()[stageId] || '');
+  if (mappedId && deptId === mappedId) return true; // 팀매칭 설정 시 정확 id 일치
+  return (STAGE_AUTHZ_ALIASES[stageId] || []).map(departmentMatchKey).includes(deptKey); // 폴백: 풀네임 정확일치
+}
 // 특정 단계 담당(또는 생성자/admin)인가
 function canActOnStage(job, req, stageId) {
   if (isWorkflowAdmin(req)) return true;
   if (!job) return false;
   if (isJobCreator(job, req)) return true;
-  return !!(stageId && viewerMatchesStageTarget(job, stageId, req.user));
+  return !!(stageId && canDeptActOnStage(req, stageId));
 }
 // 현재 진행 단계 담당(되돌리기 등)
 function canActOnCurrentStage(job, req) {
   if (isWorkflowAdmin(req) || isJobCreator(job, req)) return true;
   const curId = inferCurrentStage(job?.stageChecks || {}, job?.currentStage || 'design');
-  return !!viewerMatchesStageTarget(job, curId, req.user);
+  return canDeptActOnStage(req, curId);
 }
 // 넘기기: 현재 단계(밀기) 또는 다음 단계(가져오기·당기기) 담당이면 허용 — '공장이 가져감' 동선
 function canHandoffJob(job, req, currentStageId, nextStageId) {
   if (isWorkflowAdmin(req) || isJobCreator(job, req)) return true;
-  if (currentStageId && viewerMatchesStageTarget(job, currentStageId, req.user)) return true;
-  if (nextStageId && viewerMatchesStageTarget(job, nextStageId, req.user)) return true;
+  if (currentStageId && canDeptActOnStage(req, currentStageId)) return true;
+  if (nextStageId && canDeptActOnStage(req, nextStageId)) return true;
   return false;
 }
 // 현장명 변경 승인: 팀장(admin 포함)이면서 이 발주의 어느 단계든 자기 부서가 담당
 function isJobRenameApprover(job, req) {
   if (isWorkflowAdmin(req)) return true;
   if (!isWorkflowApprover(req)) return false;
-  return isJobCreator(job, req) || STAGES.some(s => viewerMatchesStageTarget(job, s.id, req.user));
+  return isJobCreator(job, req) || STAGES.some(s => canDeptActOnStage(req, s.id));
 }
 
 function workflowJobSearchText(data, job) {
@@ -2494,8 +2522,8 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
   const vuPL = viewerUser || {};
   const canSeePublicLink = vuPL.role === 'admin'
     || (!!vuPL.userId && String(vuPL.userId).toLowerCase() === String(job.createdBy || '').toLowerCase())
-    || viewerMatchesStageTarget(job, 'factory', vuPL)
-    || viewerMatchesStageTarget(job, 'delivery', vuPL);
+    || canDeptActOnStage({ user: vuPL }, 'factory')
+    || canDeptActOnStage({ user: vuPL }, 'delivery');
   const reqLikePL = { user: vuPL };
   const curStageIdPL = inferCurrentStage(job.stageChecks || {}, job.currentStage || 'design');
   const nextStageIdPL = (STAGES[stageIndex(curStageIdPL) + 1] || {}).id || '';
@@ -2506,8 +2534,8 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
     // 뷰어 권한 플래그 — 프론트가 버튼 노출을 서버 권한과 일치시켜 403 클릭을 방지
     viewerCanHandoff: canHandoffJob(job, reqLikePL, curStageIdPL, nextStageIdPL),
     viewerCanCurrentStage: canActOnCurrentStage(job, reqLikePL),
-    viewerCanFactory: vuPL.role === 'admin' || viewerMatchesStageTarget(job, 'factory', vuPL),
-    viewerCanReopen: vuPL.role === 'admin' || viewerMatchesStageTarget(job, 'delivery', vuPL) || (!!vuPL.userId && String(vuPL.userId).toLowerCase() === String(job.createdBy || '').toLowerCase()),
+    viewerCanFactory: vuPL.role === 'admin' || canDeptActOnStage({ user: vuPL }, 'factory'),
+    viewerCanReopen: vuPL.role === 'admin' || canDeptActOnStage({ user: vuPL }, 'delivery') || (!!vuPL.userId && String(vuPL.userId).toLowerCase() === String(job.createdBy || '').toLowerCase()),
     // 공장 팀 분배(전상현) — 시안 파일을 용접/출력으로 나눈 개수
     weldingFileCount: visualFiles.filter(f => f.team === 'welding').length,
     outputFileCount: visualFiles.filter(f => f.team === 'output').length,
@@ -3733,7 +3761,7 @@ router.put('/jobs/:id', (req, res) => {
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
   // 변경 권한: 관리자·생성자·이 발주의 어느 단계든 담당 부서만 (무관한 직원 차단)
-  if (!(isWorkflowAdmin(req) || isJobCreator(job, req) || STAGES.some(s => viewerMatchesStageTarget(job, s.id, req.user)))) {
+  if (!(isWorkflowAdmin(req) || isJobCreator(job, req) || STAGES.some(s => canDeptActOnStage(req, s.id)))) {
     return res.status(403).json({ error: WF_NO_PERM });
   }
   const payload = normalizeJobPayload(req.body || {}, job);
@@ -3942,11 +3970,15 @@ router.post('/jobs/:id/stages/:stageId', (req, res) => {
   if (nextStatus !== 'done') { check.completedAt = ''; check.completedBy = ''; check.completedByName = ''; }
   syncWorkflowStageFlow(job);
   const allStagesDone = Object.values(job.stageChecks).every(c => c.status === 'done');
+  const wasJobDone = job.status === 'done';
   job.status = allStagesDone ? 'done' : (job.status === 'done' ? 'active' : job.status);
   job.updatedAt = at;
   if (job.status === 'done') {
-    const blockers = completionBlockers(data, job);
-    if (blockers.length) return res.status(400).json({ error: '완료할 수 없습니다 — ' + blockers.map(b => b.label).join(', '), blockers });
+    // 신규 완료 전이에만 완료게이트 — 이미 done인 과거 발주의 단계 정정까지 막지 않음(was-done 가드)
+    if (!wasJobDone) {
+      const blockers = completionBlockers(data, job);
+      if (blockers.length) return res.status(400).json({ error: '완료할 수 없습니다 — ' + blockers.map(b => b.label).join(', '), blockers });
+    }
     completeWorkflowJob(data, req, job, at);
   } else {
     clearWorkflowArchive(job);
@@ -4062,7 +4094,7 @@ router.post('/jobs/:id/stepback', (req, res) => {
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
   if (job.status === 'done' || job.status === 'cancelled') {
-    if (!(isWorkflowAdmin(req) || isJobCreator(job, req) || viewerMatchesStageTarget(job, 'delivery', req.user)))
+    if (!(isWorkflowAdmin(req) || isJobCreator(job, req) || canDeptActOnStage(req, 'delivery')))
       return res.status(403).json({ error: '완료/취소 보관은 경영관리팀(또는 관리자)만 되돌릴 수 있습니다.' });
   } else if (!canActOnCurrentStage(job, req)) {
     return res.status(403).json({ error: WF_NO_PERM });
@@ -4180,6 +4212,8 @@ router.post('/jobs/:id/orders', (req, res) => {
   const data = loadStore();
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  if (job.status === 'done' || job.status === 'cancelled') return res.status(400).json({ error: '완료/취소된 작업은 변경할 수 없습니다.' });
+  if (!(isWorkflowAdmin(req) || isJobCreator(job, req) || canDeptActOnStage(req, 'factory') || canDeptActOnStage(req, 'delivery'))) return res.status(403).json({ error: '제작 파일 전달(외부 발송)은 공장·경영관리(또는 관리자)만 가능합니다.' });
   const payload = normalizeOrderPayload(req.body || {});
   if (!Object.prototype.hasOwnProperty.call(req.body || {}, 'status')) payload.status = 'requested';
   const validFileIds = new Set(data.files.filter(f => f.jobId === job.id).map(f => f.id));
@@ -4224,6 +4258,8 @@ router.put('/jobs/:id/orders/:orderId', (req, res) => {
   const job = data.jobs.find(j => j.id === req.params.id);
   const order = (data.orders || []).find(o => o.jobId === req.params.id && o.id === req.params.orderId);
   if (!job || !order) return res.status(404).json({ error: '작업 또는 전달건을 찾을 수 없습니다.' });
+  if (job.status === 'cancelled') return res.status(400).json({ error: '취소된 작업은 변경할 수 없습니다.' });
+  if (!(isWorkflowAdmin(req) || isJobCreator(job, req) || canDeptActOnStage(req, 'factory') || canDeptActOnStage(req, 'delivery'))) return res.status(403).json({ error: '제작 파일 전달(외부 발송)은 공장·경영관리(또는 관리자)만 가능합니다.' });
   const beforeStatus = order.status || 'draft';
   const payload = normalizeOrderPayload(req.body || {}, order);
   const validFileIds = new Set(data.files.filter(f => f.jobId === job.id).map(f => f.id));
@@ -4274,6 +4310,8 @@ router.post('/jobs/:id/orders/:orderId/email', async (req, res) => {
     const job = data.jobs.find(j => j.id === req.params.id);
     const order = (data.orders || []).find(o => o.jobId === req.params.id && o.id === req.params.orderId);
     if (!job || !order) return res.status(404).json({ error: '작업 또는 전달건을 찾을 수 없습니다.' });
+    if (job.status === 'cancelled') return res.status(400).json({ error: '취소된 작업의 파일은 외부로 보낼 수 없습니다.' });
+    if (!(isWorkflowAdmin(req) || isJobCreator(job, req) || canDeptActOnStage(req, 'factory') || canDeptActOnStage(req, 'delivery'))) return res.status(403).json({ error: '제작 파일 외부 발송은 공장·경영관리(또는 관리자)만 가능합니다.' });
 
     const toList = normalizeEmailList(req.body?.toEmail || req.body?.recipientEmail || order.recipientEmail || order.mailTo || '');
     const ccList = normalizeEmailList(req.body?.ccEmail || req.body?.recipientCc || order.recipientCc || order.mailCc || '');
@@ -4588,7 +4626,7 @@ router.post('/jobs/:id/files/:fileId/review', (req, res) => {
   if (!file) return res.status(404).json({ error: '파일을 찾을 수 없습니다.' });
   const job = data.jobs.find(j => j.id === file.jobId) || null;
   if (job && (job.status === 'done' || job.status === 'cancelled')) return res.status(400).json({ error: '완료/취소된 작업의 파일은 변경할 수 없습니다.' });
-  if (job && !(isWorkflowAdmin(req) || isJobCreator(job, req) || STAGES.some(s => viewerMatchesStageTarget(job, s.id, req.user)))) return res.status(403).json({ error: WF_NO_PERM });
+  if (job && !(isWorkflowAdmin(req) || isJobCreator(job, req) || STAGES.some(s => canDeptActOnStage(req, s.id)))) return res.status(403).json({ error: WF_NO_PERM });
   const status = ['pending', 'approved', 'change_requested'].includes(req.body.status) ? req.body.status : '';
   if (!status) return res.status(400).json({ error: '검토 상태가 필요합니다.' });
   const note = safeText(req.body.note, 1000);
@@ -4615,7 +4653,7 @@ router.post('/jobs/:id/files/:fileId/schedule', (req, res) => {
   const file = data.files.find(f => f.jobId === req.params.id && f.id === req.params.fileId);
   if (!job || !file) return res.status(404).json({ error: '작업 또는 파일을 찾을 수 없습니다.' });
   if (job.status === 'done' || job.status === 'cancelled') return res.status(400).json({ error: '완료/취소된 작업은 변경할 수 없습니다.' });
-  if (!(isWorkflowAdmin(req) || isJobCreator(job, req) || viewerMatchesStageTarget(job, 'design', req.user) || viewerMatchesStageTarget(job, 'factory', req.user))) return res.status(403).json({ error: WF_NO_PERM });
+  if (!(isWorkflowAdmin(req) || isJobCreator(job, req) || canDeptActOnStage(req, 'design') || canDeptActOnStage(req, 'factory'))) return res.status(403).json({ error: WF_NO_PERM });
   job.stageChecks = newStageChecks(job.stageChecks || {});
   const designBefore = file.designDueDate || '';
   const factoryBefore = file.factoryAvailableDate || '';
@@ -4663,7 +4701,7 @@ router.post('/jobs/:id/files/:fileId/team', (req, res) => {
   if (!job || !file) return res.status(404).json({ error: '작업 또는 파일을 찾을 수 없습니다.' });
   if (job.status === 'done' || job.status === 'cancelled') return res.status(400).json({ error: '완료/취소된 작업은 변경할 수 없습니다.' });
   // 디자인팀은 팀을 모름 — 시안 팀배정은 공장 부서(전상현 실장)·관리자만. 생성자 우회 없음.
-  if (!(isWorkflowAdmin(req) || viewerMatchesStageTarget(job, 'factory', req.user))) return res.status(403).json({ error: '시안 팀배정은 공장(또는 관리자)만 가능합니다.' });
+  if (!(isWorkflowAdmin(req) || canDeptActOnStage(req, 'factory'))) return res.status(403).json({ error: '시안 팀배정은 공장(또는 관리자)만 가능합니다.' });
   const team = ['welding', 'output', ''].includes(req.body.team) ? req.body.team : '';
   file.team = team;
   file.teamUpdatedAt = nowIso();

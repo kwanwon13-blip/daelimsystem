@@ -988,7 +988,12 @@
               <div class="wf-keybox-row">
                 <div class="wf-keybox-date" :class="detail.job.currentStage==='design' ? 'hot' : ''">
                   <label>요청날짜 <span class="wf-muted" style="font-weight:600;">디자인팀</span></label>
-                  <div class="wf-keybox-text" x-text="detail.job.dueDate || '-'"></div>
+                  <template x-if="detail.job.currentStage==='design' && detail.job.viewerCanCurrentStage">
+                    <input class="wf-input" type="date" x-model="detail.job.dueDate" @change="saveJob()" title="요청날짜(디자인팀 단계에서만 정정 가능)">
+                  </template>
+                  <template x-if="!(detail.job.currentStage==='design' && detail.job.viewerCanCurrentStage)">
+                    <div class="wf-keybox-text" x-text="detail.job.dueDate || '-'"></div>
+                  </template>
                 </div>
                 <div class="wf-keybox-date" :class="detail.job.currentStage==='factory' ? 'hot' : ''">
                   <label>완료가능일 <span class="wf-muted" style="font-weight:600;">공장</span></label>
