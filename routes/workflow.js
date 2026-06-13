@@ -448,7 +448,8 @@ function isImageFile(file) {
 
 function workflowImageMime(file) {
   const mime = String(file?.mime || '').toLowerCase();
-  if (mime.startsWith('image/')) return mime;
+  // 보안: svg/xml 등 스크립트 가능 image mime은 그대로 반환 금지(인라인 XSS 방지) — 확장자로만 결정.
+  if (mime.startsWith('image/') && !mime.includes('svg') && !mime.includes('xml')) return mime;
   const ext = fileExt(file);
   if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
   if (ext === '.png') return 'image/png';
@@ -1921,7 +1922,8 @@ function markPublicOrderActivity(data, job, order, kind, meta = {}) {
   }
   order.updatedAt = at;
   job.updatedAt = at;
-  if (!shouldEvent) return true;
+  // 변화 없는(쓰로틀된) 열람은 false 반환 → 호출부가 saveStore를 건너뛰어 매 공개 GET마다 전체 스토어 재기록되는 DoS 방지.
+  if (!shouldEvent) return false;
   const type = kind === 'download' ? 'order_public_download' : 'order_public_view';
   const filePart = kind === 'download' && meta.fileName ? ` · ${meta.fileName}` : '';
   const label = kind === 'download' ? `파일 다운로드${filePart}` : '전달 화면 열람';
@@ -3078,6 +3080,16 @@ function archiveFileForManifest(file = {}) {
 
 async function buildArchiveFromFiles(job, files, filters = {}, suffix = 'all', context = {}) {
   if (!files.length) return null;
+  // DoS 방지: ZIP은 전체를 메모리 버퍼로 만들므로 총 개수/용량 상한(초과 시 413). 무제한이면 OOM으로 단일 프로세스 ERP가 다운된다.
+  const MAX_ARCHIVE_FILES = 300;
+  const MAX_ARCHIVE_BYTES = 500 * 1024 * 1024;
+  let _archiveBytes = 0;
+  for (const f of files) _archiveBytes += Number(f.size || 0);
+  if (files.length > MAX_ARCHIVE_FILES || _archiveBytes > MAX_ARCHIVE_BYTES) {
+    const e = new Error('아카이브가 너무 큽니다(파일 수/용량 제한 초과). 개별 다운로드를 이용하세요.');
+    e.statusCode = 413;
+    throw e;
+  }
 
   const zip = new JSZip();
   const used = new Set();
@@ -3228,8 +3240,19 @@ async function sendWorkflowThumb(res, file, publicCache = false) {
       // Fall back below. It is better to show the real image than an empty tile.
     }
   }
+  // 폴백(sharp 미설치/실패): 원본 서빙 — 스크립트 가능 형식(SVG/HTML/XML)은 인라인 금지(저장형 XSS 차단) + nosniff.
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Workflow-Thumb-Fallback', 'original');
-  res.type(workflowImageMime(file)).sendFile(full);
+  const fext = fileExt(file);
+  const fmime = String(file.mime || '').toLowerCase();
+  const fscriptable = ['.svg', '.svgz', '.html', '.htm', '.xml', '.xhtml', '.mht'].includes(fext) || fmime.includes('svg') || fmime.includes('html') || fmime.includes('xml');
+  if (fscriptable) {
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', attachmentDisposition(file.originalName || 'file'));
+  } else {
+    res.type(workflowImageMime(file));
+  }
+  res.sendFile(full);
   return true;
 }
 
@@ -3339,8 +3362,8 @@ router.get('/public/orders/:token', (req, res) => {
   if (!order) return res.status(404).json({ error: '전달건을 찾을 수 없습니다.' });
   const job = data.jobs.find(j => j.id === order.jobId);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
-  markPublicOrderActivity(data, job, order, 'view');
-  saveStore(data);
+  // 10분 내 재열람은 쓰로틀 → saveStore 생략(미인증 공개 GET의 전체 스토어 재기록 증폭 차단).
+  if (markPublicOrderActivity(data, job, order, 'view')) saveStore(data);
   res.json(decoratePublicOrder(data, job, order));
 });
 
@@ -4831,31 +4854,33 @@ router.post('/jobs/:id/files/:fileId/events', (req, res) => {
 });
 
 router.get('/jobs/:id/files/archive', async (req, res) => {
-  const data = loadStore();
-  const job = data.jobs.find(j => j.id === req.params.id);
-  if (!job) return res.status(404).send('not found');
-  const filters = archiveFilters(req.query);
-  const archive = await buildJobArchive(data, job, filters);
-  if (!archive) return res.status(404).send('no files');
-  // ZIP 생성(await) 동안의 다른 변경을 덮어쓰지 않도록 최신 스토어에 이벤트만 기록 (감사 #1 critical)
-  const fresh = loadStore();
-  addEvent(fresh, req, job.id, 'archive', `파일 묶음 다운로드 ${archive.files.length}개`, { ...filters, count: archive.files.length });
-  saveStore(fresh);
-  res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Disposition', attachmentDisposition(archive.filename));
-  res.setHeader('Cache-Control', 'private, max-age=60');
-  res.send(archive.buffer);
+  try {
+    const data = loadStore();
+    const job = data.jobs.find(j => j.id === req.params.id);
+    if (!job) return res.status(404).send('not found');
+    const filters = archiveFilters(req.query);
+    const archive = await buildJobArchive(data, job, filters);
+    if (!archive) return res.status(404).send('no files');
+    // ZIP 생성(await) 동안의 다른 변경을 덮어쓰지 않도록 최신 스토어에 이벤트만 기록 (감사 #1 critical)
+    const fresh = loadStore();
+    addEvent(fresh, req, job.id, 'archive', `파일 묶음 다운로드 ${archive.files.length}개`, { ...filters, count: archive.files.length });
+    saveStore(fresh);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', attachmentDisposition(archive.filename));
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    res.send(archive.buffer);
+  } catch (e) {
+    // 용량 상한(413) 등 — 핸들 안 하면 unhandled rejection. 메모리 OOM은 buildArchiveFromFiles에서 이미 사전 차단.
+    res.status(e && e.statusCode === 413 ? 413 : 500).send(e && e.statusCode === 413 ? String(e.message) : '아카이브 생성 실패');
+  }
 });
 
 router.get('/files/:fileId/download', (req, res) => {
   const data = loadStore();
   const file = data.files.find(f => f.id === req.params.fileId);
   if (!file) return res.status(404).send('not found');
-  const full = fileDiskPath(file);
-  if (!full || !fs.existsSync(full)) return res.status(404).send('not found');
-  res.setHeader('Content-Type', file.mime || 'application/octet-stream');
-  res.setHeader('Content-Disposition', attachmentDisposition(file.originalName || 'file'));
-  res.sendFile(full);
+  // 강화된 sendWorkflowFile 경유 — nosniff + 스크립터블(SVG/HTML/XML) 강등 일괄 적용(저장형 XSS 차단).
+  if (!sendWorkflowFile(res, file, false)) return res.status(404).send('not found');
 });
 
 router.get('/files/:fileId/thumb', async (req, res, next) => {
@@ -4873,12 +4898,8 @@ router.get('/files/:fileId/preview', (req, res) => {
   const data = loadStore();
   const file = data.files.find(f => f.id === req.params.fileId);
   if (!file || !isImageFile(file)) return res.status(404).send('not found');
-  const full = fileDiskPath(file);
-  if (!full || !fs.existsSync(full)) return res.status(404).send('not found');
-  res.setHeader('Content-Type', workflowImageMime(file));
-  res.setHeader('Content-Disposition', 'inline');
-  res.setHeader('Cache-Control', 'private, max-age=300');
-  res.sendFile(full);
+  // 인증 preview도 공개 경로와 동일하게 sendWorkflowFile 경유 — SVG 등 스크립터블은 inline 대신 attachment+octet-stream으로 강등(저장형 XSS 차단), nosniff 포함.
+  if (!sendWorkflowFile(res, file, true)) return res.status(404).send('not found');
 });
 
 module.exports = router;
