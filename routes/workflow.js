@@ -3418,11 +3418,9 @@ router.get('/meta', (req, res) => {
 });
 
 router.get('/order-targets', (req, res) => {
-  const data = loadStore();
   res.json({
     ok: true,
     orderTargets: buildWorkflowOrderTargets(),
-    internalRecipientEmail: (data.settings && data.settings.internalRecipientEmail) || '',
   });
 });
 
@@ -4478,11 +4476,6 @@ router.post('/jobs/:id/orders/:orderId/email', async (req, res) => {
     freshOrder.updatedBy = req.user?.userId || '';
     freshOrder.updatedByName = userName(req);
     freshJob.updatedAt = sentAt;
-    // 내부(대림컴퍼니) 발송이면 기본 수신처로 기억 → 다음 +시안 등록 시 자동 채움
-    if ((freshOrder.targetType || 'internal') === 'internal' && toList[0]) {
-      fresh.settings = fresh.settings || {};
-      fresh.settings.internalRecipientEmail = toList[0];
-    }
 
     addEvent(fresh, req, freshJob.id, 'order_email', `제작 파일 메일 발송 · ${freshOrder.targetName} · ${toList.join(', ')}`, {
       orderId: freshOrder.id,

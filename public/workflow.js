@@ -13,7 +13,6 @@ function workflowApp() {
     statuses: {},
     checkStatuses: {},
     orderTargets: [],
-    internalRecipientEmail: '',
     orderTargetsLoaded: false,
     orderTargetsLoading: null,
     orderStatuses: {},
@@ -358,7 +357,6 @@ function workflowApp() {
           const d = await r.json().catch(() => ({}));
           if (!r.ok || !d.ok) throw new Error(d.error || '전달 대상을 불러오지 못했습니다.');
           this.orderTargets = d.orderTargets || [];
-          if (typeof d.internalRecipientEmail === 'string') this.internalRecipientEmail = d.internalRecipientEmail;
           this.orderTargetsLoaded = true;
         } catch (e) {
           alert(e.message || '전달 대상을 불러오지 못했습니다.');
@@ -2959,7 +2957,7 @@ function workflowApp() {
           return;
         }
         let _mailNotice = '';
-        if (this.newMail.send && String(this.newMail.to || '').trim()) {
+        if (this.form.productionRoute === 'external' && this.newMail.send && String(this.newMail.to || '').trim()) {
           try { await this.autoSendDesignMail(d.job, (uploadResult && uploadResult.files) || []); } catch (e) { this.mailNotice = '메일 발송 오류: ' + (e.message || e); }
           _mailNotice = this.mailNotice;
         }
@@ -3049,15 +3047,9 @@ function workflowApp() {
     },
 
     onProductionRouteChange() {
-      // 라우트 전환 시 직전 라우트용 주소가 새지 않도록 초기화 후 재설정.
-      // (외주 주소가 내부 발송에 남거나, 그게 내부 기본수신처로 영구 저장돼 오염되는 것 방지)
+      // 메일은 외주(타 회사)에게만 — 내부(대림컴퍼니)는 ERP 보드로 바로 전달돼 메일이 필요 없음. 전환 시 입력 초기화.
       this.newMail.to = '';
       this.newMail.company = '';
-      if (this.form.productionRoute === 'internal') {
-        const factory = (this.orderTargets || []).find(t => t && t.id === 'factory') || {};
-        const def = String(this.internalRecipientEmail || '').trim() || String(factory.recipientEmail || '').trim();
-        if (def) this.newMail.to = def;
-      }
     },
 
     openNewJobModal() {
