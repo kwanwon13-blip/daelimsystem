@@ -82,10 +82,11 @@ function getConfiguredSmtpSettings() {
 // nodemailer 없이 직접 SMTP 구현
 function normalizeEmailList(value) {
   const raw = Array.isArray(value) ? value.join(',') : String(value || '');
+  // 보안: 줄바꿈/제어문자 제거 + 이메일 형식만 통과 → SMTP 헤더/명령 인젝션(숨은 수신자) 차단.
   return raw
-    .split(/[;,]+/)
-    .map(v => v.trim())
-    .filter(Boolean);
+    .split(/[;,\r\n]+/)
+    .map(v => v.replace(/[\r\n\t\0]/g, '').trim())
+    .filter(v => /^[^\s@<>"',;]+@[^\s@<>"',;]+\.[^\s@<>"',;]+$/.test(v));
 }
 
 function sendSmtpMail({ smtpHost, smtpPort, smtpUser, smtpPass, from, to, cc, subject, html, attachments }) {

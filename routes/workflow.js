@@ -2937,7 +2937,21 @@ const storage = multer.diskStorage({
     cb(null, `${Date.now()}_${Math.random().toString(36).slice(2, 10)}${ext || '.bin'}`);
   },
 });
-const upload = multer({ storage, limits: { fileSize: MAX_WORKFLOW_UPLOAD_FILE_SIZE, files: MAX_WORKFLOW_UPLOAD_FILES } });
+// 보안: 업로드 형식 화이트리스트 — 디자인/문서 파일만, 실행·스크립트 차단(외부 메일 첨부로 악성코드 전달 방지).
+// 클라이언트 mimetype은 위조 가능 → '확장자' 기준으로 거른다.
+const ALLOWED_UPLOAD_EXTS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif', '.svg',
+  '.pdf', '.ai', '.psd', '.eps', '.cdr', '.indd', '.dwg', '.dxf', '.sketch',
+  '.zip', '.docx', '.xlsx', '.pptx', '.hwp', '.hwpx', '.txt', '.csv',
+]);
+function workflowUploadFileFilter(req, file, cb) {
+  const ext = path.extname(uploadName(file.originalname || '')).toLowerCase();
+  if (ALLOWED_UPLOAD_EXTS.has(ext)) return cb(null, true);
+  const e = new Error('허용되지 않는 파일 형식: ' + (ext || '확장자 없음') + ' — 이미지·AI·PDF 등 디자인/문서 파일만 올릴 수 있습니다.');
+  e.code = 'UNSUPPORTED_FILE_TYPE';
+  cb(e, false);
+}
+const upload = multer({ storage, limits: { fileSize: MAX_WORKFLOW_UPLOAD_FILE_SIZE, files: MAX_WORKFLOW_UPLOAD_FILES }, fileFilter: workflowUploadFileFilter });
 
 function workflowUploadFiles(req, res, next) {
   upload.array('files', MAX_WORKFLOW_UPLOAD_FILES)(req, res, err => {
@@ -2956,6 +2970,9 @@ function workflowUploadFiles(req, res, next) {
         });
       }
       return res.status(400).json({ ok: false, error: `파일 업로드 제한에 걸렸습니다: ${err.message}` });
+    }
+    if (err && err.code === 'UNSUPPORTED_FILE_TYPE') {
+      return res.status(415).json({ ok: false, error: err.message });
     }
     return res.status(400).json({ ok: false, error: `파일 업로드 처리에 실패했습니다: ${err.message || err}` });
   });
@@ -3173,8 +3190,14 @@ function clearWorkflowArchive(job) {
 function sendWorkflowFile(res, file, inline = false, publicCache = false) {
   const full = fileDiskPath(file);
   if (!full || !fs.existsSync(full)) return false;
-  res.setHeader('Content-Type', inline && isImageFile(file) ? workflowImageMime(file) : (file.mime || 'application/octet-stream'));
-  res.setHeader('Content-Disposition', inline ? 'inline' : attachmentDisposition(file.originalName || 'file'));
+  // 보안: SVG/HTML/XML 등 스크립트 가능 형식은 인라인 금지(저장형 XSS 차단) — 무조건 다운로드(attachment)로 강등.
+  const ext = fileExt(file);
+  const mime = String(file.mime || '').toLowerCase();
+  const scriptable = ['.svg', '.svgz', '.html', '.htm', '.xml', '.xhtml', '.mht'].includes(ext) || mime.includes('svg') || mime.includes('html') || mime.includes('xml');
+  const safeInline = inline && isImageFile(file) && !scriptable;
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Type', safeInline ? workflowImageMime(file) : (scriptable ? 'application/octet-stream' : (file.mime || 'application/octet-stream')));
+  res.setHeader('Content-Disposition', safeInline ? 'inline' : attachmentDisposition(file.originalName || 'file'));
   res.setHeader('Cache-Control', publicCache ? 'public, max-age=300' : 'private, max-age=300');
   res.sendFile(full);
   return true;
