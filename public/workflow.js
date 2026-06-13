@@ -545,7 +545,10 @@ function workflowApp() {
       if (this.query.trim()) qs.set('q', this.query.trim());
       if (this.statusFilter) qs.set('status', this.statusFilter);
       if (this.scopeFilter && this.scopeFilter !== 'all') qs.set('scope', this.scopeFilter);
-      qs.set('limit', this.jobListLimit === 0 ? '0' : String(this.jobListLimit || 80));
+      // 진행(active) 보드·주간 캘린더는 작업이 조용히 누락되면 안 됨 → 진행건은 한도 없이 전부 로드.
+      // (완료/취소/전체 등 대용량 목록만 80캡 유지 — 과거내역은 이미 limit=0)
+      const _activeBoard = this.statusFilter === 'active';
+      qs.set('limit', (_activeBoard || this.jobListLimit === 0) ? '0' : String(this.jobListLimit || 80));
       try {
         const r = await fetch('/api/workflow/jobs?' + qs.toString());
         const d = await r.json();

@@ -776,7 +776,7 @@
                         <span class="wf-rc-date" x-show="(cardDeadline(job)||{}).date" x-text="(cardDeadline(job)||{}).date"></span>
                         <span class="wf-rc-person" x-show="groupActor(job, stage.id) && groupActor(job, stage.id) !== '미지정'"><span class="material-symbols-outlined" style="font-size:12px;">person</span><span x-text="groupActor(job, stage.id)"></span></span>
                         <span style="flex:1"></span>
-                        <button type="button" class="wf-rc-btn" @click.stop="cardHandoff(job.id, stage.id)" x-show="job.status!=='done' && job.status!=='cancelled'" title="대림컴퍼니(공장)가 이 발주를 가져갑니다 — 특이사항 확인 후 공장 칸으로 이동">가져오기</button>
+                        <button type="button" class="wf-rc-btn" @click.stop="cardHandoff(job.id, stage.id)" x-show="job.status!=='done' && job.status!=='cancelled' && job.viewerCanHandoff" title="대림컴퍼니(공장)가 이 발주를 가져갑니다 — 특이사항 확인 후 공장 칸으로 이동">가져오기</button>
                       </div>
                     </template>
                     <template x-if="stage.id==='factory'">
@@ -787,22 +787,22 @@
                           <span class="wf-rc-team un" x-show="job.unassignedFileCount" title="전상현 실장이 팀 배정 필요">미배정 <span x-text="job.unassignedFileCount"></span></span>
                         </div>
                         <div class="wf-rc-line">
-                        <button type="button" class="wf-rc-undo" @click.stop="cardStepBack(job.id)" title="실수로 받았으면 디자인팀으로 되돌리기"><span class="material-symbols-outlined">undo</span></button>
+                        <button type="button" class="wf-rc-undo" @click.stop="cardStepBack(job.id)" x-show="job.viewerCanCurrentStage" title="실수로 받았으면 디자인팀으로 되돌리기"><span class="material-symbols-outlined">undo</span></button>
                         <a class="wf-rc-icon" :href="job.archiveUrl" @click.stop x-show="job.fileCount" title="시안 받기"><span class="material-symbols-outlined">download</span></a>
                         <span class="wf-rc-dlabel">가능일</span>
-                        <input class="wf-rc-dateinput" type="date" :value="cardFactoryDateValue(job)" @click.stop @change.stop="factoryDatePending[job.id] = $event.target.value" title="완료가능일 — 요청일이 기본값. 바꾸면 [수락]을 눌러 확정(요청일과 다르면 디자인팀에 자동 알림)">
-                        <button type="button" class="wf-rc-btn ok" @click.stop="cardSetFactoryDate(job.id, cardFactoryDateValue(job))" x-show="cardDateDirty(job)" title="이 날짜로 확정">수락</button>
-                        <button type="button" class="wf-rc-btn" @click.stop="cardHandoff(job.id, stage.id)" x-show="!cardDateDirty(job) && job.status!=='done' && job.status!=='cancelled'">완료</button>
+                        <input class="wf-rc-dateinput" type="date" x-show="job.viewerCanFactory" :value="cardFactoryDateValue(job)" @click.stop @change.stop="factoryDatePending[job.id] = $event.target.value" title="완료가능일 — 요청일이 기본값. 바꾸면 [수락]을 눌러 확정(요청일과 다르면 디자인팀에 자동 알림)">
+                        <button type="button" class="wf-rc-btn ok" @click.stop="cardSetFactoryDate(job.id, cardFactoryDateValue(job))" x-show="cardDateDirty(job) && job.viewerCanFactory" title="이 날짜로 확정">수락</button>
+                        <button type="button" class="wf-rc-btn" @click.stop="cardHandoff(job.id, stage.id)" x-show="!cardDateDirty(job) && job.status!=='done' && job.status!=='cancelled' && job.viewerCanCurrentStage">완료</button>
                         </div>
                       </div>
                     </template>
                     <template x-if="stage.id==='delivery'">
                       <div class="wf-rc-line">
-                        <button type="button" class="wf-rc-undo" @click.stop="cardStepBack(job.id)" title="실수로 받았으면 공장으로 되돌리기"><span class="material-symbols-outlined">undo</span></button>
+                        <button type="button" class="wf-rc-undo" @click.stop="cardStepBack(job.id)" x-show="job.viewerCanCurrentStage" title="실수로 받았으면 공장으로 되돌리기"><span class="material-symbols-outlined">undo</span></button>
                         <a class="wf-rc-mini" :href="job.archiveUrl + '?images=1'" @click.stop x-show="job.visualFileCount" title="JPG(이미지)만 받기"><span class="material-symbols-outlined">photo</span>JPG</a>
                         <button type="button" class="wf-rc-mini" @click.stop="printDeliverySheet(job)" title="납품 지시서 인쇄(종이 전달용)"><span class="material-symbols-outlined">print</span>인쇄</button>
                         <span style="flex:1"></span>
-                        <button type="button" class="wf-rc-btn" @click.stop="cardHandoff(job.id, stage.id)" x-show="job.status!=='done' && job.status!=='cancelled'">납품준비</button>
+                        <button type="button" class="wf-rc-btn" @click.stop="cardHandoff(job.id, stage.id)" x-show="job.status!=='done' && job.status!=='cancelled' && job.viewerCanCurrentStage">납품준비</button>
                       </div>
                     </template>
                   </div>
@@ -903,7 +903,7 @@
                     <span class="wf-rc-date" x-show="job.completedAt" x-text="wfShortDate(job.completedAt)"></span>
                     <span class="wf-rc-files" x-show="job.archiveFileCount" x-text="'파일 ' + (job.archiveFileCount || 0)"></span>
                     <span style="flex:1"></span>
-                    <button type="button" class="wf-rc-undo" @click.stop="cardStepBack(job.id)" title="실수로 완료했으면 배송 단계로 되돌리기"><span class="material-symbols-outlined">undo</span></button>
+                    <button type="button" class="wf-rc-undo" @click.stop="cardStepBack(job.id)" x-show="job.viewerCanReopen" title="실수로 완료했으면 배송 단계로 되돌리기"><span class="material-symbols-outlined">undo</span></button>
                     <a class="wf-rc-btn ghost" :href="job.archiveUrl" @click.stop x-show="job.archiveFileCount" title="완료본(발송 원본) 받기">받기</a>
                   </div>
                 </div>
@@ -986,24 +986,14 @@
               <div class="wf-keybox-row">
                 <div class="wf-keybox-date" :class="detail.job.currentStage==='design' ? 'hot' : ''">
                   <label>요청날짜 <span class="wf-muted" style="font-weight:600;">디자인팀</span></label>
-                  <template x-if="detail.job.currentStage==='design'">
-                    <input class="wf-input" type="date" x-model="detail.job.dueDate" @change="saveJob()">
-                  </template>
-                  <template x-if="detail.job.currentStage!=='design'">
-                    <div class="wf-keybox-text" x-text="detail.job.dueDate || '-'"></div>
-                  </template>
+                  <div class="wf-keybox-text" x-text="detail.job.dueDate || '-'"></div>
                 </div>
                 <div class="wf-keybox-date" :class="detail.job.currentStage==='factory' ? 'hot' : ''">
                   <label>완료가능일 <span class="wf-muted" style="font-weight:600;">공장</span></label>
-                  <template x-if="detail.job.currentStage==='factory'">
-                    <input class="wf-input" type="date" x-model="detail.job.factoryAvailableDate" @change="saveJob()">
-                  </template>
-                  <template x-if="detail.job.currentStage!=='factory'">
-                    <div class="wf-keybox-text" x-text="detail.job.factoryAvailableDate || '미정'"></div>
-                  </template>
+                  <div class="wf-keybox-text" x-text="detail.job.factoryAvailableDate || '미정'"></div>
                 </div>
               </div>
-              <div class="wf-muted" x-show="detail.job.currentStage==='factory'" style="font-size:11px;">날짜를 고르면 자동 저장 · 요청일과 다르면 디자인팀에 자동 알림</div>
+              <div class="wf-muted" x-show="detail.job.currentStage==='factory'" style="font-size:11px;">완료가능일은 보드 공장 칸의 [가능일]에서 조절합니다 · 상세는 보기 전용</div>
               <div x-show="detail.job.scheduleLate" style="font-size:11.5px;color:#b91c1c;font-weight:800;">⚠ 요청일보다 늦음 — 디자인팀에 지연 알림됨</div>
             </div>
             <section class="wf-section" x-show="detailMoreOpen" x-cloak>
@@ -1107,15 +1097,15 @@
                 </span>
                 <span style="display:flex;align-items:center;gap:6px;flex:0 0 auto;">
                   <span class="wf-muted" x-show="!canUploadToCurrentJob()">보관 완료</span>
-                  <button type="button" class="wf-team-btn weld" style="height:26px;" x-show="(detail.job.currentStage==='factory'||detail.job.currentStage==='delivery') && (detail.files||[]).filter(f=>f.isImage).length>1" @click="assignTeamBulk('welding')" :disabled="saving" title="모든 시안을 용접팀으로 한 번에">모두 용접</button>
-                  <button type="button" class="wf-team-btn out" style="height:26px;" x-show="(detail.job.currentStage==='factory'||detail.job.currentStage==='delivery') && (detail.files||[]).filter(f=>f.isImage).length>1" @click="assignTeamBulk('output')" :disabled="saving" title="모든 시안을 출력팀으로 한 번에">모두 출력</button>
+                  <button type="button" class="wf-team-btn weld" style="height:26px;" x-show="(detail.job.currentStage==='factory'||detail.job.currentStage==='delivery') && (detail.files||[]).filter(f=>f.isImage).length>1 && detail.job.viewerCanFactory" @click="assignTeamBulk('welding')" :disabled="saving" title="모든 시안을 용접팀으로 한 번에">모두 용접</button>
+                  <button type="button" class="wf-team-btn out" style="height:26px;" x-show="(detail.job.currentStage==='factory'||detail.job.currentStage==='delivery') && (detail.files||[]).filter(f=>f.isImage).length>1 && detail.job.viewerCanFactory" @click="assignTeamBulk('output')" :disabled="saving" title="모든 시안을 출력팀으로 한 번에">모두 출력</button>
                   <a class="wf-btn" x-show="filteredFiles().length" style="height:26px;padding:0 8px;" :href="smartArchiveUrl()" title="전체 파일을 ZIP으로 받습니다">전체 받기</a>
                   <button class="wf-btn ghost" x-show="canUploadToCurrentJob()" style="height:26px;padding:0 8px;" @click="uploadOpen = !uploadOpen" x-text="uploadOpen ? '닫기' : '시안 올리기'"></button>
                 </span>
               </div>
               <div class="wf-section-body">
                 <!-- 팀 분배 안내 배너 — 공장/배송 단계에서 미배정 시안이 있으면 크게 떠서 놓치지 않게 -->
-                <div class="wf-teambanner" x-show="(detail.job.currentStage==='factory'||detail.job.currentStage==='delivery') && detailUnassignedCount()>0" x-cloak>
+                <div class="wf-teambanner" x-show="(detail.job.currentStage==='factory'||detail.job.currentStage==='delivery') && detailUnassignedCount()>0 && detail.job.viewerCanFactory" x-cloak>
                   <div class="wf-teambanner-msg">
                     <span class="material-symbols-outlined">call_split</span>
                     <span><b x-text="detailUnassignedCount()"></b>장이 아직 팀 미배정 — 각 시안 위 <b>용접/출력</b>으로 나눠주세요</span>
@@ -1203,7 +1193,7 @@
                           <a class="wf-rc-icon" x-show="file.exists!==false" :href="smartFileUrl(file)" @click.stop title="이 파일 받기"><span class="material-symbols-outlined">download</span></a>
                         </div>
                       </template>
-                      <div class="wf-tile-teams" x-show="detail.job.currentStage==='factory' || detail.job.currentStage==='delivery'">
+                      <div class="wf-tile-teams" x-show="(detail.job.currentStage==='factory' || detail.job.currentStage==='delivery') && detail.job.viewerCanFactory">
                         <button type="button" :class="file.team==='welding' ? 'on weld' : ''" @click="assignFileTeam(file, 'welding')">용접</button>
                         <button type="button" :class="file.team==='output' ? 'on out' : ''" @click="assignFileTeam(file, 'output')">출력</button>
                       </div>
