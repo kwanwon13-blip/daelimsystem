@@ -2428,6 +2428,19 @@ function canDeptActOnStage(req, stageId) {
   if (mappedId && deptId === mappedId) return true; // 팀매칭 설정 시 정확 id 일치
   return (STAGE_AUTHZ_ALIASES[stageId] || []).map(departmentMatchKey).includes(deptKey); // 폴백: 풀네임 정확일치
 }
+// 이 단계 담당 부서의 '팀장'인가 — 예: 공장=대림컴퍼니 팀장(전상현 실장) → 시안 용접/출력 배정 전담.
+// (가져오기는 공장원 누구나, 팀 나누기만 팀장 몫)
+function isStageDeptLeader(req, stageId) {
+  const org = loadOrgSnapshot();
+  const me = (org.users || []).find(u => lowerText(u.userId) === lowerText(req?.user?.userId));
+  if (!me || !me.id) return false;
+  const mappedId = lowerText(storedWorkflowStageDepartmentMap()[stageId] || '');
+  const aliasKeys = (STAGE_AUTHZ_ALIASES[stageId] || []).map(departmentMatchKey);
+  return (org.departments || []).some(d => {
+    if (lowerText(d.leaderId) !== lowerText(me.id)) return false;
+    return (mappedId && lowerText(d.id) === mappedId) || aliasKeys.includes(departmentMatchKey(d.name));
+  });
+}
 // 특정 단계 담당(또는 생성자/admin)인가
 function canActOnStage(job, req, stageId) {
   if (isWorkflowAdmin(req)) return true;
@@ -2535,6 +2548,7 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
     viewerCanHandoff: canHandoffJob(job, reqLikePL, curStageIdPL, nextStageIdPL),
     viewerCanCurrentStage: canActOnCurrentStage(job, reqLikePL),
     viewerCanFactory: vuPL.role === 'admin' || canDeptActOnStage({ user: vuPL }, 'factory'),
+    viewerCanAssignTeam: vuPL.role === 'admin' || isStageDeptLeader({ user: vuPL }, 'factory'),
     viewerCanReopen: vuPL.role === 'admin' || canDeptActOnStage({ user: vuPL }, 'delivery') || (!!vuPL.userId && String(vuPL.userId).toLowerCase() === String(job.createdBy || '').toLowerCase()),
     // 공장 팀 분배(전상현) — 시안 파일을 용접/출력으로 나눈 개수
     weldingFileCount: visualFiles.filter(f => f.team === 'welding').length,
@@ -4701,7 +4715,7 @@ router.post('/jobs/:id/files/:fileId/team', (req, res) => {
   if (!job || !file) return res.status(404).json({ error: '작업 또는 파일을 찾을 수 없습니다.' });
   if (job.status === 'done' || job.status === 'cancelled') return res.status(400).json({ error: '완료/취소된 작업은 변경할 수 없습니다.' });
   // 디자인팀은 팀을 모름 — 시안 팀배정은 공장 부서(전상현 실장)·관리자만. 생성자 우회 없음.
-  if (!(isWorkflowAdmin(req) || canDeptActOnStage(req, 'factory'))) return res.status(403).json({ error: '시안 팀배정은 공장(또는 관리자)만 가능합니다.' });
+  if (!(isWorkflowAdmin(req) || isStageDeptLeader(req, 'factory'))) return res.status(403).json({ error: '시안 용접/출력 배정은 대림컴퍼니 팀장(또는 관리자)만 가능합니다.' });
   const team = ['welding', 'output', ''].includes(req.body.team) ? req.body.team : '';
   file.team = team;
   file.teamUpdatedAt = nowIso();

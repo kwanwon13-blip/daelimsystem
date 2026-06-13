@@ -1104,15 +1104,15 @@
                 </span>
                 <span style="display:flex;align-items:center;gap:6px;flex:0 0 auto;">
                   <span class="wf-muted" x-show="!canUploadToCurrentJob()">보관 완료</span>
-                  <button type="button" class="wf-team-btn weld" style="height:26px;" x-show="(detail.job.currentStage==='factory'||detail.job.currentStage==='delivery') && (detail.files||[]).filter(f=>f.isImage).length>1 && detail.job.viewerCanFactory" @click="assignTeamBulk('welding')" :disabled="saving" title="모든 시안을 용접팀으로 한 번에">모두 용접</button>
-                  <button type="button" class="wf-team-btn out" style="height:26px;" x-show="(detail.job.currentStage==='factory'||detail.job.currentStage==='delivery') && (detail.files||[]).filter(f=>f.isImage).length>1 && detail.job.viewerCanFactory" @click="assignTeamBulk('output')" :disabled="saving" title="모든 시안을 출력팀으로 한 번에">모두 출력</button>
+                  <button type="button" class="wf-team-btn weld" style="height:26px;" x-show="(detail.job.currentStage==='factory'||detail.job.currentStage==='delivery') && (detail.files||[]).filter(f=>f.isImage).length>1 && detail.job.viewerCanAssignTeam" @click="assignTeamBulk('welding')" :disabled="saving" title="모든 시안을 용접팀으로 한 번에">모두 용접</button>
+                  <button type="button" class="wf-team-btn out" style="height:26px;" x-show="(detail.job.currentStage==='factory'||detail.job.currentStage==='delivery') && (detail.files||[]).filter(f=>f.isImage).length>1 && detail.job.viewerCanAssignTeam" @click="assignTeamBulk('output')" :disabled="saving" title="모든 시안을 출력팀으로 한 번에">모두 출력</button>
                   <a class="wf-btn" x-show="filteredFiles().length" style="height:26px;padding:0 8px;" :href="smartArchiveUrl()" title="전체 파일을 ZIP으로 받습니다">전체 받기</a>
                   <button class="wf-btn ghost" x-show="canUploadToCurrentJob()" style="height:26px;padding:0 8px;" @click="uploadOpen = !uploadOpen" x-text="uploadOpen ? '닫기' : '시안 올리기'"></button>
                 </span>
               </div>
               <div class="wf-section-body">
                 <!-- 팀 분배 안내 배너 — 공장/배송 단계에서 미배정 시안이 있으면 크게 떠서 놓치지 않게 -->
-                <div class="wf-teambanner" x-show="(detail.job.currentStage==='factory'||detail.job.currentStage==='delivery') && detailUnassignedCount()>0 && detail.job.viewerCanFactory" x-cloak>
+                <div class="wf-teambanner" x-show="(detail.job.currentStage==='factory'||detail.job.currentStage==='delivery') && detailUnassignedCount()>0 && detail.job.viewerCanAssignTeam" x-cloak>
                   <div class="wf-teambanner-msg">
                     <span class="material-symbols-outlined">call_split</span>
                     <span><b x-text="detailUnassignedCount()"></b>장이 아직 팀 미배정 — 각 시안 위 <b>용접/출력</b>으로 나눠주세요</span>
@@ -1200,7 +1200,7 @@
                           <a class="wf-rc-icon" x-show="file.exists!==false" :href="smartFileUrl(file)" @click.stop title="이 파일 받기"><span class="material-symbols-outlined">download</span></a>
                         </div>
                       </template>
-                      <div class="wf-tile-teams" x-show="(detail.job.currentStage==='factory' || detail.job.currentStage==='delivery') && detail.job.viewerCanFactory">
+                      <div class="wf-tile-teams" x-show="(detail.job.currentStage==='factory' || detail.job.currentStage==='delivery') && detail.job.viewerCanAssignTeam">
                         <button type="button" :class="file.team==='welding' ? 'on weld' : ''" @click="assignFileTeam(file, 'welding')">용접</button>
                         <button type="button" :class="file.team==='output' ? 'on out' : ''" @click="assignFileTeam(file, 'output')">출력</button>
                       </div>
@@ -1215,7 +1215,7 @@
                         <span class="wf-proof-badge" x-text="fileKindLabel(file.kind)"></span>
                       </button>
                       <div class="wf-proof-info">
-                        <div class="wf-file-team" x-show="(detail.job.currentStage==='factory' || detail.job.currentStage==='delivery') && detail.job.viewerCanFactory" x-cloak>
+                        <div class="wf-file-team" x-show="(detail.job.currentStage==='factory' || detail.job.currentStage==='delivery') && detail.job.viewerCanAssignTeam" x-cloak>
                           <span class="wf-muted" style="font-size:10px;font-weight:800;">팀</span>
                           <button type="button" class="wf-team-btn weld" :class="file.team==='welding' ? 'on' : ''" @click="assignFileTeam(file, 'welding')">용접</button>
                           <button type="button" class="wf-team-btn out" :class="file.team==='output' ? 'on' : ''" @click="assignFileTeam(file, 'output')">출력</button>
