@@ -1706,7 +1706,7 @@ router.post('/chat', async (req, res) => {
     // 2. 첨부파일 텍스트 추출 내용 수집
     let attachments = [];
     if (Array.isArray(attachmentIds) && attachmentIds.length > 0) {
-      attachments = ai.attachments.hydrate(attachmentIds.map(Number));
+      attachments = ai.attachments.hydrate(attachmentIds.map(Number), req.user.userId);
     }
 
     // 3. 프롬프트 구성 — 이전 대화 컨텍스트 (API messages 배열)
@@ -2118,7 +2118,7 @@ router.post('/chat-stream', async (req, res) => {
   // 첨부 + 프롬프트 구성
   let attachments = [];
   if (Array.isArray(attachmentIds) && attachmentIds.length > 0) {
-    attachments = ai.attachments.hydrate(attachmentIds.map(Number));
+    attachments = ai.attachments.hydrate(attachmentIds.map(Number), req.user.userId);
   }
   // 이미지 vs 텍스트 첨부 분리 (멀티이미지 vision 지원)
   const imageAttachmentsS = attachments.filter(a => a && a.kind === 'image');
@@ -2408,7 +2408,7 @@ router.post('/chat-stream-cli', async (req, res) => {
   // 첨부 hydrate
   let attachments = [];
   if (Array.isArray(attachmentIds) && attachmentIds.length > 0) {
-    attachments = ai.attachments.hydrate(attachmentIds.map(Number));
+    attachments = ai.attachments.hydrate(attachmentIds.map(Number), req.user.userId);
   }
 
   // 첨부 파일 경로 → CLI 에 @경로 형태로 전달

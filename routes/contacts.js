@@ -859,11 +859,19 @@ router.post('/audit/restore', requireAdmin, (req, res) => {
 // — 토큰을 모르면 접근 불가. URL: /contacts-mobile.html?t=토큰
 // — 토큰 변경: 환경변수 CONTACTS_MOBILE_TOKEN 설정 (또는 아래 default 변경)
 // ═══════════════════════════════════════════════════════════
-const MOBILE_TOKEN = process.env.CONTACTS_MOBILE_TOKEN || 'daelimsm2026';
+const crypto = require('crypto');
 
 function checkMobileToken(req, res, next) {
-  const token = req.query.t || req.headers['x-contacts-token'];
-  if (token !== MOBILE_TOKEN) {
+  // FAIL CLOSED: 환경변수 미설정/빈값이면 모든 /m/* 요청 거부 (default 'daelimsm2026' 폴백 금지)
+  const expected = process.env.CONTACTS_MOBILE_TOKEN;
+  if (!expected) {
+    return res.status(403).json({ error: 'INVALID_TOKEN', msg: '잘못된 접근입니다' });
+  }
+  const token = req.query.t || req.headers['x-contacts-token'] || '';
+  const a = Buffer.from(String(token));
+  const b = Buffer.from(String(expected));
+  // 길이가 다르면 timingSafeEqual이 던지므로 먼저 차단 (상수시간 비교 위해 동일 길이 버퍼만 비교)
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
     return res.status(403).json({ error: 'INVALID_TOKEN', msg: '잘못된 접근입니다' });
   }
   next();

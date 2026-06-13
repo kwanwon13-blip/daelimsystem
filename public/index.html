@@ -353,6 +353,43 @@
     }
     .ec-tab-btn.active { background: #fff; color: #1a1d23; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
     .ec-tab-btn:hover:not(.active) { color: #374151; }
+
+    /* ── 권한부여 화면 (사용자 관리) ── */
+    /* 토글 스위치 */
+    .perm-switch { position: relative; display: inline-block; width: 36px; height: 20px; flex: 0 0 auto; }
+    .perm-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+    .perm-switch .track { position: absolute; inset: 0; background: #cbd5e1; border-radius: 999px; transition: background .18s; cursor: pointer; }
+    .perm-switch .track::before { content: ''; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: transform .18s; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+    .perm-switch input:checked + .track { background: #2563eb; }
+    .perm-switch input:checked + .track::before { transform: translateX(16px); }
+    /* 권한 줄 */
+    .perm-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 11px; border-radius: 9px; border: 1px solid #eef0f4; background: #fff; transition: background .15s, border-color .15s; }
+    .perm-row:hover { background: #f9fafc; }
+    .perm-row.on { border-color: #c7d6fb; background: #f4f8ff; }
+    .perm-row .perm-dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 6px; flex: 0 0 auto; }
+    .perm-row .perm-lbl { font-size: 13px; font-weight: 700; color: #1f2937; line-height: 1.3; }
+    .perm-row .perm-desc { font-size: 11px; color: #8a92a0; margin-top: 1px; line-height: 1.35; }
+    .perm-locked-badge { font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; border: 1px solid #e2e8f0; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+    /* 단가 3단 세그먼트 */
+    .perm-seg { display: inline-flex; border: 1px solid #d6deea; border-radius: 7px; overflow: hidden; background: #fff; }
+    .perm-seg button { font-size: 11px; font-weight: 700; padding: 4px 11px; border: none; background: #fff; color: #6b7280; cursor: pointer; border-left: 1px solid #e8edf4; transition: all .12s; }
+    .perm-seg button:first-child { border-left: none; }
+    .perm-seg button.active { background: #2563eb; color: #fff; }
+    /* 그룹 아코디언 헤더 */
+    .perm-grp-hdr { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 11px; background: #f6f8fc; border: 1px solid #e6eaf2; border-radius: 9px; cursor: pointer; transition: background .12s; }
+    .perm-grp-hdr:hover { background: #eef2fa; }
+    /* 역할 카드 */
+    .role-card { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 11px 8px; border: 1.5px solid #e2e6ee; border-radius: 11px; background: #fff; cursor: pointer; transition: all .15s; text-align: center; }
+    .role-card:hover { border-color: #b9c6f5; box-shadow: 0 3px 10px rgba(79,110,247,.12); transform: translateY(-1px); }
+    .role-card.active { border-color: #2563eb; background: #f0f5ff; box-shadow: 0 0 0 2px rgba(37,99,235,.12); }
+    .role-card .role-ico { font-size: 22px; line-height: 1; }
+    /* 회사 세로바 (목록 행 왼쪽) */
+    .co-bar { display: inline-block; width: 4px; align-self: stretch; border-radius: 3px; }
+    /* 칩 세그먼트 필터 */
+    .seg-filter { display: inline-flex; border: 1px solid #d6deea; border-radius: 8px; overflow: hidden; }
+    .seg-filter button { font-size: 11px; font-weight: 600; padding: 5px 12px; border: none; background: #fff; color: #6b7280; cursor: pointer; border-left: 1px solid #e8edf4; }
+    .seg-filter button:first-child { border-left: none; }
+    .seg-filter button.active { background: #eef2ff; color: #2937c7; }
   </style>
 </head>
 <body x-data="app()" x-init="init()" x-cloak>
@@ -2554,76 +2591,6 @@
             </div>
           </template>
 
-          <!-- 월별 인건비 추이 그래프는 홈에서 사용하지 않음 -->
-          <template x-if="false">
-            <div class="card" style="padding:16px 18px;">
-              <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-                <div class="flex items-center gap-2">
-                  <span class="material-symbols-outlined" style="font-size:18px;color:#4f6ef7;">trending_up</span>
-                  <h3 class="text-sm font-bold" style="color:#1e293b;">월별 인건비 추이</h3>
-                  <span class="text-[10px]" style="color:#94a3b8;">(최근 12개월)</span>
-                </div>
-                <div class="flex items-center gap-2">
-                  <select x-model="costTrend.company" @change="loadCostTrend()"
-                          class="text-xs rounded-lg border px-2"
-                          style="height:28px;background:#fff;border-color:#e5eaf4;color:#1e293b;">
-                    <option value="all">전체 회사</option>
-                    <template x-for="c in (costTrend.companies||[])" :key="c.id">
-                      <option :value="c.id" x-text="c.name"></option>
-                    </template>
-                  </select>
-                  <select x-model="costTrend.months" @change="loadCostTrend()"
-                          class="text-xs rounded-lg border px-2"
-                          style="height:28px;background:#fff;border-color:#e5eaf4;color:#1e293b;">
-                    <option value="6">6개월</option>
-                    <option value="12">12개월</option>
-                    <option value="24">24개월</option>
-                  </select>
-                  <select x-model="costTrend.metric" @change="renderCostTrendChart()"
-                          class="text-xs rounded-lg border px-2"
-                          style="height:28px;background:#fff;border-color:#e5eaf4;color:#1e293b;">
-                    <option value="grossPay">지급총액</option>
-                    <option value="netPay">실지급액</option>
-                    <option value="totalDeductions">공제총액</option>
-                    <option value="headcount">인원수</option>
-                  </select>
-                </div>
-              </div>
-              <template x-if="costTrend.loading">
-                <p class="text-xs py-8 text-center" style="color:#94a3b8;">불러오는 중...</p>
-              </template>
-              <template x-if="!costTrend.loading && costTrend.hasData === false">
-                <p class="text-xs py-8 text-center" style="color:#94a3b8;">아직 집계된 급여 데이터가 없습니다</p>
-              </template>
-              <div x-show="!costTrend.loading && costTrend.hasData !== false" style="position:relative;height:280px;">
-                <canvas id="costTrendChart"></canvas>
-              </div>
-              <div x-show="!costTrend.loading && costTrend.hasData !== false" class="grid gap-3 mt-3" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));">
-                <div class="rounded-lg p-2" style="background:#f8fafc;border:1px solid #e5eaf4;">
-                  <p class="text-[10px]" style="color:#64748b;">12개월 합계</p>
-                  <p class="text-sm font-bold mt-1" style="color:#1e293b;"
-                     x-text="(costTrend.summary.total||0).toLocaleString() + '원'"></p>
-                </div>
-                <div class="rounded-lg p-2" style="background:#f8fafc;border:1px solid #e5eaf4;">
-                  <p class="text-[10px]" style="color:#64748b;">월 평균</p>
-                  <p class="text-sm font-bold mt-1" style="color:#1e293b;"
-                     x-text="(costTrend.summary.avg||0).toLocaleString() + '원'"></p>
-                </div>
-                <div class="rounded-lg p-2" style="background:#f8fafc;border:1px solid #e5eaf4;">
-                  <p class="text-[10px]" style="color:#64748b;">최근 대비 전월</p>
-                  <p class="text-sm font-bold mt-1"
-                     :style="(costTrend.summary.momPct||0) >= 0 ? 'color:#059669' : 'color:#dc2626'"
-                     x-text="((costTrend.summary.momPct||0) >= 0 ? '+' : '') + (costTrend.summary.momPct||0).toFixed(1) + '%'"></p>
-                </div>
-                <div class="rounded-lg p-2" style="background:#f8fafc;border:1px solid #e5eaf4;">
-                  <p class="text-[10px]" style="color:#64748b;">평균 인원</p>
-                  <p class="text-sm font-bold mt-1" style="color:#1e293b;"
-                     x-text="(costTrend.summary.avgHead||0).toFixed(1) + '명'"></p>
-                </div>
-              </div>
-            </div>
-          </template>
-
           <!-- 하단 2단: 최근 공지 / 결재 대기 목록 -->
           <div class="grid gap-4" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));">
             <!-- 최근 공지 -->
@@ -3183,24 +3150,41 @@
           </div>
 
           <div class="card" style="padding:0;overflow:hidden;">
-<div style="padding:10px 14px;background:linear-gradient(135deg,#fdf2f8,#fce7f3);border-bottom:1px solid #fbcfe8;">
+<div style="padding:10px 14px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border-bottom:1px solid #bfdbfe;">
               <div class="flex items-center justify-between flex-wrap gap-2">
                 <h3 class="font-work text-[13px] font-bold text-gray-800 flex items-center gap-2 m-0">
-                  <span class="material-symbols-outlined" style="font-size:16px;color:#db2777;">group</span> 사용자 목록
-                  <span class="text-xs font-medium px-2.5 py-1 rounded-full" style="background:rgba(219,39,119,.1);color:#db2777;" x-text="(adminUsers||[]).length + '명'"></span>
+                  <span class="material-symbols-outlined" style="font-size:16px;color:#2563eb;">group</span> 사용자 목록
+                  <span class="text-xs font-medium px-2.5 py-1 rounded-full" style="background:rgba(37,99,235,.1);color:#2563eb;" x-text="filteredAdminUsers.length + '명'"></span>
                 </h3>
                 <button @click="bulkPermOpen = !bulkPermOpen; if(bulkPermOpen) initBulkPerm()"
                         class="text-xs font-semibold flex items-center gap-1 px-3 py-1.5 rounded-lg"
-                        style="background:#fff;border:1px solid #f9a8d4;color:#be185d;cursor:pointer;">
+                        style="background:#fff;border:1px solid #93c5fd;color:#1d4ed8;cursor:pointer;">
                   <span class="material-symbols-outlined" style="font-size:14px;">groups</span>
                   <span x-text="bulkPermOpen ? '일괄 설정 닫기' : '부서별 권한 일괄 설정'"></span>
                 </button>
+              </div>
+              <!-- 필터 바: 검색 + 회사 세그먼트 + 퇴사자 숨김 -->
+              <div class="flex items-center gap-2 flex-wrap mt-2">
+                <div style="position:relative;">
+                  <span class="material-symbols-outlined" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);font-size:15px;color:#9ca3af;pointer-events:none;">search</span>
+                  <input x-model="adminSearch" placeholder="이름·아이디 검색" class="input-base" style="width:190px;padding-left:28px;background:#fff;">
+                </div>
+                <div class="seg-filter">
+                  <button :class="adminCompanyFilter==='all' ? 'active' : ''" @click="adminCompanyFilter='all'">전체</button>
+                  <button :class="adminCompanyFilter==='sm' ? 'active' : ''" @click="adminCompanyFilter='sm'" :style="adminCompanyFilter==='sm' ? 'background:#eff6ff;color:#2563eb;' : ''">에스엠</button>
+                  <button :class="adminCompanyFilter==='company' ? 'active' : ''" @click="adminCompanyFilter='company'" :style="adminCompanyFilter==='company' ? 'background:#fff7ed;color:#ea7317;' : ''">컴퍼니</button>
+                </div>
+                <label class="flex items-center gap-1.5 text-xs font-semibold cursor-pointer px-2.5 py-1.5 rounded-lg" style="color:#6b7280;background:#fff;border:1px solid #e5e7eb;">
+                  <input type="checkbox" x-model="hideResigned" class="w-3.5 h-3.5 rounded">
+                  <span>퇴사자 숨김</span>
+                </label>
               </div>
             </div>
             <div class="overflow-x-auto">
             <table class="w-full text-xs" style="border-collapse:collapse;">
               <thead>
                 <tr style="background:#f8fafb;">
+                  <th style="padding:0;width:4px;border-bottom:1px solid #e5e7eb;"></th>
                   <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">이름</th>
                   <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">아이디</th>
                   <th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">부서</th>
@@ -3215,8 +3199,9 @@
                 </tr>
               </thead>
               <tbody>
-                <template x-for="u in adminUsers" :key="u.id">
-                  <tr style="border-bottom:1px solid #f0f1f3;" :class="u.status==='resigned' ? 'bg-gray-50 opacity-60' : 'hover:bg-pink-50/40'">
+                <template x-for="u in filteredAdminUsers" :key="u.id">
+                  <tr style="border-bottom:1px solid #f0f1f3;" :class="u.status==='resigned' ? 'bg-gray-50 opacity-60' : 'hover:bg-blue-50/40'">
+                    <td style="padding:0;width:4px;"><span class="co-bar" :style="'background:'+companyColor(u.companyId)" :title="companyOf(u.companyId)"></span></td>
                     <td style="padding:5px 10px;font-weight:600;" :style="u.status==='resigned'?'color:#9ca3af;text-decoration:line-through':'color:#374151'">
                       <span x-text="u.name"></span>
                       <span x-show="u.capsLinked" title="출퇴근 기록부(CAPS) 연동됨" style="display:inline-block;font-size:8px;background:#dcfce7;color:#15803d;padding:1px 4px;border-radius:6px;margin-left:4px;font-weight:700;vertical-align:middle;">연동</span>
@@ -3339,9 +3324,9 @@
           <!-- 부서별 권한 일괄 설정 패널 -->
           <template x-if="bulkPermOpen">
             <div class="card" style="padding:0;overflow:hidden;">
-              <div style="padding:10px 14px;background:linear-gradient(135deg,#fdf2f8,#fce7f3);border-bottom:1px solid #fbcfe8;">
+              <div style="padding:10px 14px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border-bottom:1px solid #bfdbfe;">
                 <h3 class="font-work text-[13px] font-bold text-gray-800 flex items-center gap-2 m-0">
-                  <span class="material-symbols-outlined" style="font-size:16px;color:#db2777;">groups</span>
+                  <span class="material-symbols-outlined" style="font-size:16px;color:#2563eb;">groups</span>
                   부서별 권한 일괄 설정
                   <span class="text-[10px] font-medium" style="color:#9ca3af;">관리자 계정은 자동 제외</span>
                 </h3>
@@ -3353,18 +3338,18 @@
                   <label class="block text-xs font-semibold text-gray-600 mb-1">1. 대상 부서</label>
                   <div class="flex items-center gap-2 flex-wrap">
                     <label class="flex items-center gap-1 text-xs cursor-pointer px-2.5 py-1 rounded-full border"
-                           :style="bulkPermForm.deptId === '__all__' ? 'background:#fce7f3;border-color:#f9a8d4;color:#be185d;font-weight:600;' : 'background:#fff;border-color:#e5e7eb;color:#6b7280;'">
+                           :style="bulkPermForm.deptId === '__all__' ? 'background:#dbeafe;border-color:#93c5fd;color:#1d4ed8;font-weight:600;' : 'background:#fff;border-color:#e5e7eb;color:#6b7280;'">
                       <input type="radio" x-model="bulkPermForm.deptId" value="__all__" class="hidden">
                       <span>전체 직원</span>
                     </label>
                     <label class="flex items-center gap-1 text-xs cursor-pointer px-2.5 py-1 rounded-full border"
-                           :style="bulkPermForm.deptId === '__none__' ? 'background:#fce7f3;border-color:#f9a8d4;color:#be185d;font-weight:600;' : 'background:#fff;border-color:#e5e7eb;color:#6b7280;'">
+                           :style="bulkPermForm.deptId === '__none__' ? 'background:#dbeafe;border-color:#93c5fd;color:#1d4ed8;font-weight:600;' : 'background:#fff;border-color:#e5e7eb;color:#6b7280;'">
                       <input type="radio" x-model="bulkPermForm.deptId" value="__none__" class="hidden">
                       <span>부서 미배정</span>
                     </label>
                     <template x-for="d in departments" :key="d.id">
                       <label class="flex items-center gap-1 text-xs cursor-pointer px-2.5 py-1 rounded-full border"
-                             :style="bulkPermForm.deptId === d.id ? 'background:#fce7f3;border-color:#f9a8d4;color:#be185d;font-weight:600;' : 'background:#fff;border-color:#e5e7eb;color:#6b7280;'">
+                             :style="bulkPermForm.deptId === d.id ? 'background:#dbeafe;border-color:#93c5fd;color:#1d4ed8;font-weight:600;' : 'background:#fff;border-color:#e5e7eb;color:#6b7280;'">
                         <input type="radio" x-model="bulkPermForm.deptId" :value="d.id" class="hidden">
                         <span x-text="d.name"></span>
                       </label>
@@ -3373,10 +3358,10 @@
                 </div>
 
                 <!-- 대상 직원 미리보기 -->
-                <div class="mb-3" style="padding:8px 10px;background:#fdf2f8;border:1px solid #fbcfe8;border-radius:8px;">
+                <div class="mb-3" style="padding:8px 10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;">
                   <div class="flex items-center gap-2 flex-wrap">
-                    <span class="text-xs font-semibold" style="color:#be185d;">적용 대상:</span>
-                    <span class="text-xs" style="color:#be185d;" x-text="bulkPermTargets.length + '명'"></span>
+                    <span class="text-xs font-semibold" style="color:#1d4ed8;">적용 대상:</span>
+                    <span class="text-xs" style="color:#1d4ed8;" x-text="bulkPermTargets.length + '명'"></span>
                     <template x-for="u in bulkPermTargets" :key="u.id">
                       <span class="text-[11px] font-medium px-2 py-0.5 rounded-full" style="background:#fff;color:#374151;border:1px solid #e5e7eb;">
                         <span x-text="u.name"></span>
@@ -3426,28 +3411,83 @@
                   </div>
                 </div>
 
-                <!-- 4단계: 권한 선택 -->
+                <!-- 3-1단계: 역할 빠른선택 (단건과 동일) -->
+                <div class="mb-3">
+                  <label class="block text-xs font-semibold text-gray-600 mb-1">3. 역할로 빠르게 채우기 (선택)</label>
+                  <div class="grid gap-2" style="grid-template-columns:repeat(auto-fill,minmax(96px,1fr));">
+                    <template x-for="role in ROLE_PRESETS" :key="role.id">
+                      <button type="button" class="role-card" :title="permLabelsOf(role.perms)"
+                              @click="bulkPermForm.permissions = [...role.perms]">
+                        <span class="role-ico" x-text="({sales:'💼',designer:'🎨',factory:'🏭',accounting:'🧮',manager:'🛡️'})[role.id] || '⭐'"></span>
+                        <span class="text-xs font-bold text-gray-700" x-text="role.label"></span>
+                        <span class="text-[10px] text-gray-400" x-text="'포함 ' + role.perms.length + '개'"></span>
+                      </button>
+                    </template>
+                  </div>
+                </div>
+
+                <!-- 4단계: 권한 선택 (단건과 동일한 그룹/설명 컴포넌트) -->
                 <div class="mb-4">
                   <div class="flex items-center justify-between mb-2">
                     <label class="block text-xs font-semibold text-gray-600">
                       <span x-text="bulkPermForm.operation === 'replace' ? '4. 부여할 권한' : (bulkPermForm.operation === 'add' ? '4. 추가할 권한' : '4. 제거할 권한')"></span>
                     </label>
                     <div class="flex gap-2">
-                      <button @click="bulkPermForm.permissions = allMenus.map(m => m.id)" class="text-[10px] font-semibold" style="color:#4f6ef7;cursor:pointer;background:none;border:none;">전체 선택</button>
+                      <button @click="bulkPermForm.permissions = allMenus.filter(m => m.id !== 'pricing_edit' && !m.alwaysOn).map(m => m.id)" class="text-[10px] font-semibold" style="color:#4f6ef7;cursor:pointer;background:none;border:none;">전체 선택</button>
                       <button @click="bulkPermForm.permissions = []" class="text-[10px] font-semibold" style="color:#9ca3af;cursor:pointer;background:none;border:none;">모두 해제</button>
                     </div>
                   </div>
-                  <div class="grid grid-cols-3 gap-2">
-                    <template x-for="menu in allMenus" :key="menu.id">
-                      <label class="flex items-center gap-2 p-2 rounded-lg border cursor-pointer"
-                             :class="bulkPermForm.permissions.includes(menu.id) ? 'border-pink-400 bg-pink-50' : 'border-gray-200 hover:bg-gray-50'">
-                        <input type="checkbox"
-                               :checked="bulkPermForm.permissions.includes(menu.id)"
-                               @change="$el.checked ? (bulkPermForm.permissions.includes(menu.id) || bulkPermForm.permissions.push(menu.id)) : (bulkPermForm.permissions = bulkPermForm.permissions.filter(p => p !== menu.id))"
-                               class="w-4 h-4 rounded">
-                        <span class="text-xs" x-text="menu.label"></span>
-                      </label>
+                  <!-- 권한 검색 + 회사필터 -->
+                  <div class="flex items-center gap-2 flex-wrap mb-2">
+                    <div style="position:relative;flex:1 1 200px;">
+                      <span class="material-symbols-outlined" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);font-size:15px;color:#9ca3af;pointer-events:none;">search</span>
+                      <input x-model="permSearch" placeholder="권한 검색 (메뉴 이름·설명)" class="input-base" style="padding-left:28px;">
+                    </div>
+                    <div class="seg-filter">
+                      <button :class="permCompanyFilter==='all' ? 'active' : ''" @click="permCompanyFilter='all'">전체</button>
+                      <button :class="permCompanyFilter==='sm' ? 'active' : ''" @click="permCompanyFilter='sm'" :style="permCompanyFilter==='sm' ? 'background:#eff6ff;color:#2563eb;' : ''">에스엠</button>
+                      <button :class="permCompanyFilter==='company' ? 'active' : ''" @click="permCompanyFilter='company'" :style="permCompanyFilter==='company' ? 'background:#fff7ed;color:#ea7317;' : ''">컴퍼니</button>
+                    </div>
+                  </div>
+                  <div class="space-y-2">
+                    <template x-for="grp in groupedCatalog" :key="grp.group">
+                      <div>
+                        <button type="button" class="perm-grp-hdr" @click="toggleExpandedPermGroup(grp.group)">
+                          <span class="material-symbols-outlined" style="font-size:16px;color:#9ca3af;" x-text="expandedPermGroups[grp.group] ? 'expand_more' : 'chevron_right'"></span>
+                          <span class="font-bold text-gray-700" style="font-size:12.5px;" x-text="grp.group"></span>
+                          <span class="ml-auto text-[11px] font-semibold text-gray-400" x-text="'선택 ' + groupOnCount(grp.items, bulkPermForm.permissions).on + '/' + groupOnCount(grp.items, bulkPermForm.permissions).total"></span>
+                        </button>
+                        <div x-show="expandedPermGroups[grp.group]" class="space-y-1.5 mt-1.5 pl-1">
+                          <template x-for="menu in grp.items" :key="menu.id">
+                            <div class="perm-row" :class="(menu.segmentGroup==='pricing' ? bulkPricingLevelOf()!=='none' : bulkPermForm.permissions.includes(menu.id)) || permIsForced(menu) ? 'on' : ''">
+                              <span class="perm-dot" :style="menu.company==='both' ? 'background:transparent;' : 'background:'+companyColor(menu.company==='sm'?'dalim-sm':'dalim-company')"></span>
+                              <div style="flex:1 1 auto;min-width:0;">
+                                <div class="perm-lbl" x-text="menu.label"></div>
+                                <div class="perm-desc" x-text="menu.desc"></div>
+                              </div>
+                              <template x-if="menu.segmentGroup==='pricing'">
+                                <div class="perm-seg" style="flex:0 0 auto;align-self:center;">
+                                  <button :class="bulkPricingLevelOf()==='none' ? 'active' : ''" @click="bulkSetPricingLevel('none')">없음</button>
+                                  <button :class="bulkPricingLevelOf()==='view' ? 'active' : ''" @click="bulkSetPricingLevel('view')">보기</button>
+                                  <button :class="bulkPricingLevelOf()==='edit' ? 'active' : ''" @click="bulkSetPricingLevel('edit')">편집</button>
+                                </div>
+                              </template>
+                              <template x-if="menu.segmentGroup!=='pricing' && permIsForced(menu)">
+                                <span class="perm-locked-badge" style="align-self:center;">공용 · 항상 표시</span>
+                              </template>
+                              <template x-if="menu.segmentGroup!=='pricing' && !permIsForced(menu)">
+                                <label class="perm-switch" style="align-self:center;">
+                                  <input type="checkbox" :checked="bulkPermForm.permissions.includes(menu.id)"
+                                         @change="bulkTogglePerm(menu.id, $el.checked)">
+                                  <span class="track"></span>
+                                </label>
+                              </template>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
                     </template>
+                    <p x-show="groupedCatalog.length === 0" class="text-xs text-gray-400 text-center py-3">검색 결과가 없습니다</p>
                   </div>
                 </div>
 
@@ -3474,17 +3514,116 @@
           <!-- 권한 설정 패널 (테이블 아래 별도) -->
           <template x-if="editingPermUserId && editingPermUser">
             <div class="card" style="padding:0;overflow:hidden;">
-              <div style="padding:10px 14px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border-bottom:1px solid #bfdbfe;">
-                <h3 class="font-work text-[13px] font-bold text-gray-800 flex items-center gap-2 m-0">
-                  <span class="material-symbols-outlined" style="font-size:16px;color:#2563eb;">admin_panel_settings</span>
-                  <span x-text="editingPermUser.name"></span> 메뉴 권한 설정
-                </h3>
+              <!-- (a) 선택직원 헤더 띠 (회사색 배경) -->
+              <div :style="'padding:12px 14px;border-bottom:1px solid '+companyColor(editingPermUser.companyId)+'33;background:'+companyTint(editingPermUser.companyId)+';'">
+                <div class="flex items-center gap-3 flex-wrap">
+                  <div style="width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:15px;flex:0 0 auto;" :style="'background:'+companyColor(editingPermUser.companyId)" x-text="(editingPermUser.name||'?').slice(0,1)"></div>
+                  <div style="line-height:1.35;">
+                    <div class="flex items-center gap-2">
+                      <span class="font-bold text-gray-800" style="font-size:15px;" x-text="editingPermUser.name"></span>
+                      <span style="font-size:10px;font-weight:700;color:#fff;padding:2px 8px;border-radius:999px;" :style="'background:'+companyColor(editingPermUser.companyId)" x-text="companyOf(editingPermUser.companyId)"></span>
+                    </div>
+                    <div style="font-size:11px;color:#6b7280;">
+                      <span x-text="(departments.find(d => d.id === editingPermUser.department)||{}).name || '부서 미배정'"></span>
+                      <span x-show="editingPermUser.position" x-text="' · ' + editingPermUser.position"></span>
+                    </div>
+                  </div>
+                  <span style="margin-left:auto;font-size:11px;font-weight:700;color:#374151;background:#fff;border:1px solid #e5e7eb;padding:4px 10px;border-radius:999px;">선택 <span x-text="(editingPermUser.permissions || []).length"></span>개</span>
+                  <button @click="editingPermUserId = null" title="닫기" style="font-size:18px;line-height:1;color:#9ca3af;background:none;border:none;cursor:pointer;padding:2px 4px;">×</button>
+                </div>
               </div>
               <div style="padding:12px 14px;">
-              <p class="text-sm text-gray-500 mb-4">체크한 메뉴만 사용자에게 표시됩니다.</p>
-              <div style="margin-bottom:12px;">
-                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
-                  <span style="font-size:11px;color:#6b7280;font-weight:600;">프리셋:</span>
+
+              <!-- (b) 자동권한 안내 배너 -->
+              <template x-if="userLedDepartments(editingPermUser).length > 0">
+                <div class="mb-3" style="padding:9px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:9px;font-size:12px;color:#1d4ed8;line-height:1.45;">
+                  <span class="material-symbols-outlined" style="font-size:15px;vertical-align:-3px;margin-right:3px;">verified_user</span>
+                  이 직원은 <b x-text="userLedDepartments(editingPermUser).map(d => d.name).join(', ')"></b> 팀장이라, 팀 출퇴근·워크플로 승인은 자동으로 맡습니다. (아래에서 따로 켜지 않아도 됩니다)
+                </div>
+              </template>
+
+              <!-- (c) 역할 카드 — 클릭 한 번이면 그 역할에 맞는 권한이 한꺼번에 켜집니다 -->
+              <div class="mb-3">
+                <div class="flex items-center justify-between mb-1.5">
+                  <label class="block text-xs font-semibold text-gray-600">자주 쓰는 역할 (눌러서 한 번에 설정)</label>
+                  <span class="text-[10px] text-gray-400">눌러도 공용 메뉴는 늘 켜져 있습니다</span>
+                </div>
+                <div class="grid gap-2" style="grid-template-columns:repeat(auto-fill,minmax(96px,1fr));">
+                  <template x-for="role in ROLE_PRESETS" :key="role.id">
+                    <button type="button" class="role-card" :class="roleMatches(editingPermUser, role) ? 'active' : ''"
+                            :title="permLabelsOf(role.perms)"
+                            @click="applyRolePreset(editingPermUserId, role.perms)">
+                      <span class="role-ico" x-text="({sales:'💼',designer:'🎨',factory:'🏭',accounting:'🧮',manager:'🛡️'})[role.id] || '⭐'"></span>
+                      <span class="text-xs font-bold text-gray-700" x-text="role.label"></span>
+                      <span class="text-[10px] text-gray-400" x-text="'포함 ' + role.perms.length + '개'"></span>
+                    </button>
+                  </template>
+                </div>
+              </div>
+
+              <!-- (d) 권한 검색 + 회사필터 -->
+              <div class="flex items-center gap-2 flex-wrap mb-2">
+                <div style="position:relative;flex:1 1 200px;">
+                  <span class="material-symbols-outlined" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);font-size:15px;color:#9ca3af;pointer-events:none;">search</span>
+                  <input x-model="permSearch" placeholder="권한 검색 (메뉴 이름·설명)" class="input-base" style="padding-left:28px;">
+                </div>
+                <div class="seg-filter">
+                  <button :class="permCompanyFilter==='all' ? 'active' : ''" @click="permCompanyFilter='all'">전체</button>
+                  <button :class="permCompanyFilter==='sm' ? 'active' : ''" @click="permCompanyFilter='sm'" :style="permCompanyFilter==='sm' ? 'background:#eff6ff;color:#2563eb;' : ''">에스엠</button>
+                  <button :class="permCompanyFilter==='company' ? 'active' : ''" @click="permCompanyFilter='company'" :style="permCompanyFilter==='company' ? 'background:#fff7ed;color:#ea7317;' : ''">컴퍼니</button>
+                </div>
+              </div>
+
+              <!-- (e) 모듈 그룹 아코디언 -->
+              <div class="space-y-2">
+                <template x-for="grp in groupedCatalog" :key="grp.group">
+                  <div>
+                    <button type="button" class="perm-grp-hdr" @click="toggleExpandedPermGroup(grp.group)">
+                      <span class="material-symbols-outlined" style="font-size:16px;color:#9ca3af;" x-text="expandedPermGroups[grp.group] ? 'expand_more' : 'chevron_right'"></span>
+                      <span class="font-bold text-gray-700" style="font-size:12.5px;" x-text="grp.group"></span>
+                      <span class="ml-auto text-[11px] font-semibold text-gray-400" x-text="'켜짐 ' + groupOnCount(grp.items, editingPermUser.permissions).on + '/' + groupOnCount(grp.items, editingPermUser.permissions).total"></span>
+                    </button>
+                    <div x-show="expandedPermGroups[grp.group]" class="space-y-1.5 mt-1.5 pl-1">
+                      <template x-for="menu in grp.items" :key="menu.id">
+                        <div class="perm-row" :class="(menu.segmentGroup==='pricing' ? pricingLevelOf(editingPermUser)!=='none' : (editingPermUser.permissions || []).includes(menu.id)) || permIsForced(menu) ? 'on' : ''">
+                          <span class="perm-dot" :style="menu.company==='both' ? 'background:transparent;' : 'background:'+companyColor(menu.company==='sm'?'dalim-sm':'dalim-company')"></span>
+                          <div style="flex:1 1 auto;min-width:0;">
+                            <div class="perm-lbl" x-text="menu.label"></div>
+                            <div class="perm-desc" x-text="menu.desc"></div>
+                          </div>
+                          <!-- 단가: 3단 세그먼트 -->
+                          <template x-if="menu.segmentGroup==='pricing'">
+                            <div class="perm-seg" style="flex:0 0 auto;align-self:center;">
+                              <button :class="pricingLevelOf(editingPermUser)==='none' ? 'active' : ''" @click="setPricingLevel(editingPermUserId,'none')">없음</button>
+                              <button :class="pricingLevelOf(editingPermUser)==='view' ? 'active' : ''" @click="setPricingLevel(editingPermUserId,'view')">보기</button>
+                              <button :class="pricingLevelOf(editingPermUser)==='edit' ? 'active' : ''" @click="setPricingLevel(editingPermUserId,'edit')">편집</button>
+                            </div>
+                          </template>
+                          <!-- 공용(끌 수 없음) -->
+                          <template x-if="menu.segmentGroup!=='pricing' && permIsForced(menu)">
+                            <span class="perm-locked-badge" style="align-self:center;">공용 · 항상 표시</span>
+                          </template>
+                          <!-- 일반 토글 -->
+                          <template x-if="menu.segmentGroup!=='pricing' && !permIsForced(menu)">
+                            <label class="perm-switch" style="align-self:center;">
+                              <input type="checkbox" :checked="(editingPermUser.permissions || []).includes(menu.id)"
+                                     @change="toggleUserPermission(editingPermUserId, menu.id, $el.checked)">
+                              <span class="track"></span>
+                            </label>
+                          </template>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+                <p x-show="groupedCatalog.length === 0" class="text-xs text-gray-400 text-center py-3">검색 결과가 없습니다</p>
+              </div>
+
+              <!-- 프리셋 저장/불러오기 (관리자 편의) -->
+              <details class="mt-3" style="border-top:1px dashed #e5e7eb;padding-top:8px;">
+                <summary style="font-size:11px;color:#6b7280;font-weight:600;cursor:pointer;list-style:none;">⚙ 내 프리셋 저장·불러오기</summary>
+                <div class="mt-2" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+                  <span style="font-size:11px;color:#6b7280;font-weight:600;">불러오기:</span>
                   <template x-for="preset in permPresets" :key="preset.name">
                     <div style="display:inline-flex;align-items:center;gap:0;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;">
                       <button @click="applyPermPreset(editingPermUserId, preset.perms)"
@@ -3504,22 +3643,9 @@
                   <button @click="saveCurrentAsPreset(editingPermUserId)"
                     style="font-size:10px;padding:4px 10px;background:#4f6ef7;color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:600;">프리셋 저장</button>
                 </div>
-              </div>
-              <div class="grid grid-cols-3 gap-4">
-                <template x-for="menu in allMenus" :key="menu.id">
-                  <label class="flex items-center gap-3 p-3 rounded-lg border cursor-pointer hover:bg-gray-50"
-                    :class="(editingPermUser.permissions || []).includes(menu.id) ? 'border-blue-400 bg-blue-50' : 'border-gray-200'">
-                    <input type="checkbox"
-                      :checked="(editingPermUser.permissions || []).includes(menu.id)"
-                      :disabled="false"
-                      @change="toggleUserPermission(editingPermUserId, menu.id, $el.checked)"
-                      class="w-5 h-5 rounded">
-                    <span class="text-sm font-medium" x-text="menu.label"></span>
-                  </label>
-                </template>
-              </div>
-              <div class="mt-4 flex justify-between items-center">
-                <p class="text-xs text-gray-400">선택: <span x-text="(editingPermUser.permissions || []).length"></span>개</p>
+              </details>
+
+              <div class="mt-3 flex justify-end items-center">
                 <button @click="editingPermUserId = null" class="btn-ghost text-xs py-2">닫기</button>
               </div>
               </div>
@@ -4139,9 +4265,6 @@
           </div>
         </div>
       </template>
-
-      <!-- SALARY TAB (급여 관리) -->
-      <!--INCLUDE:tab-salary.html-->
 
       <!-- ATTENDANCE TAB (출퇴근 기록부) -->
       <template x-if="currentTab === 'attendance'">
@@ -5861,8 +5984,6 @@
                   <span x-text="serverCtl.status?.memoryMB + ' MB'"></span>
                   <span style="color:#6b7280;">Node 버전</span>
                   <span style="font-family:monospace;" x-text="serverCtl.status?.nodeVersion"></span>
-                  <span style="color:#6b7280;">급여 모드</span>
-                  <span x-text="serverCtl.status?.salaryMode"></span>
                 </div>
               </div>
               <!-- 버튼 -->
@@ -6471,9 +6592,6 @@ function app() {
     statementEntryCompany: '',
     // 인증
     auth: { loggedIn: false, userId: '', name: '', role: '', position: '', phone: '', permissions: [] },
-    // 급여 탭 가용성 (false이면 메뉴 자체를 숨김 — 관리자 PC 외에서는 존재조차 노출 안 함)
-    salaryAvailable: false,
-    salaryMode: 'local',
     loginForm: { userId: '', password: '', error: '', loading: false },
     showRegister: false,
     registerForm: { name: '', userId: '', password: '', passwordConfirm: '', position: '', phone: '', hireDate: '', error: '', success: '', loading: false },
@@ -6490,41 +6608,68 @@ function app() {
       if (!this.editingPermUserId) return null;
       return this.adminUsers.find(u => u.id === this.editingPermUserId) || null;
     },
+    // ── 권한부여 화면 UI 상태 (목록 필터 + 권한 검색/회사필터 + 그룹 펼침) ──
+    adminSearch: '',                 // 사용자 목록 검색(이름·아이디)
+    adminCompanyFilter: 'all',       // 'all' | 'sm' | 'company'
+    hideResigned: true,              // 퇴사자 숨김
+    permSearch: '',                  // 권한 검색(라벨·설명)
+    permCompanyFilter: 'all',        // 'all' | 'sm' | 'company'
+    expandedPermGroups: JSON.parse(sessionStorage.getItem('expandedPermGroups') || '{"공용":true,"업무":true,"단가·품목":true,"매입":true,"인사":true,"관리":true}'),
+    toggleExpandedPermGroup(g) {
+      this.expandedPermGroups[g] = !this.expandedPermGroups[g];
+      sessionStorage.setItem('expandedPermGroups', JSON.stringify(this.expandedPermGroups));
+    },
+    // 회사 라벨/색 (companyId: 'dalim-sm'=에스엠 파랑, 'dalim-company'=컴퍼니 주황)
+    companyOf(companyId) { return companyId === 'dalim-company' ? '컴퍼니' : '에스엠'; },
+    companyColor(companyId) { return companyId === 'dalim-company' ? '#ea7317' : '#2563eb'; },
+    companyTint(companyId) { return companyId === 'dalim-company' ? '#fff7ed' : '#eff6ff'; },
 
-    // 메뉴 목록 (권한 설정용)
+    // 메뉴 목록 (권한 설정용) — 단일 권한 카탈로그(Single Source of Truth)
+    //   id/label 은 절대 변경 금지 (마크업 x-for="menu in allMenus" 가 menu.id/menu.label 사용).
+    //   메타 필드: desc(사장님 언어 한 줄) / group(메뉴그룹) / company('sm'|'company'|'both')
+    //             / tabId(실제 currentTab 값) / alwaysOn / defaultOnly / forcedNonAdmin / segmentGroup
+    //   * get tabs() 가 이 플래그를 읽어 노출을 결정한다(아래 동치성 테스트로 구버전과 100% 일치 보장).
     allMenus: [
-      { id: 'home', label: '홈' },
-      { id: 'quote', label: '견적 작성' },
-      { id: 'history', label: '견적 목록' },
-      { id: 'stats', label: '통계' },
-      { id: 'pricing_view', label: '단가 조회' },
-      { id: 'pricing_edit', label: '단가 수정' },
-      { id: 'salesLookup', label: '과거단가조회' },
-      { id: 'attendance_all', label: '출퇴근 기록부 (팀 전체)' },
-      { id: 'leave', label: '연차 관리' },
-      { id: 'options', label: '옵션 관리' },
-      { id: 'vendors', label: '업체 관리' },
-      { id: 'design', label: '시안 검색' },
+      { id: 'home',            label: '홈',                      tabId: 'home',            group: '공용',     company: 'both',    alwaysOn: true,    desc: '로그인하면 누구나 보는 시작 화면(대시보드)' },
+      { id: 'quote',           label: '견적 작성',               tabId: 'quote',           group: '업무',     company: 'both',    defaultOnly: true, desc: '견적서를 새로 작성' },
+      { id: 'history',         label: '견적 목록',               tabId: 'history',         group: '업무',     company: 'both',    defaultOnly: true, desc: '지난 견적서들을 모아보고 다시 염' },
+      { id: 'stats',           label: '통계',                    tabId: 'stats',           group: '업무',     company: 'both',    desc: '매출·견적 통계 화면' },
+      { id: 'pricing_view',    label: '단가 조회',               tabId: 'pricing',         group: '단가·품목', company: 'both',   segmentGroup: 'pricing', desc: '업체별 단가를 열람만(수정 불가)' },
+      { id: 'pricing_edit',    label: '단가 수정',               tabId: 'pricing',         group: '단가·품목', company: 'both',   segmentGroup: 'pricing', desc: '업체별 단가를 직접 고침(저장 권한)' },
+      { id: 'salesLookup',     label: '과거단가조회',            tabId: 'salesLookup',     group: '업무',     company: 'both',    defaultOnly: true, desc: '예전에 나간 단가를 거슬러 조회' },
+      { id: 'attendance_all',  label: '출퇴근 기록부 (팀 전체)', tabId: 'attendance',      group: '인사',     company: 'both',    forcedNonAdmin: true, desc: '우리 팀 전원의 출퇴근 기록을 봄' },
+      { id: 'leave',           label: '연차 관리',               tabId: 'leave',           group: '인사',     company: 'both',    forcedNonAdmin: true, desc: '연차 신청·잔여일수 관리' },
+      { id: 'options',         label: '옵션 관리',               tabId: 'options',         group: '단가·품목', company: 'both',   desc: '품목 옵션(후가공 등) 단가 관리' },
+      { id: 'vendors',         label: '업체 관리',               tabId: 'vendors',         group: '단가·품목', company: 'both',   desc: '거래 업체 등록·관리' },
+      { id: 'design',          label: '시안 검색',               tabId: 'design',          group: '공용',     company: 'both',    alwaysOn: true,    desc: '과거 시안을 이미지로 검색' },
       // { id: 'matchReview', label: '시안 매칭 검수' },  // 숨김 — Claude 채팅에서 직접 검수
       // { id: 'designInput', label: '시안 작성기' },  // 숨김 — UXP 패널로 통합 예정 (디자이너 CC 안에서 사용)
       // { id: 'productDesign', label: '시안 자동분석' },  // 숨김 — 미완성 기능
       // { id: 'ocr', label: 'OCR 텍스트 추출' },          // 숨김 — OCR 자동입력으로 흡수
       // { id: 'purchaseAuto', label: '매입 자동화' },     // 숨김 — OCR 자동입력으로 흡수
-      { id: 'photos', label: '사진 라이브러리' },
+      { id: 'photos',          label: '사진 라이브러리',         tabId: 'photos',          group: '공용',     company: 'both',    alwaysOn: true,    desc: '현장·제품 사진 보관함' },
       // { id: 'statements', label: 'OCR 자동입력' },  // 숨김 — 에스엠/컴퍼니 매입 분리 (합쳐진 4분할 화면 진입 금지)
-      { id: 'esmPurchase', label: '에스엠 매입' },
-      { id: 'companyPurchase', label: '컴퍼니 매입' },
-      { id: 'contacts', label: '연락처' },
-      { id: 'workflow', label: '워크플로우' },
-      { id: 'calendar', label: '캘린더' },
-      { id: 'approval', label: '결재' },
-      { id: 'orgchart', label: '조직도' },
-      { id: 'notices', label: '공지사항' },
-      { id: 'settings', label: '설정' },
-      { id: 'admin', label: '사용자 관리' },
-      { id: 'workspace', label: '워크스페이스' },
-      { id: 'ai', label: 'AI 챗' },
-      { id: 'gpsAttendance', label: 'GPS 출퇴근' }
+      { id: 'esmPurchase',     label: '에스엠 매입',             tabId: 'esmPurchase',     group: '매입',     company: 'sm',      desc: '대림에스엠 매입명세서 OCR·등록' },
+      { id: 'companyPurchase', label: '컴퍼니 매입',             tabId: 'companyPurchase', group: '매입',     company: 'company', desc: '대림컴퍼니 매입명세서 OCR·등록' },
+      { id: 'contacts',        label: '연락처',                  tabId: 'contacts',        group: '공용',     company: 'both',    alwaysOn: true,    desc: '거래처·직원 연락처 모음' },
+      { id: 'workflow',        label: '워크플로우',              tabId: 'workflow',        group: '공용',     company: 'both',    alwaysOn: true,    desc: '제작 진행상황 카드보드' },
+      { id: 'calendar',        label: '캘린더',                  tabId: 'calendar',        group: '공용',     company: 'both',    desc: '일정·납기 달력' },
+      { id: 'approval',        label: '결재',                    tabId: 'approval',        group: '인사',     company: 'both',    forcedNonAdmin: true, desc: '전자결재 상신·승인' },
+      { id: 'orgchart',        label: '조직도',                  tabId: 'orgchart',        group: '인사',     company: 'both',    desc: '부서·직원 조직도' },
+      { id: 'notices',         label: '공지사항',                tabId: 'notices',         group: '관리',     company: 'both',    desc: '회사 공지 등록·열람' },
+      { id: 'settings',        label: '설정',                    tabId: 'settings',        group: '관리',     company: 'both',    desc: 'SMTP·명함 등 시스템 설정' },
+      { id: 'admin',           label: '사용자 관리',             tabId: 'admin',           group: '관리',     company: 'both',    desc: '직원 계정·권한 관리' },
+      { id: 'workspace',       label: '워크스페이스',            tabId: 'workspace',       group: '공용',     company: 'both',    defaultOnly: true, desc: '개인 메모·문서 작업공간' },
+      { id: 'ai',              label: 'AI 챗',                   tabId: 'ai',              group: '공용',     company: 'both',    defaultOnly: true, desc: 'AI 비서 채팅' },
+      { id: 'gpsAttendance',   label: 'GPS 출퇴근',              tabId: 'gpsAttendance',   group: '인사',     company: 'both',    defaultOnly: true, desc: 'GPS 기반 출퇴근 체크' }
+    ],
+    // 역할 프리셋(시드) — 권한 일괄 부여용. design/photos/contacts/workflow 는 공용(alwaysOn)이라 넣지 않음.
+    ROLE_PRESETS: [
+      { id: 'sales',      label: '영업',      icon: 'businessplan',     perms: ['pricing_view', 'stats', 'esmPurchase'] },
+      { id: 'designer',   label: '디자이너',  icon: 'palette',          perms: ['calendar'] },
+      { id: 'factory',    label: '공장',      icon: 'building-factory',  perms: ['companyPurchase', 'calendar'] },
+      { id: 'accounting', label: '경리',      icon: 'calculator',       perms: ['pricing_view', 'stats', 'esmPurchase', 'companyPurchase', 'approval', 'leave'] },
+      { id: 'manager',    label: '관리',      icon: 'shield-lock',      perms: ['admin', 'orgchart', 'notices', 'settings', 'attendance_all', 'approval', 'leave'] }
     ],
     // 권한 그룹 프리셋 (서버에서 로드)
     permPresets: [],
@@ -6579,6 +6724,136 @@ function app() {
       }
     },
 
+    // ── 권한부여 화면 computed/method (allMenus/ROLE_PRESETS/get tabs 불변, 화면용만) ──
+    // 회사 필터 매칭: 'all' 이면 전부, 그 외엔 company==='both' 항상 포함
+    _matchCompanyFilter(menuCompany, filter) {
+      if (filter === 'all') return true;
+      if (menuCompany === 'both') return true;
+      return menuCompany === filter;
+    },
+    // 사용자 목록 필터 (검색 + 회사 + 퇴사자숨김)
+    get filteredAdminUsers() {
+      const q = (this.adminSearch || '').trim().toLowerCase();
+      const cf = this.adminCompanyFilter;
+      return (this.adminUsers || []).filter(u => {
+        if (this.hideResigned && u.status === 'resigned') return false;
+        if (cf !== 'all') {
+          const isCompany = u.companyId === 'dalim-company';
+          if (cf === 'company' && !isCompany) return false;
+          if (cf === 'sm' && isCompany) return false;
+        }
+        if (q) {
+          const hay = ((u.name || '') + ' ' + (u.userId || '')).toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+    },
+    // 권한 카탈로그를 group 별로 묶음 (회사필터 + 검색 적용, pricing_edit 줄은 세그먼트로 흡수해 제외)
+    get groupedCatalog() {
+      const q = (this.permSearch || '').trim().toLowerCase();
+      const cf = this.permCompanyFilter;
+      const order = ['공용', '업무', '단가·품목', '매입', '인사', '관리'];
+      const byGroup = {};
+      for (const m of this.allMenus) {
+        if (m.id === 'pricing_edit') continue; // 단가는 pricing_view 줄에서 세그먼트로 통합 렌더
+        if (!this._matchCompanyFilter(m.company, cf)) continue;
+        if (q) {
+          const hay = ((m.label || '') + ' ' + (m.desc || '')).toLowerCase();
+          if (!hay.includes(q)) continue;
+        }
+        (byGroup[m.group] = byGroup[m.group] || []).push(m);
+      }
+      const out = [];
+      for (const g of order) if (byGroup[g]) out.push({ group: g, items: byGroup[g] });
+      // order 에 없는 그룹도 뒤에 붙임(안전)
+      for (const g of Object.keys(byGroup)) if (!order.includes(g)) out.push({ group: g, items: byGroup[g] });
+      return out;
+    },
+    // 공용(항상 표시·끌 수 없음) 판정: alwaysOn, 또는 forcedNonAdmin 중 attendance_all 아닌 것(leave/approval)
+    permIsForced(menu) {
+      if (menu.alwaysOn) return true;
+      if (menu.forcedNonAdmin && menu.id !== 'attendance_all') return true;
+      return false;
+    },
+    // editingPermUser 가 팀장인 부서들 (departments[].leaderId 매칭)
+    userLedDepartments(user) {
+      if (!user) return [];
+      return (this.departments || []).filter(d => d.leaderId && d.leaderId === user.id);
+    },
+    // 역할카드 hover 미리보기: perms 배열 → 라벨 join
+    permLabelsOf(perms) {
+      const map = {};
+      for (const m of this.allMenus) map[m.id] = m.label;
+      return (perms || []).map(p => map[p] || p).join(', ');
+    },
+    // 사용자 perms 집합이 역할 perms 와 정확히 일치하는가
+    roleMatches(user, role) {
+      const a = [...new Set(user && user.permissions ? user.permissions : [])].sort();
+      const b = [...new Set(role.perms || [])].sort();
+      if (a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+      return true;
+    },
+    // 역할카드 클릭 → 기존 applyPermPreset 재사용(replace)
+    applyRolePreset(userId, perms) {
+      return this.applyPermPreset(userId, perms);
+    },
+    // 단가 세그먼트: level 'none'|'view'|'edit' 적용 (낙관적 1회 갱신 후 서버 저장)
+    async setPricingLevel(userId, level) {
+      const user = this.adminUsers.find(u => u.id === userId);
+      if (!user) return;
+      let perms = [...(user.permissions || [])].filter(p => p !== 'pricing_view' && p !== 'pricing_edit');
+      if (level === 'view') perms.push('pricing_view');
+      else if (level === 'edit') { perms.push('pricing_view'); perms.push('pricing_edit'); }
+      user.permissions = perms; // 낙관적 갱신(클릭 즉시 반영)
+      try {
+        await fetch('/api/admin/users/' + userId + '/permissions', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ permissions: perms })
+        });
+        await this.loadAdminUsers();
+      } catch (e) { await this.loadAdminUsers(); }
+    },
+    // 현재 사용자(editingPermUser)의 단가 레벨 판정
+    pricingLevelOf(user) {
+      const p = (user && user.permissions) || [];
+      if (p.includes('pricing_edit')) return 'edit';
+      if (p.includes('pricing_view')) return 'view';
+      return 'none';
+    },
+    // ── 부서 일괄 권한: 단가 세그먼트(로컬 bulkPermForm.permissions 조작) ──
+    bulkPricingLevelOf() {
+      const p = this.bulkPermForm.permissions || [];
+      if (p.includes('pricing_edit')) return 'edit';
+      if (p.includes('pricing_view')) return 'view';
+      return 'none';
+    },
+    bulkSetPricingLevel(level) {
+      let p = (this.bulkPermForm.permissions || []).filter(x => x !== 'pricing_view' && x !== 'pricing_edit');
+      if (level === 'view') p.push('pricing_view');
+      else if (level === 'edit') { p.push('pricing_view'); p.push('pricing_edit'); }
+      this.bulkPermForm.permissions = p;
+    },
+    bulkTogglePerm(menuId, on) {
+      let p = [...(this.bulkPermForm.permissions || [])];
+      if (on) { if (!p.includes(menuId)) p.push(menuId); }
+      else p = p.filter(x => x !== menuId);
+      this.bulkPermForm.permissions = p;
+    },
+    // 그룹별 '켜짐 x/y' 카운트 (단건: 사용자 perms 기준 / 일괄: bulkPermForm 기준)
+    groupOnCount(items, perms) {
+      const set = new Set(perms || []);
+      let on = 0, total = 0;
+      for (const m of items) {
+        if (this.permIsForced(m)) continue; // 공용은 카운트 제외(항상 켜짐 취급)
+        total++;
+        if (m.segmentGroup === 'pricing') { if (set.has('pricing_view') || set.has('pricing_edit')) on++; }
+        else if (set.has(m.id)) on++;
+      }
+      return { on, total };
+    },
+
     // 그룹별 메뉴 정의
     menuGroups: [
       { group: '업무', icon: 'work', items: [
@@ -6593,7 +6868,6 @@ function app() {
         { id: 'vendors', label: '업체 관리', icon: 'storefront' },
       ]},
       { group: '인사', icon: 'badge', items: [
-        { id: 'salary', label: '급여 관리', icon: 'payments' },
         { id: 'attendance', label: '출퇴근 기록부', icon: 'schedule' },
         { id: 'gpsAttendance', label: 'GPS 출퇴근', icon: 'location_on' },
         { id: 'leave', label: '연차 관리', icon: 'event_available' },
@@ -6624,61 +6898,53 @@ function app() {
       window.dispatchEvent(new CustomEvent('statement-entry', { detail }));
     },
     get tabs() {
-      // 플랫 리스트 (하위 호환용) — 권한 필터링된 탭 목록
-      if (this.auth.role === 'admin') {
-        const adminTabs = [
-          { id: 'home', label: '홈' },
-          { id: 'quote', label: '견적 작성' }, { id: 'history', label: '견적 목록' },
-          { id: 'pricing', label: '품목 관리' }, { id: 'options', label: '옵션 관리' },
-          { id: 'vendors', label: '업체 관리' }, { id: 'admin', label: '사용자 관리' },
-          { id: 'attendance', label: '출퇴근 기록부' }, { id: 'leave', label: '연차 관리' },
-          { id: 'approval', label: '결재' }, { id: 'orgchart', label: '조직도' },
-          { id: 'salesLookup', label: '과거단가조회' },
-          { id: 'stats', label: '통계' }, { id: 'design', label: '시안 검색' },
-          // { id: 'productDesign', label: '시안 자동분석' },  // 숨김 — 미완성 기능
-          // { id: 'ocr', label: 'OCR 텍스트 추출' },          // 숨김 — OCR 자동입력으로 흡수
-          // { id: 'purchaseAuto', label: '매입 자동화' },     // 숨김 — OCR 자동입력으로 흡수
-          { id: 'photos', label: '사진 라이브러리' },
-          // { id: 'statements', label: 'OCR 자동입력' },  // 숨김 — 에스엠/컴퍼니 매입 분리 (합쳐진 4분할 화면 진입 금지)
-          { id: 'esmPurchase', label: '에스엠 매입' },
-          { id: 'companyPurchase', label: '컴퍼니 매입' },
-          { id: 'contacts', label: '연락처' }, { id: 'workflow', label: '워크플로우' }, { id: 'calendar', label: '캘린더' }, { id: 'notices', label: '공지사항' }, { id: 'settings', label: '설정' },
-          { id: 'workspace', label: '워크스페이스' },
-          { id: 'ai', label: 'AI 챗' },
-          { id: 'gpsAttendance', label: 'GPS 출퇴근' }
-        ];
-        // 급여 탭은 salaryAvailable일 때만 노출 (관리자 PC 외엔 존재 자체 비공개)
-        if (this.salaryAvailable) {
-          // 사용자 관리 다음에 끼워넣기
-          const idx = adminTabs.findIndex(t => t.id === 'admin');
-          adminTabs.splice(idx + 1, 0, { id: 'salary', label: '급여 관리' });
+      // 단일 카탈로그(allMenus) 구동 — 권한 필터링된 탭 목록.
+      //   각 메뉴의 플래그(alwaysOn/defaultOnly/forcedNonAdmin/segmentGroup)로 노출 결정.
+      //   합쳐진 탭(pricing_view+pricing_edit→'pricing', attendance_all→'attendance')은 tabId 로 dedup,
+      //   라벨은 mergedTabLabel 로 통일. (동치성: tests/perm-tabs-equivalence.test.js 로 구버전과 100% 일치 검증)
+      const mergedTabLabel = { pricing: '품목 관리', attendance: '출퇴근 기록부' };
+      const labelOf = (m) => mergedTabLabel[m.tabId] || m.label;
+      const isAdmin = this.auth.role === 'admin';
+
+      if (isAdmin) {
+        // 관리자: 카탈로그의 모든 tabId 를 중복제거해 노출 (forcedNonAdmin 은 비admin 전용 플래그라 무시)
+        const out = [];
+        const seen = new Set();
+        for (const m of this.allMenus) {
+          if (seen.has(m.tabId)) continue;
+          seen.add(m.tabId);
+          out.push({ id: m.tabId, label: labelOf(m) });
         }
-        return adminTabs;
+        return out;
       }
+
       const perms = this.auth.permissions || [];
-      // 권한 무관 — 아이디만 있으면 누구든 쓸 수 있는 공용 메뉴
-      const universalMenus = ['design', 'photos', 'contacts', 'workflow'];  // statements 제외 — 매입은 esm/company 분리 탭으로
-      const defaultMenus = ['home', 'quote', 'history', 'salesLookup', 'workspace', 'ai', 'gpsAttendance', ...universalMenus];
-      const allowed = perms.length > 0
-        ? ['home', ...perms, ...universalMenus]   // 권한 있어도 공용 메뉴는 강제 추가
-        : defaultMenus;
-      const t = [];
-      const hasPricing = allowed.includes('pricing_view') || allowed.includes('pricing_edit');
-      for (const menu of this.allMenus) {
-        if (menu.id === 'pricing_view' || menu.id === 'pricing_edit') continue;
-        if (allowed.includes(menu.id)) t.push(menu);
+      const hasPerms = perms.length > 0;
+      // 노출 판정: 권한키(menu.id) 가 노출되는가?
+      const idShown = (m) => {
+        if (m.alwaysOn) return true;                 // 공용 (design/photos/contacts/workflow/home)
+        if (perms.includes(m.id)) return true;        // 명시적으로 부여된 권한
+        if (!hasPerms && m.defaultOnly) return true;  // 권한 0개일 때만 노출되는 기본 메뉴
+        return false;
+      };
+
+      const out = [];
+      const seenTab = new Set();
+      for (const m of this.allMenus) {
+        // segmentGroup(pricing) 은 pricing_view/edit 중 하나라도 부여되면 합친 'pricing' 탭 1개
+        if (m.segmentGroup === 'pricing') {
+          const hasPricing = perms.includes('pricing_view') || perms.includes('pricing_edit');
+          if (hasPricing && !seenTab.has(m.tabId)) { seenTab.add(m.tabId); out.push({ id: m.tabId, label: labelOf(m) }); }
+          continue;
+        }
+        // forcedNonAdmin: 비admin 은 권한 유무와 무관하게 해당 tabId 항상 노출 (capability 는 데이터 범위용)
+        if (m.forcedNonAdmin) {
+          if (!seenTab.has(m.tabId)) { seenTab.add(m.tabId); out.push({ id: m.tabId, label: labelOf(m) }); }
+          continue;
+        }
+        if (idShown(m) && !seenTab.has(m.tabId)) { seenTab.add(m.tabId); out.push({ id: m.tabId, label: labelOf(m) }); }
       }
-      if (hasPricing) t.splice(2, 0, { id: 'pricing', label: '품목 관리' });
-      if (!t.find(m => m.id === 'attendance_all')) {
-        t.push({ id: 'attendance', label: '출퇴근 기록부' });
-      } else {
-        const idx = t.findIndex(m => m.id === 'attendance_all');
-        if (idx >= 0) t[idx].id = 'attendance';
-      }
-      if (!t.find(m => m.id === 'leave')) t.push({ id: 'leave', label: '연차 관리' });
-      if (!t.find(m => m.id === 'approval')) t.push({ id: 'approval', label: '결재' });
-      // 조직도는 orgchart 권한 있는 사람만 보임 (강제 추가 제거)
-      return t;
+      return out;
     },
     // 그룹별 필터링된 메뉴 (권한 적용)
     get filteredMenuGroups() {
@@ -6732,24 +6998,12 @@ function app() {
     },
     // 매일 연동/검수 대기 위젯
     syncStatus: { items: [], summary: null },
-    // 인건비 추이 그래프 상태 (관리자용)
-    costTrend: {
-      loading: false,
-      company: 'all',
-      months: '12',
-      metric: 'grossPay',
-      hasData: null,
-      raw: null,        // 서버 원본 응답 (company/month별 월별 값)
-      summary: { total: 0, avg: 0, momPct: 0, avgHead: 0 },
-      _chart: null,     // Chart.js 인스턴스
-    },
     // 홈 바로가기 (권한 있는 것만 자동 필터됨)
     get homeShortcuts() {
       const all = [
         { id: 'quote',        label: '견적 작성',     icon: 'edit_note',      color: '#4f6ef7', action: () => this.openQuotePopup(null) },
         { id: 'history',      label: '견적 목록',     icon: 'folder_open',    color: '#6c5ce7' },
         { id: 'salesLookup',  label: '과거단가조회', icon: 'manage_search',  color: '#10b981' },
-        { id: 'salary',       label: '급여 관리',     icon: 'payments',       color: '#f59e0b' },
         { id: 'attendance',   label: '출퇴근 기록부',icon: 'schedule',       color: '#0ea5e9' },
         { id: 'notices',      label: '공지사항',      icon: 'campaign',       color: '#ef4444' },
         { id: 'workspace',    label: '워크스페이스', icon: 'edit_document',  color: '#8b5cf6' },
@@ -7681,15 +7935,6 @@ function app() {
           if (this.auth.mustChangePassword) {
             setTimeout(() => this.changeMyPassword(true), 1500);
           }
-          // 급여 탭 가용성 체크 (관리자 PC 외엔 메뉴 자체를 숨김)
-          try {
-            const sa = await fetch('/api/salary-availability');
-            if (sa.ok) {
-              const sj = await sa.json();
-              this.salaryAvailable = !!sj.available;
-              this.salaryMode = sj.mode || 'local';
-            }
-          } catch(e) { this.salaryAvailable = false; }
           await this.loadData();
           if (!this.tabs.find(t => t.id === this.currentTab)) this.currentTab = 'home';
           // 홈 탭이 현재 보이면 즉시 대시보드 데이터 로드
@@ -8276,154 +8521,6 @@ function app() {
       } finally {
         this.homeDashboard.loading = false;
       }
-    },
-
-    // ════ 월별 인건비 추이 그래프 (관리자 홈) ════
-    async loadCostTrend() {
-      if (this.auth.role !== 'admin') return;
-      this.costTrend.loading = true;
-      try {
-        const months = parseInt(this.costTrend.months, 10) || 12;
-        const company = this.costTrend.company || 'all';
-        const r = await fetch(`/api/salary/cost-trend?months=${months}&company=${encodeURIComponent(company)}`);
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        const data = await r.json();
-        this.costTrend.raw = data;
-        this.costTrend.companies = data.companies ? data.companies.map(c => ({ id: c.companyId, name: c.companyName })) : [];
-
-        // 데이터 있는지 체크: 총 grossPay 가 전부 0 이면 "데이터 없음" 표시
-        const total = Array.isArray(data.total) ? data.total : [];
-        const hasAny = total.some(m => (m.grossPay || 0) > 0 || (m.headcount || 0) > 0);
-        this.costTrend.hasData = hasAny;
-
-        if (hasAny) {
-          // summary 계산
-          const metricVals = total.map(m => m.grossPay || 0);
-          const sumTotal = metricVals.reduce((a, b) => a + b, 0);
-          const avg = metricVals.length ? Math.round(sumTotal / metricVals.length) : 0;
-          const last = metricVals[metricVals.length - 1] || 0;
-          const prev = metricVals[metricVals.length - 2] || 0;
-          const momPct = prev > 0 ? ((last - prev) / prev) * 100 : 0;
-          const headVals = total.map(m => m.headcount || 0);
-          const avgHead = headVals.length ? (headVals.reduce((a, b) => a + b, 0) / headVals.length) : 0;
-          this.costTrend.summary = { total: sumTotal, avg, momPct, avgHead };
-          this.$nextTick(() => this.renderCostTrendChart());
-        } else {
-          // 차트 있으면 파괴
-          if (this.costTrend._chart) { try { this.costTrend._chart.destroy(); } catch(e) {} this.costTrend._chart = null; }
-        }
-      } catch (e) {
-        console.warn('[costTrend] 로드 실패:', e);
-        this.costTrend.hasData = false;
-      } finally {
-        this.costTrend.loading = false;
-      }
-    },
-
-    renderCostTrendChart() {
-      if (typeof Chart === 'undefined') {
-        console.warn('[costTrend] Chart.js 로드 안됨');
-        return;
-      }
-      const data = this.costTrend.raw;
-      if (!data || !Array.isArray(data.months)) return;
-      const canvas = document.getElementById('costTrendChart');
-      if (!canvas) return;
-
-      // 기존 차트 제거
-      if (this.costTrend._chart) {
-        try { this.costTrend._chart.destroy(); } catch(e) {}
-        this.costTrend._chart = null;
-      }
-
-      const metric = this.costTrend.metric || 'grossPay';
-      const metricLabels = {
-        grossPay: '지급총액',
-        netPay: '실지급액',
-        totalDeductions: '공제총액',
-        headcount: '인원수',
-      };
-      const isHeadcount = metric === 'headcount';
-
-      // 회사별 색상
-      const palette = ['#4f6ef7', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#0ea5e9', '#ec4899'];
-      const companies = data.companies || [];
-      const labels = data.months.map(m => m.slice(2)); // "26-04" 형태
-
-      // 회사별 bar 데이터 (stacked)
-      const barDatasets = companies.map((c, i) => ({
-        type: 'bar',
-        label: c.companyName,
-        data: (c.monthly || []).map(m => m[metric] || 0),
-        backgroundColor: palette[i % palette.length] + 'cc',
-        borderColor: palette[i % palette.length],
-        borderWidth: 1,
-        stack: 'cost',
-        borderRadius: 4,
-      }));
-
-      // 전체 합계 line (지급총액 보는 경우 인원수 라인도 함께)
-      const totals = (data.total || []).map(m => m[metric] || 0);
-      const headcountLine = (data.total || []).map(m => m.headcount || 0);
-
-      const datasets = [...barDatasets];
-      if (!isHeadcount) {
-        datasets.push({
-          type: 'line',
-          label: '전 직원 수',
-          data: headcountLine,
-          borderColor: '#ef4444',
-          backgroundColor: 'rgba(239,68,68,0.1)',
-          borderWidth: 2,
-          tension: 0.3,
-          yAxisID: 'y1',
-          pointRadius: 3,
-          pointBackgroundColor: '#ef4444',
-        });
-      }
-
-      const ctx = canvas.getContext('2d');
-      this.costTrend._chart = new Chart(ctx, {
-        data: { labels, datasets },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          interaction: { mode: 'index', intersect: false },
-          plugins: {
-            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
-            tooltip: {
-              callbacks: {
-                label: (ctx) => {
-                  const v = ctx.parsed.y;
-                  if (ctx.dataset.label === '전 직원 수') return `${ctx.dataset.label}: ${v}명`;
-                  return `${ctx.dataset.label}: ${(v || 0).toLocaleString()}원`;
-                },
-              },
-            },
-          },
-          scales: {
-            y: {
-              stacked: true,
-              beginAtZero: true,
-              ticks: {
-                callback: (v) => isHeadcount ? v + '명' : (v >= 1e8 ? (v / 1e8).toFixed(1) + '억' : v >= 1e4 ? (v / 1e4).toFixed(0) + '만' : v),
-                font: { size: 10 },
-              },
-              title: { display: true, text: metricLabels[metric] || '금액', font: { size: 11 } },
-            },
-            x: { stacked: true, ticks: { font: { size: 10 } } },
-            ...(isHeadcount ? {} : {
-              y1: {
-                position: 'right',
-                beginAtZero: true,
-                grid: { drawOnChartArea: false },
-                ticks: { callback: (v) => v + '명', font: { size: 10 } },
-                title: { display: true, text: '인원', font: { size: 11 } },
-              },
-            }),
-          },
-        },
-      });
     },
 
     async loadHolidays() {

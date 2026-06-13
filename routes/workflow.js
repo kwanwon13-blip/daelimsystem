@@ -4131,6 +4131,8 @@ router.post('/jobs/:id/handoff-note/ack', (req, res) => {
   const data = loadStore();
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  // 특이사항 확인은 공장(가져가는 부서)·생성자·관리자만. 무관한 직원이 확인 처리하는 것 차단.
+  if (!(isWorkflowAdmin(req) || isJobCreator(job, req) || canDeptActOnStage(req, 'factory'))) return res.status(403).json({ error: WF_NO_PERM });
   if (!job.handoffNote) return res.status(400).json({ error: '확인할 특이사항이 없습니다.' });
   if (!job.handoffNoteAckAt) {
     job.handoffNoteAckBy = req.user?.userId || '';
@@ -4190,6 +4192,8 @@ router.post('/jobs/:id/events', (req, res) => {
   const data = loadStore();
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  // 코멘트 작성은 관리자·생성자·이 발주의 어느 단계든 담당 부서만. 무관한 직원의 기록 추가 차단.
+  if (!(isWorkflowAdmin(req) || isJobCreator(job, req) || STAGES.some(s => canDeptActOnStage(req, s.id)))) return res.status(403).json({ error: WF_NO_PERM });
   const message = safeText(req.body.message, 3000);
   if (!message) return res.status(400).json({ error: '내용이 필요합니다.' });
   const targetUserId = safeText(req.body.targetUserId, 80);
@@ -4210,6 +4214,8 @@ router.post('/jobs/:id/events/:eventId/read', (req, res) => {
   const event = data.events.find(e => e.jobId === req.params.id && e.id === req.params.eventId);
   if (!event) return res.status(404).json({ error: '기록을 찾을 수 없습니다.' });
   const job = data.jobs.find(j => j.id === event.jobId) || null;
+  // 읽음 처리도 관리자·생성자·이 발주의 어느 단계든 담당 부서만. 무관한 직원의 상태 변경 차단.
+  if (job && !(isWorkflowAdmin(req) || isJobCreator(job, req) || STAGES.some(s => canDeptActOnStage(req, s.id)))) return res.status(403).json({ error: WF_NO_PERM });
   if (markEventReadBy(event, req)) {
     addEvent(data, req, event.jobId, 'event_read', `${event.message || '기록'} 확인`, { eventId: event.id });
     saveStore(data);
@@ -4221,6 +4227,8 @@ router.post('/jobs/:id/items/:itemId/read', (req, res) => {
   const data = loadStore();
   const job = data.jobs.find(j => j.id === req.params.id) || null;
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  // 읽음 처리도 관리자·생성자·이 발주의 어느 단계든 담당 부서만. 무관한 직원의 상태 변경 차단.
+  if (!(isWorkflowAdmin(req) || isJobCreator(job, req) || STAGES.some(s => canDeptActOnStage(req, s.id)))) return res.status(403).json({ error: WF_NO_PERM });
   const itemId = safeText(req.params.itemId, 120);
   const file = data.files.find(f => f.jobId === job.id && f.id === itemId);
   if (file) {
@@ -4488,6 +4496,14 @@ router.post('/jobs/:id/files', workflowUploadFiles, (req, res) => {
       try { fs.unlinkSync(path.join(FILE_DIR, file.filename)); } catch (_) {}
     }
     return res.status(400).json({ error: '완료/취소된 작업에는 파일을 추가할 수 없습니다.' });
+  }
+  // 업로드 권한: 관리자·생성자·이 발주의 어느 단계든 담당 부서만. 무관한 직원이 남의 시안 폴더에 올리는 것 차단.
+  // (폴더 생성/파일 이동 전에 게이트 — 거부 시 임시 업로드 파일만 정리)
+  if (!(isWorkflowAdmin(req) || isJobCreator(job, req) || STAGES.some(s => canDeptActOnStage(req, s.id)))) {
+    for (const file of req.files || []) {
+      try { fs.unlinkSync(path.join(FILE_DIR, file.filename)); } catch (_) {}
+    }
+    return res.status(403).json({ error: WF_NO_PERM });
   }
   const stageId = STAGES.some(s => s.id === req.body.stageId) ? req.body.stageId : job.currentStage;
   const kind = ['proof', 'attachment', 'drawing', 'photo'].includes(req.body.kind) ? req.body.kind : 'attachment';
@@ -4777,6 +4793,8 @@ router.post('/jobs/:id/files/:fileId/events', (req, res) => {
   const job = data.jobs.find(j => j.id === req.params.id);
   const file = data.files.find(f => f.jobId === req.params.id && f.id === req.params.fileId);
   if (!job || !file) return res.status(404).json({ error: '작업 또는 파일을 찾을 수 없습니다.' });
+  // 파일 코멘트 작성도 관리자·생성자·이 발주의 어느 단계든 담당 부서만. 무관한 직원의 기록 추가 차단.
+  if (!(isWorkflowAdmin(req) || isJobCreator(job, req) || STAGES.some(s => canDeptActOnStage(req, s.id)))) return res.status(403).json({ error: WF_NO_PERM });
   const message = safeText(req.body.message, 3000);
   if (!message) return res.status(400).json({ error: '내용이 필요합니다.' });
   const targetUserId = safeText(req.body.targetUserId, 80);

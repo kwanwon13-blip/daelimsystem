@@ -662,10 +662,15 @@ const attachments = {
     }
     db.prepare('DELETE FROM ai_attachments WHERE id=?').run(id);
   },
-  hydrate(ids) {
+  // ⚠ 보안(2026-06-13): ownerId 를 넘기면 소유자 본인 첨부만 반환(IDOR 방지).
+  // 첨부 id 는 순차 정수(AUTOINCREMENT)라 추측이 쉬워, 채팅 경로에서 남의 첨부(급여명세서 등)를
+  // 끌어와 AI 로 내용을 빼내지 못하게 막는다. ownerId 미지정 시 하위호환(호출부 자체 필터).
+  hydrate(ids, ownerId) {
     if (!ready || !Array.isArray(ids) || ids.length === 0) return [];
     const q = db.prepare('SELECT * FROM ai_attachments WHERE id=?');
-    return ids.map(id => q.get(id)).filter(Boolean);
+    const rows = ids.map(id => q.get(id)).filter(Boolean);
+    if (ownerId === undefined || ownerId === null) return rows;
+    return rows.filter(a => String(a.owner_id) === String(ownerId));
   }
 };
 

@@ -617,7 +617,6 @@ router.get('/admin/server/status', requireAdmin, (req, res) => {
     uptimeText: formatUptime(uptimeSec),
     memoryMB: memMB,
     nodeVersion: process.version,
-    salaryMode: (process.env.SALARY_MODE || 'local').toLowerCase(),
     startedAt: new Date(Date.now() - uptimeSec * 1000).toISOString(),
   });
 });

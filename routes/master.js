@@ -23,8 +23,22 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const ExcelJS = require('exceljs');
 const { sessions, parseCookies } = require('../middleware/auth');
+
+/**
+ * 디자이너 토큰 안전 비교 (타이밍 안전 + fail-closed)
+ * - DESIGNER_TOKEN 미설정/빈 값이면 모든 X-Designer-Token 요청 거부 (하드코딩 기본값 폴백 금지)
+ */
+function isValidDesignerToken(desToken) {
+  const expected = process.env.DESIGNER_TOKEN;
+  if (!expected || !desToken) return false;              // fail closed
+  const a = Buffer.from(String(desToken));
+  const b = Buffer.from(String(expected));
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
 
 // ── 인증 (세션 또는 디자이너 토큰) ──
 function authOrDesignerToken(req, res, next) {
@@ -33,9 +47,7 @@ function authOrDesignerToken(req, res, next) {
     const token = cookies.session_token || req.headers['x-session-token'];
     if (token && sessions[token]) { req.session = sessions[token]; return next(); }
   } catch(e) {}
-  const desToken = req.headers['x-designer-token'];
-  const expected = process.env.DESIGNER_TOKEN || 'designer-default-key-change-in-env';
-  if (desToken && desToken === expected) {
+  if (isValidDesignerToken(req.headers['x-designer-token'])) {
     req.session = { role: 'designer', userId: 'designer-script' };
     return next();
   }

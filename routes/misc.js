@@ -43,8 +43,8 @@ router.get('/price-history/:categoryId', requireAuth, (req, res) => {
   try {
     const hist = db['단가이력'].load();
     const { vendorId, page = 1, limit = 30 } = req.query;
-    let logs = (hist.logs || []).filter(l => l.품목Id === req.params.categoryId);
-    if (vendorId) logs = logs.filter(l => l.업체 === vendorId);
+    let logs = (hist.logs || []).filter(l => l.품목ID === req.params.categoryId);
+    if (vendorId) logs = logs.filter(l => l.업체ID === vendorId);
     logs = [...logs].reverse();
     const start = (parseInt(page) - 1) * parseInt(limit);
     res.json({ total: logs.length, logs: logs.slice(start, start + parseInt(limit)) });
@@ -57,7 +57,7 @@ router.get('/price-history', requireAdmin, (req, res) => {
     const hist = db['단가이력'].load();
     const { vendorId, catName, page = 1, limit = 50 } = req.query;
     let logs = hist.logs || [];
-    if (vendorId) logs = logs.filter(l => l.업체 === vendorId);
+    if (vendorId) logs = logs.filter(l => l.업체ID === vendorId);
     if (catName) logs = logs.filter(l => l.품목명 && l.품목명.includes(catName));
     logs = [...logs].reverse();
     const start = (parseInt(page) - 1) * parseInt(limit);

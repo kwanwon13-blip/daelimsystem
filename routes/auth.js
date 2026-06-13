@@ -4,8 +4,6 @@
  * ── 보안 강화 ──────────────────────────────────────────
  * - verifyPassword()  : PBKDF2 검증 + SHA256 레거시 자동 마이그레이션
  * - 로그인 실패 5회 → 30분 잠금
- * - 급여 PIN 재인증 API  POST /api/auth/salary-pin
- * - 급여 세션 만료      POST /api/auth/salary-logout
  * ─────────────────────────────────────────────────────
  */
 const express = require('express');
@@ -18,9 +16,7 @@ const {
   sessions, parseCookies,
   hashPassword, verifyPassword,
   getFailureKey, isLocked, recordFailure, clearFailures, getRemainingLockMinutes,
-  requireAuth, requireAdmin,
-  createSalarySession, expireSalarySession,
-  logSalaryAccess
+  requireAuth, requireAdmin
 } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
 
@@ -93,7 +89,7 @@ router.post('/login', (req, res) => {
     department: user.department || '', companyId: user.companyId || 'dalim-sm',
     permissions: perms, loginAt: Date.now()
   };
-  res.setHeader('Set-Cookie', `session_token=${token}; Path=/; HttpOnly; Max-Age=86400`);
+  res.setHeader('Set-Cookie', `session_token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`);
   auditLog(user.userId, '로그인', '시스템');
 
   // 팀장 여부
@@ -127,7 +123,10 @@ router.post('/change-password', requireAuth, (req, res) => {
   const uData = db.loadUsers();
   const user = (uData.users || []).find(u => u.userId === req.user.userId);
   if (!user) return res.status(404).json({ error: '사용자를 찾을 수 없습니다' });
-  if (!verifyPassword(currentPassword, user.password)) {
+  // ⚠ 보안수정(2026-06-13): verifyPassword 는 항상 객체를 반환하므로 .ok 를 확인해야 함.
+  // 기존 `if (!verifyPassword(...))` 는 항상 false 라 현재 비밀번호 검증이 무력화됐었음.
+  const { ok: curPwOk } = verifyPassword(currentPassword, user.password);
+  if (!curPwOk) {
     return res.status(401).json({ error: '현재 비밀번호가 일치하지 않습니다' });
   }
   user.password = hashPassword(newPassword);
@@ -150,93 +149,7 @@ router.post('/change-password', requireAuth, (req, res) => {
   res.json({ ok: true, otherSessionsInvalidated: killed });
 });
 
-// ── 급여 PIN 인증 ──────────────────────────────────────
-/**
- * POST /api/auth/salary-pin
- * body: { pin: string }
- * 성공 시 salary_token 쿠키 발급 (30분 유효)
- */
-router.post('/salary-pin', requireAuth, (req, res) => {
-  const { pin } = req.body;
-  if (!pin) return res.status(400).json({ error: 'PIN을 입력해주세요' });
-
-  // 브루트포스 방어: 사용자별 + IP별 잠금 키
-  const ip = req.ip || req.connection?.remoteAddress || 'unknown';
-  const lockKeyUser = `salary_u_${req.user.userId}`;
-  const lockKeyIp = `salary_ip_${ip}`;
-  if (isLocked(lockKeyUser) || isLocked(lockKeyIp)) {
-    const mins = Math.max(getRemainingLockMinutes(lockKeyUser), getRemainingLockMinutes(lockKeyIp));
-    logSalaryAccess(req.user.userId, 'PIN_LOCKED', `${mins}분 잠금`);
-    return res.status(429).json({ error: `PIN 시도가 너무 많습니다. ${mins}분 후 다시 시도해주세요.`, code: 'PIN_LOCKED' });
-  }
-
-  const uData = db.loadUsers();
-  const user  = (uData.users || []).find(u => u.userId === req.user.userId);
-  if (!user) return res.status(404).json({ error: '사용자 없음' });
-
-  // 급여 권한 확인
-  const perms   = user.permissions || [];
-  const isAdmin = user.role === 'admin';
-  if (!isAdmin && !perms.includes('salary_view')) {
-    logSalaryAccess(req.user.userId, 'PIN_FAIL', '권한 없음');
-    return res.status(403).json({ error: '급여 열람 권한이 없습니다', code: 'NO_SALARY_PERM' });
-  }
-
-  // salary_pin 설정 여부 확인
-  if (!user.salaryPin) {
-    logSalaryAccess(req.user.userId, 'PIN_FAIL', 'PIN 미설정');
-    return res.status(403).json({ error: '급여 PIN이 설정되어 있지 않습니다. 관리자에게 문의하세요.', code: 'NO_PIN_SET' });
-  }
-
-  // PIN 검증 (PBKDF2 — 내부적으로 timing-safe 비교)
-  const { ok } = verifyPassword(pin, user.salaryPin);
-  if (!ok) {
-    recordFailure(lockKeyUser);
-    recordFailure(lockKeyIp);
-    logSalaryAccess(req.user.userId, 'PIN_FAIL', 'PIN 불일치');
-    return res.status(401).json({ error: 'PIN이 틀렸습니다', code: 'PIN_WRONG' });
-  }
-
-  // 성공 시 잠금 카운터 초기화
-  clearFailures(lockKeyUser);
-  clearFailures(lockKeyIp);
-
-  // 급여 세션 발급
-  const salaryToken = createSalarySession(req.user.userId);
-  logSalaryAccess(req.user.userId, 'PIN_OK', '급여 세션 발급');
-
-  res.setHeader('Set-Cookie', `salary_token=${salaryToken}; Path=/; HttpOnly; Max-Age=1800`); // 30분
-  res.json({ ok: true, message: '급여 인증 완료. 30분간 유효합니다.' });
-});
-
-// ── 급여 세션 만료 (급여 탭 닫기) ──────────────────────
-router.post('/salary-logout', requireAuth, (req, res) => {
-  expireSalarySession(req.user.userId);
-  res.setHeader('Set-Cookie', 'salary_token=; Path=/; HttpOnly; Max-Age=0');
-  logSalaryAccess(req.user.userId, 'LOGOUT', '급여 세션 수동 만료');
-  res.json({ ok: true });
-});
-
-// ── 급여 PIN 설정 (admin만) ────────────────────────────
-/**
- * POST /api/auth/salary-pin/set
- * body: { targetUserId: string, pin: string }
- * admin이 특정 유저의 급여 PIN을 설정
- */
-router.post('/salary-pin/set', requireAdmin, (req, res) => {
-  const { targetUserId, pin } = req.body;
-  if (!targetUserId || !pin) return res.status(400).json({ error: 'targetUserId와 pin 필수' });
-  if (pin.length < 4) return res.status(400).json({ error: 'PIN은 4자리 이상이어야 합니다' });
-
-  const uData = db.loadUsers();
-  const user  = (uData.users || []).find(u => u.userId === targetUserId);
-  if (!user) return res.status(404).json({ error: '사용자를 찾을 수 없습니다' });
-
-  user.salaryPin = hashPassword(pin);
-  db.saveUsers(uData);
-  auditLog(req.user.userId, '급여PIN설정', targetUserId);
-  res.json({ ok: true, message: `${user.name}의 급여 PIN이 설정되었습니다` });
-});
+// ── 급여 PIN/세션 엔드포인트 제거됨 (2026-06-13, 보안: 미사용 급여 모듈 완전 분리) ──
 
 // ── 회원가입 상태 조회 ────────────────────────────────
 router.get('/registration-status', (req, res) => {
@@ -284,13 +197,9 @@ router.post('/logout', (req, res) => {
   const cookies = parseCookies(req);
   const token = cookies.session_token;
   if (token && sessions[token]) {
-    expireSalarySession(sessions[token].userId); // 급여 세션도 함께 만료
     delete sessions[token];
   }
-  res.setHeader('Set-Cookie', [
-    'session_token=; Path=/; HttpOnly; Max-Age=0',
-    'salary_token=; Path=/; HttpOnly; Max-Age=0'
-  ]);
+  res.setHeader('Set-Cookie', 'session_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
   res.json({ ok: true });
 });
 
@@ -300,13 +209,6 @@ router.get('/me', (req, res) => {
   const token = cookies.session_token || req.headers['x-session-token'];
   if (!token || !sessions[token]) return res.json({ loggedIn: false });
   const s = sessions[token];
-
-  // 급여 세션 유효 여부 함께 전달
-  const { salarySessions } = require('../middleware/auth');
-  const salaryToken = cookies.salary_token;
-  const salaryActive = !!(salaryToken && salarySessions[salaryToken] &&
-    salarySessions[salaryToken].userId === s.userId &&
-    Date.now() < salarySessions[salaryToken].expiresAt);
 
   let isTeamLeader = false;
   let mustChangePassword = false;
@@ -325,7 +227,7 @@ router.get('/me', (req, res) => {
   res.json({ loggedIn: true, userId: s.userId, name: s.name, role: s.role,
     position: s.position || '', phone: s.phone || '',
     department: s.department || '', companyId: s.companyId || 'dalim-sm',
-    permissions: s.permissions || [], isTeamLeader, salaryActive,
+    permissions: s.permissions || [], isTeamLeader,
     mustChangePassword });
 });
 

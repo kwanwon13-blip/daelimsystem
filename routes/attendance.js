@@ -409,7 +409,35 @@ router.get('/attendance/bridge-status', requireAuth, async (req, res) => {
 // ─────────────────────────────────────────────────────────
 router.get('/attendance/notes', requireAuth, (req, res) => {
   const data = db.출퇴근관리.load();
-  res.json(data.attendanceNotes || {});
+  const allNotes = data.attendanceNotes || {};
+
+  // ⚠ 보안(2026-06-13): 이전엔 전 직원 노트(연차/병가/관리자메모)를 로그인만 하면 전부 반환했음.
+  // /summary 와 동일하게 admin/attendance_all=전체, 팀장=부서원, 일반=본인 으로 스코핑한다.
+  const isAdmin = req.user.role === 'admin';
+  const perms = req.user.permissions || [];
+  if (isAdmin || perms.includes('attendance_all')) {
+    return res.json(allNotes);
+  }
+  const allowed = new Set([req.user.name]);
+  try {
+    const uData = db.loadUsers();
+    const me = (uData.users || []).find(u => u.userId === req.user.userId);
+    if (me && me.department) {
+      const myDept = (uData.departments || []).find(d => d.id === me.department);
+      if (myDept && myDept.leaderId === me.id) {
+        (uData.users || [])
+          .filter(u => u.department === me.department && u.status === 'approved')
+          .forEach(u => allowed.add(u.name));
+      }
+    }
+  } catch (e) {}
+  const filtered = {};
+  for (const key of Object.keys(allNotes)) {
+    const m = key.match(/^(.+)_(\d{4}-\d{2}-\d{2})$/);
+    const empName = m ? m[1] : key;
+    if (allowed.has(empName)) filtered[key] = allNotes[key];
+  }
+  res.json(filtered);
 });
 
 router.put('/attendance/notes/:key', requireAuth, (req, res) => {

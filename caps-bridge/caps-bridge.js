@@ -33,6 +33,29 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// ⚠ 보안(2026-06-13): 이전엔 인증 없이 모든 인터페이스에 열려 있어 사내망 누구나 전 직원
+// 출퇴근/사번(e_idno)/카드번호를 조회할 수 있었다. 신뢰 IP(서버 PC + 로컬)만 허용한다.
+// 직접 LAN 호출이라 req.ip(소켓 주소)가 신뢰 가능 (메인 서버 터널과 달리 trust-proxy 무관).
+// 추가 강화: CAPS_BRIDGE_SECRET 를 양쪽 PC 에 설정하면 헤더 검증도 켤 수 있음(기본 IP 게이트).
+const CAPS_ALLOWED_IPS = new Set(
+  (process.env.CAPS_ALLOWED_IPS || '192.168.0.133,127.0.0.1,::1,localhost')
+    .split(',').map(s => s.trim()).filter(Boolean)
+);
+function _normIp(raw) {
+  if (!raw) return '';
+  if (raw.startsWith('::ffff:')) return raw.slice(7);
+  if (raw === '::1') return '127.0.0.1';
+  return raw;
+}
+app.use((req, res, next) => {
+  const ip = _normIp(req.ip || (req.socket && req.socket.remoteAddress) || '');
+  if (!CAPS_ALLOWED_IPS.has(ip)) {
+    console.warn(`[caps-bridge] 차단된 IP: ${ip} (${req.method} ${req.url})`);
+    return res.status(403).json({ error: 'CAPS_IP_FORBIDDEN' });
+  }
+  next();
+});
+
 // ─── MDB 읽기: 사본 + 재시도 + fallback ──────────────────
 // CAPS 본체가 mdb 를 쓰는 동안 우리가 읽으면 페이지 깨짐 발생.
 // → 매번 임시 사본을 만들어서 읽음. 실패 시 재시도 + 마지막 성공 데이터로 fallback.
@@ -345,50 +368,8 @@ app.get('/api/tenter', (req, res) => {
   }
 });
 
-// ─── RAW nOutput 데이터 (디버그) ──────────────────────────
-app.get('/api/debug/raw', (req, res) => {
-  try {
-    const { from, to, name } = req.query;
-    const reader = readMdb();
-    const rows = reader.getTable('nOutput').getData();
-    const filtered = rows.filter(r => {
-      const d = String(r.d_date || '').trim().replace(/\D/g,'');
-      if (from && d < from) return false;
-      if (to   && d > to)   return false;
-      if (name && !String(r.e_name || '').includes(name)) return false;
-      return true;
-    }).slice(0, 50);
-    res.json(filtered);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ─── 테이블 샘플 (디버그) ─────────────────────────────────
-app.get('/api/debug/table/:tbl', (req, res) => {
-  try {
-    const reader = readMdb();
-    const rows = reader.getTable(req.params.tbl).getData().slice(0, 20);
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ─── 테이블 목록 + 샘플 (디버그) ─────────────────────────
-app.get('/api/debug/schema', (req, res) => {
-  try {
-    const reader = readMdb();
-    const tables = reader.getTableNames();
-    let sample = [];
-    if (tables.includes('nOutput')) {
-      sample = reader.getTable('nOutput').getData().slice(0, 3);
-    }
-    res.json({ tables, sample });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// ─── 디버그 라우트(/api/debug/raw, /api/debug/table/:tbl, /api/debug/schema) 제거됨 ──
+// (2026-06-13, 보안: 임의 테이블 덤프/스키마 노출 차단)
 
 // '::' = dual-stack: IPv4 (0.0.0.0) + IPv6 (::1).
 // 이전 '0.0.0.0' 만으로는 Chrome 의 localhost resolve (::1) 가 안 닿음.

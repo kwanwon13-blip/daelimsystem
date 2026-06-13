@@ -16,7 +16,22 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { requireAuth, sessions, parseCookies } = require('../middleware/auth');
+
+/**
+ * 디자이너 토큰 안전 비교 (타이밍 안전 + fail-closed)
+ * - DESIGNER_TOKEN 미설정/빈 값이면 모든 X-Designer-Token 요청 거부 (하드코딩 기본값 폴백 금지)
+ * - 길이 먼저 확인 후 crypto.timingSafeEqual 비교
+ */
+function isValidDesignerToken(desToken) {
+  const expected = process.env.DESIGNER_TOKEN;
+  if (!expected || !desToken) return false;              // fail closed
+  const a = Buffer.from(String(desToken));
+  const b = Buffer.from(String(expected));
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
 
 /**
  * 세션 또는 디자이너 토큰 인증 (Illustrator 스크립트용)
@@ -30,10 +45,8 @@ function authOrDesignerToken(req, res, next) {
     const token = cookies.session_token || req.headers['x-session-token'];
     if (token && sessions[token]) { req.session = sessions[token]; return next(); }
   } catch(e) {}
-  // 2) 디자이너 토큰
-  const desToken = req.headers['x-designer-token'];
-  const expected = process.env.DESIGNER_TOKEN || 'designer-default-key-change-in-env';
-  if (desToken && desToken === expected) {
+  // 2) 디자이너 토큰 (DESIGNER_TOKEN 미설정 시 거부)
+  if (isValidDesignerToken(req.headers['x-designer-token'])) {
     req.session = { role: 'designer', userId: 'designer-script' };
     return next();
   }
@@ -224,8 +237,28 @@ router.post('/check-name', authOrDesignerToken, (req, res) => {
   const names = (req.body && req.body.names) || [];
   const results = {};
   try {
+    // 디자인 루트 안으로 봉쇄 — 임의 경로 존재여부 노출(오라클) 방지
+    const root = designModule.getDesignRoot();
+    const rootResolved = path.resolve(root);
+    const rootPrefix = rootResolved.toLowerCase();
+    // folder 는 디자인 루트 기준 '상대 경로'로만 취급 (절대경로 무시)
+    const relFolder = String(folder).replace(/^[\\/]+/, '');
+    const baseDir = path.resolve(rootResolved, relFolder);
+    if (!baseDir.toLowerCase().startsWith(rootPrefix)) {
+      return res.status(403).json({ error: 'forbidden' });
+    }
     for (const name of names) {
-      const full = path.join(folder, name);
+      const safeName = String(name);
+      // 파일명에 경로 구분자/상위참조 포함 시 거부
+      if (/[\\/]/.test(safeName) || safeName.split(/[\\/]/).includes('..') || safeName.includes('..')) {
+        results[name] = false;
+        continue;
+      }
+      const full = path.resolve(baseDir, safeName);
+      if (!full.toLowerCase().startsWith(rootPrefix)) {
+        results[name] = false;
+        continue;
+      }
       results[name] = fs.existsSync(full);
     }
     res.json({ ok: true, results });
