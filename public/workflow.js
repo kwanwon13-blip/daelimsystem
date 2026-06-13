@@ -179,7 +179,18 @@ function workflowApp() {
         });
         window.__workflowDepartmentsChangedListenerInstalled = true;
       }
-      try { const _dw = localStorage.getItem('wfDetailW'); if (_dw && /^\d{2,4}px$/.test(_dw)) document.documentElement.style.setProperty('--wf-detail-w', _dw); } catch (_) {}
+      try {
+        const _dw = localStorage.getItem('wfDetailW');
+        const _clampW = (px) => Math.max(360, Math.min(px, Math.max(360, document.documentElement.clientWidth - 360)));
+        if (_dw && /^\d{2,4}px$/.test(_dw)) document.documentElement.style.setProperty('--wf-detail-w', _clampW(parseInt(_dw, 10)) + 'px');
+        if (!window.__wfDetailResizeClamp) {
+          window.__wfDetailResizeClamp = true;
+          window.addEventListener('resize', () => {
+            const cur = parseInt(document.documentElement.style.getPropertyValue('--wf-detail-w'), 10);
+            if (cur) document.documentElement.style.setProperty('--wf-detail-w', _clampW(cur) + 'px');
+          });
+        }
+      } catch (_) {}
       await Promise.all([this.loadAuth(), this.loadMeta()]);
       this.loadPublicLinkSettings();
       if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
@@ -2804,6 +2815,7 @@ function workflowApp() {
       const label = this.handoffLabel();
       const who = this.detail.job.projectName || this.detail.job.companyName || this.detail.job.title || '작업';
       const cur = this.currentStage();
+      let ackAfterHandoff = false;
       // 특이사항은 디자인팀이 시안 넘길 때(design→공장)만 입력받는다. 공장 완료/납품준비 단계는 단순 확인.
       if (cur && cur.id === 'design') {
         // 풀 모델: 공장이 [가져오기]를 누른다. 특이사항은 등록 때 디자인팀이 이미 적어둠 — 여기선 보여주고 확인만.
@@ -2813,10 +2825,15 @@ function workflowApp() {
           `${who}\n요청날짜 ${due}\n\n[디자인팀 특이사항]\n${note}\n\n` +
           `확인했으면 공장으로 가져옵니다.\n(가능일 조율은 가져온 뒤 공장 칸의 [가능일]에서)`)) return;
         this.handoffText = '';
+        // 공장이 [가져오기]에서 특이사항을 이미 확인 → ack 기록해 다시 열 때 팝업 반복 방지
+        if (this.detail.job.handoffNote && !this.detail.job.handoffNoteAckAt) ackAfterHandoff = true;
       } else {
         if (!confirm(`${who}\n\n${label} 하시겠어요?`)) return;
       }
       await this.handoffJob();
+      if (ackAfterHandoff && this.detail && this.detail.job && this.detail.job.handoffNote && !this.detail.job.handoffNoteAckAt) {
+        try { await this.ackHandoffNote(); } catch (_) {}
+      }
     },
 
     // 공장 완료가능일 표시값 — 수정중(pending)이면 그 값, 아니면 저장값 또는 요청날짜(기본)
