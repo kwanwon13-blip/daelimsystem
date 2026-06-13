@@ -182,9 +182,13 @@ function sendSmtpMail({ smtpHost, smtpPort, smtpUser, smtpPass, from, to, cc, su
 
           if (attachments && attachments.length > 0) {
             for (const att of attachments) {
+              // 헤더 인젝션 방어: 레거시 name= / Content-Type 파라미터에 들어가는 값은 CR/LF/따옴표/세미콜론 제거.
+              // (권위있는 파일명은 아래 Content-Disposition filename* 의 base64라 원본 표시는 유지됨)
+              const safeAttName = String(att.filename || 'file').replace(/[\r\n"\\]/g, '_');
+              const safeAttType = String(att.contentType || 'application/octet-stream').replace(/[\r\n";]/g, '') || 'application/octet-stream';
               msg += `--${boundary}\r\n`;
-              msg += `Content-Type: ${att.contentType || 'application/octet-stream'}; name="${att.filename}"\r\n`;
-              msg += `Content-Disposition: attachment; filename="=?UTF-8?B?${Buffer.from(att.filename).toString('base64')}?="\r\n`;
+              msg += `Content-Type: ${safeAttType}; name="${safeAttName}"\r\n`;
+              msg += `Content-Disposition: attachment; filename="=?UTF-8?B?${Buffer.from(String(att.filename || 'file')).toString('base64')}?="\r\n`;
               msg += `Content-Transfer-Encoding: base64\r\n\r\n`;
               msg += att.content.toString('base64').replace(/(.{76})/g, '$1\r\n') + '\r\n';
             }

@@ -1832,10 +1832,28 @@
         <div class="wf-field">
           <label>제작 방식</label>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <label class="wf-route-opt" :class="form.productionRoute==='internal'?'on':''"><input type="radio" value="internal" x-model="form.productionRoute" style="display:none;"><span class="material-symbols-outlined" style="font-size:16px;">factory</span> 내부 (대림컴퍼니)</label>
-            <label class="wf-route-opt" :class="form.productionRoute==='external'?'on':''"><input type="radio" value="external" x-model="form.productionRoute" style="display:none;"><span class="material-symbols-outlined" style="font-size:16px;">local_shipping</span> 외주 (타 회사)</label>
+            <label class="wf-route-opt" :class="form.productionRoute==='internal'?'on':''"><input type="radio" value="internal" x-model="form.productionRoute" @change="onProductionRouteChange()" style="display:none;"><span class="material-symbols-outlined" style="font-size:16px;">factory</span> 내부 (대림컴퍼니)</label>
+            <label class="wf-route-opt" :class="form.productionRoute==='external'?'on':''"><input type="radio" value="external" x-model="form.productionRoute" @change="onProductionRouteChange()" style="display:none;"><span class="material-symbols-outlined" style="font-size:16px;">local_shipping</span> 외주 (타 회사)</label>
           </div>
           <div class="wf-muted" x-show="form.productionRoute==='external'" style="font-size:11px;">외주는 공장 단계를 건너뛰고 <b>경영관리(납품준비)</b>로 바로 등록됩니다.</div>
+        </div>
+        <div class="wf-field" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0;">
+            <input type="checkbox" x-model="newMail.send" style="width:15px;height:15px;cursor:pointer;">
+            <span class="material-symbols-outlined" style="font-size:17px;color:#2563eb;">mail</span>
+            <span style="font-weight:800;" x-text="form.productionRoute==='external' ? '등록과 함께 외주 업체로 메일 발송' : '등록과 함께 대림컴퍼니로 메일 발송'"></span>
+          </label>
+          <div x-show="newMail.send" x-cloak style="margin-top:8px;display:flex;flex-direction:column;gap:6px;">
+            <input type="email" class="wf-input" x-model="newMail.to" list="wfMailToList" autocomplete="off"
+              :placeholder="form.productionRoute==='external' ? '외주 업체 받는 메일 주소' : '대림컴퍼니 받는 메일 주소'">
+            <input x-show="form.productionRoute==='external'" type="text" class="wf-input" x-model="newMail.company" placeholder="외주 업체명 (메일 제목·이력에 표시)">
+            <datalist id="wfMailToList">
+              <template x-for="t in (orderTargets||[]).filter(t=>t && t.recipientEmail)" :key="t.id">
+                <option :value="t.recipientEmail" x-text="((t.label||t.name||'') + ' · ' + t.recipientEmail)"></option>
+              </template>
+            </datalist>
+            <div class="wf-muted" style="font-size:11px;line-height:1.5;">시안 파일이 <b>첨부</b>되어 발송됩니다. 용량이 크면 자동으로 <b>다운로드 링크</b>로 전환됩니다. 발송 성공·실패는 등록 직후 알림과 상세의 전달 이력에서 확인할 수 있습니다.</div>
+          </div>
         </div>
       </div>
       <div class="wf-dialog-foot">

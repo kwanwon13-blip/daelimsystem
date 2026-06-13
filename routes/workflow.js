@@ -3418,9 +3418,11 @@ router.get('/meta', (req, res) => {
 });
 
 router.get('/order-targets', (req, res) => {
+  const data = loadStore();
   res.json({
     ok: true,
     orderTargets: buildWorkflowOrderTargets(),
+    internalRecipientEmail: (data.settings && data.settings.internalRecipientEmail) || '',
   });
 });
 
@@ -4409,18 +4411,36 @@ router.post('/jobs/:id/orders/:orderId/email', async (req, res) => {
     const message = safeText(req.body?.message, 3000);
     const html = buildWorkflowOrderMailHtml(job, order, files, message, publicUrl);
 
-    await sendSmtpMail({
-      smtpHost: smtp.host,
-      smtpPort: smtp.port,
-      smtpUser: smtp.user,
-      smtpPass: smtp.pass,
-      from: smtp.from,
-      to: toList,
-      cc: ccList,
-      subject,
-      html,
-      attachments: mailFiles.attachments,
-    });
+    try {
+      await sendSmtpMail({
+        smtpHost: smtp.host,
+        smtpPort: smtp.port,
+        smtpUser: smtp.user,
+        smtpPass: smtp.pass,
+        from: smtp.from,
+        to: toList,
+        cc: ccList,
+        subject,
+        html,
+        attachments: mailFiles.attachments,
+      });
+    } catch (sendErr) {
+      // 발송 실패 영속 기록 — 검증/권한 실패(400/403/404/413)는 전송 전 return이라 여기 안 옴(실제 전송 실패만 'failed').
+      const failFresh = loadStore();
+      const failJob = failFresh.jobs.find(j => j.id === req.params.id) || job;
+      const failOrder = (failFresh.orders || []).find(o => o.jobId === req.params.id && o.id === req.params.orderId) || order;
+      const failAt = nowIso();
+      failOrder.mailStatus = 'failed';
+      failOrder.mailError = String(sendErr.message || '발송 실패').slice(0, 500);
+      failOrder.mailFailedAt = failAt;
+      failOrder.mailFailedBy = req.user?.userId || '';
+      if (!Array.isArray(failOrder.mailHistory)) failOrder.mailHistory = [];
+      failOrder.mailHistory.push({ to: toList, subject, sentAt: failAt, sentBy: req.user?.userId || '', sentByName: userName(req), status: 'failed', error: failOrder.mailError });
+      failOrder.updatedAt = failAt;
+      try { saveStore(failFresh); } catch (_) {}
+      console.error('[workflow-mail] send failed:', sendErr);
+      return res.status(500).json({ error: '메일 발송 실패: ' + sendErr.message, order: decorateOrder(failFresh, failJob, failOrder) });
+    }
 
     // 메일 전송(await) 동안 다른 요청이 스토어를 바꿨을 수 있음 — stale 스냅샷을 그대로 저장하면
     // 그 사이 변경(예: 승인된 현장명 변경)이 통째로 롤백됨(감사 #1 critical). 최신 스토어를 다시 읽어 그 위에 기록.
@@ -4458,6 +4478,11 @@ router.post('/jobs/:id/orders/:orderId/email', async (req, res) => {
     freshOrder.updatedBy = req.user?.userId || '';
     freshOrder.updatedByName = userName(req);
     freshJob.updatedAt = sentAt;
+    // 내부(대림컴퍼니) 발송이면 기본 수신처로 기억 → 다음 +시안 등록 시 자동 채움
+    if ((freshOrder.targetType || 'internal') === 'internal' && toList[0]) {
+      fresh.settings = fresh.settings || {};
+      fresh.settings.internalRecipientEmail = toList[0];
+    }
 
     addEvent(fresh, req, freshJob.id, 'order_email', `제작 파일 메일 발송 · ${freshOrder.targetName} · ${toList.join(', ')}`, {
       orderId: freshOrder.id,

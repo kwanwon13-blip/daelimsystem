@@ -13,6 +13,7 @@ function workflowApp() {
     statuses: {},
     checkStatuses: {},
     orderTargets: [],
+    internalRecipientEmail: '',
     orderTargetsLoaded: false,
     orderTargetsLoading: null,
     orderStatuses: {},
@@ -148,6 +149,8 @@ function workflowApp() {
       handoffNote: '', // 특이사항 — 등록 시 필수(없으면 [없음] 버튼으로 '없음')
       productionRoute: 'internal', // 제작방식: internal(대림컴퍼니) / external(외주 타사 — 공장 건너뛰고 경영관리로)
     },
+    newMail: { send: true, to: '', subject: '', message: '', company: '' }, // +시안 등록 시 첨부발송(내부=대림컴퍼니 / 외주=타사)
+    mailNotice: '',
 
     async init() {
       if (!window.__workflowPrefillListenerInstalled) {
@@ -355,6 +358,7 @@ function workflowApp() {
           const d = await r.json().catch(() => ({}));
           if (!r.ok || !d.ok) throw new Error(d.error || '전달 대상을 불러오지 못했습니다.');
           this.orderTargets = d.orderTargets || [];
+          if (typeof d.internalRecipientEmail === 'string') this.internalRecipientEmail = d.internalRecipientEmail;
           this.orderTargetsLoaded = true;
         } catch (e) {
           alert(e.message || '전달 대상을 불러오지 못했습니다.');
@@ -2931,9 +2935,10 @@ function workflowApp() {
         if (!r.ok || !d.ok) throw new Error(d.error || '작업 생성 실패');
         const pendingFiles = this.newFiles.slice();
         let uploadError = null;
+        let uploadResult = null;
         if (pendingFiles.length) {
           try {
-            await this.uploadFilesForJob(d.job.id, pendingFiles, {
+            uploadResult = await this.uploadFilesForJob(d.job.id, pendingFiles, {
               companyName: this.form.companyName,
               projectName: this.form.projectName,
               designDueDate: this.form.dueDate,
@@ -2953,17 +2958,62 @@ function workflowApp() {
           alert('파일 업로드에 실패했습니다: ' + uploadError.message + (cleaned ? '\n빈 작업은 자동 정리했습니다.' : '\n작업 정리는 하지 못했습니다. 선택된 작업을 확인해주세요.'));
           return;
         }
+        let _mailNotice = '';
+        if (this.newMail.send && String(this.newMail.to || '').trim()) {
+          try { await this.autoSendDesignMail(d.job, (uploadResult && uploadResult.files) || []); } catch (e) { this.mailNotice = '메일 발송 오류: ' + (e.message || e); }
+          _mailNotice = this.mailNotice;
+        }
         this.resetForm();
         this.clearNewFiles();
         this.newOpen = false;
         await this.loadDesignWorkflowOptions(true);
         await this.loadJobs();
         await this.selectJob(d.job.id);
+        if (_mailNotice) alert(_mailNotice);
       } catch (e) {
         alert(e.message);
       } finally {
         this.saving = false;
       }
+    },
+
+    // +시안 등록 직후 자동 메일발송 — 기존 전달(order)+메일 엔드포인트만 호출. 호출부 try/catch로 감싸 발송 실패가 등록을 막지 않게.
+    async autoSendDesignMail(job, uploadedFiles) {
+      const to = String(this.newMail.to || '').trim();
+      const fileIds = (uploadedFiles || []).map(f => f && f.id).filter(Boolean);
+      if (!to || !fileIds.length) return;
+      const isExternal = String(job.productionRoute || this.form.productionRoute || 'internal') === 'external';
+      let order = null;
+      try {
+        const or = await fetch('/api/workflow/jobs/' + encodeURIComponent(job.id) + '/orders', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            targetType: isExternal ? 'external' : 'internal',
+            targetName: isExternal ? (String(this.newMail.company || '').trim() || '외주 업체') : '대림컴퍼니',
+            recipientEmail: to,
+            fileIds,
+            status: 'requested',
+            note: this.newMail.message || '',
+          }),
+        });
+        const od = await or.json().catch(() => ({}));
+        if (!or.ok || !od.ok) { this.mailNotice = '메일용 전달건 생성 실패: ' + (od.error || ('HTTP ' + or.status)); return; }
+        order = od.order;
+      } catch (e) { this.mailNotice = '전달건 생성 오류: ' + e.message; return; }
+      if (!order || !order.id) return;
+      const sendOnce = async (attach) => {
+        const er = await fetch('/api/workflow/jobs/' + encodeURIComponent(job.id) + '/orders/' + encodeURIComponent(order.id) + '/email', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ toEmail: to, subject: this.newMail.subject || '', message: this.newMail.message || '', attachFiles: attach }),
+        });
+        const d = await er.json().catch(() => ({}));
+        return { ok: er.ok && d.ok, status: er.status, d };
+      };
+      try {
+        let res = await sendOnce(true);
+        if (!res.ok && res.status === 413) res = await sendOnce(false); // 용량 초과 → 첨부 끄고 링크로
+        this.mailNotice = res.ok ? (res.d.message || '메일서버 접수 완료') : ('메일 발송 실패: ' + (res.d.error || ('HTTP ' + res.status)));
+      } catch (e) { this.mailNotice = '메일 발송 오류: ' + e.message; }
     },
 
     async abortEmptyJob(jobId, reason = '') {
@@ -2995,12 +3045,27 @@ function workflowApp() {
         handoffNote: '',
         productionRoute: 'internal',
       };
+      this.newMail = { send: true, to: '', subject: '', message: '', company: '' };
+    },
+
+    onProductionRouteChange() {
+      // 라우트 전환 시 직전 라우트용 주소가 새지 않도록 초기화 후 재설정.
+      // (외주 주소가 내부 발송에 남거나, 그게 내부 기본수신처로 영구 저장돼 오염되는 것 방지)
+      this.newMail.to = '';
+      this.newMail.company = '';
+      if (this.form.productionRoute === 'internal') {
+        const factory = (this.orderTargets || []).find(t => t && t.id === 'factory') || {};
+        const def = String(this.internalRecipientEmail || '').trim() || String(factory.recipientEmail || '').trim();
+        if (def) this.newMail.to = def;
+      }
     },
 
     openNewJobModal() {
       if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
+      this.newMail = { send: true, to: '', subject: '', message: '', company: '' };
       this.loadContacts();
       this.loadDesignWorkflowOptions();
+      this.loadOrderTargets().then(() => this.onProductionRouteChange());
       this.syncAutoJobTitle();
       this.newOpen = true;
       setTimeout(() => {
@@ -3023,8 +3088,10 @@ function workflowApp() {
       if (!next.dueDate) next.dueDate = this.defaultWorkDate();
       this.form = next;
       if (keepOpen) {
+        this.newMail = { send: true, to: '', subject: '', message: '', company: '' };
         this.loadContacts();
         this.loadDesignWorkflowOptions();
+        this.loadOrderTargets().then(() => this.onProductionRouteChange());
         this.newOpen = true;
       }
     },
