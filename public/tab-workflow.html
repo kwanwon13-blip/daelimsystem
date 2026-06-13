@@ -144,6 +144,8 @@
   .wf-rc-flag.rename{background:#eef2ff;border-color:#c7d2fe;color:#4338ca;}
   /* 등록 모달 특이사항 필수칸 */
   .wf-note-req{font-size:10px;font-weight:900;color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;border-radius:4px;padding:0 6px;}
+  .wf-route-opt{display:inline-flex;align-items:center;gap:5px;padding:7px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:12.5px;font-weight:800;color:#64748b;cursor:pointer;background:#fff;}
+  .wf-route-opt.on{border-color:#2563eb;background:#eff6ff;color:#1d4ed8;}
   .wf-note-empty{border-color:#fca5a5 !important;background:#fff7f7;}
   /* 특이사항 확인 팝업(공장 강제 인지) */
   .wf-noteack-modal{position:fixed;inset:0;z-index:10000;background:rgba(3,7,18,.55);display:flex;align-items:center;justify-content:center;padding:16px;}
@@ -1826,6 +1828,14 @@
             <button type="button" class="wf-btn ghost" style="height:24px;padding:0 8px;font-size:11px;" @click="form.handoffNote='없음'" title="평소와 다른 점이 없으면 누르세요">없음</button>
           </label>
           <textarea class="wf-textarea" :class="String(form.handoffNote||'').trim() ? '' : 'wf-note-empty'" x-model="form.handoffNote" placeholder="평소와 다른 점 — 공장이 가져갈 때 팝업으로 확인합니다 (없으면 [없음] 클릭)" style="min-height:52px;"></textarea>
+        </div>
+        <div class="wf-field">
+          <label>제작 방식</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <label class="wf-route-opt" :class="form.productionRoute==='internal'?'on':''"><input type="radio" value="internal" x-model="form.productionRoute" style="display:none;"><span class="material-symbols-outlined" style="font-size:16px;">factory</span> 내부 (대림컴퍼니)</label>
+            <label class="wf-route-opt" :class="form.productionRoute==='external'?'on':''"><input type="radio" value="external" x-model="form.productionRoute" style="display:none;"><span class="material-symbols-outlined" style="font-size:16px;">local_shipping</span> 외주 (타 회사)</label>
+          </div>
+          <div class="wf-muted" x-show="form.productionRoute==='external'" style="font-size:11px;">외주는 공장 단계를 건너뛰고 <b>경영관리(납품준비)</b>로 바로 등록됩니다.</div>
         </div>
       </div>
       <div class="wf-dialog-foot">

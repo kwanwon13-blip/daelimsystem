@@ -146,6 +146,7 @@ function workflowApp() {
       priority: 'normal',
       summary: '',
       handoffNote: '', // 특이사항 — 등록 시 필수(없으면 [없음] 버튼으로 '없음')
+      productionRoute: 'internal', // 제작방식: internal(대림컴퍼니) / external(외주 타사 — 공장 건너뛰고 경영관리로)
     },
 
     async init() {
@@ -2992,6 +2993,7 @@ function workflowApp() {
         priority: 'normal',
         summary: '',
         handoffNote: '',
+        productionRoute: 'internal',
       };
     },
 

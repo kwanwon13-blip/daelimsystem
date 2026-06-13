@@ -3778,6 +3778,19 @@ router.post('/jobs', (req, res) => {
   if (!projectExistedBefore && project?.id) job.autoCreatedProjectId = project.id;
   job.stageChecks.design.status = 'ready';
   job.stageChecks.design.updatedAt = job.updatedAt;
+  // 제작방식: 외주(타 회사)면 공장 단계를 건너뛰고 경영관리(배송)로 바로 보낸다. 내부면 기존대로 디자인→공장.
+  if (String(req.body.productionRoute || '') === 'external') {
+    job.productionRoute = 'external';
+    const at = job.updatedAt;
+    for (const sid of ['design', 'factory']) {
+      const c = job.stageChecks[sid];
+      c.status = 'done'; c.completedAt = at; c.completedBy = job.createdBy; c.completedByName = job.createdByName; c.updatedAt = at;
+    }
+    job.stageChecks.factory.note = '외주(타 회사) — 공장 단계 건너뜀';
+    syncWorkflowStageFlow(job, at); // → 경영관리(배송) ready, currentStage = delivery
+  } else {
+    job.productionRoute = 'internal';
+  }
   data.jobs.push(job);
   addEvent(data, req, job.id, 'create', '작업 생성', { title: job.title });
   saveStore(data);
