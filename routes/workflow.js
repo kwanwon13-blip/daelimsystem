@@ -2394,6 +2394,39 @@ function isUserJob(job, req) {
   });
 }
 
+// ── 워크플로 변경 권한(부서-단계 매핑 게이트) — admin/생성자/해당 단계 담당 부서만 ──
+const WF_NO_PERM = '이 작업을 변경할 권한이 없습니다. (담당 부서·단계 또는 관리자만 가능)';
+function isJobCreator(job, req) {
+  const uid = String(req?.user?.userId || '').trim().toLowerCase();
+  return !!uid && String(job?.createdBy || '').trim().toLowerCase() === uid;
+}
+// 특정 단계 담당(또는 생성자/admin)인가
+function canActOnStage(job, req, stageId) {
+  if (isWorkflowAdmin(req)) return true;
+  if (!job) return false;
+  if (isJobCreator(job, req)) return true;
+  return !!(stageId && viewerMatchesStageTarget(job, stageId, req.user));
+}
+// 현재 진행 단계 담당(되돌리기 등)
+function canActOnCurrentStage(job, req) {
+  if (isWorkflowAdmin(req) || isJobCreator(job, req)) return true;
+  const curId = inferCurrentStage(job?.stageChecks || {}, job?.currentStage || 'design');
+  return !!viewerMatchesStageTarget(job, curId, req.user);
+}
+// 넘기기: 현재 단계(밀기) 또는 다음 단계(가져오기·당기기) 담당이면 허용 — '공장이 가져감' 동선
+function canHandoffJob(job, req, currentStageId, nextStageId) {
+  if (isWorkflowAdmin(req) || isJobCreator(job, req)) return true;
+  if (currentStageId && viewerMatchesStageTarget(job, currentStageId, req.user)) return true;
+  if (nextStageId && viewerMatchesStageTarget(job, nextStageId, req.user)) return true;
+  return false;
+}
+// 현장명 변경 승인: 팀장(admin 포함)이면서 이 발주의 어느 단계든 자기 부서가 담당
+function isJobRenameApprover(job, req) {
+  if (isWorkflowAdmin(req)) return true;
+  if (!isWorkflowApprover(req)) return false;
+  return isJobCreator(job, req) || STAGES.some(s => viewerMatchesStageTarget(job, s.id, req.user));
+}
+
 function workflowJobSearchText(data, job) {
   const files = (data.files || []).filter(f => f.jobId === job.id);
   const orders = (data.orders || []).filter(o => o.jobId === job.id);
@@ -2457,9 +2490,24 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
     : options.skipVisualFileExists
       ? (visualFiles[0] && workflowFileExistsCached(visualFiles[0], fileExistsCache) ? visualFiles[0] : null)
       : (visualFiles.find(f => workflowFileExistsCached(f, fileExistsCache)) || null);
+  // 외부 공장 받기 링크(publicToken)는 관리자·생성자·공장/경영관리 담당에게만 노출. 그 외엔 토큰 자체를 응답에서 제거.
+  const vuPL = viewerUser || {};
+  const canSeePublicLink = vuPL.role === 'admin'
+    || (!!vuPL.userId && String(vuPL.userId).toLowerCase() === String(job.createdBy || '').toLowerCase())
+    || viewerMatchesStageTarget(job, 'factory', vuPL)
+    || viewerMatchesStageTarget(job, 'delivery', vuPL);
+  const reqLikePL = { user: vuPL };
+  const curStageIdPL = inferCurrentStage(job.stageChecks || {}, job.currentStage || 'design');
+  const nextStageIdPL = (STAGES[stageIndex(curStageIdPL) + 1] || {}).id || '';
+  const { publicToken: _publicTokenOmit, ...jobSafe } = job;
   return {
-    ...job,
+    ...jobSafe,
     fileCount: files.length,
+    // 뷰어 권한 플래그 — 프론트가 버튼 노출을 서버 권한과 일치시켜 403 클릭을 방지
+    viewerCanHandoff: canHandoffJob(job, reqLikePL, curStageIdPL, nextStageIdPL),
+    viewerCanCurrentStage: canActOnCurrentStage(job, reqLikePL),
+    viewerCanFactory: vuPL.role === 'admin' || viewerMatchesStageTarget(job, 'factory', vuPL),
+    viewerCanReopen: vuPL.role === 'admin' || viewerMatchesStageTarget(job, 'delivery', vuPL) || (!!vuPL.userId && String(vuPL.userId).toLowerCase() === String(job.createdBy || '').toLowerCase()),
     // 공장 팀 분배(전상현) — 시안 파일을 용접/출력으로 나눈 개수
     weldingFileCount: visualFiles.filter(f => f.team === 'welding').length,
     outputFileCount: visualFiles.filter(f => f.team === 'output').length,
@@ -2471,7 +2519,7 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
     visualFileCount: visualFiles.length,
     urgentFileCount: files.filter(f => f.urgent && (!f.scheduleNegotiation || f.scheduleNegotiation === 'pending' || f.scheduleNegotiation === 'needs_change')).length,
     archiveUrl: `/api/workflow/jobs/${encodeURIComponent(job.id)}/files/archive`,
-    publicArchiveUrl: job.publicToken ? `/api/workflow/public/jobs/${encodeURIComponent(job.publicToken)}/files.zip` : '',
+    publicArchiveUrl: (canSeePublicLink && job.publicToken) ? `/api/workflow/public/jobs/${encodeURIComponent(job.publicToken)}/files.zip` : '',
     archiveFileCount,
     archiveStatus: job.archiveStatus || (job.status === 'done' ? 'ready' : ''),
     archiveUpdatedAt: job.archiveUpdatedAt || '', // 수령(보관) 전에는 비움 — 제작완료(completedAt)와 분리
@@ -2481,9 +2529,9 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
       originalName: primaryVisualFile.originalName || '',
       previewUrl: `/api/workflow/files/${encodeURIComponent(primaryVisualFile.id)}/preview`,
       thumbUrl: `/api/workflow/files/${encodeURIComponent(primaryVisualFile.id)}/thumb`,
-      publicPreviewUrl: primaryVisualFile.publicToken ? `/api/workflow/public/files/${encodeURIComponent(primaryVisualFile.publicToken)}/preview` : '',
-      publicThumbUrl: primaryVisualFile.publicToken ? `/api/workflow/public/files/${encodeURIComponent(primaryVisualFile.publicToken)}/thumb` : '',
-      publicDownloadUrl: primaryVisualFile.publicToken ? `/api/workflow/public/files/${encodeURIComponent(primaryVisualFile.publicToken)}/download` : '',
+      publicPreviewUrl: (canSeePublicLink && primaryVisualFile.publicToken) ? `/api/workflow/public/files/${encodeURIComponent(primaryVisualFile.publicToken)}/preview` : '',
+      publicThumbUrl: (canSeePublicLink && primaryVisualFile.publicToken) ? `/api/workflow/public/files/${encodeURIComponent(primaryVisualFile.publicToken)}/thumb` : '',
+      publicDownloadUrl: (canSeePublicLink && primaryVisualFile.publicToken) ? `/api/workflow/public/files/${encodeURIComponent(primaryVisualFile.publicToken)}/download` : '',
       designDueDate: primaryVisualFile.designDueDate || '',
       factoryAvailableDate: primaryVisualFile.factoryAvailableDate || '',
       urgent: !!primaryVisualFile.urgent,
@@ -3170,6 +3218,7 @@ router.get('/public/jobs/:token/files.zip', async (req, res, next) => {
     const token = safeText(req.params.token, 120);
     const job = data.jobs.find(j => String(j.publicToken || '') === token);
     if (!job) return res.status(404).send('not found');
+    if (job.status === 'cancelled') return res.status(409).send('cancelled');
     const archive = await buildJobArchive(data, job, archiveFilters(req.query));
     if (!archive) return res.status(404).send('no files');
     res.setHeader('Content-Type', 'application/zip');
@@ -3683,6 +3732,10 @@ router.put('/jobs/:id', (req, res) => {
   const data = loadStore();
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  // 변경 권한: 관리자·생성자·이 발주의 어느 단계든 담당 부서만 (무관한 직원 차단)
+  if (!(isWorkflowAdmin(req) || isJobCreator(job, req) || STAGES.some(s => viewerMatchesStageTarget(job, s.id, req.user)))) {
+    return res.status(403).json({ error: WF_NO_PERM });
+  }
   const payload = normalizeJobPayload(req.body || {}, job);
   stageRules.applyDateRoleGuard(job, payload); // 요청날짜=design / 완료가능일=factory 단계만 저장
   const previousStatus = job.status || 'active';
@@ -3816,7 +3869,7 @@ router.post('/jobs/:id/rename/decision', (req, res) => {
   const data = loadStore();
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
-  if (!isWorkflowApprover(req)) return res.status(403).json({ error: '팀장(또는 관리자)만 승인할 수 있습니다.' });
+  if (!isJobRenameApprover(job, req)) return res.status(403).json({ error: '이 발주 담당 부서의 팀장(또는 관리자)만 승인할 수 있습니다.' });
   const reqInfo = job.renameRequest;
   if (!reqInfo || !reqInfo.to) return res.status(400).json({ error: '대기 중인 현장명 변경 요청이 없습니다.' });
   const accept = req.body.accept === true || String(req.body.accept) === 'true';
@@ -3861,6 +3914,7 @@ router.post('/jobs/:id/stages/:stageId', (req, res) => {
   const job = data.jobs.find(j => j.id === req.params.id);
   const stage = STAGES.find(s => s.id === req.params.stageId);
   if (!job || !stage) return res.status(404).json({ error: '작업 또는 단계를 찾을 수 없습니다.' });
+  if (!canActOnStage(job, req, stage.id)) return res.status(403).json({ error: WF_NO_PERM });
   job.stageChecks = newStageChecks(job.stageChecks || {});
   const check = job.stageChecks[stage.id];
   const previousStatus = check.status || 'pending';
@@ -3891,6 +3945,8 @@ router.post('/jobs/:id/stages/:stageId', (req, res) => {
   job.status = allStagesDone ? 'done' : (job.status === 'done' ? 'active' : job.status);
   job.updatedAt = at;
   if (job.status === 'done') {
+    const blockers = completionBlockers(data, job);
+    if (blockers.length) return res.status(400).json({ error: '완료할 수 없습니다 — ' + blockers.map(b => b.label).join(', '), blockers });
     completeWorkflowJob(data, req, job, at);
   } else {
     clearWorkflowArchive(job);
@@ -3926,6 +3982,7 @@ router.post('/jobs/:id/handoff', (req, res) => {
   const currentIdx = stageIndex(currentId);
   const current = STAGES[currentIdx];
   const next = STAGES[currentIdx + 1] || null;
+  if (!canHandoffJob(job, req, current.id, next ? next.id : '')) return res.status(403).json({ error: WF_NO_PERM });
   const message = safeText(req.body.message, 1000);
   const at = nowIso();
 
@@ -3964,6 +4021,8 @@ router.post('/jobs/:id/handoff', (req, res) => {
       targetStageIds: [next.id],
     });
   } else {
+    const blockers = completionBlockers(data, job);
+    if (blockers.length) return res.status(400).json({ error: '완료할 수 없습니다 — ' + blockers.map(b => b.label).join(', '), blockers });
     job.status = 'done';
     addEvent(data, req, job.id, 'handoff', `작업 완료${message ? ' - ' + message : ''}`, {
       fromStageId: current.id,
@@ -4002,6 +4061,12 @@ router.post('/jobs/:id/stepback', (req, res) => {
   const data = loadStore();
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  if (job.status === 'done' || job.status === 'cancelled') {
+    if (!(isWorkflowAdmin(req) || isJobCreator(job, req) || viewerMatchesStageTarget(job, 'delivery', req.user)))
+      return res.status(403).json({ error: '완료/취소 보관은 경영관리팀(또는 관리자)만 되돌릴 수 있습니다.' });
+  } else if (!canActOnCurrentStage(job, req)) {
+    return res.status(403).json({ error: WF_NO_PERM });
+  }
   job.stageChecks = newStageChecks(job.stageChecks || {});
   const at = nowIso();
   if (job.status === 'done' || job.status === 'cancelled') {
@@ -4522,6 +4587,8 @@ router.post('/jobs/:id/files/:fileId/review', (req, res) => {
   const file = data.files.find(f => f.jobId === req.params.id && f.id === req.params.fileId);
   if (!file) return res.status(404).json({ error: '파일을 찾을 수 없습니다.' });
   const job = data.jobs.find(j => j.id === file.jobId) || null;
+  if (job && (job.status === 'done' || job.status === 'cancelled')) return res.status(400).json({ error: '완료/취소된 작업의 파일은 변경할 수 없습니다.' });
+  if (job && !(isWorkflowAdmin(req) || isJobCreator(job, req) || STAGES.some(s => viewerMatchesStageTarget(job, s.id, req.user)))) return res.status(403).json({ error: WF_NO_PERM });
   const status = ['pending', 'approved', 'change_requested'].includes(req.body.status) ? req.body.status : '';
   if (!status) return res.status(400).json({ error: '검토 상태가 필요합니다.' });
   const note = safeText(req.body.note, 1000);
@@ -4547,6 +4614,8 @@ router.post('/jobs/:id/files/:fileId/schedule', (req, res) => {
   const job = data.jobs.find(j => j.id === req.params.id);
   const file = data.files.find(f => f.jobId === req.params.id && f.id === req.params.fileId);
   if (!job || !file) return res.status(404).json({ error: '작업 또는 파일을 찾을 수 없습니다.' });
+  if (job.status === 'done' || job.status === 'cancelled') return res.status(400).json({ error: '완료/취소된 작업은 변경할 수 없습니다.' });
+  if (!(isWorkflowAdmin(req) || isJobCreator(job, req) || viewerMatchesStageTarget(job, 'design', req.user) || viewerMatchesStageTarget(job, 'factory', req.user))) return res.status(403).json({ error: WF_NO_PERM });
   job.stageChecks = newStageChecks(job.stageChecks || {});
   const designBefore = file.designDueDate || '';
   const factoryBefore = file.factoryAvailableDate || '';
@@ -4592,6 +4661,9 @@ router.post('/jobs/:id/files/:fileId/team', (req, res) => {
   const job = data.jobs.find(j => j.id === req.params.id);
   const file = data.files.find(f => f.jobId === req.params.id && f.id === req.params.fileId);
   if (!job || !file) return res.status(404).json({ error: '작업 또는 파일을 찾을 수 없습니다.' });
+  if (job.status === 'done' || job.status === 'cancelled') return res.status(400).json({ error: '완료/취소된 작업은 변경할 수 없습니다.' });
+  // 디자인팀은 팀을 모름 — 시안 팀배정은 공장 부서(전상현 실장)·관리자만. 생성자 우회 없음.
+  if (!(isWorkflowAdmin(req) || viewerMatchesStageTarget(job, 'factory', req.user))) return res.status(403).json({ error: '시안 팀배정은 공장(또는 관리자)만 가능합니다.' });
   const team = ['welding', 'output', ''].includes(req.body.team) ? req.body.team : '';
   file.team = team;
   file.teamUpdatedAt = nowIso();
