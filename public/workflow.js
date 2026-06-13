@@ -3621,31 +3621,24 @@ function workflowApp() {
       });
     },
     jobSchedDate(job) { return (job && (job.factoryAvailableDate || job.dueDate)) || ''; },
-    weekJobs(dateStr, team) {
-      return (this.jobs || []).filter(j => {
-        if (j.status !== 'active') return false;
-        if (j.currentStage !== 'factory' && j.currentStage !== 'delivery') return false;
-        if (this.jobSchedDate(j) !== dateStr) return false;
-        const w = j.weldingFileCount || 0, o = j.outputFileCount || 0, u = j.unassignedFileCount || 0;
-        if (team === 'welding') return w > 0;
-        if (team === 'output') return o > 0;
-        if (team === 'unassigned') return u > 0 && w === 0 && o === 0;
-        return true;
-      });
-    },
-    weekTeamTotal(team) {
-      const days = this.weekDays().map(d => d.date);
-      const seen = new Set();
+    // '이미지 1장 = 1칸' — 한 발주에 시안 5장이면 5칸으로 펼쳐 용접/출력 실제 물량을 보이게.
+    weekImages(dateStr, team) {
+      const out = [];
       (this.jobs || []).forEach(j => {
         if (j.status !== 'active') return;
         if (j.currentStage !== 'factory' && j.currentStage !== 'delivery') return;
-        if (!days.includes(this.jobSchedDate(j))) return;
-        const w = j.weldingFileCount || 0, o = j.outputFileCount || 0, u = j.unassignedFileCount || 0;
-        if (team === 'welding' && w > 0) seen.add(j.id);
-        else if (team === 'output' && o > 0) seen.add(j.id);
-        else if (team === 'unassigned' && u > 0 && w === 0 && o === 0) seen.add(j.id);
+        if (this.jobSchedDate(j) !== dateStr) return;
+        (j.visualFilesBrief || []).forEach(f => {
+          const t = (f.team === 'welding' || f.team === 'output') ? f.team : 'unassigned';
+          if (t === team) out.push({ job: j, file: f });
+        });
       });
-      return seen.size;
+      return out;
+    },
+    weekTeamTotal(team) {
+      let n = 0;
+      this.weekDays().forEach(d => { n += this.weekImages(d.date, team).length; });
+      return n;
     },
     weekShift(deltaDays) {
       const base = this.weekAnchor ? new Date(this.weekAnchor + 'T00:00:00') : this.weekMonday(new Date());

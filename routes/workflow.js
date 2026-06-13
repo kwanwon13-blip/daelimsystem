@@ -2559,6 +2559,14 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
     activeOrderCount: orderSummary.active,
     externalOrderCount: orderSummary.external,
     visualFileCount: visualFiles.length,
+    // 주간 달력 '이미지 1장=1칸'용 — 이미지 시안별 팀·썸네일(작은 객체). 진행중 작업만(완료/취소는 빈 배열로 가볍게). AI/비이미지는 제외(팀분할 안 함).
+    visualFilesBrief: (job.status === 'done' || job.status === 'cancelled') ? [] : visualFiles.map(f => ({
+      id: f.id,
+      team: f.team || '',
+      name: f.originalName || '',
+      thumbUrl: `/api/workflow/files/${encodeURIComponent(f.id)}/thumb`,
+      previewUrl: `/api/workflow/files/${encodeURIComponent(f.id)}/preview`,
+    })),
     urgentFileCount: files.filter(f => f.urgent && (!f.scheduleNegotiation || f.scheduleNegotiation === 'pending' || f.scheduleNegotiation === 'needs_change')).length,
     archiveUrl: `/api/workflow/jobs/${encodeURIComponent(job.id)}/files/archive`,
     publicArchiveUrl: (canSeePublicLink && job.publicToken) ? `/api/workflow/public/jobs/${encodeURIComponent(job.publicToken)}/files.zip` : '',

@@ -841,32 +841,32 @@
             <div class="wf-week-day" :class="day.isToday?'today':(day.isWeekend?'weekend':'')">
               <div class="wf-week-dhead"><span x-text="day.month+'/'+day.dnum"></span><span class="wf-week-dow" x-text="day.dow"></span></div>
               <div class="wf-week-lane weld">
-                <div class="wf-week-lanehead">용접 <span x-text="weekJobs(day.date,'welding').length"></span></div>
-                <template x-for="job in weekJobs(day.date,'welding')" :key="'w'+day.date+job.id">
-                  <div class="wf-week-chip weld" role="button" tabindex="0" @click="selectJob(job.id, job.currentStage)" :title="(job.projectName||'')+' '+(job.companyName||'')">
-                    <template x-if="job.primaryVisualFile"><img class="wf-week-thumb" :src="job.primaryVisualFile.thumbUrl || job.primaryVisualFile.previewUrl" @click.stop="openCardPreview(job)" loading="lazy" @error="handleWorkflowImageError($event, job.primaryVisualFile.previewUrl)" title="클릭하면 시안 크게 보기"></template>
-                    <span class="wf-week-chipname" x-text="job.projectName||job.companyName||job.title||'현장'"></span>
+                <div class="wf-week-lanehead">용접 <span x-text="weekImages(day.date,'welding').length"></span></div>
+                <template x-for="u in weekImages(day.date,'welding')" :key="'w'+day.date+u.file.id">
+                  <div class="wf-week-chip weld" role="button" tabindex="0" @click="selectJob(u.job.id, u.job.currentStage)" :title="(u.job.projectName||'')+' '+(u.job.companyName||'')+' · '+(u.file.name||'')">
+                    <img class="wf-week-thumb" :src="u.file.thumbUrl" @click.stop="openCardPreview(u.job)" loading="lazy" @error="handleWorkflowImageError($event, u.file.previewUrl)" title="클릭하면 시안 크게 보기">
+                    <span class="wf-week-chipname" x-text="u.job.projectName||u.job.companyName||u.job.title||'현장'"></span>
                   </div>
                 </template>
-                <div class="wf-week-lane-empty" x-show="!weekJobs(day.date,'welding').length">·</div>
+                <div class="wf-week-lane-empty" x-show="!weekImages(day.date,'welding').length">·</div>
               </div>
               <div class="wf-week-lane out">
-                <div class="wf-week-lanehead">출력 <span x-text="weekJobs(day.date,'output').length"></span></div>
-                <template x-for="job in weekJobs(day.date,'output')" :key="'o'+day.date+job.id">
-                  <div class="wf-week-chip out" role="button" tabindex="0" @click="selectJob(job.id, job.currentStage)" :title="(job.projectName||'')+' '+(job.companyName||'')">
-                    <template x-if="job.primaryVisualFile"><img class="wf-week-thumb" :src="job.primaryVisualFile.thumbUrl || job.primaryVisualFile.previewUrl" @click.stop="openCardPreview(job)" loading="lazy" @error="handleWorkflowImageError($event, job.primaryVisualFile.previewUrl)" title="클릭하면 시안 크게 보기"></template>
-                    <span class="wf-week-chipname" x-text="job.projectName||job.companyName||job.title||'현장'"></span>
+                <div class="wf-week-lanehead">출력 <span x-text="weekImages(day.date,'output').length"></span></div>
+                <template x-for="u in weekImages(day.date,'output')" :key="'o'+day.date+u.file.id">
+                  <div class="wf-week-chip out" role="button" tabindex="0" @click="selectJob(u.job.id, u.job.currentStage)" :title="(u.job.projectName||'')+' '+(u.job.companyName||'')+' · '+(u.file.name||'')">
+                    <img class="wf-week-thumb" :src="u.file.thumbUrl" @click.stop="openCardPreview(u.job)" loading="lazy" @error="handleWorkflowImageError($event, u.file.previewUrl)" title="클릭하면 시안 크게 보기">
+                    <span class="wf-week-chipname" x-text="u.job.projectName||u.job.companyName||u.job.title||'현장'"></span>
                   </div>
                 </template>
-                <div class="wf-week-lane-empty" x-show="!weekJobs(day.date,'output').length">·</div>
+                <div class="wf-week-lane-empty" x-show="!weekImages(day.date,'output').length">·</div>
               </div>
-              <template x-if="weekJobs(day.date,'unassigned').length">
+              <template x-if="weekImages(day.date,'unassigned').length">
                 <div class="wf-week-lane un">
-                  <div class="wf-week-lanehead">미배정 <span x-text="weekJobs(day.date,'unassigned').length"></span></div>
-                  <template x-for="job in weekJobs(day.date,'unassigned')" :key="'u'+day.date+job.id">
-                    <div class="wf-week-chip un" role="button" tabindex="0" @click="selectJob(job.id, job.currentStage)" :title="(job.projectName||'')+' '+(job.companyName||'')">
-                      <template x-if="job.primaryVisualFile"><img class="wf-week-thumb" :src="job.primaryVisualFile.thumbUrl || job.primaryVisualFile.previewUrl" @click.stop="openCardPreview(job)" loading="lazy" @error="handleWorkflowImageError($event, job.primaryVisualFile.previewUrl)" title="클릭하면 시안 크게 보기"></template>
-                      <span class="wf-week-chipname" x-text="job.projectName||job.companyName||job.title||'현장'"></span>
+                  <div class="wf-week-lanehead">미배정 <span x-text="weekImages(day.date,'unassigned').length"></span></div>
+                  <template x-for="u in weekImages(day.date,'unassigned')" :key="'u'+day.date+u.file.id">
+                    <div class="wf-week-chip un" role="button" tabindex="0" @click="selectJob(u.job.id, u.job.currentStage)" :title="(u.job.projectName||'')+' '+(u.job.companyName||'')+' · '+(u.file.name||'')">
+                      <img class="wf-week-thumb" :src="u.file.thumbUrl" @click.stop="openCardPreview(u.job)" loading="lazy" @error="handleWorkflowImageError($event, u.file.previewUrl)" title="클릭하면 시안 크게 보기">
+                      <span class="wf-week-chipname" x-text="u.job.projectName||u.job.companyName||u.job.title||'현장'"></span>
                     </div>
                   </template>
                 </div>
@@ -1199,7 +1199,7 @@
                           <a class="wf-rc-icon" x-show="file.exists!==false" :href="smartFileUrl(file)" @click.stop title="이 파일 받기"><span class="material-symbols-outlined">download</span></a>
                         </div>
                       </template>
-                      <div class="wf-tile-teams" x-show="(detail.job.currentStage==='factory' || detail.job.currentStage==='delivery') && detail.job.viewerCanAssignTeam">
+                      <div class="wf-tile-teams" x-show="file.isImage && (detail.job.currentStage==='factory' || detail.job.currentStage==='delivery') && detail.job.viewerCanAssignTeam">
                         <button type="button" :class="file.team==='welding' ? 'on weld' : ''" @click="assignFileTeam(file, 'welding')">용접</button>
                         <button type="button" :class="file.team==='output' ? 'on out' : ''" @click="assignFileTeam(file, 'output')">출력</button>
                       </div>
