@@ -76,7 +76,7 @@ async function clickByText(page, selector, regex) {
   } else console.log('⚠️ 검증E 카드 못 찾음');
 
   // ④ 상세 — 과거내역 done 잡(검증A): 보관 스트립 + 외부 링크 복사 버튼
-  const c2 = await clickByText(page, '.wf-arc-card', /검증A/);
+  const c2 = await clickByText(page, '.wf-arc-row', /검증A/);
   await sleep(1200);
   if (c2) await snap('04-detail-done-archive');
   else console.log('⚠️ 검증A 과거내역 카드 못 찾음');

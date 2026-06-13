@@ -96,7 +96,6 @@
   .wf-col.mini .wf-rc-thumb{width:100%;height:58px;border-radius:5px;}
   .wf-col.mini .wf-rc-thumb:hover{transform:none;}
   .wf-col.mini .wf-rc-minititle{display:block;}
-  .wf-col.mini .wf-arc-search{display:none;}
   .wf-rc-minititle{display:none;font-size:9.5px;font-weight:800;color:#334155;text-align:center;line-height:1.25;word-break:break-all;}
   /* 상세 닫기(✕) — 닫으면 보드가 전체 폭 */
   .wf-detail-head{position:relative;}
@@ -173,13 +172,39 @@
   .wf-board-tabs button.on .wf-tabcount{background:#dbeafe;color:#1d4ed8;}
   /* 보기 래퍼: 보드 묶음을 통째로 토글. .wf-board와 동일한 세로 플렉스라 칸 높이(flex:1) 그대로 동작 */
   .wf-view-board{display:flex;flex-direction:column;min-height:0;flex:1;}
-  /* 과거내역 전용 보기(전체폭 그리드) */
-  .wf-view-archive{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px;padding:10px 2px 2px;}
+  /* ===== 과거내역 = 컴퍼니매입 2분할(좌 날짜·코드표 / 우 코드클릭→시안) 구조 차용 · 워크플로우 톤 ===== */
+  .wf-view-archive{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px;padding:8px 2px 2px;}
   .wf-arc-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:0 0 auto;}
-  .wf-arc-title{display:flex;align-items:center;gap:6px;font-size:14px;font-weight:900;color:#334155;}
-  .wf-arc-title .material-symbols-outlined{font-size:19px;color:#64748b;}
+  .wf-arc-title{display:flex;align-items:center;gap:6px;font-size:14px;font-weight:900;color:#334155;white-space:nowrap;}
+  .wf-arc-title .material-symbols-outlined{font-size:19px;color:#d97706;}
   .wf-arc-q{flex:1;min-width:200px;max-width:440px;box-sizing:border-box;}
-  .wf-arc-grid{flex:1;min-height:0;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:8px;align-content:start;padding:2px 4px 8px 0;}
+  .wf-arc-split{flex:1;min-height:0;display:grid;grid-template-columns:300px 1fr;gap:8px;}
+  @media (max-width:1100px){.wf-arc-split{grid-template-columns:240px 1fr;}}
+  .wf-arc-list{border:1px solid #e2e8f0;border-radius:8px;background:#fff;overflow:auto;min-height:0;}
+  .wf-arc-drow{position:sticky;top:0;z-index:1;background:#fff7ed;color:#b45309;font-weight:900;font-size:11px;border-bottom:1px solid #fed7aa;padding:5px 10px;}
+  .wf-arc-drow .n{float:right;color:#d97706;font-weight:800;}
+  .wf-arc-row{padding:6px 10px;border-bottom:1px solid #f1f5f9;cursor:pointer;}
+  .wf-arc-row:hover{background:#f8fafc;}
+  .wf-arc-row.sel{background:#fff7ed;box-shadow:inset 3px 0 0 #d97706;}
+  .wf-arc-rcode{font-family:'Consolas',monospace;font-weight:900;color:#1d4ed8;font-size:11.5px;}
+  .wf-arc-rcode.none{color:#94a3b8;font-style:italic;font-weight:700;}
+  .wf-arc-rflag{font-size:10px;margin-left:3px;}
+  .wf-arc-rname{display:block;color:#1f2937;font-weight:700;font-size:12px;line-height:1.3;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .wf-arc-rco{color:#94a3b8;font-weight:600;font-size:10.5px;}
+  .wf-arc-pane{border:1px solid #e2e8f0;border-radius:8px;background:#fff;display:flex;flex-direction:column;min-height:0;overflow:hidden;}
+  .wf-arc-phead{padding:10px 12px;border-bottom:1px solid #eef1f4;background:#fbfcfe;display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;}
+  .wf-arc-pname{font-size:13.5px;font-weight:900;color:#111827;line-height:1.25;}
+  .wf-arc-pmeta{display:flex;align-items:center;gap:8px;margin-top:3px;flex-wrap:wrap;font-size:11px;color:#64748b;}
+  .wf-arc-pmeta .wf-code{font-size:12px;}
+  .wf-arc-pbtns{margin-left:auto;display:flex;gap:6px;align-items:center;}
+  .wf-arc-grid2{flex:1;min-height:0;overflow:auto;padding:10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(116px,1fr));gap:8px;align-content:start;}
+  .wf-arc-img{position:relative;aspect-ratio:1/1;border:1px solid rgba(15,23,42,.1);border-radius:7px;overflow:hidden;background:#eef2f7;cursor:zoom-in;padding:0;display:block;transition:transform .12s ease,box-shadow .12s ease;}
+  .wf-arc-img:hover{transform:scale(1.04);box-shadow:0 3px 10px rgba(15,23,42,.2);}
+  .wf-arc-img img{width:100%;height:100%;object-fit:cover;display:block;}
+  .wf-arc-img.image-failed{display:none;}
+  .wf-arc-pempty{flex:1;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:12.5px;text-align:center;padding:30px;line-height:1.5;}
+  .wf-arc-spin{width:22px;height:22px;border:3px solid #e5e7eb;border-top-color:#d97706;border-radius:50%;animation:wfArcSpin 1s linear infinite;}
+  @keyframes wfArcSpin{to{transform:rotate(360deg);}}
   /* 주간 제작 일정 보기 — 월~일 7칸, 각 칸 용접/출력 2레인 */
   .wf-view-week{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px;padding:10px 2px 2px;}
   .wf-week-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;flex:0 0 auto;}
@@ -312,17 +337,7 @@
   .wf-date strong{font-size:12.5px;font-weight:900;}
   .wf-date.overdue{background:#fee2e2;color:#b91c1c;border-color:#fecaca;}
   .wf-date.done{background:#dcfce7;color:#15803d;border-color:#bbf7d0;}
-  .wf-col-archive{background:#f8fafc;border-left:2px solid #cbd5e1;}
-  .wf-col-archive .wf-col-head{background:#eef2f7;}
-  .wf-arc-search{padding:7px 8px;border-bottom:1px solid #e5e9f1;background:#fbfcfe;}
   .wf-code{font-family:'Consolas',monospace;font-weight:900;color:#1d4ed8;font-size:13px;}
-  .wf-arc-card{border:1px solid #e2e8f0;border-radius:8px;background:#fff;padding:8px 9px;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.04);}
-  .wf-arc-card:hover{border-color:#94a3b8;}
-  .wf-arc-top{display:flex;align-items:center;justify-content:space-between;gap:6px;}
-  .wf-arc-title{font-size:13px;font-weight:800;color:#111827;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  .wf-arc-meta{font-size:11px;color:#6b7280;margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;}
-  .wf-arc-act{display:flex;gap:6px;margin-top:8px;}
-  .wf-arc-act .wf-btn{height:34px;font-size:12.5px;font-weight:800;padding:0 10px;flex:1;justify-content:center;}
   .wf-card:not(.active) .wf-chip{height:18px;padding:0 6px;font-size:10px;}
   .wf-card:not(.active) .wf-card-visual{display:none!important;}
   .wf-card-visual{position:relative;display:block;height:180px;margin:-2px -3px 8px -3px;border-radius:6px;overflow:hidden;background:#e2e8f0;}
@@ -500,14 +515,14 @@
       <option :value="p"></option>
     </template>
   </datalist>
-  <div class="wf-shell" :class="detail && detail.job ? 'has-detail' : 'no-detail'">
+  <div class="wf-shell" :class="(boardView!=='archive' && detail && detail.job) ? 'has-detail' : 'no-detail'">
     <section class="wf-board">
       <div class="wf-toolbar">
         <h2>워크플로우</h2>
         <div class="wf-board-tabs">
           <button type="button" :class="boardView==='board'?'on':''" @click="boardView='board'"><span class="material-symbols-outlined">dashboard</span>진행 보드</button>
           <button type="button" :class="boardView==='week'?'on':''" @click="boardView='week'"><span class="material-symbols-outlined">calendar_month</span>주간 일정</button>
-          <button type="button" :class="boardView==='archive'?'on':''" @click="boardView='archive'"><span class="material-symbols-outlined">inventory_2</span>과거내역<span class="wf-tabcount" x-show="archiveFiltered().length" x-text="archiveFiltered().length"></span></button>
+          <button type="button" :class="boardView==='archive'?'on':''" @click="boardView='archive'"><span class="material-symbols-outlined">inventory_2</span>과거내역<span class="wf-tabcount" x-show="archiveJobs.length" x-text="archiveJobs.length"></span></button>
         </div>
         <div style="flex:1"></div>
         <button class="wf-btn ghost" @click="toggleDepartmentMappingPanel()">
@@ -886,34 +901,59 @@
           <span style="flex:1"></span>
           <button type="button" class="wf-btn ghost" @click="boardView='board'" title="진행 보드로 돌아가기"><span class="material-symbols-outlined" style="font-size:16px;">arrow_back</span>진행 보드</button>
         </div>
-        <div class="wf-arc-grid">
-            <template x-for="job in archiveFiltered()" :key="'arc-'+job.id">
-              <div class="wf-card wf-rowcard" role="button" tabindex="0" :class="selectedId===job.id ? 'active' : ''" @click="selectJob(job.id, 'delivery')">
-                <template x-if="job.primaryVisualFile">
-                  <button type="button" class="wf-rc-thumb" @click.stop="openCardPreview(job)" :title="'클릭하면 시안 크게 보기' + ((job.visualFileCount||0)>1 ? ' · 총 ' + job.visualFileCount + '장 ◀▶로 넘기기' : '')">
-                    <img :src="job.primaryVisualFile.thumbUrl || job.primaryVisualFile.previewUrl" loading="lazy" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, job.primaryVisualFile.previewUrl)">
-                    <span class="wf-rc-more" x-show="(job.visualFileCount||0)>1" x-text="'+' + (job.visualFileCount - 1)"></span>
-                  </button>
+        <div class="wf-arc-split">
+          <!-- 좌: 완료일별 그룹표 (최신 위) · 코드(행) 클릭 → 우측에 시안 -->
+          <div class="wf-arc-list">
+            <template x-for="row in archiveRows()" :key="row.key">
+              <div :class="row.type==='date' ? 'wf-arc-drow' : ('wf-arc-row'+(archiveSelectedId===row.job.id ? ' sel' : ''))" @click="row.type==='job' && archiveSelect(row.job)">
+                <template x-if="row.type==='date'">
+                  <span><span x-text="row.label"></span><span class="n" x-text="row.count+'건'"></span></span>
                 </template>
-                <div class="wf-rc-minititle" x-text="(job.projectName || job.companyName || job.title || '현장 미지정').slice(0, 8)"></div>
-                <div class="wf-rc-main">
-                  <div class="wf-rc-top">
-                    <span class="wf-rc-title" :title="(job.projectName||'') + (job.companyName ? ' / '+job.companyName : '')" x-text="job.projectName || job.companyName || job.title || '현장 미지정'"></span>
-                    <span class="wf-rc-flag rename" x-show="job.renameRequest" :title="'현장명 변경 대기(팀장 승인): ' + ((job.renameRequest||{}).from||'') + ' → ' + ((job.renameRequest||{}).to||'')">📝</span>
-                    <span class="wf-code" x-text="job.completionCode || '미발번'"></span>
+                <template x-if="row.type==='job'">
+                  <div>
+                    <span class="wf-arc-rcode" :class="row.job.completionCode ? '' : 'none'" x-text="row.job.completionCode || '미발번'"></span><span class="wf-arc-rflag" x-show="row.job.renameRequest" title="현장명 변경 대기(팀장 승인)">📝</span>
+                    <span class="wf-arc-rname" :title="(row.job.projectName||'') + (row.job.companyName ? ' / '+row.job.companyName : '')"><span x-text="row.job.projectName || row.job.companyName || row.job.title || '현장 미지정'"></span><span class="wf-arc-rco" x-show="row.job.companyName && row.job.projectName" x-text="' · '+row.job.companyName"></span></span>
                   </div>
-                  <div class="wf-rc-bot">
-                    <span class="wf-rc-co" x-show="job.companyName" x-text="job.companyName"></span>
-                    <span class="wf-rc-date" x-show="job.completedAt" x-text="wfShortDate(job.completedAt)"></span>
-                    <span class="wf-rc-files" x-show="job.archiveFileCount" x-text="'파일 ' + (job.archiveFileCount || 0)"></span>
-                    <span style="flex:1"></span>
-                    <button type="button" class="wf-rc-undo" @click.stop="cardStepBack(job.id)" x-show="job.viewerCanReopen" title="실수로 완료했으면 배송 단계로 되돌리기"><span class="material-symbols-outlined">undo</span></button>
-                    <a class="wf-rc-btn ghost" :href="job.archiveUrl" @click.stop x-show="job.archiveFileCount" title="완료본(발송 원본) 받기">받기</a>
-                  </div>
-                </div>
+                </template>
               </div>
             </template>
-            <div class="wf-empty" x-show="!archiveFiltered().length">완료된 작업이 없습니다</div>
+            <div class="wf-arc-pempty" x-show="!archiveFiltered().length" style="min-height:120px;">완료된 작업이 없습니다</div>
+          </div>
+
+          <!-- 우: 선택 코드의 시안 그리드 (클릭=확대모달 ◀▶) -->
+          <div class="wf-arc-pane">
+            <template x-if="!archiveSelectedId">
+              <div class="wf-arc-pempty">왼쪽에서 <b>완료코드(행)</b>를 누르면<br>그 작업의 시안이 여기에 펼쳐집니다.</div>
+            </template>
+            <template x-if="archiveSelectedId">
+              <div style="display:flex;flex-direction:column;min-height:0;flex:1;">
+                <div class="wf-arc-phead">
+                  <div style="min-width:0;flex:1;">
+                    <div class="wf-arc-pname" x-text="(archiveSelectedJob()||{}).projectName || (archiveSelectedJob()||{}).companyName || (archiveSelectedJob()||{}).title || '현장 미지정'"></div>
+                    <div class="wf-arc-pmeta">
+                      <span class="wf-code" x-text="(archiveSelectedJob()||{}).completionCode || '미발번'"></span>
+                      <span x-show="(archiveSelectedJob()||{}).companyName" x-text="(archiveSelectedJob()||{}).companyName"></span>
+                      <span x-show="archiveDoneDateLabel()">· 완료 <span x-text="archiveDoneDateLabel()"></span></span>
+                      <span x-show="!archiveImagesLoading">· 시안 <span x-text="archiveImages.length"></span>장</span>
+                    </div>
+                  </div>
+                  <div class="wf-arc-pbtns">
+                    <button type="button" class="wf-btn ghost" @click="cardStepBack(archiveSelectedId)" x-show="(archiveSelectedJob()||{}).viewerCanReopen" title="실수로 완료했으면 배송 단계로 되돌리기"><span class="material-symbols-outlined" style="font-size:16px;">undo</span>복구</button>
+                    <a class="wf-btn ghost" :href="(archiveSelectedJob()||{}).archiveUrl" x-show="(archiveSelectedJob()||{}).archiveFileCount" title="완료본(발송 원본) ZIP 받기"><span class="material-symbols-outlined" style="font-size:16px;">download</span>받기</a>
+                  </div>
+                </div>
+                <div class="wf-arc-pempty" x-show="archiveImagesLoading"><span class="wf-arc-spin"></span></div>
+                <div class="wf-arc-grid2" x-show="!archiveImagesLoading && archiveImages.length">
+                  <template x-for="(f, i) in archiveImages" :key="'ai-'+f.id">
+                    <button type="button" class="wf-arc-img" @click="openFilePreview(f, archiveImages)" :title="f.originalName || ('시안 '+(i+1))">
+                      <img :src="f.thumbUrl || f.previewUrl" loading="lazy" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, f.previewUrl)">
+                    </button>
+                  </template>
+                </div>
+                <div class="wf-arc-pempty" x-show="!archiveImagesLoading && !archiveImages.length">이 작업에는 등록된 시안 이미지가 없습니다.</div>
+              </div>
+            </template>
+          </div>
         </div>
       </div>
     </section>

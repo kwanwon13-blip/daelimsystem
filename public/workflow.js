@@ -6,6 +6,10 @@ function workflowApp() {
     jobsByStage: {},
     archiveJobs: [],
     archiveQuery: '',
+    archiveSelectedId: '',       // 과거내역 좌측에서 클릭한 완료작업 id
+    archiveImages: [],           // 선택 작업의 시안 이미지(상세 files[]에서 추출)
+    archiveImagesLoading: false,
+    _archiveImgCache: {},        // (jobId|team) -> 이미지배열 캐시(재클릭 즉시)
     jobListLimit: 80,
     jobListTotal: 0,
     jobListLimited: false,
@@ -589,13 +593,95 @@ function workflowApp() {
         const r = await fetch('/api/workflow/jobs?status=done&limit=0');
         const d = await r.json();
         this.archiveJobs = Array.isArray(d.jobs) ? d.jobs : [];
+        // 새로고침/갱신 후 선택했던 작업이 목록에서 사라졌으면 우측 패널 비움
+        if (this.archiveSelectedId && !this.archiveJobs.find(j => j.id === this.archiveSelectedId)) {
+          this.archiveSelectedId = ''; this.archiveImages = [];
+        }
       } catch (_) { this.archiveJobs = []; }
     },
+    // 배지(항상 렌더)는 archiveJobs.length를 쓰므로 정렬 안 탐. 이 함수는 과거내역 뷰에서만 호출.
     archiveFiltered() {
       const q = (this.archiveQuery || '').trim().toLowerCase();
       let list = this.archiveJobs || [];
       if (q) list = list.filter(j => `${j.completionCode || ''} ${j.title || ''} ${j.companyName || ''} ${j.projectName || ''}`.toLowerCase().includes(q));
       return list.slice().sort((a, b) => String(b.completedAt || '').localeCompare(String(a.completedAt || '')));
+    },
+
+    // 완료작업을 완료일(KST)별로 묶어 [날짜헤더, 작업, ...] 1차원 행으로 평탄화(단일 x-for + 조건부 행 = Alpine 안전).
+    // ★날짜는 반드시 KST 기준 — completedAt은 서버가 UTC(Z)로 저장하므로 +9h 보정해야 새벽 완료건이 전날로 새지 않는다.
+    archiveRows() {
+      const list = this.archiveFiltered();
+      const counts = new Map();
+      for (const job of list) {
+        const day = this._archiveDayKey(job.completedAt || job.archiveUpdatedAt);
+        counts.set(day, (counts.get(day) || 0) + 1);
+      }
+      const rows = [];
+      let lastDay = null;
+      for (const job of list) {
+        const day = this._archiveDayKey(job.completedAt || job.archiveUpdatedAt);
+        if (day !== lastDay) {
+          rows.push({ type: 'date', key: 'd-' + day, label: this._archiveDayLabel(day), count: counts.get(day) || 0 });
+          lastDay = day;
+        }
+        rows.push({ type: 'job', key: 'j-' + job.id, job });
+      }
+      return rows;
+    },
+    // UTC ISO → KST 'YYYY-MM-DD' (한국 업무일 기준 그룹핑·표시)
+    _archiveDayKey(ts) {
+      const s = String(ts || '');
+      if (!s) return '날짜미상';
+      const d = new Date(s);
+      if (isNaN(d.getTime())) return s.slice(0, 10) || '날짜미상';
+      return new Date(d.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+    },
+    _archiveDayLabel(day) {
+      const m = String(day).match(/(\d{4})-(\d{2})-(\d{2})/);
+      if (!m) return '날짜 미상';
+      const wd = ['일', '월', '화', '수', '목', '금', '토'][new Date(+m[1], +m[2] - 1, +m[3]).getDay()];
+      return `${m[1]}-${m[2]}-${m[3]} (${wd})`;
+    },
+    archiveSelectedJob() {
+      if (!this.archiveSelectedId) return null;
+      return (this.archiveJobs || []).find(j => j.id === this.archiveSelectedId) || null;
+    },
+    // 우측 헤더 완료일 — 좌측 그룹과 동일한 KST 기준 라벨(불일치 방지)
+    archiveDoneDateLabel() {
+      const j = this.archiveSelectedJob();
+      if (!j || !(j.completedAt || j.archiveUpdatedAt)) return '';
+      return this._archiveDayLabel(this._archiveDayKey(j.completedAt || j.archiveUpdatedAt));
+    },
+    // 좌측 코드(행) 클릭 → 우측 이미지패널. 완료작업은 목록의 visualFilesBrief가 비어 있어
+    // /jobs/:id 상세 files[]에서 이미지만 추려 온다. 성공 응답만 캐시(실패는 캐시X→재시도), 캐시키에 팀 포함.
+    async archiveSelect(job) {
+      if (!job) return;
+      this.archiveSelectedId = job.id;
+      const teamKey = (this.boardTeam === 'welding' || this.boardTeam === 'output') ? this.boardTeam : 'all';
+      const cacheKey = job.id + '|' + teamKey;
+      const cached = this._archiveImgCache[cacheKey];
+      if (cached) { this.archiveImages = cached; this.archiveImagesLoading = false; return; }
+      this.archiveImages = [];
+      this.archiveImagesLoading = true;
+      try {
+        const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(job.id));
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d && Array.isArray(d.files)) {
+          let imgs = d.files.filter(f => f && f.isImage && f.exists !== false && (f.thumbUrl || f.previewUrl));
+          if (teamKey !== 'all') {
+            const teamOnly = imgs.filter(f => f.team === teamKey);
+            if (teamOnly.length) imgs = teamOnly; // 해당 팀 시안 없으면 전체 유지
+          }
+          this._archiveImgCache[cacheKey] = imgs;            // 성공만 캐시
+          if (this.archiveSelectedId === job.id) this.archiveImages = imgs; // 빠른 연속클릭 경쟁 방지
+        } else if (this.archiveSelectedId === job.id) {
+          this.archiveImages = [];                            // 실패(404/500 등)는 캐시 X → 재클릭 시 다시 시도
+        }
+      } catch (_) {
+        if (this.archiveSelectedId === job.id) this.archiveImages = [];
+      } finally {
+        if (this.archiveSelectedId === job.id) this.archiveImagesLoading = false;
+      }
     },
 
     workflowLimitText() {
@@ -2882,7 +2968,7 @@ function workflowApp() {
 
     // 실수로 다음 단계로 넘긴 작업을 이전 단계로 되돌림 (과거내역=완료면 배송 단계로 복구)
     async cardStepBack(jobId) {
-      const job = (this.jobs || []).find(j => j.id === jobId);
+      const job = (this.jobs || []).find(j => j.id === jobId) || (this.archiveJobs || []).find(j => j.id === jobId);
       const who = (job && (job.projectName || job.companyName || job.title)) || '작업';
       if (!confirm(`${who}\n\n이전 단계로 되돌릴까요?\n(실수로 넘겼을 때 — 한 단계 뒤로)`)) return;
       this.saving = true;
@@ -3514,7 +3600,7 @@ function workflowApp() {
       const img = event?.target;
       if (!img) return;
       img.style.visibility = '';
-      const holder = img.closest ? img.closest('.wf-proof-thumb, .wf-card-visual, .wf-rc-thumb') : null;
+      const holder = img.closest ? img.closest('.wf-proof-thumb, .wf-card-visual, .wf-rc-thumb, .wf-arc-img') : null;
       if (holder) holder.classList.remove('image-failed');
     },
 
@@ -3528,7 +3614,7 @@ function workflowApp() {
         img.src = fallback;
         return;
       }
-      const holder = img.closest ? img.closest('.wf-proof-thumb, .wf-card-visual, .wf-rc-thumb') : null;
+      const holder = img.closest ? img.closest('.wf-proof-thumb, .wf-card-visual, .wf-rc-thumb, .wf-arc-img') : null;
       if (holder) holder.classList.add('image-failed');
       img.style.visibility = 'hidden';
     },
