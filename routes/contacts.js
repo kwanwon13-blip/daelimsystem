@@ -1052,4 +1052,18 @@ router.post('/mobile-token', requireAuth, requireAdmin, (req, res) => {
   res.json({ ok: true, hasToken: !!token });
 });
 
+// 서버 컨트롤 시크릿으로 모바일 암호 설정 (배포 도구 전용 — git-pull/restart와 동일 권한)
+router.post('/mobile-token-secret', (req, res) => {
+  const expected = (process.env.CONTROL_DAEMON_SECRET || '').trim();
+  if (!expected) return res.status(403).json({ error: 'NO_SECRET' });
+  const given = Buffer.from(String(req.headers['x-control-secret'] || ''));
+  const exp = Buffer.from(expected);
+  if (given.length !== exp.length || !crypto.timingSafeEqual(given, exp)) return res.status(403).json({ error: 'FORBIDDEN' });
+  const token = (req.body && typeof req.body.token === 'string') ? req.body.token.trim() : '';
+  if (token && !/^[A-Za-z0-9._~-]{6,64}$/.test(token)) return res.status(400).json({ error: 'INVALID' });
+  try { const s = db.설정.load(); s.contactsMobileToken = token; db.설정.save(s); }
+  catch (e) { return res.status(500).json({ error: 'SAVE_FAIL', msg: e.message }); }
+  res.json({ ok: true, hasToken: !!token });
+});
+
 module.exports = router;
