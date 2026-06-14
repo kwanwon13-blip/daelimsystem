@@ -861,9 +861,21 @@ router.post('/audit/restore', requireAdmin, (req, res) => {
 // ═══════════════════════════════════════════════════════════
 const crypto = require('crypto');
 
+// 모바일 접속 암호: 환경변수(CONTACTS_MOBILE_TOKEN) 우선, 없으면 설정(설정.json)에 저장된 값.
+// 둘 다 비어 있으면 FAIL CLOSED — 하드코딩 기본값 금지.
+function getMobileToken() {
+  const envTok = (process.env.CONTACTS_MOBILE_TOKEN || '').trim();
+  if (envTok) return envTok;
+  try {
+    const s = db.설정.load();
+    const t = s && s.contactsMobileToken;
+    return (typeof t === 'string') ? t.trim() : '';
+  } catch (e) { return ''; }
+}
+
 function checkMobileToken(req, res, next) {
-  // FAIL CLOSED: 환경변수 미설정/빈값이면 모든 /m/* 요청 거부 (default 'daelimsm2026' 폴백 금지)
-  const expected = process.env.CONTACTS_MOBILE_TOKEN;
+  // FAIL CLOSED: 환경변수/설정 둘 다 비면 모든 /m/* 요청 거부 (하드코딩 기본값 금지)
+  const expected = getMobileToken();
   if (!expected) {
     return res.status(403).json({ error: 'INVALID_TOKEN', msg: '잘못된 접근입니다' });
   }
@@ -1007,6 +1019,37 @@ router.get('/m/geocode', checkMobileToken, async (req, res) => {
   } catch (e) {
     res.status(500).json({ ok:false, error: e.message });
   }
+});
+
+// ═══════════════════════════════════════════════════════════
+// 관리자: 모바일 접속 암호 관리 (ERP 로그인 + admin 필요)
+// — 베어러 토큰(/m/*)과 별개. 로그인한 관리자만 조회/변경.
+// — 환경변수 CONTACTS_MOBILE_TOKEN 이 있으면 그게 우선(envLocked, 화면 변경 불가).
+// ═══════════════════════════════════════════════════════════
+router.get('/mobile-token', requireAuth, requireAdmin, (req, res) => {
+  const envLocked = !!(process.env.CONTACTS_MOBILE_TOKEN || '').trim();
+  let stored = '';
+  try { const s = db.설정.load(); stored = (s && typeof s.contactsMobileToken === 'string') ? s.contactsMobileToken : ''; } catch (e) {}
+  res.json({ token: envLocked ? '' : stored, hasToken: !!getMobileToken(), envLocked });
+});
+
+router.post('/mobile-token', requireAuth, requireAdmin, (req, res) => {
+  if ((process.env.CONTACTS_MOBILE_TOKEN || '').trim()) {
+    return res.status(409).json({ error: 'ENV_LOCKED', msg: '서버 환경변수(.env)에 암호가 지정돼 있어 화면에서 바꿀 수 없습니다.' });
+  }
+  const token = (req.body && typeof req.body.token === 'string') ? req.body.token.trim() : '';
+  if (token && !/^[A-Za-z0-9._~-]{6,64}$/.test(token)) {
+    return res.status(400).json({ error: 'INVALID', msg: '암호는 영문·숫자·._~- 6~64자로 정해주세요.' });
+  }
+  try {
+    const s = db.설정.load();
+    s.contactsMobileToken = token; // 빈 문자열이면 모바일 검색 비활성(차단)
+    db.설정.save(s);
+  } catch (e) {
+    return res.status(500).json({ error: 'SAVE_FAIL', msg: e.message });
+  }
+  try { auditLog((req.user && req.user.userId) || 'unknown', '모바일 접속암호 변경', 'contacts-mobile-token', { set: !!token }); } catch (e) {}
+  res.json({ ok: true, hasToken: !!token });
 });
 
 module.exports = router;

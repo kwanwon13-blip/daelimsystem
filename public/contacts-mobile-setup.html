@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2563eb">
+<title>거래처 찾기 — 접속 암호 설정</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { font-family:-apple-system,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif; background:#eef1f6; color:#111827; font-size:17px; padding-bottom:env(safe-area-inset-bottom); }
+  .wrap { max-width:560px; margin:0 auto; padding:0 0 40px; }
+  .header { background:#2563eb; color:#fff; padding:calc(env(safe-area-inset-top) + 18px) 22px 18px; }
+  .header-sub { font-size:13px; opacity:.9; }
+  .header-h1 { font-size:24px; font-weight:600; letter-spacing:-.3px; margin-top:2px; }
+  .body { padding:20px 16px; }
+  .card { background:#fff; border:1px solid #e8ebf1; border-radius:18px; padding:20px 18px; margin-bottom:16px; }
+  .card-t { font-size:18px; font-weight:700; margin-bottom:6px; }
+  .card-d { font-size:15px; color:#4b5563; line-height:1.6; margin-bottom:14px; }
+  label { display:block; font-size:15px; font-weight:600; color:#374151; margin-bottom:8px; }
+  .pw-input { width:100%; padding:16px; font-size:20px; border:2px solid #d7dbe3; border-radius:14px; background:#fff; letter-spacing:.5px; }
+  .pw-input:focus { outline:none; border-color:#2563eb; }
+  .row { display:flex; gap:10px; margin-top:12px; }
+  .btn { flex:1; border:none; border-radius:14px; padding:16px; font-size:18px; font-weight:600; cursor:pointer; }
+  .btn-save { background:#16a34a; color:#fff; }
+  .btn-save:active { opacity:.85; }
+  .btn-gen { background:#eef2ff; color:#2563eb; border:2px solid #c7d2fe; }
+  .btn-gen:active { background:#e0e7ff; }
+  .btn[disabled] { opacity:.5; cursor:default; }
+  .msg { margin-top:14px; padding:13px 15px; border-radius:12px; font-size:15px; line-height:1.5; display:none; }
+  .msg.ok { display:block; background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0; }
+  .msg.err { display:block; background:#fef2f2; color:#991b1b; border:1px solid #fecaca; }
+  .msg.info { display:block; background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe; }
+  .link-box { margin-top:14px; padding:14px; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:12px; word-break:break-all; font-size:14px; color:#0f172a; }
+  .link-box b { display:block; font-size:13px; color:#64748b; font-weight:600; margin-bottom:6px; }
+  .copy { margin-top:10px; width:100%; background:#111827; color:#fff; border:none; border-radius:12px; padding:13px; font-size:16px; font-weight:600; cursor:pointer; }
+  .copy:active { opacity:.85; }
+  .steps { font-size:14px; color:#4b5563; line-height:1.7; padding-left:2px; }
+  .steps b { color:#111827; }
+  .gate { text-align:center; padding:50px 24px; }
+  .gate-ic { font-size:54px; margin-bottom:14px; }
+  .gate-t { font-size:20px; font-weight:700; margin-bottom:8px; }
+  .gate-d { font-size:16px; color:#4b5563; line-height:1.6; margin-bottom:20px; }
+  .gate-btn { display:inline-block; background:#2563eb; color:#fff; text-decoration:none; border-radius:12px; padding:14px 26px; font-size:17px; font-weight:600; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="header-sub">대림에스엠 · 관리자</div>
+    <div class="header-h1">거래처 찾기 — 접속 암호</div>
+  </div>
+
+  <div class="body">
+    <!-- 로그인/권한 게이트 -->
+    <div id="gate" class="gate hidden">
+      <div class="gate-ic" id="gateIc">🔒</div>
+      <div class="gate-t" id="gateT">확인 중…</div>
+      <div class="gate-d" id="gateD"></div>
+      <a class="gate-btn hidden" id="gateBtn" href="/">ERP 로그인하러 가기</a>
+    </div>
+
+    <!-- 본문 -->
+    <div id="main" class="hidden">
+      <div class="card">
+        <div class="card-t">🔑 접속 암호 정하기</div>
+        <div class="card-d">직원들이 핸드폰에서 거래처를 찾을 때 쓸 <b>비밀번호</b>입니다. 여기서 정하면 바로 적용돼요(서버 재시작 불필요).</div>
+        <label for="pw">접속 암호</label>
+        <input type="text" id="pw" class="pw-input" placeholder="예: daelim2026" autocomplete="off" spellcheck="false">
+        <div class="row">
+          <button class="btn btn-gen" id="genBtn" type="button">🎲 랜덤 만들기</button>
+          <button class="btn btn-save" id="saveBtn" type="button">저장</button>
+        </div>
+        <div class="msg" id="msg"></div>
+      </div>
+
+      <div class="card" id="shareCard">
+        <div class="card-t">📲 직원에게 공유</div>
+        <div class="card-d">아래 링크를 <b>직원 단톡방</b>에 올려주세요. 직원은 한 번 누르면 됩니다.</div>
+        <div class="link-box"><b>공유 링크</b><span id="shareLink">—</span></div>
+        <button class="copy" id="copyBtn" type="button">링크 복사</button>
+        <div class="steps" style="margin-top:16px">
+          <b>직원 사용법</b><br>
+          1. 링크를 누른다 → 거래처 화면이 열림<br>
+          2. (아이폰) 공유 → "홈 화면에 추가" / (안드로이드) "앱 설치" → 홈에 아이콘<br>
+          3. 다음부터는 아이콘만 누르면 바로 열림
+        </div>
+      </div>
+
+      <div class="msg info" style="display:block">⚠️ 이 링크 하나로 <b>전체 거래처 연락처</b>가 열립니다. 직원에게만 공유하세요. 암호를 바꾸면 이전 링크는 막힙니다.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const $ = (s) => document.querySelector(s);
+  const api = (path, opt) => fetch('/api/contacts' + path, Object.assign({ credentials: 'include', headers: { 'Content-Type': 'application/json' } }, opt || {}));
+  let envLocked = false;
+
+  function showGate(ic, t, d, showBtn) {
+    $('#main').classList.add('hidden');
+    $('#gate').classList.remove('hidden');
+    $('#gateIc').textContent = ic; $('#gateT').textContent = t; $('#gateD').textContent = d;
+    $('#gateBtn').classList.toggle('hidden', !showBtn);
+  }
+  function showMain() { $('#gate').classList.add('hidden'); $('#main').classList.remove('hidden'); }
+
+  function setMsg(kind, text) { const m = $('#msg'); m.className = 'msg ' + kind; m.textContent = text; }
+
+  function updateShare() {
+    const tok = $('#pw').value.trim();
+    if (tok) { $('#shareLink').textContent = location.origin + '/contacts-mobile.html?t=' + encodeURIComponent(tok); $('#shareCard').style.display = ''; }
+    else { $('#shareLink').textContent = '— (암호를 정하면 링크가 만들어집니다)'; }
+  }
+
+  function randomTok() {
+    const a = new Uint8Array(9); crypto.getRandomValues(a);
+    return Array.from(a).map((b) => b.toString(16).padStart(2, '0')).join(''); // 18자 hex
+  }
+
+  async function load() {
+    let r;
+    try { r = await api('/mobile-token'); }
+    catch (e) { showGate('📶', '연결 안 됨', '인터넷/서버 상태를 확인하고 새로고침 해주세요.', false); return; }
+    if (r.status === 401) { showGate('🔒', 'ERP 로그인이 필요해요', '같은 브라우저에서 ERP에 로그인한 뒤 이 페이지를 다시 열어주세요.', true); return; }
+    if (r.status === 403) { showGate('🚫', '관리자만 설정할 수 있어요', '사장님(관리자) 계정으로 로그인해 주세요.', true); return; }
+    if (!r.ok) { showGate('⚠️', '오류', '잠시 후 다시 시도해 주세요. (' + r.status + ')', false); return; }
+    const data = await r.json();
+    envLocked = !!data.envLocked;
+    showMain();
+    if (envLocked) {
+      $('#pw').value = ''; $('#pw').disabled = true; $('#genBtn').disabled = true; $('#saveBtn').disabled = true;
+      setMsg('info', '이 서버는 .env 파일(CONTACTS_MOBILE_TOKEN)로 암호가 지정돼 있어 화면에서 바꿀 수 없습니다. 바꾸려면 서버 .env를 수정하세요.');
+    } else if (data.token) {
+      $('#pw').value = data.token;
+    }
+    updateShare();
+  }
+
+  async function save() {
+    const tok = $('#pw').value.trim();
+    if (tok && !/^[A-Za-z0-9._~-]{6,64}$/.test(tok)) { setMsg('err', '암호는 영문·숫자·._~- 6~64자로 정해주세요.'); return; }
+    $('#saveBtn').disabled = true;
+    let r;
+    try { r = await api('/mobile-token', { method: 'POST', body: JSON.stringify({ token: tok }) }); }
+    catch (e) { setMsg('err', '저장 실패 — 연결을 확인해 주세요.'); $('#saveBtn').disabled = false; return; }
+    $('#saveBtn').disabled = false;
+    if (r.status === 401 || r.status === 403) { setMsg('err', '권한이 없습니다. ERP에 관리자로 로그인했는지 확인하세요.'); return; }
+    let data = {}; try { data = await r.json(); } catch (e) {}
+    if (!r.ok) { setMsg('err', data.msg || ('저장 실패 (' + r.status + ')')); return; }
+    if (tok) setMsg('ok', '저장됐어요. 아래 링크를 직원에게 공유하세요.');
+    else setMsg('ok', '암호를 비웠습니다 — 모바일 거래처 찾기가 잠겼습니다(아무도 접근 불가).');
+    updateShare();
+  }
+
+  async function copyLink() {
+    const txt = $('#shareLink').textContent.trim();
+    if (!txt || txt.startsWith('—')) return;
+    try { await navigator.clipboard.writeText(txt); $('#copyBtn').textContent = '복사됨 ✓'; setTimeout(() => $('#copyBtn').textContent = '링크 복사', 1500); }
+    catch (e) { const r = document.createRange(); r.selectNodeContents($('#shareLink')); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); }
+  }
+
+  $('#genBtn').addEventListener('click', () => { $('#pw').value = randomTok(); updateShare(); setMsg('info', '랜덤 암호를 만들었어요. "저장"을 누르세요.'); });
+  $('#pw').addEventListener('input', updateShare);
+  $('#saveBtn').addEventListener('click', save);
+  $('#copyBtn').addEventListener('click', copyLink);
+  load();
+</script>
+</body>
+</html>
