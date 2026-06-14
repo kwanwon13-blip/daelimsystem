@@ -178,6 +178,7 @@ app.get('/workflow/order/:token', (req, res) => {
 // 업무데이터.db, 감사로그.json 등이 웹으로 모두 노출됐음. 이미지만 화이트리스트 허용.
 const DATA_ALLOWED_EXT = /\.(png|jpe?g|gif|webp|ico)$/i;  // svg는 XSS 위험으로 제외
 app.use('/data', (req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');  // 콘텐츠 스니핑 차단(이미지로 위장한 스크립트 실행 방지)
   // 이미지 확장자만 통과
   if (!DATA_ALLOWED_EXT.test(req.path)) {
     return res.status(404).send('Not Found');
@@ -217,6 +218,17 @@ app.use('/files', (req, res, next) => {
 
   // 4. 그 외 데스크탑 차단
   return res.status(403).send('허가된 IP에서만 접속 가능합니다.');
+});
+
+// 시안 정적 서빙 보안: nosniff 항상 + 스크립트 가능 형식(SVG/HTML/XML)은 인라인 금지(저장형 XSS 차단)
+// (express.static의 send는 Content-Type이 이미 있으면 덮어쓰지 않으므로 여기서 미리 octet-stream으로 강등하면 유지됨)
+app.use('/files', (req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  if (/\.(svgz?|html?|xml|xhtml|mht)$/i.test(req.path)) {
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'attachment');
+  }
+  next();
 });
 
 // D드라이브 시안 폴더 서빙 (로그인+IP 보안 적용)
