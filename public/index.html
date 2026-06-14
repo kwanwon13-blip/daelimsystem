@@ -5190,6 +5190,26 @@
                           <span class="ct-hdr-name" @dblclick.stop="startEditHeader(comp.id, comp.name, 'company')" x-text="comp.name"></span>
                         </template>
                         <span class="ct-badge" x-text="(function(){var n=0;(comp.directContacts||[]).length;comp.projects.forEach(function(p){n+=p.contacts.length});n+=(comp.directContacts||[]).length;return n+'명'})()"></span>
+                        <!-- 매입처/사내 토글 뱃지 -->
+                        <span @click.stop="toggleKind(comp)" title="클릭하면 매입처/사내 전환"
+                          :style="isInternalCompany(comp)
+                            ? 'cursor:pointer;font-size:10px;font-weight:700;padding:1px 8px;border-radius:8px;background:#dbeafe;color:#2563eb;border:1px solid #bfdbfe;'
+                            : 'cursor:pointer;font-size:10px;font-weight:700;padding:1px 8px;border-radius:8px;background:#fef3c7;color:#b45309;border:1px solid #fde68a;'"
+                          x-text="isInternalCompany(comp)?'사내':'매입처'"></span>
+                        <!-- 업체 주 주소 (매입처만) -->
+                        <template x-if="!isInternalCompany(comp)">
+                          <span @click.stop>
+                            <template x-if="editingCompanyAddressId===comp.id">
+                              <input class="ct-addr-input" :data-comp-addr-edit="comp.id" x-model="editingCompanyAddressValue" @blur="saveEditCompanyAddress()" @keydown.enter="saveEditCompanyAddress()" @keydown.escape="cancelEditCompanyAddress()" @click.stop placeholder="주소 입력…">
+                            </template>
+                            <template x-if="editingCompanyAddressId!==comp.id">
+                              <span class="ct-addr" @dblclick.stop="startEditCompanyAddress(comp.id, comp.address)" @click.stop>
+                                <span class="material-symbols-outlined" style="font-size:11px;">pin_drop</span>
+                                <span x-text="comp.address||'주소 추가'"></span>
+                              </span>
+                            </template>
+                          </span>
+                        </template>
                         <div style="flex:1;"></div>
                         <button class="ct-hdr-btn" @click.stop="addProject(comp.id)" title="현장 추가"><span class="material-symbols-outlined" style="font-size:15px;">add_location</span></button>
                         <button class="ct-hdr-btn" @click.stop="addContact(comp.id,'')" title="연락처 추가"><span class="material-symbols-outlined" style="font-size:15px;">person_add</span></button>
@@ -5203,7 +5223,7 @@
                           <template x-for="proj in comp.projects" :key="proj.id">
                             <div>
                               <!-- 현장 헤더 -->
-                              <div class="ct-proj-hdr" @click="toggleProject(proj.id)" :class="[isDragOver(comp.id, proj.id)?'drop-over':'', reorderOverId===proj.id&&reorderType==='project'?'reorder-over':'']" draggable="true" @dragstart.stop="onReorderDragStart($event,'project',proj.id,comp.id)" @dragend="onReorderDragEnd($event)" @dragover.prevent="reorderType==='project'?onReorderDragOver($event,'project',proj.id):onDragOverProject($event, comp.id, proj.id)" @dragleave="reorderType==='project'?onReorderDragLeave($event,proj.id):onDragLeaveProject($event)" @drop.stop="reorderType==='project'?onReorderDrop($event,'project',proj.id):onDropProject($event, comp.id, proj.id)">
+                              <div class="ct-proj-hdr" @click="toggleProject(proj.id)" :class="[isDragOver(comp.id, proj.id)?'drop-over':'', reorderOverId===proj.id&&reorderType==='project'?'reorder-over':'']" :style="proj.active===false?'opacity:.55;':''" draggable="true" @dragstart.stop="onReorderDragStart($event,'project',proj.id,comp.id)" @dragend="onReorderDragEnd($event)" @dragover.prevent="reorderType==='project'?onReorderDragOver($event,'project',proj.id):onDragOverProject($event, comp.id, proj.id)" @dragleave="reorderType==='project'?onReorderDragLeave($event,proj.id):onDragLeaveProject($event)" @drop.stop="reorderType==='project'?onReorderDrop($event,'project',proj.id):onDropProject($event, comp.id, proj.id)">
                                 <span class="ct-reorder-handle material-symbols-outlined" style="font-size:14px;" @mousedown.stop>drag_indicator</span>
                                 <span class="material-symbols-outlined" style="font-size:13px;color:#b0b0b5;transition:transform .15s;" :style="expandedProjects.has(proj.id)?'transform:rotate(90deg)':''">chevron_right</span>
                                 <span class="material-symbols-outlined" style="font-size:14px;color:#6366f1;">location_on</span>
@@ -5214,19 +5234,28 @@
                                 <template x-if="editingHeaderId!==proj.id">
                                   <span class="ct-proj-name" @dblclick.stop="startEditHeader(proj.id, proj.name, 'project')" x-text="proj.name"></span>
                                 </template>
-                                <!-- 주소 -->
-                                <template x-if="editingAddressId===proj.id">
-                                  <input class="ct-addr-input" :data-addr-edit="proj.id" x-model="editingAddressValue" @blur="saveEditAddress()" @keydown.enter="saveEditAddress()" @keydown.escape="cancelEditAddress()" @click.stop placeholder="주소 입력…">
-                                </template>
-                                <template x-if="editingAddressId!==proj.id">
-                                  <span class="ct-addr" @dblclick.stop="startEditAddress(proj.id, proj.address)" @click.stop>
-                                    <span class="material-symbols-outlined" style="font-size:11px;">pin_drop</span>
-                                    <span x-text="proj.address||'주소 추가'"></span>
+                                <!-- 주소 (내부 업체 현장은 숨김) -->
+                                <template x-if="!isInternalCompany(comp)">
+                                  <span @click.stop>
+                                    <template x-if="editingAddressId===proj.id">
+                                      <input class="ct-addr-input" :data-addr-edit="proj.id" x-model="editingAddressValue" @blur="saveEditAddress()" @keydown.enter="saveEditAddress()" @keydown.escape="cancelEditAddress()" @click.stop placeholder="주소 입력…">
+                                    </template>
+                                    <template x-if="editingAddressId!==proj.id">
+                                      <span class="ct-addr" @dblclick.stop="startEditAddress(proj.id, proj.address)" @click.stop>
+                                        <span class="material-symbols-outlined" style="font-size:11px;">pin_drop</span>
+                                        <span x-text="proj.address||'주소 추가'"></span>
+                                      </span>
+                                    </template>
                                   </span>
                                 </template>
                                 <span class="ct-badge" x-text="proj.contacts.length+'명'"></span>
+                                <!-- 끝난 현장 라벨 -->
+                                <template x-if="proj.active===false">
+                                  <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;background:#f3f4f6;color:#9ca3af;border:1px solid #e5e7eb;">끝남</span>
+                                </template>
                                 <div style="flex:1;"></div>
                                 <button class="ct-hdr-btn" @click.stop="addContact(comp.id, proj.id)" title="연락처 추가"><span class="material-symbols-outlined" style="font-size:14px;">person_add</span></button>
+                                <button class="ct-hdr-btn" @click.stop="toggleProjectActive(proj)" :title="proj.active===false?'진행중으로 되돌리기':'끝난 현장으로 표시'" :style="proj.active===false?'color:#16a34a;':'color:#9ca3af;'"><span class="material-symbols-outlined" style="font-size:14px;" x-text="proj.active===false?'undo':'flag'"></span></button>
                                 <button class="ct-hdr-btn" @click.stop="openMoveProject(proj, comp.id)" title="업체 이동" style="color:#6366f1;"><span class="material-symbols-outlined" style="font-size:14px;">drive_file_move</span></button>
                                 <button class="ct-hdr-btn del" @click.stop="deleteProject(proj)" title="현장 삭제"><span class="material-symbols-outlined" style="font-size:14px;">delete</span></button>
                               </div>

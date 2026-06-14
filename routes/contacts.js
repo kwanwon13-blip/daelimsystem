@@ -6,9 +6,11 @@ const express = require('express');
 const router = express.Router();
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const db = require('../db');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
+const { callClaudeCli } = require('../lib/claude-cli');
 
 // ── 연락처 변경 상세 로그 (복구 가능하도록 변경 전 데이터 통째로 저장) ──
 // 기존 감사로그(action+target 짧은 텍스트) 외에, 누가 무엇을 어떻게 바꿨는지
@@ -1035,6 +1037,193 @@ router.get('/m/geocode', checkMobileToken, async (req, res) => {
     res.json({ ok:false, error: '좌표를 찾을 수 없음' });
   } catch (e) {
     res.status(500).json({ ok:false, error: e.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+// 모바일 명함 스캔 + 등록 (토큰 인증)
+// — 핸드폰으로 명함 찍으면 Claude(구독 내 무료)가 글자를 읽어 칸을 채워줌.
+// — 토큰 보유자에게 허용되는 '생성 전용' 쓰기. 수정/삭제 없음.
+// ═══════════════════════════════════════════════════════════
+
+// 명함 등록 필드별 길이 상한 (제어문자 제거 후 자른다)
+const CARD_FIELD_MAX = { name: 50, company: 100, position: 50, mobile: 50, phone: 50, email: 50, address: 200 };
+
+// 제어문자 제거 + trim + 길이 상한. 문자열 아니면 빈 문자열.
+function cleanCardField(v, max) {
+  if (typeof v !== 'string') v = (v == null ? '' : String(v));
+  // 줄바꿈·탭·기타 제어문자 제거 (가독성/저장 안전)
+  v = v.replace(/[\x00-\x1F\x7F]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (v.length > max) v = v.slice(0, max);
+  return v;
+}
+
+// 모델 출력(코드펜스/잡설 섞임)에서 첫 { ... } JSON 블록만 안전 파싱. 실패 시 null.
+function extractCardJson(text) {
+  if (typeof text !== 'string') return null;
+  let s = text.trim();
+  const fence = s.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  if (fence) s = fence[1].trim();
+  const first = s.indexOf('{');
+  const last = s.lastIndexOf('}');
+  if (first < 0 || last <= first) return null;
+  s = s.slice(first, last + 1);
+  try { return JSON.parse(s); } catch (e) { return null; }
+}
+
+// POST /api/contacts/m/card-scan?t=토큰  body {image:"<base64 또는 dataURL>"}
+// → {ok:true, fields:{name,company,position,mobile,phone,email,address}} | {ok:false, error}
+router.post('/m/card-scan', checkMobileToken, async (req, res) => {
+  let tmpPath = '';
+  try {
+    let image = (req.body && req.body.image) || '';
+    if (typeof image !== 'string' || !image.trim()) {
+      return res.status(400).json({ ok: false, error: '이미지가 없어요' });
+    }
+    // dataURL 접두( data:image/...;base64, ) 제거 → 순수 base64만 남김
+    let ext = 'jpg';
+    const m = image.match(/^data:image\/([a-zA-Z0-9.+-]+);base64,/);
+    if (m) {
+      ext = (m[1] || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+      if (ext === 'jpeg') ext = 'jpg';
+      image = image.slice(image.indexOf(',') + 1);
+    }
+    image = image.replace(/\s+/g, '');
+    let buf;
+    try { buf = Buffer.from(image, 'base64'); } catch (e) { buf = null; }
+    if (!buf || buf.length === 0) {
+      return res.status(400).json({ ok: false, error: '이미지를 읽지 못했어요' });
+    }
+    if (buf.length > 8 * 1024 * 1024) {
+      return res.status(400).json({ ok: false, error: '사진이 너무 커요 (8MB 이하로 찍어주세요)' });
+    }
+    // 이미지 매직넘버 간단 검증 (JPEG/PNG/GIF/WebP/BMP만 허용)
+    const isImage =
+      (buf.length > 3 && buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) ||                       // JPEG
+      (buf.length > 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) ||    // PNG
+      (buf.length > 6 && buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) ||                       // GIF
+      (buf.length > 12 && buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+        buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) ||                   // WEBP
+      (buf.length > 2 && buf[0] === 0x42 && buf[1] === 0x4D);                                            // BMP
+    if (!isImage) {
+      return res.status(400).json({ ok: false, error: '이미지 파일이 아니에요' });
+    }
+    if (ext === 'bmp' || ext === 'webp' || ext === 'gif' || ext === 'png') { /* keep */ }
+    else ext = 'jpg';
+
+    tmpPath = path.join(os.tmpdir(), 'card-' + Date.now() + '-' + crypto.randomBytes(6).toString('hex') + '.' + ext);
+    fs.writeFileSync(tmpPath, buf);
+
+    const prompt = '이 명함 이미지에서 정보를 추출해 아래 JSON만 출력. 모르면 빈문자열. {"name":"","company":"","position":"","mobile":"","phone":"","email":"","address":""}';
+
+    let result;
+    try {
+      result = await callClaudeCli(prompt, [tmpPath], { timeout: 120000 });
+    } catch (e) {
+      console.warn('[m/card-scan] AI 호출 실패:', e.message);
+      return res.json({ ok: false, error: '명함을 읽지 못했어요' });
+    }
+
+    const parsed = extractCardJson(result && result.text);
+    if (!parsed || typeof parsed !== 'object') {
+      return res.json({ ok: false, error: '명함을 읽지 못했어요' });
+    }
+
+    const fields = {
+      name: cleanCardField(parsed.name, CARD_FIELD_MAX.name),
+      company: cleanCardField(parsed.company, CARD_FIELD_MAX.company),
+      position: cleanCardField(parsed.position, CARD_FIELD_MAX.position),
+      mobile: cleanCardField(parsed.mobile, CARD_FIELD_MAX.mobile),
+      phone: cleanCardField(parsed.phone, CARD_FIELD_MAX.phone),
+      email: cleanCardField(parsed.email, CARD_FIELD_MAX.email),
+      address: cleanCardField(parsed.address, CARD_FIELD_MAX.address)
+    };
+    return res.json({ ok: true, fields });
+  } catch (e) {
+    console.error('[m/card-scan]', e.message);
+    return res.json({ ok: false, error: '명함을 읽지 못했어요' });
+  } finally {
+    if (tmpPath) { try { fs.unlinkSync(tmpPath); } catch (_) {} }
+  }
+});
+
+// POST /api/contacts/m/card-register?t=토큰
+//   body {name,company,position,mobile,phone,email,address}
+//   → {ok:true, contact} | {ok:false, error}
+// 같은 이름의 업체가 있으면 그 업체에 직접 소속(directContact, projectId=''), 없으면 새 업체(kind:'vendor') 생성.
+router.post('/m/card-register', checkMobileToken, (req, res) => {
+  try {
+    const body = req.body || {};
+    const card = {
+      name: cleanCardField(body.name, CARD_FIELD_MAX.name),
+      company: cleanCardField(body.company, CARD_FIELD_MAX.company),
+      position: cleanCardField(body.position, CARD_FIELD_MAX.position),
+      mobile: cleanCardField(body.mobile, CARD_FIELD_MAX.mobile),
+      phone: cleanCardField(body.phone, CARD_FIELD_MAX.phone),
+      email: cleanCardField(body.email, CARD_FIELD_MAX.email),
+      address: cleanCardField(body.address, CARD_FIELD_MAX.address)
+    };
+
+    if (!card.name || card.name.length < 1 || card.name.length > 50) {
+      return res.status(400).json({ ok: false, error: '이름을 적어주세요' });
+    }
+
+    const data = db.loadContacts();
+    if (!data.contactCompanies) data.contactCompanies = [];
+    if (!data.contacts) data.contacts = [];
+
+    // 같은 이름의 업체 찾기(trim 비교) — 있으면 재사용, 없으면 새로 만든다(kind:'vendor').
+    let company = null;
+    let companyCreated = false;
+    if (card.company) {
+      company = data.contactCompanies.find(c => (c.name || '').trim() === card.company);
+    }
+    if (!company) {
+      company = {
+        id: 'comp_' + Date.now(),
+        name: card.company || (card.name + ' (개인)'),
+        note: '',
+        kind: 'vendor',
+        address: card.address,
+        createdAt: new Date().toISOString()
+      };
+      data.contactCompanies.push(company);
+      companyCreated = true;
+    }
+
+    // 연락처는 그 업체의 directContact(projectId='')로 생성 — 기존 연락처 필드 형식 그대로.
+    const contact = {
+      id: 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      projectId: '',
+      siteId: '',
+      companyId: company.id,
+      name: card.name,
+      company: company.name,
+      position: card.position,
+      dept: '',
+      phone: card.phone,
+      mobile: card.mobile,
+      email: card.email,
+      note: '',
+      customFields: {},
+      createdAt: new Date().toISOString(),
+      createdBy: 'mobile-card'
+    };
+
+    data.contacts.push(contact);
+    db.saveContacts(data);
+
+    // 감사 로그 (생성). 모바일 토큰 접속이라 ERP 사용자 없음 → 'mobile-card'.
+    const actor = (req.user && req.user.userId) || 'mobile-card';
+    if (companyCreated) {
+      logContactChange(actor, 'CREATE', { type: 'company', id: company.id, name: company.name }, null, company);
+    }
+    logContactChange(actor, 'CREATE', { type: 'contact', id: contact.id, name: contact.name }, null, contact);
+
+    return res.json({ ok: true, contact });
+  } catch (e) {
+    console.error('[m/card-register]', e.message);
+    return res.status(500).json({ ok: false, error: '저장하지 못했어요' });
   }
 });
 

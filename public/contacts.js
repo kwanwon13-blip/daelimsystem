@@ -25,6 +25,9 @@ function contactsApp() {
     // 주소 편집
     editingAddressId: null,
     editingAddressValue: '',
+    // 업체 주 주소 편집
+    editingCompanyAddressId: null,
+    editingCompanyAddressValue: '',
     // 드래그앤드롭 (연락처 이동)
     draggingContact: null,
     dragOverTarget: null,
@@ -49,13 +52,19 @@ function contactsApp() {
     // 현장을 다른 업체로 이동 모달
     projectMoveModal: { open: false, proj: null, fromCompanyId: '', targetCompanyId: '' },
 
+    // ── 내부(사내) 업체 판정 ──
+    isInternalCompany(comp) {
+      if (!comp) return false;
+      return comp.kind ? comp.kind === 'internal' : /대림에스엠|대림컴퍼니|대림SM|내부/.test(comp.name || '');
+    },
+
     // ── 초기화 ──
     async init() {
       await this.loadTree();
-      // 대림SM(내부) 기본 펼침
+      // 내부(사내) 업체 기본 펼침
       var self = this;
       this.tree.forEach(function(comp) {
-        if (comp.name && comp.name.indexOf('대림SM') >= 0) {
+        if (self.isInternalCompany(comp)) {
           self.expandedCompanies.add(comp.id);
           comp.projects.forEach(function(p) { self.expandedProjects.add(p.id); });
         }
@@ -193,6 +202,8 @@ function contactsApp() {
           id: comp.id,
           name: comp.name,
           note: comp.note || '',
+          kind: (comp.kind || 'vendor'),
+          address: (comp.address || ''),
           projects: compProjects,
           directContacts: noProjectContacts
         });
@@ -351,6 +362,57 @@ function contactsApp() {
       this.showToast2('주소 수정됨');
     },
     cancelEditAddress() { this.editingAddressId = null; },
+
+    // ── 업체 주 주소 수정 ──
+    startEditCompanyAddress(compId, addr) {
+      this.editingCompanyAddressId = compId;
+      this.editingCompanyAddressValue = addr || '';
+      this.$nextTick(function() {
+        var inp = document.querySelector('[data-comp-addr-edit="' + compId + '"]');
+        if (inp) { inp.focus(); inp.select(); }
+      });
+    },
+    async saveEditCompanyAddress() {
+      var id = this.editingCompanyAddressId;
+      var val = this.editingCompanyAddressValue.trim();
+      await fetch('/api/contacts/companies/' + id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: val })
+      });
+      this.editingCompanyAddressId = null;
+      await this.loadTree();
+      this.showToast2('주소 수정됨');
+    },
+    cancelEditCompanyAddress() { this.editingCompanyAddressId = null; },
+
+    // ── 매입처/사내 토글 ──
+    async toggleKind(comp) {
+      if (!comp || !comp.id) return;
+      var next = (comp.kind === 'internal') ? 'vendor' : 'internal';
+      comp.kind = next; // optimistic
+      await fetch('/api/contacts/companies/' + comp.id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: next })
+      });
+      await this.loadTree();
+      this.showToast2(next === 'internal' ? '사내로 변경됨' : '매입처로 변경됨');
+    },
+
+    // ── 현장 끝남(active) 토글 ──
+    async toggleProjectActive(proj) {
+      if (!proj || !proj.id) return;
+      var nextActive = (proj.active === false) ? true : false;
+      proj.active = nextActive; // optimistic
+      await fetch('/api/contacts/projects/' + proj.id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: nextActive })
+      });
+      await this.loadTree();
+      this.showToast2(nextActive ? '진행중으로 변경됨' : '끝난 현장으로 표시됨');
+    },
 
     // ── 인라인 편집 (연락처 셀) ──
     isEditing(c, field) {

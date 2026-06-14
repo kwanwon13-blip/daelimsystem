@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#2563eb">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="거래처찾기">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png">
 <title>거래처 찾기 — 대림에스엠</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
@@ -66,6 +71,47 @@
   .ic-kakao { background:#fee500; color:#000; } .ic-tmap { background:#1ec3f6; } .ic-naver { background:#03c75a; }
 
   .info-bar { position:fixed; bottom:0; left:50%; transform:translateX(-50%); width:100%; max-width:480px; background:rgba(255,255,255,.96); border-top:1px solid #e5e7eb; padding:10px 14px calc(10px + env(safe-area-inset-bottom)); text-align:center; font-size:13px; color:#6b7280; z-index:50; }
+
+  /* 명함 등록 버튼 (헤더 안) */
+  .header-card-btn { margin-top:12px; width:100%; background:#fff; color:#2563eb; border:none; border-radius:14px; padding:15px; font-size:19px; font-weight:700; display:flex; align-items:center; justify-content:center; gap:9px; cursor:pointer; }
+  .header-card-btn:active { opacity:.85; }
+  .header-card-btn .cam { font-size:23px; line-height:1; }
+
+  /* 길찾기 버튼 비활성(주소 없음) */
+  .btn-sub.disabled { background:#f1f3f7; color:#9aa3b2; border-color:#e5e7eb; }
+
+  /* 오프라인 띠 */
+  .offline-bar { background:#fef3c7; color:#92400e; font-size:15px; font-weight:600; text-align:center; padding:11px 14px; line-height:1.4; }
+
+  /* 큰 로딩 오버레이 (명함 읽는 중) */
+  .loading-bg { position:fixed; inset:0; background:rgba(255,255,255,.94); display:none; flex-direction:column; align-items:center; justify-content:center; z-index:300; padding:30px; text-align:center; }
+  .loading-bg.visible { display:flex; }
+  .spinner { width:64px; height:64px; border:7px solid #dbeafe; border-top-color:#2563eb; border-radius:50%; animation:spin 1s linear infinite; margin-bottom:22px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .loading-t { font-size:22px; font-weight:700; color:#1e3a8a; margin-bottom:8px; }
+  .loading-s { font-size:16px; color:#6b7280; }
+
+  /* 명함 확인 화면 / 토큰 입력 화면 (전체 시트) */
+  .sheet-bg { position:fixed; inset:0; background:#eef1f6; display:none; flex-direction:column; z-index:250; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+  .sheet-bg.visible { display:flex; }
+  .sheet-head { background:#2563eb; color:#fff; padding:calc(env(safe-area-inset-top) + 18px) 20px 18px; position:sticky; top:0; }
+  .sheet-head h2 { font-size:23px; font-weight:600; }
+  .sheet-head p { font-size:14px; opacity:.92; margin-top:3px; }
+  .sheet-body { padding:18px 16px calc(24px + env(safe-area-inset-bottom)); }
+  .fld { margin-bottom:15px; }
+  .fld label { display:block; font-size:16px; font-weight:600; color:#374151; margin-bottom:7px; }
+  .fld input { width:100%; padding:15px 16px; font-size:19px; border:2px solid #d7dbe3; border-radius:13px; background:#fff; -webkit-appearance:none; }
+  .fld input:focus { outline:none; border-color:#2563eb; }
+  .sheet-actions { display:flex; gap:11px; margin-top:8px; }
+  .btn-big { flex:1; border:none; border-radius:14px; padding:17px; font-size:20px; font-weight:700; cursor:pointer; }
+  .btn-big.primary { background:#16a34a; color:#fff; }
+  .btn-big.ghost { background:#e5e7eb; color:#374151; flex:0 0 38%; }
+  .btn-big:active { opacity:.85; }
+  .sheet-hint { font-size:15px; color:#6b7280; line-height:1.5; margin-bottom:16px; background:#fff; border:1px solid #e8ebf1; border-radius:13px; padding:13px 15px; }
+
+  /* 토스트 */
+  .toast { position:fixed; left:50%; bottom:calc(28px + env(safe-area-inset-bottom)); transform:translateX(-50%); background:#111827; color:#fff; font-size:17px; font-weight:600; padding:14px 22px; border-radius:14px; z-index:400; opacity:0; pointer-events:none; transition:opacity .2s; max-width:90%; text-align:center; }
+  .toast.show { opacity:.97; }
 </style>
 </head>
 <body>
@@ -73,7 +119,11 @@
   <div class="header">
     <div class="header-sub">대림에스엠</div>
     <div class="header-h1">거래처 찾기</div>
+    <button class="header-card-btn" id="cardBtn" type="button"><span class="cam">📇</span> 명함 등록</button>
   </div>
+  <div class="offline-bar" id="offlineBar" style="display:none">⚠ 인터넷이 안 돼 마지막으로 받은 목록이에요</div>
+  <input type="file" id="cardFile" accept="image/*" capture="environment" style="display:none">
+
 
   <div class="search-wrap">
     <div class="search-box">
@@ -103,6 +153,54 @@
   </div>
 </div>
 
+<!-- 길찾기 목적지 선택 (사무실/현장 둘 이상일 때) -->
+<div class="modal-bg" id="destModal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="destModalTitle">
+    <div class="modal-title" id="destModalTitle">어디로 갈까요?</div>
+    <div class="modal-sub">가실 곳을 눌러주세요.</div>
+    <div id="destList"></div>
+  </div>
+</div>
+
+<!-- 명함 읽는 중 로딩 -->
+<div class="loading-bg" id="cardLoading">
+  <div class="spinner" aria-hidden="true"></div>
+  <div class="loading-t">AI가 명함을 읽는 중…</div>
+  <div class="loading-s">잠시만 기다려 주세요</div>
+</div>
+
+<!-- 명함 확인/등록 화면 -->
+<div class="sheet-bg" id="cardSheet">
+  <div class="sheet-head"><h2>명함 확인</h2><p>틀린 곳만 고치고 등록을 눌러주세요</p></div>
+  <div class="sheet-body">
+    <div class="fld"><label>이름</label><input type="text" id="cf_name" autocomplete="off"></div>
+    <div class="fld"><label>회사</label><input type="text" id="cf_company" autocomplete="off"></div>
+    <div class="fld"><label>직책</label><input type="text" id="cf_position" autocomplete="off"></div>
+    <div class="fld"><label>휴대폰</label><input type="tel" id="cf_mobile" autocomplete="off" inputmode="tel"></div>
+    <div class="fld"><label>전화</label><input type="tel" id="cf_phone" autocomplete="off" inputmode="tel"></div>
+    <div class="fld"><label>이메일</label><input type="text" id="cf_email" autocomplete="off" inputmode="email"></div>
+    <div class="fld"><label>주소</label><input type="text" id="cf_address" autocomplete="off"></div>
+    <div class="sheet-actions">
+      <button class="btn-big ghost" id="cardCancel" type="button">취소</button>
+      <button class="btn-big primary" id="cardSave" type="button">등록</button>
+    </div>
+  </div>
+</div>
+
+<!-- 접속 암호 입력 화면 (토큰 없을 때) -->
+<div class="sheet-bg" id="tokenSheet">
+  <div class="sheet-head"><h2>접속 암호</h2><p>처음 한 번만 입력하면 됩니다</p></div>
+  <div class="sheet-body">
+    <div class="sheet-hint">단톡방에 공유된 접속 암호를 입력해 주세요.<br>한 번 넣으면 다음부턴 안 물어봐요.</div>
+    <div class="fld"><label>접속 암호</label><input type="text" id="tokenInput" autocomplete="off" placeholder="암호 입력"></div>
+    <div class="sheet-actions">
+      <button class="btn-big primary" id="tokenSave" type="button">확인</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
 <script>
   const STORE = {
     favs: () => JSON.parse(localStorage.getItem('contacts_mobile_favs') || '[]'),
@@ -110,34 +208,62 @@
     recents: () => JSON.parse(localStorage.getItem('contacts_mobile_recents') || '[]'),
     addRecent: (id) => { let r = STORE.recents().filter(x => String(x) !== String(id)); r.unshift(String(id)); localStorage.setItem('contacts_mobile_recents', JSON.stringify(r.slice(0, 6))); },
     map: () => localStorage.getItem('contacts_mobile_map') || '',
-    setMap: (v) => localStorage.setItem('contacts_mobile_map', v)
+    setMap: (v) => localStorage.setItem('contacts_mobile_map', v),
+    lastlist: () => { try { return JSON.parse(localStorage.getItem('contacts_mobile_lastlist') || '[]'); } catch (e) { return []; } },
+    setLastlist: (a) => { try { localStorage.setItem('contacts_mobile_lastlist', JSON.stringify(a || [])); } catch (e) {} }
   };
-  const URL_TOKEN = new URLSearchParams(location.search).get('t') || '';
+  // 토큰: URL ?t= 있으면 그 값 사용+영속 저장, 없으면 저장된 값 복원. 둘 다 없으면 암호입력 화면.
+  let TOKEN = '';
+  (function initToken() {
+    const urlTok = new URLSearchParams(location.search).get('t') || '';
+    if (urlTok) { TOKEN = urlTok; try { localStorage.setItem('contacts_mobile_token', urlTok); } catch (e) {} }
+    else { try { TOKEN = localStorage.getItem('contacts_mobile_token') || ''; } catch (e) { TOKEN = ''; } }
+  })();
   const $ = (s) => document.querySelector(s);
   const $all = (s) => Array.from(document.querySelectorAll(s));
   function blurKb() { const a = document.activeElement; if (a && a.id === 'searchInput' && typeof a.blur === 'function') a.blur(); } // 키보드 내리기
   let allContacts = [];
   let searchTimer = null;
+  let offline = false; // 오프라인(마지막목록) 모드 — 길찾기만 폴백
   const VOICE_OK = !!(window.SpeechRecognition || window.webkitSpeechRecognition); // 음성검색 지원 여부 (안내문구 일관성)
 
-  function api(path) { const sep = path.includes('?') ? '&' : '?'; return fetch('/api/contacts/m' + path + sep + 't=' + encodeURIComponent(URL_TOKEN)); }
+  let toastTimer = null;
+  function toast(msg) {
+    const t = $('#toast'); if (!t) return;
+    t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  function api(path) { const sep = path.includes('?') ? '&' : '?'; return fetch('/api/contacts/m' + path + sep + 't=' + encodeURIComponent(TOKEN)); }
 
   async function init() {
-    if (!URL_TOKEN) { renderTokenError(); return; }
-    if (!STORE.map()) $('#mapModal').classList.add('visible');
     bindEvents();
+    if (!TOKEN) { openTokenSheet(); return; } // 토큰 전혀 없음 → 잠금화면 대신 암호 입력칸
+    if (!STORE.map()) $('#mapModal').classList.add('visible');
+    offline = false;
+    $('#offlineBar').style.display = 'none';
     try {
       const r = await api('/all');
       if (r.status === 403) { renderTokenError(); return; }
       if (!r.ok) throw new Error('all ' + r.status);
       allContacts = await r.json();
       if (Array.isArray(allContacts) && allContacts.length) {
+        STORE.setLastlist(allContacts); // 오프라인 대비 마지막 목록 보관
         const ids = new Set(allContacts.map((c) => String(c.id)));
         const pr = STORE.recents().filter((x) => ids.has(String(x)));
         localStorage.setItem('contacts_mobile_recents', JSON.stringify(pr));
       }
     } catch (e) {
       console.error('목록 로드 실패', e);
+      const cached = STORE.lastlist();
+      if (Array.isArray(cached) && cached.length) {
+        // 인터넷 끊김 → 마지막으로 받은 목록으로 계속 (전화·즐겨찾기·최근 동작, 길찾기만 폴백)
+        offline = true;
+        allContacts = cached;
+        $('#offlineBar').style.display = 'block';
+        renderDefault();
+        return;
+      }
       $('#results').innerHTML = '<div class="empty"><div class="empty-ic">📶</div><div class="empty-t">연결이 안 돼요</div><div class="empty-s">인터넷을 확인하고<br>아래 버튼을 눌러주세요.</div><button class="btn-call" id="retryBtn" style="margin-top:18px">다시 시도</button></div>';
       const rb = $('#retryBtn'); if (rb) rb.addEventListener('click', () => { $('#results').innerHTML = '<div class="empty"><div class="empty-ic">⏳</div><div class="empty-t">불러오는 중…</div></div>'; init(); });
       return;
@@ -146,8 +272,17 @@
   }
 
   function renderTokenError() {
-    $('#results').innerHTML = '<div class="empty"><div class="empty-ic">🔒</div><div class="empty-t">접근 권한 없음</div><div class="empty-s">단톡방에 공유된 정확한 링크를<br>다시 눌러주세요.</div></div>';
-    $('.search-wrap').style.display = 'none';
+    // 저장된 토큰이 틀렸거나 거부됨 → 암호 다시 입력받기 (영구 잠금 대신)
+    try { localStorage.removeItem('contacts_mobile_token'); } catch (e) {}
+    TOKEN = '';
+    openTokenSheet('암호가 맞지 않아요. 단톡방의 암호를 다시 입력해 주세요.');
+  }
+
+  function openTokenSheet(hintMsg) {
+    const sheet = $('#tokenSheet');
+    if (hintMsg) { const h = sheet.querySelector('.sheet-hint'); if (h) h.innerHTML = esc(hintMsg); }
+    sheet.classList.add('visible');
+    const inp = $('#tokenInput'); if (inp) { inp.value = ''; setTimeout(() => inp.focus(), 100); }
   }
 
   function bindEvents() {
@@ -179,6 +314,27 @@
       if (window._pendingRoute) { const p = window._pendingRoute; window._pendingRoute = null; openMap(p.q, p.route); }
     }));
     $('#mapModal').addEventListener('click', (e) => { if (e.target.id === 'mapModal' && STORE.map()) $('#mapModal').classList.remove('visible'); });
+
+    // 길찾기 목적지 선택 시트 — 배경 탭하면 닫기
+    $('#destModal').addEventListener('click', (e) => { if (e.target.id === 'destModal') $('#destModal').classList.remove('visible'); });
+
+    // 접속 암호 입력
+    const tokenSave = () => {
+      const v = ($('#tokenInput').value || '').trim();
+      if (!v) { toast('암호를 입력해 주세요'); return; }
+      TOKEN = v; try { localStorage.setItem('contacts_mobile_token', v); } catch (e) {}
+      $('#tokenSheet').classList.remove('visible'); blurKb();
+      $('#results').innerHTML = '<div class="empty"><div class="empty-ic">⏳</div><div class="empty-t">불러오는 중…</div></div>';
+      init();
+    };
+    $('#tokenSave').addEventListener('click', tokenSave);
+    $('#tokenInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); tokenSave(); } });
+
+    // 명함 등록 — 카메라 열기
+    $('#cardBtn').addEventListener('click', () => { const f = $('#cardFile'); f.value = ''; f.click(); });
+    $('#cardFile').addEventListener('change', onCardPicked);
+    $('#cardCancel').addEventListener('click', () => $('#cardSheet').classList.remove('visible'));
+    $('#cardSave').addEventListener('click', onCardSave);
   }
 
   function byId(id) { return allContacts.find((c) => String(c.id) === String(id)); }
@@ -225,27 +381,58 @@
     const disp = formatPhone(c.mobile || c.phone || '');
     const company = c.companyName || c.company || '';
     const site = c.projectName || '';
-    const addr = (c.projectAddress || '').trim();
-    const mapQ = encodeURIComponent(addr || ((company && site) ? company + ' ' + site : (site || company || c.name || '')));
+    const internal = c.companyKind === 'internal';           // 사내 → 길찾기/지도/주소 미표시(전화만)
+    const dests = Array.isArray(c.destinations) ? c.destinations : [];
+    // 지도(검색) 폴백 질의 — 주소 없거나 오프라인일 때도 회사명+현장명으로 검색
+    const firstAddr = dests.length ? (dests[0].addr || '') : '';
+    const mapQ = encodeURIComponent(firstAddr || ((company && site) ? company + ' ' + site : (site || company || c.name || '')));
+
+    let actions = '';
+    if (!internal) {
+      const routeDisabled = dests.length === 0;
+      actions = '<div class="sub-actions">'
+        + '<button class="btn-sub' + (routeDisabled ? ' disabled' : '') + '" data-route-id="' + esc(c.id) + '"' + (routeDisabled ? ' aria-disabled="true"' : '') + '><svg class="ic-route" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg> 길찾기</button>'
+        + '<button class="btn-sub" data-mapq="' + mapQ + '"><svg class="ic-map" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg> 지도</button>'
+        + '</div>';
+    }
     return '<div class="card" data-id="' + esc(c.id) + '">'
       + '<div class="card-top"><div><span class="card-name">' + esc(c.name || '?') + '</span>' + (c.position ? '<span class="card-pos">' + esc(c.position) + '</span>' : '') + '</div>'
       + '<button class="card-fav' + (isFav ? ' active' : '') + '" data-fav="' + esc(c.id) + '" aria-label="자주 거는 곳 표시">★</button></div>'
       + (company ? '<div class="card-company">' + esc(company) + '</div>' : '')
-      + (site ? '<div class="card-site">📍 ' + esc(site) + '</div>' : '')
+      + (site && !internal ? '<div class="card-site">📍 ' + esc(site) + '</div>' : '')
       + (disp ? '<div class="card-phone">' + disp + '</div>' : '')
       + '<button class="btn-call' + (phone ? '' : ' off') + '" data-call="' + phone + '" data-id="' + esc(c.id) + '"' + (phone ? '' : ' disabled') + '><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>' + (phone ? ' 전화 걸기' : ' 번호 없음') + '</button>'
-      + '<div class="sub-actions">'
-      + '<button class="btn-sub" data-route="' + mapQ + '"><svg class="ic-route" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg> 길찾기</button>'
-      + '<button class="btn-sub" data-mapq="' + mapQ + '"><svg class="ic-map" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg> 지도</button>'
-      + '</div></div>';
+      + actions + '</div>';
   }
 
   function bindCards() {
     $all('.card-fav').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); const id = b.dataset.fav; const favs = STORE.favs(); const i = favs.indexOf(id); if (i >= 0) favs.splice(i, 1); else favs.push(id); STORE.setFavs(favs); b.classList.toggle('active'); }));
     $all('.btn-call').forEach((b) => b.addEventListener('click', () => { const p = b.dataset.call; if (!p) return; blurKb(); STORE.addRecent(b.dataset.id); location.href = 'tel:' + p; }));
-    $all('[data-route]').forEach((b) => b.addEventListener('click', () => openMap(decodeURIComponent(b.dataset.route), true)));
+    $all('[data-route-id]').forEach((b) => b.addEventListener('click', () => routeFor(b.dataset.routeId)));
     $all('[data-mapq]').forEach((b) => b.addEventListener('click', () => openMap(decodeURIComponent(b.dataset.mapq), false)));
   }
+
+  // 길찾기 — 목적지 개수에 따라 분기 (data-id 한 개로 후보 보유, data-route 단일값 한계 해소)
+  function routeFor(id) {
+    const c = byId(id);
+    const dests = (c && Array.isArray(c.destinations)) ? c.destinations : [];
+    if (dests.length === 0) { toast('아직 주소가 없어요'); return; } // 비활성 버튼 눌렀을 때
+    if (offline) { toast('인터넷이 안 돼 길찾기는 지도 검색으로 열려요'); }
+    if (dests.length === 1) { goRoute(dests[0].addr); return; } // 안 묻고 1탭
+    // 둘 이상(사무실+현장) → 어디로 갈까요? 시트
+    const list = $('#destList');
+    list.innerHTML = dests.map((d, i) =>
+      '<button class="map-opt" data-dest="' + i + '"><span class="map-ic" style="background:' + (d.kind === 'site' ? '#ef4444' : '#2563eb') + '">' + (d.kind === 'site' ? '📍' : '🏢') + '</span><span>' + esc(d.label || (d.kind === 'site' ? '현장' : '사무실')) + '</span></button>'
+    ).join('');
+    $all('#destList [data-dest]').forEach((b) => b.addEventListener('click', () => {
+      const d = dests[parseInt(b.dataset.dest, 10)];
+      $('#destModal').classList.remove('visible');
+      if (d) goRoute(d.addr);
+    }));
+    $('#destModal').classList.add('visible');
+  }
+  // 오프라인이면 길찾기를 지도 검색(주소 텍스트)으로 폴백, 온라인이면 좌표 길찾기
+  function goRoute(addr) { openMap(addr, !offline); }
 
   // 길찾기/지도 — 좌표 필요 시 서버 geocode → deep link, 실패 시 안내
   async function openMap(q, route) {
@@ -257,7 +444,7 @@
       try {
         const ctrl = new AbortController();
         const tm = setTimeout(() => ctrl.abort(), 1500);
-        const r = await fetch('/api/contacts/m/geocode?t=' + encodeURIComponent(URL_TOKEN) + '&q=' + encodeURIComponent(q), { signal: ctrl.signal });
+        const r = await fetch('/api/contacts/m/geocode?t=' + encodeURIComponent(TOKEN) + '&q=' + encodeURIComponent(q), { signal: ctrl.signal });
         clearTimeout(tm);
         if (r.ok) { const data = await r.json(); if (data.ok && data.lat && data.lng) coords = { lat: data.lat, lng: data.lng }; }
       } catch (e) { /* geocode 실패 → 아래 안내 */ }
@@ -300,6 +487,90 @@
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
   }
+
+  // ── 명함 등록 (어르신용) ─────────────────────────────
+  // 사진 → AI 스캔(/m/card-scan) → 확인화면 프리필 → 직원 수정 → 등록(/m/card-register)
+  function onCardPicked(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (!TOKEN) { openTokenSheet(); return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUrl = reader.result; // dataURL (계약상 base64/dataURL 모두 허용)
+      $('#cardLoading').classList.add('visible');
+      try {
+        const r = await fetch('/api/contacts/m/card-scan?t=' + encodeURIComponent(TOKEN), {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: dataUrl })
+        });
+        let data = {};
+        try { data = await r.json(); } catch (e) { data = {}; }
+        $('#cardLoading').classList.remove('visible');
+        if (r.status === 403) { renderTokenError(); return; }
+        if (!r.ok || !data || data.ok === false) {
+          fillCardForm({}); // 빈 폼이라도 띄워 직접 입력 가능
+          $('#cardSheet').classList.add('visible');
+          toast('잘 안 읽혔어요 — 다시 찍거나 직접 입력하세요');
+          return;
+        }
+        fillCardForm(data.fields || {});
+        $('#cardSheet').classList.add('visible');
+      } catch (err) {
+        $('#cardLoading').classList.remove('visible');
+        fillCardForm({});
+        $('#cardSheet').classList.add('visible');
+        toast('잘 안 읽혔어요 — 직접 입력하셔도 돼요');
+      }
+    };
+    reader.onerror = () => { $('#cardLoading').classList.remove('visible'); toast('사진을 못 읽었어요. 다시 시도해 주세요'); };
+    reader.readAsDataURL(file);
+  }
+
+  function fillCardForm(f) {
+    f = f || {};
+    $('#cf_name').value = f.name || '';
+    $('#cf_company').value = f.company || '';
+    $('#cf_position').value = f.position || '';
+    $('#cf_mobile').value = f.mobile || '';
+    $('#cf_phone').value = f.phone || '';
+    $('#cf_email').value = f.email || '';
+    $('#cf_address').value = f.address || '';
+  }
+
+  async function onCardSave() {
+    const fields = {
+      name: ($('#cf_name').value || '').trim(),
+      company: ($('#cf_company').value || '').trim(),
+      position: ($('#cf_position').value || '').trim(),
+      mobile: ($('#cf_mobile').value || '').trim(),
+      phone: ($('#cf_phone').value || '').trim(),
+      email: ($('#cf_email').value || '').trim(),
+      address: ($('#cf_address').value || '').trim()
+    };
+    if (!fields.name && !fields.company && !fields.mobile && !fields.phone) { toast('이름이나 연락처를 적어주세요'); return; }
+    const btn = $('#cardSave'); btn.disabled = true; const old = btn.textContent; btn.textContent = '등록 중…';
+    try {
+      const r = await fetch('/api/contacts/m/card-register?t=' + encodeURIComponent(TOKEN), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fields)
+      });
+      let data = {};
+      try { data = await r.json(); } catch (e) { data = {}; }
+      if (r.status === 403) { btn.disabled = false; btn.textContent = old; renderTokenError(); return; }
+      if (!r.ok || !data || data.ok === false) { toast((data && data.error) ? data.error : '등록이 안 됐어요. 잠시 후 다시 해주세요'); btn.disabled = false; btn.textContent = old; return; }
+      blurKb();
+      $('#cardSheet').classList.remove('visible');
+      btn.disabled = false; btn.textContent = old;
+      toast('등록됐어요');
+      if (!offline) init(); // 새 연락처가 목록에 보이도록 새로고침
+    } catch (err) {
+      toast('등록이 안 됐어요. 인터넷을 확인해 주세요');
+      btn.disabled = false; btn.textContent = old;
+    }
+  }
+
+  // 서비스워커 (PWA 설치/오프라인 셸) — 실패해도 앱 동작엔 지장 없게
+  try { if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(function(){}); } catch (e) {}
 
   init();
 </script>
