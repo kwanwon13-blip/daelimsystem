@@ -2324,28 +2324,13 @@ function orderChangeRequestCount(data, job) {
 }
 
 function completionBlockers(data, job, opts = {}) {
+  // 사장님 정책(2026-06-14): 완료는 '권한'만으로 가능. 팀별 확인 강제 게이트 폐지
+  // (모든 팀이 검토대기 승인·공장 시안확인·가능일·일정·체크·전달확정을 일일이 눌러야 완료되던 방식 제거).
+  // 단 하나, 데이터 무결성만 유지 — 참조 파일이 디스크에서 실제로 사라진 경우(완료 시 과거내역 ZIP이 깨지므로).
+  // 공장 [받기]/[수락]/완료가능일 버튼은 그대로 존재하나(쓰고 싶으면 사용), 완료를 막지는 않음.
   const blockers = [];
-  const pendingStages = pendingStageCount(job);
-  const pendingChecklist = pendingChecklistCount(job);
-  const blockedStages = blockedStageCount(job);
-  // 목록/요약에서는 디스크 확인을 건너뛴다(skipFileExists) → 탭 열기 즉시. 상세에서 정확히 검증.
   const missingFiles = opts.skipFileExists ? 0 : missingFileCount(data, job, data?.fileExistsCache || null);
-  const pendingReviews = pendingReviewCount(data, job);
-  const changeRequests = changeRequestCount(data, job);
-  const lateSchedules = lateScheduleCount(data, job);
-  const orderChangeRequests = orderChangeRequestCount(data, job);
-  const pendingOrders = pendingOrderCount(data, job);
-  const factoryBlockers = factoryConfirmationBlockers(data, job);
-  if (pendingStages) blockers.push({ key: 'pendingStages', label: '미완료 단계', count: pendingStages });
-  if (pendingChecklist) blockers.push({ key: 'pendingChecklist', label: '미완료 체크', count: pendingChecklist });
-  if (blockedStages) blockers.push({ key: 'blockedStages', label: '막힘 단계', count: blockedStages });
   if (missingFiles) blockers.push({ key: 'missingFiles', label: '서버 파일 없음', count: missingFiles });
-  if (pendingReviews) blockers.push({ key: 'pendingReviews', label: '검토대기 파일', count: pendingReviews });
-  blockers.push(...factoryBlockers);
-  if (changeRequests) blockers.push({ key: 'changeRequests', label: '수정/조정요청 파일', count: changeRequests });
-  if (lateSchedules) blockers.push({ key: 'lateSchedules', label: '가능일 지연', count: lateSchedules });
-  if (orderChangeRequests) blockers.push({ key: 'orderChangeRequests', label: '전달 조정요청', count: orderChangeRequests });
-  if (pendingOrders) blockers.push({ key: 'pendingOrders', label: '미확정 전달', count: pendingOrders });
   return blockers;
 }
 
