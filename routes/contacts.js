@@ -157,6 +157,8 @@ router.post('/companies', requireAuth, (req, res) => {
     id: 'comp_' + Date.now(),
     name: req.body.name || '',
     note: req.body.note || '',
+    kind: req.body.kind === 'internal' ? 'internal' : 'vendor',  // 'vendor'(매입처) | 'internal'(사내) — 기본 매입처
+    address: (req.body.address || '').trim(),                     // 업체 주 주소(사무실/창고)
     createdAt: new Date().toISOString()
   };
 
@@ -175,6 +177,8 @@ router.put('/companies/:id', requireAuth, (req, res) => {
   if (req.body.name !== undefined) company.name = req.body.name;
   if (req.body.note !== undefined) company.note = req.body.note;
   if (req.body.order !== undefined) company.order = req.body.order;
+  if (req.body.kind !== undefined) company.kind = (req.body.kind === 'internal' ? 'internal' : 'vendor');
+  if (req.body.address !== undefined) company.address = String(req.body.address).trim();
 
   db.saveContacts(data);
   logContactChange(req.user?.userId, 'UPDATE', { type:'company', id:company.id, name:company.name }, before, { ...company });
@@ -251,6 +255,7 @@ router.put('/projects/:id', requireAuth, (req, res) => {
   if (req.body.note !== undefined) project.note = req.body.note;
   if (req.body.order !== undefined) project.order = req.body.order;
   if (req.body.companyId !== undefined) project.companyId = req.body.companyId;
+  if (req.body.active !== undefined) project.active = !!req.body.active;  // false = 끝남(준공) — 모바일 길찾기 후보에서 제외
 
   db.saveContacts(data);
   logContactChange(req.user?.userId, 'UPDATE', { type:'project', id:project.id, name:project.name }, before, { ...project });
@@ -889,6 +894,32 @@ function checkMobileToken(req, res, next) {
   next();
 }
 
+// 모바일 응답 1행 합성 — /m/all·/m/search 공용. destinations = 길찾기 후보(현장+사무실 주소).
+// 내부(사내)면 destinations 비움. 끝난 현장(active=false)·주소 없는 곳 제외. 현장=사무실 주소 같으면 1개로 합침.
+// companyId 없는 연락처는 회사명으로 업체를 찾아 사무실 주소라도 후보에 넣음(미배정·준공 구제).
+function buildMobileRow(c, projectMap, companyMap, companyByName) {
+  const proj = projectMap[c.projectId];
+  const comp = proj ? companyMap[proj.companyId]
+            : (c.companyId ? companyMap[c.companyId] : companyByName[((c.company || '').trim())]);
+  const isInternal = comp
+    ? (comp.kind === 'internal' || (comp.kind === undefined && /대림에스엠|대림컴퍼니|대림SM|내부/.test(comp.name || '')))
+    : false;
+  const dests = [];
+  if (!isInternal) {
+    const siteAddr = (proj && (proj.address || '').trim() && proj.active !== false) ? proj.address.trim() : '';
+    const offAddr = (comp && (comp.address || '').trim()) ? comp.address.trim() : '';
+    if (siteAddr) dests.push({ label: (proj && proj.name) || '현장', addr: siteAddr, kind: 'site' });
+    if (offAddr && offAddr !== siteAddr) dests.push({ label: '사무실', addr: offAddr, kind: 'office' });
+  }
+  return Object.assign({}, c, {
+    projectName: proj ? (proj.name || '') : '',
+    projectAddress: proj ? (proj.address || '') : '',
+    companyName: comp ? comp.name : (c.company || ''),
+    companyKind: isInternal ? 'internal' : 'vendor',
+    destinations: dests
+  });
+}
+
 // GET /api/contacts/m/companies?t=토큰
 router.get('/m/companies', checkMobileToken, (req, res) => {
   const data = db.loadContacts();
@@ -912,17 +943,10 @@ router.get('/m/all', checkMobileToken, (req, res) => {
   projects.forEach(p => { projectMap[p.id] = p; });
   const companyMap = {};
   companies.forEach(c => { companyMap[c.id] = c; });
+  const companyByName = {};
+  companies.forEach(c => { if (c.name) companyByName[c.name.trim()] = c; });
 
-  const results = contacts.map(c => {
-    const proj = projectMap[c.projectId];
-    const comp = proj ? companyMap[proj.companyId] : null;
-    return {
-      ...c,
-      projectName: proj ? proj.name : '',
-      projectAddress: proj ? (proj.address || '') : '',
-      companyName: comp ? comp.name : ''
-    };
-  });
+  const results = contacts.map(c => buildMobileRow(c, projectMap, companyMap, companyByName));
 
   res.json(results);
 });
@@ -943,6 +967,8 @@ router.get('/m/search', checkMobileToken, (req, res) => {
   projects.forEach(p => { projectMap[p.id] = p; });
   const companyMap = {};
   companies.forEach(c => { companyMap[c.id] = c; });
+  const companyByName = {};
+  companies.forEach(c => { if (c.name) companyByName[c.name.trim()] = c; });
 
   const results = contacts.filter(c => {
     const phoneNum = (c.phone || '').replace(/[^0-9]/g, '');
@@ -955,16 +981,7 @@ router.get('/m/search', checkMobileToken, (req, res) => {
       (c.email || '').toLowerCase().includes(q) ||
       (qDigits && (phoneNum.includes(qDigits) || mobileNum.includes(qDigits)))
     );
-  }).map(c => {
-    const proj = projectMap[c.projectId];
-    const comp = proj ? companyMap[proj.companyId] : null;
-    return {
-      ...c,
-      projectName: proj ? proj.name : '',
-      projectAddress: proj ? (proj.address || '') : '',
-      companyName: comp ? comp.name : ''
-    };
-  });
+  }).map(c => buildMobileRow(c, projectMap, companyMap, companyByName));
 
   res.json(results);
 });
@@ -1049,20 +1066,6 @@ router.post('/mobile-token', requireAuth, requireAdmin, (req, res) => {
     return res.status(500).json({ error: 'SAVE_FAIL', msg: e.message });
   }
   try { auditLog((req.user && req.user.userId) || 'unknown', '모바일 접속암호 변경', 'contacts-mobile-token', { set: !!token }); } catch (e) {}
-  res.json({ ok: true, hasToken: !!token });
-});
-
-// 서버 컨트롤 시크릿으로 모바일 암호 설정 (배포 도구 전용 — git-pull/restart와 동일 권한)
-router.post('/mobile-token-secret', (req, res) => {
-  const expected = (process.env.CONTROL_DAEMON_SECRET || '').trim();
-  if (!expected) return res.status(403).json({ error: 'NO_SECRET' });
-  const given = Buffer.from(String(req.headers['x-control-secret'] || ''));
-  const exp = Buffer.from(expected);
-  if (given.length !== exp.length || !crypto.timingSafeEqual(given, exp)) return res.status(403).json({ error: 'FORBIDDEN' });
-  const token = (req.body && typeof req.body.token === 'string') ? req.body.token.trim() : '';
-  if (token && !/^[A-Za-z0-9._~-]{6,64}$/.test(token)) return res.status(400).json({ error: 'INVALID' });
-  try { const s = db.설정.load(); s.contactsMobileToken = token; db.설정.save(s); }
-  catch (e) { return res.status(500).json({ error: 'SAVE_FAIL', msg: e.message }); }
   res.json({ ok: true, hasToken: !!token });
 });
 
