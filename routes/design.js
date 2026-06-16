@@ -421,12 +421,22 @@ function saveHiddenFolders(list) {
     if (!name || !key || seen.has(key)) continue;
     seen.add(key); uniq.push(name);
   }
+  const json = JSON.stringify({ folders: uniq }, null, 2);
   try {
-    // 원자적 저장(tmp 작성 후 rename) — 쓰기 도중 크래시로 파일이 잘려 숨김이 통째로 풀리는 것 방지.
+    // 원자적 저장(tmp 작성 후 rename) — 쓰기 중 크래시로 파일이 잘려 숨김이 통째로 풀리는 것 방지.
     const tmp = HIDDEN_FOLDERS_PATH + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify({ folders: uniq }, null, 2));
-    fs.renameSync(tmp, HIDDEN_FOLDERS_PATH);
-  } catch (e) { console.error('[design] hidden-folders 저장 실패:', e.message); }
+    fs.writeFileSync(tmp, json);
+    try {
+      fs.renameSync(tmp, HIDDEN_FOLDERS_PATH);
+    } catch (renameErr) {
+      // Windows에서 대상이 동시 읽기로 열려 있으면 rename이 EPERM 날 수 있음 → 직접 쓰기로 폴백(영속 보장 우선).
+      fs.writeFileSync(HIDDEN_FOLDERS_PATH, json);
+      try { fs.unlinkSync(tmp); } catch (_) {}
+    }
+  } catch (e) {
+    console.error('[design] hidden-folders 저장 실패:', e.message);
+    throw e; // 디스크 미저장인데 {ok:true}를 주는 거짓 성공 방지 — 호출자(POST/DELETE)가 500으로 알림
+  }
   return uniq;
 }
 function hiddenFolderKeySet() {
@@ -696,14 +706,18 @@ router.get('/design/hidden-folders', requireAuth, (req, res) => {
 router.post('/design/hidden-folders', requireAuth, (req, res) => {
   const name = String((req.body && req.body.name) || '').trim();
   if (!name) return res.status(400).json({ error: '숨길 폴더명이 필요합니다.' });
-  const folders = saveHiddenFolders([...loadHiddenFolders(), name]);
+  let folders;
+  try { folders = saveHiddenFolders([...loadHiddenFolders(), name]); }
+  catch (e) { return res.status(500).json({ error: '숨김 목록 저장 실패: ' + e.message }); }
   invalidateDesignWorkflowOptions();
   res.json({ ok: true, folders });
 });
 router.delete('/design/hidden-folders', requireAuth, (req, res) => {
   const name = String((req.query && req.query.name) || (req.body && req.body.name) || '').trim();
   const key = designWorkflowStorage.normalizeKey(name);
-  const folders = saveHiddenFolders(loadHiddenFolders().filter(n => designWorkflowStorage.normalizeKey(n) !== key));
+  let folders;
+  try { folders = saveHiddenFolders(loadHiddenFolders().filter(n => designWorkflowStorage.normalizeKey(n) !== key)); }
+  catch (e) { return res.status(500).json({ error: '숨김 목록 저장 실패: ' + e.message }); }
   invalidateDesignWorkflowOptions();
   res.json({ ok: true, folders });
 });

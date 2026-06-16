@@ -200,7 +200,7 @@ function workflowApp() {
           });
         }
       } catch (_) {}
-      await Promise.all([this.loadAuth(), this.loadMeta()]);
+      await Promise.all([this.loadAuth(), this.loadMeta(), this.loadHiddenDesignFolders()]); // 숨김목록 선로딩 — 새로고침해도 숨김 유지(모달 안 열어도 자동완성 필터 적용). 안 하면 hiddenDesignFolders=[]로 남아 숨김이 풀림.
       this.loadPublicLinkSettings();
       if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
       await this.loadJobs();
@@ -1862,7 +1862,8 @@ function workflowApp() {
         names.push(name);
       };
       for (const company of this.designWorkflowOptions.companies || []) {
-        if (company?.name) add(company.name);
+        // 회사목록은 folderName까지 넘겨 숨김 판정 — name≠folderName(폴더명으로 숨긴) 회사도 네이티브 datalist에서 제외
+        if (company?.name && !this.isDesignFolderHidden(company.name, company.folderName)) add(company.name);
       }
       if (this.detail?.job?.companyName) add(this.detail.job.companyName);
       for (const job of this.jobs || []) {
