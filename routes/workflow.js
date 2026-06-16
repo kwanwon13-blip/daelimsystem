@@ -3799,6 +3799,10 @@ router.post('/jobs', (req, res) => {
     }
     job.stageChecks.factory.note = '외주(타 회사) — 공장 단계 건너뜀';
     syncWorkflowStageFlow(job, at); // → 경영관리(배송) ready, currentStage = delivery
+  } else if (String(req.body.productionRoute || '') === 'none') {
+    // 미발주: 시안만 등록·발주 보류. 디자인 단계 활성으로 두고 보드에 '미발주' 뱃지. 나중에 [내부/외주 발주]로 진행.
+    job.productionRoute = 'none';
+    job.unordered = true;
   } else {
     job.productionRoute = 'internal';
   }
@@ -3846,6 +3850,33 @@ router.post('/jobs/:id/cancel', (req, res) => {
   job.cancelledByName = userName(req);
   job.updatedAt = at;
   addEvent(data, req, job.id, 'cancel', '발주 취소 · 기록 보존(되돌리기로 복구 가능)', { previousStatus: prev });
+  saveStore(data);
+  res.json({ ok: true, job: decorateJob(data, job, req.user) });
+});
+
+// 미발주 → 발주 전환 — 작성자·관리자만. 내부/외주 지정 후 정상 흐름 진입.
+router.post('/jobs/:id/reorder', (req, res) => {
+  const data = loadStore();
+  const job = data.jobs.find(j => j.id === req.params.id);
+  if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  if (job.status === 'cancelled') return res.status(400).json({ error: '취소된 발주입니다.' });
+  if (!(isWorkflowAdmin(req) || isJobCreator(job, req))) return res.status(403).json({ error: '발주는 작성자·관리자만 가능합니다.' });
+  const route = String(req.body.route || '') === 'external' ? 'external' : 'internal';
+  const at = nowIso();
+  job.unordered = false;
+  job.productionRoute = route;
+  job.status = 'active';
+  if (route === 'external') {
+    job.stageChecks = newStageChecks(job.stageChecks || {});
+    for (const sid of ['design', 'factory']) {
+      const c = job.stageChecks[sid];
+      if (c) { c.status = 'done'; c.completedAt = at; c.completedBy = job.createdBy; c.completedByName = job.createdByName; c.updatedAt = at; }
+    }
+    if (job.stageChecks.factory) job.stageChecks.factory.note = '외주(타 회사) — 공장 단계 건너뜀';
+  }
+  syncWorkflowStageFlow(job, at); // 내부=디자인(공장이 가져감) / 외주=경영관리(배송)
+  job.updatedAt = at;
+  addEvent(data, req, job.id, 'update', `미발주 → ${route === 'external' ? '외주' : '내부'} 발주`, { productionRoute: route });
   saveStore(data);
   res.json({ ok: true, job: decorateJob(data, job, req.user) });
 });

@@ -2999,6 +2999,23 @@ function workflowApp() {
       finally { this.saving = false; }
     },
 
+    // 미발주 → 발주 전환 (내부/외주). 작성자·관리자만(서버 게이트).
+    async reorderJob(jobId, route) {
+      const label = route === 'external' ? '외주' : '내부';
+      if (!confirm(`이 미발주 건을 ${label}로 발주할까요?`)) return;
+      this.saving = true;
+      try {
+        const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(jobId) + '/reorder', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ route }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.ok) throw new Error(d.error || '발주 실패');
+        await this.loadJobs();
+        if (this.detail && this.detail.job && this.detail.job.id === jobId) await this.refreshDetail(false);
+      } catch (e) { alert(e.message); }
+      finally { this.saving = false; }
+    },
+
     // 실수로 다음 단계로 넘긴 작업을 이전 단계로 되돌림 (과거내역=완료면 배송 단계로 복구)
     async cardStepBack(jobId) {
       const job = (this.jobs || []).find(j => j.id === jobId) || (this.archiveJobs || []).find(j => j.id === jobId);

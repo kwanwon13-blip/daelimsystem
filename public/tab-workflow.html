@@ -792,8 +792,11 @@
                       <div class="wf-rc-line">
                         <span class="wf-rc-date" x-show="(cardDeadline(job)||{}).date" x-text="(cardDeadline(job)||{}).date"></span>
                         <span class="wf-rc-person" x-show="groupActor(job, stage.id) && groupActor(job, stage.id) !== '미지정'"><span class="material-symbols-outlined" style="font-size:12px;">person</span><span x-text="groupActor(job, stage.id)"></span></span>
+                        <span x-show="job.unordered" style="background:#fef3c7;color:#92400e;border-radius:999px;padding:1px 8px;font-size:10px;font-weight:900;">미발주</span>
                         <span style="flex:1"></span>
-                        <button type="button" class="wf-rc-btn" @click.stop="cardHandoff(job.id, stage.id)" x-show="job.status!=='done' && job.status!=='cancelled' && job.viewerCanFactory" title="대림컴퍼니(공장)가 이 발주를 가져갑니다 — 공장(또는 관리자)만 당길 수 있습니다">가져오기</button>
+                        <button type="button" class="wf-rc-btn" @click.stop="cardHandoff(job.id, stage.id)" x-show="!job.unordered && job.status!=='done' && job.status!=='cancelled' && job.viewerCanFactory" title="대림컴퍼니(공장)가 이 발주를 가져갑니다 — 공장(또는 관리자)만 당길 수 있습니다">가져오기</button>
+                        <button type="button" class="wf-rc-btn" @click.stop="reorderJob(job.id,'internal')" x-show="job.unordered && job.viewerCanManage" :disabled="saving" title="대림컴퍼니(내부)로 발주">내부발주</button>
+                        <button type="button" class="wf-rc-btn ok" @click.stop="reorderJob(job.id,'external')" x-show="job.unordered && job.viewerCanManage" :disabled="saving" title="외주(타 회사)로 발주">외주발주</button>
                       </div>
                     </template>
                     <template x-if="stage.id==='factory'">
@@ -1883,9 +1886,11 @@
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <label class="wf-route-opt" :class="form.productionRoute==='internal'?'on':''"><input type="radio" value="internal" x-model="form.productionRoute" @change="onProductionRouteChange()" style="display:none;"><span class="material-symbols-outlined" style="font-size:16px;">factory</span> 내부 (대림컴퍼니)</label>
             <label class="wf-route-opt" :class="form.productionRoute==='external'?'on':''"><input type="radio" value="external" x-model="form.productionRoute" @change="onProductionRouteChange()" style="display:none;"><span class="material-symbols-outlined" style="font-size:16px;">local_shipping</span> 외주 (타 회사)</label>
+            <label class="wf-route-opt" :class="form.productionRoute==='none'?'on':''"><input type="radio" value="none" x-model="form.productionRoute" @change="onProductionRouteChange()" style="display:none;"><span class="material-symbols-outlined" style="font-size:16px;">schedule</span> 미발주 (시안만)</label>
           </div>
           <div class="wf-muted" x-show="form.productionRoute==='external'" style="font-size:11px;">외주는 공장 단계를 건너뛰고 <b>경영관리(납품준비)</b>로 바로 등록 + 아래 업체로 메일 발송됩니다.</div>
           <div class="wf-muted" x-show="form.productionRoute==='internal'" style="font-size:11px;">대림컴퍼니(공장)에는 <b>ERP 보드로 바로 전달</b>돼요 — 메일 발송 없음.</div>
+          <div class="wf-muted" x-show="form.productionRoute==='none'" style="font-size:11px;">미발주는 <b>시안만 보관</b> — 보드에 '미발주' 뱃지로 남고, 나중에 거기서 [내부/외주]로 발주하면 됩니다.</div>
         </div>
         <div class="wf-field" x-show="form.productionRoute==='external'" x-cloak style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:10px 12px;">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0;">
