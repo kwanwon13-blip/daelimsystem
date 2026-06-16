@@ -1109,7 +1109,7 @@
                   <div class="wf-field">
                     <input class="wf-input" list="wfDetailProjectNames" x-model="detail.job.projectName" placeholder="현장">
                     <div class="wf-muted" style="font-size:10px;">현장명 변경은 팀장 승인 후 적용 — 승인되면 디스크 폴더까지 함께 바뀝니다 (탐색기에서 직접 바꾸지 마세요)</div>
-                    <div class="wf-project-picks" x-show="workflowProjectSuggestions(detail.job.companyName, 8, detail.job.projectName).length">
+                    <div class="wf-project-picks" x-show="workflowCompanyHasProjects(detail.job.companyName) && workflowProjectSuggestions(detail.job.companyName, 8, detail.job.projectName).length">
                       <template x-for="project in workflowProjectSuggestions(detail.job.companyName, 8, detail.job.projectName)" :key="'detail-project-'+project.name">
                         <button type="button" class="wf-project-pick" @click="detail.job.projectName = project.name">
                           <span x-text="project.name"></span>
@@ -1829,7 +1829,7 @@
           <div class="wf-field">
             <label>프로젝트/현장</label>
             <input class="wf-input" x-model="form.projectName" @change="syncAutoJobTitle()" autocomplete="off" placeholder="프로젝트명">
-            <div class="wf-project-picks" x-show="workflowProjectSuggestions(form.companyName, 8, form.projectName).length">
+            <div class="wf-project-picks" x-show="workflowCompanyHasProjects(form.companyName) && workflowProjectSuggestions(form.companyName, 8, form.projectName).length">
               <template x-for="project in workflowProjectSuggestions(form.companyName, 8, form.projectName)" :key="'new-project-'+project.name">
                 <button type="button" class="wf-project-pick" @click="form.projectName = project.name; syncAutoJobTitle(true)">
                   <span x-text="project.name"></span>

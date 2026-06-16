@@ -1405,6 +1405,12 @@ function workflowApp() {
         .slice(0, Number(limit || 8));
     },
 
+    // 회사에 등록된 현장(프로젝트)이 하나라도 있는지 — 없으면(업체만 있는 곳, 예: 삼성라코스) 현장 추천 드롭다운 자체를 띄우지 않는다.
+    workflowCompanyHasProjects(companyName) {
+      if (!String(companyName || '').trim()) return false;
+      return this.workflowProjectOptionsForCompany(companyName, true).length > 0;
+    },
+
     projectStatusLabel(status) {
       return status === 'done' ? '완료' : '진행';
     },
