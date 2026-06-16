@@ -1817,13 +1817,15 @@ function workflowApp() {
       if (!nm) return;
       if (!confirm(`'${nm}' 폴더를 검색·자동완성에서 숨길까요?\n(나중에 '숨긴 폴더 N개'에서 복원할 수 있어요)`)) return;
       const key = this.normalizeOptionName(nm);
-      if (!this.hiddenDesignFolders.some(h => this.normalizeOptionName(h) === key)) this.hiddenDesignFolders.push(nm); // 즉시 반영
+      const added = !this.hiddenDesignFolders.some(h => this.normalizeOptionName(h) === key);
+      if (added) this.hiddenDesignFolders.push(nm); // 즉시 반영(낙관적)
+      const rollback = () => { if (added) this.hiddenDesignFolders = this.hiddenDesignFolders.filter(h => this.normalizeOptionName(h) !== key); };
       try {
         const r = await fetch('/api/design/hidden-folders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: nm }) });
         const d = await r.json().catch(() => ({}));
         if (r.ok && d.ok && Array.isArray(d.folders)) this.hiddenDesignFolders = d.folders;
-        else if (!r.ok) alert(d.error || '숨기기 실패');
-      } catch (e) { alert('숨기기 실패: ' + (e.message || e)); }
+        else { rollback(); alert((d && d.error) || '숨기기 실패'); } // 서버 미저장 → 낙관적 추가 롤백(불일치 방지)
+      } catch (e) { rollback(); alert('숨기기 실패: ' + (e.message || e)); }
     },
     async restoreDesignFolder(name) {
       const nm = String(name || '').trim();
@@ -1855,6 +1857,7 @@ function workflowApp() {
         const name = String(value || '').trim();
         const key = this.normalizeOptionName(name);
         if (!name || seen.has(key)) return;
+        if (this.isDesignFolderHidden(name)) return; // 숨긴 회사는 네이티브 datalist 자동완성에서도 제외(상세·업로드·프로젝트폼·보관규칙)
         seen.add(key);
         names.push(name);
       };

@@ -421,8 +421,12 @@ function saveHiddenFolders(list) {
     if (!name || !key || seen.has(key)) continue;
     seen.add(key); uniq.push(name);
   }
-  try { fs.writeFileSync(HIDDEN_FOLDERS_PATH, JSON.stringify({ folders: uniq }, null, 2)); }
-  catch (e) { console.error('[design] hidden-folders 저장 실패:', e.message); }
+  try {
+    // 원자적 저장(tmp 작성 후 rename) — 쓰기 도중 크래시로 파일이 잘려 숨김이 통째로 풀리는 것 방지.
+    const tmp = HIDDEN_FOLDERS_PATH + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({ folders: uniq }, null, 2));
+    fs.renameSync(tmp, HIDDEN_FOLDERS_PATH);
+  } catch (e) { console.error('[design] hidden-folders 저장 실패:', e.message); }
   return uniq;
 }
 function hiddenFolderKeySet() {
@@ -515,9 +519,10 @@ router.get('/design/search', requireAuth, (req, res) => {
   const typesParam = (req.query.types || '').trim();
   const typeFilter = typesParam ? new Set(typesParam.split(',').filter(Boolean)) : null;
   const collectionFilter = getDesignCollection(req.query.collection);
-  // 숨긴 폴더(회사) 제외 — DESIGN_ROOT 깊이에 무관하게 경로 어느 구간이든 숨긴 폴더명과 일치하면 제외(숨긴 이름은 고유해 오탐 없음)
+  // 숨긴 폴더(회사) 제외 — DESIGN_ROOT 깊이에 무관하게 경로 '폴더' 구간이든 숨긴 폴더명과 일치하면 제외.
+  // 마지막 구간(파일명)은 제외해 매칭면을 좁힘(파일명이 숨긴 회사명과 우연히 같아 오탐하는 것 방지).
   const hiddenSet = hiddenFolderKeySet();
-  const notHidden = item => !hiddenSet.size || !(item.parts || []).some(p => hiddenSet.has(designWorkflowStorage.normalizeKey(p)));
+  const notHidden = item => !hiddenSet.size || !(item.parts || []).slice(0, -1).some(p => hiddenSet.has(designWorkflowStorage.normalizeKey(p)));
   const collectionItems = (collectionFilter
     ? designIndex.filter(item => matchesDesignCollection(item, collectionFilter))
     : designIndex).filter(notHidden);
