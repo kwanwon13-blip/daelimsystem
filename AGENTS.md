@@ -1,5 +1,53 @@
 # Project Environment Rules
 
+## Codex 자동 배포 규칙 — push/pull/restart (새 채팅 필수)
+
+사용자가 "푸시풀", "배포", "서버 반영"을 요청하면 아래 절차를 따른다. 이 섹션은 이전에 적힌 `git-setup.bat` / `git-pull-server.bat` 수동 절차보다 우선한다.
+
+1. 먼저 현재 작업 폴더에서 수정 범위를 확인한다.
+   ```powershell
+   git status --short --branch
+   git diff
+   ```
+   관련 없는 변경이나 미추적 파일은 절대 stage하지 않는다.
+
+2. 서버 PC는 `origin/main`을 pull한다. 현재 로컬 브랜치가 `main`이 아니거나 `origin/main`과 크게 다르면, 현재 브랜치를 그대로 `main`에 push하지 않는다. 대신 `C:\tmp\price-list-app-main-deploy` 같은 임시 worktree를 `origin/main`에서 만들거나 재사용하고, 필요한 파일만 이식해서 배포 커밋을 만든다.
+   ```powershell
+   git worktree add C:\tmp\price-list-app-main-deploy origin/main
+   ```
+
+3. 배포 커밋은 필요한 파일만 stage한다.
+   ```powershell
+   git add -- 수정한파일
+   git commit -m "커밋 메시지"
+   git push origin HEAD:main
+   ```
+
+4. 서버 pull은 서버 PC의 실제 `.env`에서 `CONTROL_DAEMON_SECRET`을 읽어 `X-Control-Secret` 헤더로만 사용한다. 로컬 `.env`나 문서에 적힌 예전 secret은 서버와 다를 수 있다. secret 값은 절대 출력하거나 커밋하거나 최종 답변에 포함하지 않는다.
+   ```powershell
+   $envPath='\\192.168.0.133\DD\price-list-app\.env'
+   $line = Get-Content -LiteralPath $envPath | Where-Object { $_ -match '^CONTROL_DAEMON_SECRET=' } | Select-Object -First 1
+   $secret = (($line -replace '^CONTROL_DAEMON_SECRET=', '').Trim())
+   curl.exe -s -X POST -H "X-Control-Secret: $secret" -H "Content-Type: application/json" -d "{}" http://192.168.0.133:3000/api/git-pull
+   ```
+
+5. 서버를 재시작한다.
+   ```powershell
+   curl.exe -s -X POST -H "X-Control-Secret: $secret" http://192.168.0.133:3002/restart
+   Start-Sleep -Seconds 8
+   ```
+
+6. 반영 여부를 확인한다.
+   ```powershell
+   curl.exe -s http://192.168.0.133:3000/api/version
+   ```
+   `commitShort`가 방금 push한 커밋과 일치해야 한다.
+
+주의:
+- `POST /api/git-pull`이 `Unauthorized`이면 대개 서버 실제 `.env`의 secret이 아닌 값을 쓴 것이다.
+- 브라우저로 `/api/git-pull`을 여는 방식은 로그인 세션에 의존하므로 자동화에서는 서버 `.env` secret 방식을 우선한다.
+- `*.bat`, `*.vbs`, `*.ps1`은 대부분 `.gitignore` 대상이므로 스크립트 변경은 별도 동기화가 필요한지 확인한다.
+
 ## ⚠️ 실수 방지 — PC 2대 구성 (반드시 먼저 읽을 것)
 
 이 프로젝트는 **2대의 Windows PC**에서 운영된다. Codex는 자주 두 PC를 혼동하므로 아래 표를 항상 참조할 것.
