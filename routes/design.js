@@ -63,6 +63,217 @@ function matchesAnyDesignTerm(item, terms) {
   return terms.some(term => text.includes(term));
 }
 
+const HANGUL_INITIALS = ['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+const HANGUL_MEDIALS = ['ㅏ','ㅐ','ㅑ','ㅒ','ㅓ','ㅔ','ㅕ','ㅖ','ㅗ','ㅘ','ㅙ','ㅚ','ㅛ','ㅜ','ㅝ','ㅞ','ㅟ','ㅠ','ㅡ','ㅢ','ㅣ'];
+const HANGUL_FINALS = ['', 'ㄱ','ㄲ','ㄳ','ㄴ','ㄵ','ㄶ','ㄷ','ㄹ','ㄺ','ㄻ','ㄼ','ㄽ','ㄾ','ㄿ','ㅀ','ㅁ','ㅂ','ㅄ','ㅅ','ㅆ','ㅇ','ㅈ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+const HANGUL_INITIAL_INDEX = new Map(HANGUL_INITIALS.map((v, i) => [v, i]));
+const HANGUL_MEDIAL_INDEX = new Map(HANGUL_MEDIALS.map((v, i) => [v, i]));
+const HANGUL_FINAL_INDEX = new Map(HANGUL_FINALS.map((v, i) => [v, i]));
+const QWERTY_CONSONANTS = {
+  r:'ㄱ', R:'ㄲ', s:'ㄴ', e:'ㄷ', E:'ㄸ', f:'ㄹ', a:'ㅁ', q:'ㅂ', Q:'ㅃ',
+  t:'ㅅ', T:'ㅆ', d:'ㅇ', w:'ㅈ', W:'ㅉ', c:'ㅊ', z:'ㅋ', x:'ㅌ', v:'ㅍ', g:'ㅎ'
+};
+const QWERTY_VOWELS = {
+  k:'ㅏ', o:'ㅐ', i:'ㅑ', O:'ㅒ', j:'ㅓ', p:'ㅔ', u:'ㅕ', P:'ㅖ',
+  h:'ㅗ', y:'ㅛ', n:'ㅜ', b:'ㅠ', m:'ㅡ', l:'ㅣ'
+};
+const COMPOUND_VOWELS = new Map([
+  ['ㅗㅏ','ㅘ'], ['ㅗㅐ','ㅙ'], ['ㅗㅣ','ㅚ'],
+  ['ㅜㅓ','ㅝ'], ['ㅜㅔ','ㅞ'], ['ㅜㅣ','ㅟ'],
+  ['ㅡㅣ','ㅢ']
+]);
+const COMPOUND_FINALS = new Map([
+  ['ㄱㅅ','ㄳ'], ['ㄴㅈ','ㄵ'], ['ㄴㅎ','ㄶ'], ['ㄹㄱ','ㄺ'], ['ㄹㅁ','ㄻ'],
+  ['ㄹㅂ','ㄼ'], ['ㄹㅅ','ㄽ'], ['ㄹㅌ','ㄾ'], ['ㄹㅍ','ㄿ'], ['ㄹㅎ','ㅀ'], ['ㅂㅅ','ㅄ']
+]);
+const DESIGN_SYNONYMS = {
+  '배너': ['베너', '현수막', '플랜카드', '프랑카드'],
+  '베너': ['배너', '현수막'],
+  '현수막': ['배너', '플랜카드', '프랑카드'],
+  '플랜카드': ['현수막', '프랑카드', '배너'],
+  '프랑카드': ['플랜카드', '현수막'],
+  '안전표지': ['표지판', '안전간판', '표찰'],
+  '표지판': ['안전표지', '안전간판', '표찰'],
+  '입간판': ['배너거치대', '스탠드배너'],
+  '거치대': ['배너거치대', '스탠드'],
+  'hdc': ['현대산업개발', '현산'],
+  '현산': ['현대산업개발', 'hdc'],
+  '현대산업개발': ['hdc', '현산'],
+  'posco': ['포스코'],
+  '포스코': ['posco'],
+  'doosan': ['두산'],
+  '두산': ['doosan']
+};
+let designSearchVocabCache = { key: '', terms: [] };
+
+function composeHangul(lead, vowel, tail) {
+  if (!lead || !vowel) return (lead || '') + (vowel || '') + (tail || '');
+  const l = HANGUL_INITIAL_INDEX.get(lead);
+  const v = HANGUL_MEDIAL_INDEX.get(vowel);
+  const t = HANGUL_FINAL_INDEX.get(tail || '');
+  if (l == null || v == null || t == null) return lead + vowel + (tail || '');
+  return String.fromCharCode(0xac00 + ((l * 21 + v) * 28) + t);
+}
+
+function qwertyToHangul(value) {
+  const input = String(value || '');
+  if (!/[A-Za-z]/.test(input)) return input;
+  let out = '';
+  let lead = '', vowel = '', tail = '';
+  const flush = () => {
+    out += composeHangul(lead, vowel, tail);
+    lead = ''; vowel = ''; tail = '';
+  };
+  for (const ch of input) {
+    const consonant = QWERTY_CONSONANTS[ch];
+    const nextVowel = QWERTY_VOWELS[ch];
+    if (!consonant && !nextVowel) {
+      flush();
+      out += ch;
+      continue;
+    }
+    if (consonant) {
+      if (!lead) lead = consonant;
+      else if (!vowel) { flush(); lead = consonant; }
+      else if (!tail) tail = consonant;
+      else {
+        const combined = COMPOUND_FINALS.get(tail + consonant);
+        if (combined) tail = combined;
+        else { flush(); lead = consonant; }
+      }
+      continue;
+    }
+    if (!lead) {
+      flush();
+      vowel = nextVowel;
+      flush();
+    } else if (!vowel) {
+      vowel = nextVowel;
+    } else if (tail) {
+      const prevTail = tail;
+      tail = '';
+      flush();
+      lead = prevTail;
+      vowel = nextVowel;
+    } else {
+      const combined = COMPOUND_VOWELS.get(vowel + nextVowel);
+      if (combined) vowel = combined;
+      else { flush(); vowel = nextVowel; flush(); }
+    }
+  }
+  flush();
+  return out;
+}
+
+function hangulInitials(value) {
+  return String(value || '').replace(/[가-힣]/g, ch => {
+    const code = ch.charCodeAt(0) - 0xac00;
+    if (code < 0 || code > 11171) return ch;
+    return HANGUL_INITIALS[Math.floor(code / 588)] || ch;
+  }).toLowerCase().replace(/\s+/g, '');
+}
+
+function compactDesignSearch(value) {
+  return String(value || '').toLowerCase().replace(/[\s_\-\\/.,()[\]{}]+/g, '');
+}
+
+function getDesignSearchCache(item) {
+  if (!item._smartSearch) {
+    const text = String(item.searchText || '').toLowerCase();
+    item._smartSearch = {
+      text,
+      compact: compactDesignSearch(text),
+      initials: hangulInitials(text),
+    };
+  }
+  return item._smartSearch;
+}
+
+function getDesignSearchVocabulary() {
+  const key = `${designIndex.length}|${designIndexStatus.lastBuilt || ''}|${designIndexStatus.lastMode || ''}`;
+  if (designSearchVocabCache.key === key) return designSearchVocabCache.terms;
+  const counts = new Map();
+  for (const item of designIndex) {
+    const text = String(item.searchText || '').toLowerCase();
+    for (const part of text.split(/[^0-9a-z가-힣]+/i)) {
+      const token = part.trim();
+      if (token.length < 2 || token.length > 32) continue;
+      counts.set(token, (counts.get(token) || 0) + 1);
+    }
+  }
+  const terms = Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 20000)
+    .map(([term]) => term);
+  designSearchVocabCache = { key, terms };
+  return terms;
+}
+
+function editDistanceWithin(a, b, maxDistance) {
+  a = String(a || '');
+  b = String(b || '');
+  if (Math.abs(a.length - b.length) > maxDistance) return maxDistance + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    let rowMin = cur[0];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      const val = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+      cur[j] = val;
+      if (val < rowMin) rowMin = val;
+    }
+    if (rowMin > maxDistance) return maxDistance + 1;
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+function fuzzyDesignTerms(token) {
+  if (!token || token.length < 2) return [];
+  const maxDistance = token.length >= 5 ? 2 : 1;
+  const isHangul = /[가-힣]/.test(token);
+  const isAlphaNum = /^[0-9a-z]+$/i.test(token);
+  if (!isHangul && !isAlphaNum) return [];
+  const out = [];
+  for (const term of getDesignSearchVocabulary()) {
+    if (out.length >= 6) break;
+    if (Math.abs(term.length - token.length) > maxDistance) continue;
+    if (isHangul !== /[가-힣]/.test(term)) continue;
+    if (editDistanceWithin(token, term, maxDistance) <= maxDistance) out.push(term);
+  }
+  return out;
+}
+
+function expandDesignKeyword(keyword) {
+  const queue = [String(keyword || '').toLowerCase().trim()];
+  const out = new Set();
+  for (let i = 0; i < queue.length; i++) {
+    const token = queue[i];
+    if (!token || out.has(token)) continue;
+    out.add(token);
+    const typedHangul = qwertyToHangul(token).toLowerCase();
+    if (typedHangul && typedHangul !== token) queue.push(typedHangul);
+    const compact = compactDesignSearch(token);
+    if (compact && compact !== token) queue.push(compact);
+    for (const synonym of DESIGN_SYNONYMS[token] || []) queue.push(String(synonym).toLowerCase());
+  }
+  for (const token of Array.from(out)) {
+    for (const fuzzy of fuzzyDesignTerms(token)) out.add(fuzzy);
+  }
+  return Array.from(out).filter(Boolean);
+}
+
+function matchesDesignKeyword(item, alternatives) {
+  const cache = getDesignSearchCache(item);
+  return alternatives.some(term => {
+    const compact = compactDesignSearch(term);
+    return cache.text.includes(term)
+      || (compact && cache.compact.includes(compact))
+      || (/^[ㄱ-ㅎ]+$/.test(term) && cache.initials.includes(term));
+  });
+}
+
 function cleanHierarchyPart(value) {
   return String(value || '')
     .replace(/[\\/:*?"<>|\r\n\t]+/g, ' ')
@@ -295,10 +506,8 @@ router.get('/design/search', requireAuth, (req, res) => {
     return res.json({ items: [], total: 0, typeCounts, status: designIndexStatus });
   }
   const keywords = q.split(/\s+/).filter(Boolean);
-  const first = keywords[0];
-  const rest = keywords.slice(1);
-  let matches = designIndex.filter(item => (item.searchText || '').includes(first));
-  if (rest.length > 0) matches = matches.filter(item => rest.every(kw => (item.searchText || '').includes(kw)));
+  const keywordGroups = keywords.map(expandDesignKeyword).filter(group => group.length > 0);
+  let matches = designIndex.filter(item => keywordGroups.every(group => matchesDesignKeyword(item, group)));
   // 회사명 필터 (건설사/발주처) — 공백 제거 비교 (검색어와 별개 AND)
   if (hasBrandFilter) {
     matches = matches.filter(item => matchesAnyDesignTerm(item, brandTerms));
