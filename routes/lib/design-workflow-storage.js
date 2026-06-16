@@ -435,7 +435,8 @@ function resolveWorkflowStorage({ designRoot = '', designIndex = [], skipDirs = 
   const companyRaw = cleanCompanyDisplayName(companyName);
   const projectRaw = cleanProjectDisplayName(projectName);
   if (!companyRaw) throw new Error('companyName required');
-  if (!projectRaw) throw new Error('projectName required');
+  // 현장명(프로젝트)이 없는 업체(예: 삼성라코스)는 회사\연도 까지만 정리 — 현장명 하위폴더 없이 연도 폴더에 바로 저장.
+  const hasProject = !!projectRaw;
 
   const options = buildWorkflowOptions({ designIndex, designRoot: root, skipDirs, includeIndex: false });
   const existingCompany = findCompanyForStorage(options, companyRaw);
@@ -444,7 +445,9 @@ function resolveWorkflowStorage({ designRoot = '', designIndex = [], skipDirs = 
   const companyDir = path.resolve(root, companyFolderName);
   if (!create && !dryRun && !fs.existsSync(companyDir)) return null;
   const storageYear = safeYear(year);
-  const existingProject = findProjectForStorage(options, existingCompany || { name: companyRaw, folderName: companyFolderName }, projectRaw);
+  const existingProject = hasProject
+    ? findProjectForStorage(options, existingCompany || { name: companyRaw, folderName: companyFolderName }, projectRaw)
+    : null;
   const ruleYearFolderName = storageRule
     ? renderStorageTemplate(storageRule.yearFolderTemplate, { year: storageYear, company: companyRaw, project: projectRaw })
     : '';
@@ -455,15 +458,22 @@ function resolveWorkflowStorage({ designRoot = '', designIndex = [], skipDirs = 
   const yearFolderName = storageRule || !existingYearDir || !fs.existsSync(existingYearDir)
     ? yearFolderForCompany(companyDir, storageYear, ruleYearFolderName)
     : existingYearFolderName;
-  const ruleProjectFolderName = storageRule
-    ? renderStorageTemplate(storageRule.projectFolderTemplate || '{project}', { year: storageYear, company: companyRaw, project: projectRaw })
-    : '';
-  const projectFolderName = projectFolderForYear(
-    path.resolve(companyDir, yearFolderName),
-    projectRaw,
-    ruleProjectFolderName || existingProject?.folderName || safePathPart(projectRaw, 'project'),
-  );
-  const dir = path.resolve(companyDir, yearFolderName, projectFolderName);
+  let projectFolderName = '';
+  let dir;
+  if (hasProject) {
+    const ruleProjectFolderName = storageRule
+      ? renderStorageTemplate(storageRule.projectFolderTemplate || '{project}', { year: storageYear, company: companyRaw, project: projectRaw })
+      : '';
+    projectFolderName = projectFolderForYear(
+      path.resolve(companyDir, yearFolderName),
+      projectRaw,
+      ruleProjectFolderName || existingProject?.folderName || safePathPart(projectRaw, 'project'),
+    );
+    dir = path.resolve(companyDir, yearFolderName, projectFolderName);
+  } else {
+    // 현장명 없음 → 회사\연도 폴더에 바로 저장(현장 하위폴더 생성 안 함)
+    dir = path.resolve(companyDir, yearFolderName);
+  }
 
   if (!isPathInside(root, dir)) {
     throw new Error('invalid workflow storage path');

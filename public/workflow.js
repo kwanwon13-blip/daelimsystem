@@ -1331,7 +1331,10 @@ function workflowApp() {
         || projectOptions.find(p => this.normalizeOptionName(p.name || p) === projectKey);
       const yearProject = projectOptions.find(p => String(p.yearFolder || '').startsWith(year));
       const yearFolder = exactProject?.yearFolder || yearProject?.yearFolder || `${year} \uC2DC\uC548\uC791\uC5C5`;
-      return `${companyFolder} / ${yearFolder} / ${project || '프로젝트 미입력'}`;
+      // 현장명 없으면 회사/연도 까지만(현장 하위폴더 없이 저장) — 실제 저장 동선과 라벨 일치
+      return project
+        ? `${companyFolder} / ${yearFolder} / ${project}`
+        : `${companyFolder} / ${yearFolder}`;
     },
 
     workflowStorageLabel(companyName, projectName, yearValue) {

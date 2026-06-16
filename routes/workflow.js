@@ -650,7 +650,8 @@ function clearWorkflowStorageFields(job) {
 
 function applyWorkflowDesignStorage(job, create = false) {
   if (!job) return { changed: false, info: null };
-  if (!job.companyName || !job.projectName) {
+  // 현장명(projectName)이 없어도 회사명만 있으면 회사\연도 폴더로 저장 — 업체만 있는 건 대응.
+  if (!job.companyName) {
     const hadStorage = !!(job.storageRoot || job.storageBucket || job.storagePath || job.storageNetPath);
     if (hadStorage) clearWorkflowStorageFields(job);
     return { changed: hadStorage, info: null };
@@ -4670,12 +4671,13 @@ router.post('/jobs/:id/files', workflowUploadFiles, (req, res) => {
   const storageYear = safeYear(req.body.storageYear || safeDate(req.body.designDueDate).slice(0, 4));
   // 서버의 현재 회사·현장명 우선 — 개명 직후 stale 클라이언트가 옛 이름 폴더를 재생성하는 것 방지 (감사 #11)
   const storageCompanyName = safeText(job.companyName, 120) || bodyText(req.body, 'storageCompanyName', 120);
-  const storageProjectName = safeText(job.projectName, 160) || bodyText(req.body, 'storageProjectName', 160) || safeText(job.title, 160);
-  if (!storageCompanyName || !storageProjectName) {
+  // 현장명(프로젝트)은 없어도 됨 — 비면 회사\연도 폴더에 바로 저장(업체만 있는 곳 대응). 회사명만 필수.
+  const storageProjectName = safeText(job.projectName, 160) || bodyText(req.body, 'storageProjectName', 160);
+  if (!storageCompanyName) {
     for (const file of req.files || []) {
       try { fs.unlinkSync(path.join(FILE_DIR, file.filename)); } catch (_) {}
     }
-    return res.status(400).json({ error: '회사와 프로젝트를 먼저 선택해주세요.' });
+    return res.status(400).json({ error: '회사를 먼저 선택해주세요.' });
   }
   const storageYearPart = safeFilePart(storageYear, String(new Date().getFullYear()));
   const storageCompanyPart = safeFilePart(storageCompanyName, '미지정업체');
