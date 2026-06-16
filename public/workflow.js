@@ -2966,6 +2966,39 @@ function workflowApp() {
       finally { this.saving = false; }
     },
 
+    // 파일 개별 삭제 — 작성자·관리자만(서버 게이트), 확인 후 목록에서 제거. 디스크 원본은 서버가 보존.
+    async deleteWorkflowFile(file) {
+      if (!file || !this.detail || !this.detail.job) return;
+      const name = file.originalName || file.storedName || '이 파일';
+      if (!confirm(`"${name}"\n\n이 파일을 삭제할까요? (목록에서 빠집니다)`)) return;
+      this.saving = true;
+      try {
+        const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/files/' + encodeURIComponent(file.id), { method: 'DELETE' });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.ok) throw new Error(d.error || '삭제 실패');
+        await this.loadJobs();
+        if (this.detail && this.detail.job && this.detail.job.id === this.detail.job.id) await this.refreshDetail(false);
+      } catch (e) { alert(e.message); }
+      finally { this.saving = false; }
+    },
+
+    // 발주(작업) 취소 — 작성자·관리자만. 기록 보존(되돌리기로 복구 가능).
+    async cancelWorkflowJob() {
+      if (!this.detail || !this.detail.job) return;
+      const job = this.detail.job;
+      const who = job.projectName || job.companyName || job.title || '이 발주';
+      if (!confirm(`"${who}"\n\n발주를 취소할까요?\n(기록은 남고, 되돌리기로 복구할 수 있어요)`)) return;
+      this.saving = true;
+      try {
+        const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(job.id) + '/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.ok) throw new Error(d.error || '취소 실패');
+        await this.loadJobs();
+        if (this.detail && this.detail.job && this.detail.job.id === job.id) await this.refreshDetail(false);
+      } catch (e) { alert(e.message); }
+      finally { this.saving = false; }
+    },
+
     // 실수로 다음 단계로 넘긴 작업을 이전 단계로 되돌림 (과거내역=완료면 배송 단계로 복구)
     async cardStepBack(jobId) {
       const job = (this.jobs || []).find(j => j.id === jobId) || (this.archiveJobs || []).find(j => j.id === jobId);

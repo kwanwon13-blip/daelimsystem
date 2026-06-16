@@ -2048,9 +2048,11 @@ function buildWorkflowOrderMailHtml(job, order, files, message, publicUrl) {
 
 function workflowOrderMailAttachments(files, attachFiles) {
   if (!attachFiles) return { attachments: [], totalBytes: 0, skipped: files.length };
+  // A) AI 파일은 파일명에 '발주'가 든 것만 첨부(=공장으로 보냄). 그 외 AI(수정용·폰트 안 깬 것)는 서버 저장만 — 사장님 정책(2026-06-16). 비AI(시안 이미지 등)는 그대로.
+  const sendList = files.filter(f => !isAiFile(f) || String(f.originalName || f.storedName || '').includes('발주'));
   const attachments = [];
   let totalBytes = 0;
-  for (const file of files) {
+  for (const file of sendList) {
     const full = fileDiskPath(file);
     if (!full || !fs.existsSync(full)) continue;
     const stat = fs.statSync(full);
@@ -2537,6 +2539,7 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
     viewerCanFactory: vuPL.role === 'admin' || canDeptActOnStage({ user: vuPL }, 'factory'),
     viewerCanAssignTeam: vuPL.role === 'admin' || isStageDeptLeader({ user: vuPL }, 'factory'),
     viewerCanReopen: vuPL.role === 'admin' || canDeptActOnStage({ user: vuPL }, 'delivery') || (!!vuPL.userId && String(vuPL.userId).toLowerCase() === String(job.createdBy || '').toLowerCase()),
+    viewerCanManage: vuPL.role === 'admin' || (!!vuPL.userId && String(vuPL.userId).toLowerCase() === String(job.createdBy || '').toLowerCase()), // 파일삭제·발주취소: 작성자+관리자
     // 공장 팀 분배(전상현) — 시안 파일을 용접/출력으로 나눈 개수
     weldingFileCount: visualFiles.filter(f => f.team === 'welding').length,
     outputFileCount: visualFiles.filter(f => f.team === 'output').length,
@@ -3801,6 +3804,48 @@ router.post('/jobs', (req, res) => {
   }
   data.jobs.push(job);
   addEvent(data, req, job.id, 'create', '작업 생성', { title: job.title });
+  saveStore(data);
+  res.json({ ok: true, job: decorateJob(data, job, req.user) });
+});
+
+// 파일 개별 삭제 — 작성자·관리자만, 진행 중 작업만. 디스크 원본은 보존(목록에서만 제거 → 안전).
+router.delete('/jobs/:id/files/:fileId', (req, res) => {
+  const data = loadStore();
+  const job = data.jobs.find(j => j.id === req.params.id);
+  if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  if (job.status === 'done' || job.status === 'cancelled') return res.status(400).json({ error: '완료/취소된 작업의 파일은 변경할 수 없습니다.' });
+  if (!(isWorkflowAdmin(req) || isJobCreator(job, req))) return res.status(403).json({ error: '파일 삭제는 작성자·관리자만 가능합니다.' });
+  const idx = (data.files || []).findIndex(f => f.jobId === job.id && f.id === req.params.fileId);
+  if (idx < 0) return res.status(404).json({ error: '파일을 찾을 수 없습니다.' });
+  const [removed] = data.files.splice(idx, 1);
+  for (const o of (data.orders || [])) {
+    if (Array.isArray(o.fileIds)) o.fileIds = o.fileIds.filter(fid => fid !== removed.id);
+  }
+  job.updatedAt = nowIso();
+  addEvent(data, req, job.id, 'file', `파일 삭제 · ${removed.originalName || removed.id}`, { fileId: removed.id, fileName: removed.originalName || '' });
+  saveStore(data);
+  res.json({
+    ok: true,
+    job: decorateJob(data, job, req.user),
+    files: data.files.filter(f => f.jobId === job.id).map(f => decorateWorkflowFile(f, req.user, job)),
+  });
+});
+
+// 발주(작업) 취소 — 작성자·관리자만. 소프트 취소(기록 보존, 되돌리기로 복구 가능).
+router.post('/jobs/:id/cancel', (req, res) => {
+  const data = loadStore();
+  const job = data.jobs.find(j => j.id === req.params.id);
+  if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  if (!(isWorkflowAdmin(req) || isJobCreator(job, req))) return res.status(403).json({ error: '발주 취소는 작성자·관리자만 가능합니다.' });
+  if (job.status === 'cancelled') return res.status(400).json({ error: '이미 취소된 발주입니다.' });
+  const at = nowIso();
+  const prev = job.status || 'active';
+  job.status = 'cancelled';
+  job.cancelledAt = at;
+  job.cancelledBy = req.user?.userId || '';
+  job.cancelledByName = userName(req);
+  job.updatedAt = at;
+  addEvent(data, req, job.id, 'cancel', '발주 취소 · 기록 보존(되돌리기로 복구 가능)', { previousStatus: prev });
   saveStore(data);
   res.json({ ok: true, job: decorateJob(data, job, req.user) });
 });

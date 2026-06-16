@@ -970,6 +970,13 @@
           <div class="wf-detail-head">
             <button type="button" class="wf-detail-close" @click="closeDetail()" title="상세 닫기 — 보드를 넓게"><span class="material-symbols-outlined">close</span></button>
             <div class="wf-detail-title" style="padding-right:30px;" x-text="detail.job.title || '워크플로우 작업'"></div>
+            <div x-show="detail.job.viewerCanManage && detail.job.status!=='done' && detail.job.status!=='cancelled'" style="margin-top:6px;">
+              <button type="button" class="wf-btn ghost" style="height:26px;padding:0 9px;font-size:11px;color:#dc2626;border-color:#fca5a5;" @click="cancelWorkflowJob()" :disabled="saving" title="이 발주를 취소(기록 보존·복구 가능, 작성자·관리자)"><span class="material-symbols-outlined" style="font-size:14px;">block</span>발주 취소</button>
+            </div>
+            <div x-show="detail.job.status==='cancelled'" style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+              <span class="wf-chip" style="background:#fee2e2;color:#b91c1c;font-weight:800;">취소됨</span>
+              <button type="button" class="wf-btn ghost" style="height:24px;padding:0 8px;font-size:11px;" @click="cardStepBack(detail.job.id)" :disabled="saving" title="취소 복구 — 진행 상태로 되돌립니다(작성자·경영관리·관리자)"><span class="material-symbols-outlined" style="font-size:14px;">undo</span>복구</button>
+            </div>
             <div class="wf-detail-subtitle">
               <span x-text="detail.job.companyName || '-'"></span>
               <span>·</span>
@@ -1289,6 +1296,7 @@
                         </div>
                         <div class="wf-file-actions">
                           <a class="wf-btn" x-show="file.exists !== false" :href="smartFileUrl(file)" title="접속 위치에 맞는 파일을 받습니다">파일 받기</a>
+                          <button type="button" class="wf-btn ghost" x-show="detail.job.viewerCanManage" @click="deleteWorkflowFile(file)" :disabled="saving" title="이 파일 삭제(작성자·관리자)" style="color:#dc2626;border-color:#fca5a5;"><span class="material-symbols-outlined" style="font-size:14px;">delete</span></button>
                           <button class="wf-btn" x-show="isUnreadFile(file)" @click="markRead(file)">수신확인</button>
                           <button class="wf-btn" x-show="file.exists !== false && detailMoreOpen" :class="isOrderFileSelected(file) ? 'primary' : ''" @click="toggleOrderFileSelection(file)" x-text="isOrderFileSelected(file) ? '전달 선택됨' : '전달 선택'"></button>
                           <button class="wf-btn" x-show="detailMoreOpen" @click="toggleFileCollab(file)" x-text="expandedFileId === file.id ? '접기' : '일정확인'"></button>
@@ -1360,6 +1368,7 @@
                           <span class="wf-chip overdue" x-show="file.exists === false">서버 파일 없음</span>
                           <span class="wf-chip" :class="file.reviewStatus || 'pending'" x-show="canReviewFile(file) && detailMoreOpen" x-text="fileReviewLabel(file.reviewStatus)"></span>
                           <a class="wf-btn" x-show="file.exists !== false" :href="smartFileUrl(file)" title="접속 위치에 맞는 파일을 받습니다">파일 받기</a>
+                          <button type="button" class="wf-btn ghost" x-show="detail.job.viewerCanManage" @click="deleteWorkflowFile(file)" :disabled="saving" title="이 파일 삭제(작성자·관리자)" style="color:#dc2626;border-color:#fca5a5;"><span class="material-symbols-outlined" style="font-size:14px;">delete</span></button>
                           <button class="wf-btn" x-show="isUnreadFile(file)" @click="markRead(file)">수신확인</button>
                           <button class="wf-btn" x-show="file.exists !== false && detailMoreOpen" :class="isOrderFileSelected(file) ? 'primary' : ''" @click="toggleOrderFileSelection(file)" x-text="isOrderFileSelected(file) ? '전달 선택됨' : '전달 선택'"></button>
                           <button class="wf-btn" x-show="detailMoreOpen" @click="toggleFileCollab(file)" x-text="expandedFileId === file.id ? '접기' : '일정확인'"></button>
@@ -1885,8 +1894,10 @@
             <span style="font-weight:800;">외주 업체로 시안 메일 발송</span>
           </label>
           <div x-show="newMail.send" x-cloak style="margin-top:8px;display:flex;flex-direction:column;gap:6px;">
-            <input type="email" class="wf-input" x-model="newMail.to" list="wfMailToList" autocomplete="off" placeholder="외주 업체 받는 메일 주소">
+            <input type="email" class="wf-input" x-model="newMail.to" list="wfMailToList" autocomplete="off" placeholder="받는 메일 — 연락처·업체 자동완성">
             <input type="text" class="wf-input" x-model="newMail.company" placeholder="외주 업체명 (메일 제목·이력에 표시)">
+            <input type="text" class="wf-input" x-model="newMail.subject" placeholder="제목 (비우면 자동: 현장명·발주)">
+            <textarea class="wf-textarea" x-model="newMail.message" placeholder="내용 (선택 — 업체에 전할 메모)" style="min-height:54px;"></textarea>
             <datalist id="wfMailToList">
               <template x-for="t in (orderTargets||[]).filter(t=>t && t.recipientEmail)" :key="t.id">
                 <option :value="t.recipientEmail" x-text="((t.label||t.name||'') + ' · ' + t.recipientEmail)"></option>
