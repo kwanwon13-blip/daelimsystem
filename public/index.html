@@ -4017,6 +4017,10 @@
             if(idx<0||!this.results[idx])return '';
             return '/api/design/view?path='+encodeURIComponent(this.results[idx].path);
           },
+          pdfThumbUrl(item){
+            if(!item)return '';
+            return '/api/design/view?path='+encodeURIComponent(item.path)+'#page=1&zoom=page-width&toolbar=0&navpanes=0&scrollbar=0';
+          },
           typeLabel(typeId){
             var t=this.fileTypes.find(function(f){return f.id===typeId;});
             return t?t.label:typeId;
@@ -4218,7 +4222,13 @@
                     <div @click="openPreview(idx)"
                       :style="'height:'+Math.round(thumbSize*0.75)+'px;background:#f1f5f9;overflow:hidden;position:relative;'+(canPreview(item)?'cursor:zoom-in;':'cursor:default;')"
                       :title="canPreview(item)?'클릭하면 원본 크게 보기':''">
-                      <img :src="'/api/design/thumb?path='+encodeURIComponent(item.path)" style="width:100%;height:100%;object-fit:cover;" loading="lazy" decoding="async" onerror="this.style.display='none';this.parentElement.innerHTML='<div style=&quot;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#94a3b8;gap:4px&quot;><span class=&quot;material-symbols-outlined&quot; style=&quot;font-size:28px&quot;>image</span><span style=&quot;font-size:10px&quot;>미리보기 없음</span></div>'">
+                      <template x-if="itemType(item)==='pdf'">
+                        <iframe :src="pdfThumbUrl(item)" loading="lazy"
+                          style="width:100%;height:100%;border:0;background:#fff;pointer-events:none;"></iframe>
+                      </template>
+                      <template x-if="itemType(item)!=='pdf'">
+                        <img :src="'/api/design/thumb?path='+encodeURIComponent(item.path)" style="width:100%;height:100%;object-fit:cover;" loading="lazy" decoding="async" onerror="this.style.display='none';this.parentElement.innerHTML='<div style=&quot;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#94a3b8;gap:4px&quot;><span class=&quot;material-symbols-outlined&quot; style=&quot;font-size:28px&quot;>image</span><span style=&quot;font-size:10px&quot;>미리보기 없음</span></div>'">
+                      </template>
                       <!-- 워터마크 다운로드용 체크박스 (이미지 파일에만 표시) -->
                       <template x-if="isImageItem(item)">
                         <label @click.stop=""
