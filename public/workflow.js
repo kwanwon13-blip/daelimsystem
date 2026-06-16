@@ -59,6 +59,8 @@ function workflowApp() {
     contactsLoaded: false,
     contactsLoading: null,
     designWorkflowOptions: { companies: [], projectsByCompany: {}, projectLookup: {}, masterCompanies: [] },
+    hiddenDesignFolders: [],   // 검색·자동완성에서 숨긴 폴더(회사) — '숨기기' 버튼으로 직접 관리(복원 가능)
+    showHiddenFolders: false,   // +시안 모달에서 숨긴 폴더 관리 패널 토글
     designWorkflowOptionsLoaded: false,
     designWorkflowOptionsLoading: null,
     workflowProjects: [],
@@ -479,6 +481,7 @@ function workflowApp() {
     },
 
     async loadDesignWorkflowOptions(force = false) {
+      this.loadHiddenDesignFolders(force); // 숨긴 폴더 목록도 함께 로드(자동완성 필터용)
       if (!force && this.designWorkflowOptionsLoaded) return this.designWorkflowOptions;
       if (!force && this.designWorkflowOptionsLoading) return this.designWorkflowOptionsLoading;
       this.designWorkflowOptionsLoading = (async () => {
@@ -1765,6 +1768,7 @@ function workflowApp() {
         const key = this.normalizeOptionName(name);
         const folderKey = this.normalizeOptionName(folderName);
         if (!name || seen.has(key)) continue;
+        if (this.isDesignFolderHidden(name, folderName)) continue; // 숨긴 폴더(회사) 제외
         const aliasScores = (company?.companyAliases || []).map(alias => this.optionMatchScore(alias, term));
         const score = Math.min(this.optionMatchScore(name, term), this.optionMatchScore(folderName, term), ...aliasScores);
         if (term && score >= 99) continue;
@@ -1786,6 +1790,49 @@ function workflowApp() {
           || a.name.localeCompare(b.name, 'ko'));
       }
       return suggestions.slice(0, Number(limit || 30));
+    },
+
+    // ── 검색·자동완성에서 폴더(회사) 숨기기 ─────────────────────────
+    isDesignFolderHidden(name, folderName = '') {
+      const list = this.hiddenDesignFolders || [];
+      if (!list.length) return false;
+      const nameKey = this.normalizeOptionName(name);
+      const folderKey = this.normalizeOptionName(folderName);
+      return list.some(h => {
+        const hk = this.normalizeOptionName(h);
+        return hk && (hk === nameKey || hk === folderKey);
+      });
+    },
+    async loadHiddenDesignFolders(force = false) {
+      if (!force && this._hiddenFoldersLoaded) return;
+      try {
+        const r = await fetch('/api/design/hidden-folders');
+        const d = await r.json().catch(() => ({}));
+        if (d && d.ok && Array.isArray(d.folders)) this.hiddenDesignFolders = d.folders;
+        this._hiddenFoldersLoaded = true;
+      } catch (_) {}
+    },
+    async hideDesignFolder(name) {
+      const nm = String(name || '').trim();
+      if (!nm) return;
+      if (!confirm(`'${nm}' 폴더를 검색·자동완성에서 숨길까요?\n(나중에 '숨긴 폴더 N개'에서 복원할 수 있어요)`)) return;
+      const key = this.normalizeOptionName(nm);
+      if (!this.hiddenDesignFolders.some(h => this.normalizeOptionName(h) === key)) this.hiddenDesignFolders.push(nm); // 즉시 반영
+      try {
+        const r = await fetch('/api/design/hidden-folders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: nm }) });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.ok && Array.isArray(d.folders)) this.hiddenDesignFolders = d.folders;
+        else if (!r.ok) alert(d.error || '숨기기 실패');
+      } catch (e) { alert('숨기기 실패: ' + (e.message || e)); }
+    },
+    async restoreDesignFolder(name) {
+      const nm = String(name || '').trim();
+      if (!nm) return;
+      try {
+        const r = await fetch('/api/design/hidden-folders?name=' + encodeURIComponent(nm), { method: 'DELETE' });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.ok && Array.isArray(d.folders)) this.hiddenDesignFolders = d.folders;
+      } catch (e) { alert('복원 실패: ' + (e.message || e)); }
     },
 
     workflowProjectNames(companyName = '', currentProjectName = '') {

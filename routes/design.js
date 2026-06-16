@@ -404,6 +404,31 @@ const SKIP_DIRS = new Set([
   '송지현 대리'
 ]);
 
+// 검색/자동완성에서 숨길 폴더(회사) 목록 — 사용자가 '숨기기'로 직접 관리(복원 가능). data/design-hidden-folders.json 영속.
+const HIDDEN_FOLDERS_PATH = path.join(__dirname, '..', 'data', 'design-hidden-folders.json');
+function loadHiddenFolders() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(HIDDEN_FOLDERS_PATH, 'utf8'));
+    return Array.isArray(raw && raw.folders) ? raw.folders.map(s => String(s || '').trim()).filter(Boolean) : [];
+  } catch (_) { return []; }
+}
+function saveHiddenFolders(list) {
+  const uniq = [];
+  const seen = new Set();
+  for (const s of (list || [])) {
+    const name = String(s || '').trim();
+    const key = designWorkflowStorage.normalizeKey(name);
+    if (!name || !key || seen.has(key)) continue;
+    seen.add(key); uniq.push(name);
+  }
+  try { fs.writeFileSync(HIDDEN_FOLDERS_PATH, JSON.stringify({ folders: uniq }, null, 2)); }
+  catch (e) { console.error('[design] hidden-folders 저장 실패:', e.message); }
+  return uniq;
+}
+function hiddenFolderKeySet() {
+  return new Set(loadHiddenFolders().map(n => designWorkflowStorage.normalizeKey(n)).filter(Boolean));
+}
+
 // 인덱스 빌드 로직은 ./lib/design-indexer 로 이전됨 (buildDesignIndex)
 
 let designIndexTimer = null;
@@ -490,9 +515,12 @@ router.get('/design/search', requireAuth, (req, res) => {
   const typesParam = (req.query.types || '').trim();
   const typeFilter = typesParam ? new Set(typesParam.split(',').filter(Boolean)) : null;
   const collectionFilter = getDesignCollection(req.query.collection);
-  const collectionItems = collectionFilter
+  // 숨긴 폴더(회사) 제외 — DESIGN_ROOT 깊이에 무관하게 경로 어느 구간이든 숨긴 폴더명과 일치하면 제외(숨긴 이름은 고유해 오탐 없음)
+  const hiddenSet = hiddenFolderKeySet();
+  const notHidden = item => !hiddenSet.size || !(item.parts || []).some(p => hiddenSet.has(designWorkflowStorage.normalizeKey(p)));
+  const collectionItems = (collectionFilter
     ? designIndex.filter(item => matchesDesignCollection(item, collectionFilter))
-    : designIndex;
+    : designIndex).filter(notHidden);
 
   // 파일종류별 개수 집계 (현재 분류 기준 - 필터 UI에서 숫자 표시용)
   const typeCounts = buildTypeCounts(collectionItems);
@@ -654,6 +682,25 @@ router.get('/design/workflow-options', requireAuth, (req, res) => {
     totals: options.totals,
     status: designIndexStatus,
   });
+});
+
+// 검색·자동완성에서 숨길 폴더(회사) 목록 — 직접 관리(추가/복원). 복원 가능하므로 로그인 사용자 허용.
+router.get('/design/hidden-folders', requireAuth, (req, res) => {
+  res.json({ ok: true, folders: loadHiddenFolders() });
+});
+router.post('/design/hidden-folders', requireAuth, (req, res) => {
+  const name = String((req.body && req.body.name) || '').trim();
+  if (!name) return res.status(400).json({ error: '숨길 폴더명이 필요합니다.' });
+  const folders = saveHiddenFolders([...loadHiddenFolders(), name]);
+  invalidateDesignWorkflowOptions();
+  res.json({ ok: true, folders });
+});
+router.delete('/design/hidden-folders', requireAuth, (req, res) => {
+  const name = String((req.query && req.query.name) || (req.body && req.body.name) || '').trim();
+  const key = designWorkflowStorage.normalizeKey(name);
+  const folders = saveHiddenFolders(loadHiddenFolders().filter(n => designWorkflowStorage.normalizeKey(n) !== key));
+  invalidateDesignWorkflowOptions();
+  res.json({ ok: true, folders });
 });
 
 router.post('/design/workflow-folder', requireAuth, (req, res) => {

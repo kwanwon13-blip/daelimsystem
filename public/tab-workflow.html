@@ -476,6 +476,18 @@
   .wf-company-pick:hover, .wf-project-pick:hover{background:#eff6ff;}
   .wf-company-pick strong, .wf-project-pick span:first-child{font-weight:800;font-size:12.5px;line-height:1.35;min-width:0;flex:1;white-space:normal;word-break:break-all;}
   .wf-company-pick small, .wf-project-pick small{font-size:10.5px;color:#94a3b8;font-weight:800;white-space:nowrap;flex:0 0 auto;}
+  .wf-company-pickrow{display:flex;align-items:stretch;border-bottom:1px solid #f1f5f9;}
+  .wf-company-pickrow:last-child{border-bottom:0;}
+  .wf-company-pickrow .wf-company-pick{border-bottom:0;flex:1;min-width:0;}
+  .wf-company-hide{flex:0 0 auto;border:0;border-left:1px solid #f1f5f9;background:#fff;color:#94a3b8;padding:0 10px;font-size:14px;line-height:1;cursor:pointer;}
+  .wf-company-hide:hover{background:#fef2f2;}
+  .wf-hidden-mgr{margin-top:6px;}
+  .wf-hidden-toggle{border:0;background:transparent;color:#64748b;font-size:11px;font-weight:800;cursor:pointer;text-decoration:underline;padding:2px 0;}
+  .wf-hidden-list{margin-top:5px;display:flex;flex-direction:column;gap:4px;max-height:150px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:7px;padding:6px;background:#f8fafc;}
+  .wf-hidden-item{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11.5px;color:#475569;font-weight:700;padding:2px 3px;}
+  .wf-hidden-item span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .wf-hidden-restore{flex:0 0 auto;border:1px solid #cbd5e1;background:#fff;color:#2563eb;border-radius:6px;padding:2px 10px;font-size:11px;font-weight:800;cursor:pointer;}
+  .wf-hidden-restore:hover{background:#eff6ff;}
   .wf-preview-modal{position:fixed;inset:0;z-index:9999;background:rgba(3,7,18,.88);display:flex;align-items:center;justify-content:center;padding:10px;}
   .wf-preview-panel{width:calc(100vw - 20px);height:calc(100vh - 20px);background:#0f172a;border-radius:6px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 70px rgba(0,0,0,.45);}
   .wf-preview-head{height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 12px;color:#fff;border-bottom:1px solid rgba(255,255,255,.12);flex:0 0 auto;}
@@ -1819,11 +1831,25 @@
             <input class="wf-input" x-ref="newJobCompany" x-model="form.companyName" @change="syncAutoJobTitle()" autocomplete="off" placeholder="직접 입력 또는 선택">
             <div class="wf-company-picks" x-show="workflowCompanySuggestions(form.companyName, 12).length">
               <template x-for="company in workflowCompanySuggestions(form.companyName, 12)" :key="'new-company-'+company.name">
-                        <button type="button" class="wf-company-pick" @click="form.companyName = company.name; form.projectName = ''; syncAutoJobTitle(true)">
-                  <strong x-text="company.name"></strong>
-                  <small x-text="(company.projectCount || 0) + ' 현장'"></small>
-                </button>
+                <div class="wf-company-pickrow">
+                  <button type="button" class="wf-company-pick" @click="form.companyName = company.name; form.projectName = ''; syncAutoJobTitle(true)">
+                    <strong x-text="company.name"></strong>
+                    <small x-text="(company.projectCount || 0) + ' 현장'"></small>
+                  </button>
+                  <button type="button" class="wf-company-hide" @click.stop="hideDesignFolder(company.folderName || company.name)" title="이 폴더를 검색·자동완성에서 숨기기">🙈</button>
+                </div>
               </template>
+            </div>
+            <div class="wf-hidden-mgr" x-show="hiddenDesignFolders.length">
+              <button type="button" class="wf-hidden-toggle" @click="showHiddenFolders = !showHiddenFolders" x-text="showHiddenFolders ? '숨긴 폴더 닫기' : ('숨긴 폴더 ' + hiddenDesignFolders.length + '개')"></button>
+              <div class="wf-hidden-list" x-show="showHiddenFolders">
+                <template x-for="hf in hiddenDesignFolders" :key="'hidden-'+hf">
+                  <div class="wf-hidden-item">
+                    <span x-text="hf"></span>
+                    <button type="button" class="wf-hidden-restore" @click="restoreDesignFolder(hf)">복원</button>
+                  </div>
+                </template>
+              </div>
             </div>
           </div>
           <div class="wf-field">
