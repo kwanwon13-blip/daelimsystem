@@ -793,7 +793,7 @@
                         <span class="wf-rc-date" x-show="(cardDeadline(job)||{}).date" x-text="(cardDeadline(job)||{}).date"></span>
                         <span class="wf-rc-person" x-show="groupActor(job, stage.id) && groupActor(job, stage.id) !== '미지정'"><span class="material-symbols-outlined" style="font-size:12px;">person</span><span x-text="groupActor(job, stage.id)"></span></span>
                         <span style="flex:1"></span>
-                        <button type="button" class="wf-rc-btn" @click.stop="cardHandoff(job.id, stage.id)" x-show="job.status!=='done' && job.status!=='cancelled' && job.viewerCanHandoff" title="대림컴퍼니(공장)가 이 발주를 가져갑니다 — 특이사항 확인 후 공장 칸으로 이동">가져오기</button>
+                        <button type="button" class="wf-rc-btn" @click.stop="cardHandoff(job.id, stage.id)" x-show="job.status!=='done' && job.status!=='cancelled' && job.viewerCanFactory" title="대림컴퍼니(공장)가 이 발주를 가져갑니다 — 공장(또는 관리자)만 당길 수 있습니다">가져오기</button>
                       </div>
                     </template>
                     <template x-if="stage.id==='factory'">

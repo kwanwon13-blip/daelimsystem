@@ -4080,7 +4080,12 @@ router.post('/jobs/:id/handoff', (req, res) => {
   const currentIdx = stageIndex(currentId);
   const current = STAGES[currentIdx];
   const next = STAGES[currentIdx + 1] || null;
-  if (!canHandoffJob(job, req, current.id, next ? next.id : '')) return res.status(403).json({ error: WF_NO_PERM });
+  // 가져오기(디자인→공장)는 '공장이 당기는' 동선 — 공장(다음단계)·관리자만 허용. 디자인(현재단계)·작성자는 당길 수 없음.
+  // 그 외 전진(공장→경영관리, 경영관리→완료)은 기존대로 미는 쪽(현재단계 담당)·작성자·관리자.
+  const handoffAllowed = current.id === 'design'
+    ? (isWorkflowAdmin(req) || (next && canDeptActOnStage(req, next.id)))
+    : canHandoffJob(job, req, current.id, next ? next.id : '');
+  if (!handoffAllowed) return res.status(403).json({ error: WF_NO_PERM });
   const message = safeText(req.body.message, 1000);
   const at = nowIso();
 
