@@ -25,7 +25,7 @@ const STORE_PATH = path.join(DATA_DIR, 'workflow.json');
 const FILE_DIR = path.join(DATA_DIR, 'workflow-files');
 const THUMB_DIR = path.join(DATA_DIR, 'workflow-thumbs');
 const MAX_WORKFLOW_UPLOAD_FILES = 20;
-const MAX_WORKFLOW_UPLOAD_FILE_SIZE = 100 * 1024 * 1024;
+const MAX_WORKFLOW_UPLOAD_FILE_SIZE = 500 * 1024 * 1024;
 const MAX_WORKFLOW_MAIL_ATTACH_BYTES = 24 * 1024 * 1024;
 
 // 3단계 직선 흐름: 디자인팀 → 대림컴퍼니 → 영업지원팀

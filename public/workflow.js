@@ -20,7 +20,7 @@ function workflowApp() {
     orderTargetsLoaded: false,
     orderTargetsLoading: null,
     orderStatuses: {},
-    uploadLimits: { files: 20, fileSize: 100 * 1024 * 1024 },
+    uploadLimits: { files: 20, fileSize: 500 * 1024 * 1024 },
     summary: { active: 0, overdue: 0, blocked: 0, urgentFiles: 0, unreadTotal: 0, unreadFiles: 0, unreadEvents: 0, scheduleCount: 0, myActions: 0, byStage: {} },
     workflowPollTimer: null,
     workflowAlertDismissedKey: '',
@@ -1875,7 +1875,7 @@ function workflowApp() {
     },
 
     uploadFilesLimitLabel() {
-      return `최대 ${this.uploadLimits.files || 20}개 · 파일당 ${this.fileSizeLabel(this.uploadLimits.fileSize || (100 * 1024 * 1024))}`;
+      return `최대 ${this.uploadLimits.files || 20}개 · 파일당 ${this.fileSizeLabel(this.uploadLimits.fileSize || (500 * 1024 * 1024))}`;
     },
 
     fileListTotalSize(files) {
@@ -2106,7 +2106,7 @@ function workflowApp() {
     validateUploadFileList(files) {
       const list = Array.from(files || []).filter(Boolean);
       const maxFiles = Number(this.uploadLimits.files || 20);
-      const maxFileSize = Number(this.uploadLimits.fileSize || (100 * 1024 * 1024));
+      const maxFileSize = Number(this.uploadLimits.fileSize || (500 * 1024 * 1024));
       if (list.length > maxFiles) return `한 번에 최대 ${maxFiles}개 파일까지만 업로드할 수 있습니다.`;
       const oversized = list.find(file => Number(file?.size || 0) > maxFileSize);
       if (oversized) return `${oversized.name || '파일'}이 너무 큽니다. 파일당 최대 ${this.fileSizeLabel(maxFileSize)}까지 업로드할 수 있습니다.`;
