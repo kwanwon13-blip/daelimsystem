@@ -3105,8 +3105,9 @@ function workflowApp() {
       if (!String(this.form.handoffNote || '').trim()) {
         return alert('특이사항을 적어주세요.\n평소와 다른 점이 없으면 [없음] 버튼을 누르면 됩니다.');
       }
-      if (this.newFiles.length && (!String(this.form.companyName || '').trim() || !String(this.form.projectName || '').trim())) {
-        return alert('시안 파일을 같이 올릴 때는 회사명과 프로젝트명을 입력하세요.');
+      if (this.newFiles.length && !String(this.form.companyName || '').trim()) {
+        // 현장명(프로젝트)은 선택 — 비우면 회사\연도 폴더에 저장(업체만 있는 곳 대응). 회사명만 필수.
+        return alert('시안 파일을 올릴 때는 회사명을 입력하세요.');
       }
       if (this.newFiles.length) {
         const ready = await this.confirmWorkflowStorageReady(
@@ -3493,8 +3494,9 @@ function workflowApp() {
       this.applyFileGuessToUpload(files);
       const storageCompanyName = String(this.uploadCompanyName || this.detail.job.companyName || '').trim();
       const storageProjectName = String(this.uploadProjectName || this.detail.job.projectName || this.detail.job.title || '').trim();
-      if (!storageCompanyName || !storageProjectName) {
-        alert('회사와 프로젝트를 먼저 선택해주세요.');
+      if (!storageCompanyName) {
+        // 현장명(프로젝트)은 선택 — 비우면 회사\연도 폴더에 저장. 회사명만 필수.
+        alert('회사명을 먼저 선택해주세요.');
         return;
       }
       const storageYear = this.uploadStorageYear();
@@ -3535,8 +3537,9 @@ function workflowApp() {
       if (validationError) throw new Error(validationError);
       const storageCompanyName = String(options.companyName || '').trim();
       const storageProjectName = String(options.projectName || '').trim();
-      if (!storageCompanyName || !storageProjectName) {
-        throw new Error('회사와 프로젝트를 먼저 선택해주세요.');
+      if (!storageCompanyName) {
+        // 현장명(프로젝트)은 선택 — 비우면 회사\연도 폴더에 저장. 회사명만 필수.
+        throw new Error('회사명을 먼저 선택해주세요.');
       }
       const fd = new FormData();
       const encodeField = value => encodeURIComponent(String(value || ''));
