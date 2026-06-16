@@ -452,14 +452,14 @@
   .wf-new-file-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;border:1px solid #e1e6ef;border-radius:6px;background:#f8fafc;padding:6px 8px;}
   .wf-new-file-row strong{font-size:12px;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .wf-new-file-row span{font-size:11px;color:#64748b;white-space:nowrap;}
-  .wf-project-picks{display:flex;gap:5px;flex-wrap:wrap;align-items:center;max-height:86px;overflow:auto;}
-  .wf-project-pick{height:24px;max-width:210px;border:1px solid #dbe3ef;border-radius:999px;background:#fff;color:#334155;padding:0 8px;font-size:11px;font-weight:800;display:inline-flex;align-items:center;gap:5px;cursor:pointer;min-width:0;}
-  .wf-project-pick span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
-  .wf-project-pick small{font-size:10px;color:#64748b;font-weight:800;white-space:nowrap;}
-  .wf-company-picks{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:5px;max-height:132px;overflow:auto;border:1px solid #e1e6ef;border-radius:6px;background:#f8fafc;padding:6px;}
-  .wf-company-pick{height:28px;border:1px solid #dbe3ef;border-radius:6px;background:#fff;color:#334155;padding:0 8px;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:pointer;min-width:0;}
-  .wf-company-pick strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;font-size:11px;}
-  .wf-company-pick small{font-size:10px;color:#64748b;font-weight:800;white-space:nowrap;}
+  /* 회사/프로젝트 자동완성 — 입력칸 바로 아래 세로 리스트 오버레이(칩 reflow로 들쭉날쭉·이름 잘림 해소, 아래 내용 안 밀림) */
+  :has(> .wf-company-picks), :has(> .wf-project-picks){position:relative;}
+  .wf-company-picks, .wf-project-picks{position:absolute;top:100%;left:0;right:0;z-index:40;margin-top:3px;display:flex;flex-direction:column;gap:0;max-height:240px;overflow-y:auto;overflow-x:hidden;border:1px solid #cbd5e1;border-radius:8px;background:#fff;box-shadow:0 8px 22px rgba(15,23,42,.15);}
+  .wf-company-pick, .wf-project-pick{width:100%;border:0;border-bottom:1px solid #f1f5f9;background:#fff;color:#1f2937;padding:8px 11px;font-size:12.5px;font-weight:700;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;min-width:0;}
+  .wf-company-pick:last-child, .wf-project-pick:last-child{border-bottom:0;}
+  .wf-company-pick:hover, .wf-project-pick:hover{background:#eff6ff;}
+  .wf-company-pick strong, .wf-project-pick span:first-child{font-weight:800;font-size:12.5px;line-height:1.35;min-width:0;flex:1;white-space:normal;word-break:break-all;}
+  .wf-company-pick small, .wf-project-pick small{font-size:10.5px;color:#94a3b8;font-weight:800;white-space:nowrap;flex:0 0 auto;}
   .wf-preview-modal{position:fixed;inset:0;z-index:9999;background:rgba(3,7,18,.88);display:flex;align-items:center;justify-content:center;padding:10px;}
   .wf-preview-panel{width:calc(100vw - 20px);height:calc(100vh - 20px);background:#0f172a;border-radius:6px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 70px rgba(0,0,0,.45);}
   .wf-preview-head{height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 12px;color:#fff;border-bottom:1px solid rgba(255,255,255,.12);flex:0 0 auto;}
@@ -1786,7 +1786,7 @@
         <div class="wf-modal-grid">
           <div class="wf-field">
             <label>회사명</label>
-            <input class="wf-input" x-ref="newJobCompany" list="wfCompanyNames" x-model="form.companyName" @change="syncAutoJobTitle()" placeholder="직접 입력 또는 선택">
+            <input class="wf-input" x-ref="newJobCompany" x-model="form.companyName" @change="syncAutoJobTitle()" autocomplete="off" placeholder="직접 입력 또는 선택">
             <div class="wf-company-picks" x-show="workflowCompanySuggestions(form.companyName, 12).length">
               <template x-for="company in workflowCompanySuggestions(form.companyName, 12)" :key="'new-company-'+company.name">
                         <button type="button" class="wf-company-pick" @click="form.companyName = company.name; form.projectName = ''; syncAutoJobTitle(true)">
@@ -1798,7 +1798,7 @@
           </div>
           <div class="wf-field">
             <label>프로젝트/현장</label>
-            <input class="wf-input" list="wfFormProjectNames" x-model="form.projectName" @change="syncAutoJobTitle()" placeholder="프로젝트명">
+            <input class="wf-input" x-model="form.projectName" @change="syncAutoJobTitle()" autocomplete="off" placeholder="프로젝트명">
             <div class="wf-project-picks" x-show="workflowProjectSuggestions(form.companyName, 8, form.projectName).length">
               <template x-for="project in workflowProjectSuggestions(form.companyName, 8, form.projectName)" :key="'new-project-'+project.name">
                 <button type="button" class="wf-project-pick" @click="form.projectName = project.name; syncAutoJobTitle(true)">
