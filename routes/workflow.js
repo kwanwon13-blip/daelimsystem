@@ -3163,6 +3163,7 @@ function completeWorkflowJob(data, req, job, at = nowIso()) {
   const firstArchive = !job.archiveUpdatedAt;
   const files = jobArchiveFiles(data, job, {});
   job.status = 'done';
+  job.unordered = false; // 완료=발주 절차 종료 → 미발주 플래그 제거(과거내역에 '미발주' 흔적·뱃지 잔존 방지)
   stageRules.ensureStagesDone(job, STAGES.map(s => s.id), at); // 수령=전 단계 완료 확정 → 제작완료일/코드 보존
   syncJobFactoryCompletion(data, req, job, at);
   job.archiveStatus = 'ready';
@@ -3799,6 +3800,7 @@ router.post('/jobs', (req, res) => {
     }
     job.stageChecks.factory.note = '외주(타 회사) — 공장 단계 건너뜀';
     syncWorkflowStageFlow(job, at); // → 경영관리(배송) ready, currentStage = delivery
+    syncJobFactoryCompletion(data, req, job, at); // 외주: 제작완료일/완료코드 발번(내부 발주와 동일 — 납품지시서 '미발번' 방지)
   } else if (String(req.body.productionRoute || '') === 'none') {
     // 미발주: 시안만 등록·발주 보류. 디자인 단계 활성으로 두고 보드에 '미발주' 뱃지. 나중에 [내부/외주 발주]로 진행.
     job.productionRoute = 'none';
@@ -3861,6 +3863,8 @@ router.post('/jobs/:id/reorder', (req, res) => {
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
   if (job.status === 'cancelled') return res.status(400).json({ error: '취소된 발주입니다.' });
   if (!(isWorkflowAdmin(req) || isJobCreator(job, req))) return res.status(403).json({ error: '발주는 작성자·관리자만 가능합니다.' });
+  // 미발주 건만 발주 전환 가능 — 이미 발주(진행 중)된 작업을 stale 보드/중복클릭/직접호출로 리셋하는 사고 차단(공장 진행 데이터 보존).
+  if (!job.unordered) return res.status(400).json({ error: '이미 발주된 작업입니다. (미발주 건만 발주 전환할 수 있습니다)' });
   const route = String(req.body.route || '') === 'external' ? 'external' : 'internal';
   const at = nowIso();
   job.unordered = false;
@@ -3875,6 +3879,7 @@ router.post('/jobs/:id/reorder', (req, res) => {
     if (job.stageChecks.factory) job.stageChecks.factory.note = '외주(타 회사) — 공장 단계 건너뜀';
   }
   syncWorkflowStageFlow(job, at); // 내부=디자인(공장이 가져감) / 외주=경영관리(배송)
+  if (route === 'external') syncJobFactoryCompletion(data, req, job, at); // 외주: 제작완료일/완료코드 발번(내부 발주와 동일)
   job.updatedAt = at;
   addEvent(data, req, job.id, 'update', `미발주 → ${route === 'external' ? '외주' : '내부'} 발주`, { productionRoute: route });
   saveStore(data);
@@ -3958,6 +3963,17 @@ router.put('/jobs/:id', (req, res) => {
   if (payload.status === 'done' && previousStatus !== 'done') {
     // 완료 게이트는 '미완→완료 신규 전이'에만 적용. 이미 완료된 과거내역의 단순 편집은 통과.
     const nextJob = { ...job, ...payload };
+    // 미발주(발주 전) 작업은 완료 불가 — 발주 절차를 건너뛴 채 완료/완료코드가 발번되는 모순 차단.
+    if (nextJob.unordered) {
+      return res.status(400).json({ error: '미발주 상태입니다. 먼저 [내부/외주 발주]로 발주한 뒤 완료할 수 있습니다.' });
+    }
+    // 단계 건너뛰기 방지: 앞 단계(디자인·공장)가 끝나지 않았으면 완료 불가.
+    // (사장님 정책 '완료는 권한만' 은 유지 — 팀별 확인 강제는 없음. 단, 공장 작업 자체를 건너뛴 강제완료는 막는다.
+    //  정상 흐름은 경영관리 단계에서 완료되며 그때 디자인·공장은 이미 done. 외주는 생성 시 공장 done 처리됨.)
+    const skipped = STAGES.slice(0, STAGES.length - 1).find(s => (nextJob.stageChecks && nextJob.stageChecks[s.id] && nextJob.stageChecks[s.id].status) !== 'done');
+    if (skipped) {
+      return res.status(400).json({ error: `'${workflowStageLabel(skipped.id) || skipped.id}' 단계가 끝나지 않아 완료할 수 없습니다. 단계 순서대로 진행해주세요.` });
+    }
     const blockers = completionBlockers(data, nextJob);
     if (blockers.length) {
       return res.status(400).json({
@@ -4145,6 +4161,8 @@ router.post('/jobs/:id/handoff', (req, res) => {
   if (job.status === 'done' || job.status === 'cancelled') {
     return res.status(400).json({ error: '이미 종료된 작업입니다.' });
   }
+  // 미발주(발주 전) 작업은 단계 전진 불가 — stale 보드/직접호출로 발주 절차를 건너뛰는 것 차단. 먼저 [내부/외주 발주].
+  if (job.unordered) return res.status(409).json({ error: '미발주 상태입니다. 먼저 [내부/외주 발주]로 발주한 뒤 단계를 넘길 수 있습니다.' });
 
   job.stageChecks = newStageChecks(job.stageChecks || {});
   const requestedStageId = safeText(req.body.stageId, 80);
@@ -4251,11 +4269,23 @@ router.post('/jobs/:id/stepback', (req, res) => {
   job.stageChecks = newStageChecks(job.stageChecks || {});
   const at = nowIso();
   if (job.status === 'done' || job.status === 'cancelled') {
-    // 완료/취소 보관 → 마지막 단계(배송)로 되돌려 다시 진행 상태로
     job.status = 'active';
-    const last = STAGES[STAGES.length - 1];
-    const lc = job.stageChecks[last.id];
-    lc.status = 'ready'; lc.completedAt = ''; lc.completedBy = ''; lc.completedByName = ''; lc.updatedAt = at;
+    if (job.unordered) {
+      // 미발주(발주 전) 작업의 복구 — 발주를 안 했으므로 마지막 단계가 아니라 디자인 단계로 되돌린다.
+      // (마지막 단계로 보내면 design='ready' + delivery='ready' 가 공존해 같은 카드가 디자인·경영관리 두 칸에 동시 표시되는 버그)
+      const first = STAGES[0];
+      const fc = job.stageChecks[first.id];
+      fc.status = 'ready'; fc.completedAt = ''; fc.completedBy = ''; fc.completedByName = ''; fc.updatedAt = at;
+      for (const s of STAGES.slice(1)) {
+        const c = job.stageChecks[s.id];
+        if (c) { c.status = 'pending'; c.completedAt = ''; c.completedBy = ''; c.completedByName = ''; c.updatedAt = at; }
+      }
+    } else {
+      // 완료/취소 보관 → 마지막 단계(배송)로 되돌려 다시 진행 상태로
+      const last = STAGES[STAGES.length - 1];
+      const lc = job.stageChecks[last.id];
+      lc.status = 'ready'; lc.completedAt = ''; lc.completedBy = ''; lc.completedByName = ''; lc.updatedAt = at;
+    }
     clearWorkflowArchive(job);
   } else {
     const curId = inferCurrentStage(job.stageChecks, job.currentStage || 'design');
@@ -4484,6 +4514,11 @@ router.post('/jobs/:id/orders/:orderId/email', async (req, res) => {
       return res.status(400).json({ error: '링크만 발송하려면 워크플로우 외부 다운로드 주소를 먼저 저장해주세요.' });
     }
     const mailFiles = workflowOrderMailAttachments(files, attachFiles);
+    if (attachFiles && !mailFiles.attachments.length) {
+      // A 정책(2026-06-16)으로 보낼 파일이 0건이 된 경우(예: 전부 파일명에 '발주' 없는 .ai) — 빈 메일 조용히 발송 방지.
+      // 본문엔 '파일 N건'이 찍히는데 실제 첨부 0건이면 공장/외주는 빈 메일을 받는다 → 막고 안내.
+      return res.status(400).json({ error: '첨부할 발주 파일이 없습니다. AI(.ai) 파일은 파일명에 "발주"가 들어간 것만 발송됩니다 — 파일명을 확인하거나 시안 파일을 함께 올려주세요.' });
+    }
     if (mailFiles.tooLarge) {
       if (!publicUrl) {
         return res.status(400).json({ error: '첨부 용량이 큽니다. 링크 발송을 위해 워크플로우 외부 다운로드 주소를 먼저 저장해주세요.' });

@@ -3001,8 +3001,11 @@ function workflowApp() {
 
     // 미발주 → 발주 전환 (내부/외주). 작성자·관리자만(서버 게이트).
     async reorderJob(jobId, route) {
-      const label = route === 'external' ? '외주' : '내부';
-      if (!confirm(`이 미발주 건을 ${label}로 발주할까요?`)) return;
+      // 외주는 +시안 등록과 달리 받는사람/제목 입력이 없어 업체 메일이 자동발송되지 않는다 — 미리 안내(발주 누락 방지).
+      const msg = route === 'external'
+        ? '이 미발주 건을 외주로 발주할까요?\n\n※ 업체 메일은 자동으로 나가지 않습니다 — 발주 후 상세의 발주 패널에서 직접 보내주세요.'
+        : '이 미발주 건을 내부로 발주할까요?';
+      if (!confirm(msg)) return;
       this.saving = true;
       try {
         const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(jobId) + '/reorder', {
