@@ -952,6 +952,7 @@
                     <div class="wf-arc-pmeta">
                       <span class="wf-code" x-text="(archiveSelectedJob()||{}).completionCode || '미발번'"></span>
                       <span x-show="(archiveSelectedJob()||{}).companyName" x-text="(archiveSelectedJob()||{}).companyName"></span>
+                      <span x-show="jobOrderedAt(archiveSelectedJob())">· 발주 <span x-text="jobOrderedAt(archiveSelectedJob())"></span></span>
                       <span x-show="archiveDoneDateLabel()">· 완료 <span x-text="archiveDoneDateLabel()"></span></span>
                       <span x-show="!archiveImagesLoading">· 시안 <span x-text="archiveImages.length"></span>장</span>
                     </div>
@@ -1004,6 +1005,7 @@
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px;">
               <span class="wf-chip" :class="detail.job.priority" x-text="priorityLabel(detail.job.priority)"></span>
               <span class="wf-chip" :class="detail.job.status === 'done' ? 'done' : (detail.job.status === 'hold' || detail.job.status === 'cancelled' ? 'blocked' : 'ready')" x-text="statuses[detail.job.status] || detail.job.status || '진행'"></span>
+              <span class="wf-chip" x-show="jobOrderedAt(detail.job)" style="background:#eff6ff;color:#1d4ed8;font-weight:800;" title="실제 발주 시각 — 공장으로 넘어가거나(가져오기) 외주로 발송된 시점"><span class="material-symbols-outlined" style="font-size:13px;vertical-align:-2px;">schedule_send</span> 발주 <span x-text="jobOrderedAt(detail.job)"></span></span>
               <span class="wf-chip" :class="detail.job.canComplete ? 'ready' : 'not_ready'" x-text="completionBlockerShortText(detail.job)"></span>
               <button type="button" class="wf-btn ghost" @click="printDeliverySheet(detail.job)" x-show="detail.job.currentStage==='delivery' || detail.job.status==='done'" title="납품 지시서 인쇄(종이로 출력해 납품팀에 전달)">🖨 인쇄</button>
             </div>

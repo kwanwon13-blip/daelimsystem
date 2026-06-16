@@ -4072,5 +4072,10 @@ ${row('메모', j.summary)}
       if (Number.isNaN(d.getTime())) return ts;
       return d.toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
     },
+    // 실제 발주 시각 — 디자인 단계 완료 시점(=공장이 가져감/외주 발송/미발주→발주). 미발주(미완)는 빈값.
+    jobOrderedAt(job) {
+      const c = job && job.stageChecks && job.stageChecks.design;
+      return c && c.completedAt ? this.eventTime(c.completedAt) : '';
+    },
   };
 }
