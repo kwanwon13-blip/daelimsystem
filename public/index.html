@@ -3660,7 +3660,7 @@
           q:'',results:[],total:0,loading:false,loadingMore:false,searched:false,
           indexStatus:{built:false,building:false,count:0,error:null},
           searchTimer:null, thumbSize:160, pollTimer:null, yearFilter:'',
-          designMasters:null, mastersLoading:false, brandFilter:'', vendorFilter:'',
+          designMasters:null, mastersLoading:false, brandFilter:'', vendorFilter:'', collectionFilter:'',
           isInternal:false,
           currentPage:1, pageSize:40, hasMore:false,
           typeFilter:['image'], // 기본은 이미지 — '전체' 버튼으로 전부 보기 가능
@@ -3682,6 +3682,7 @@
               yearFilter:seed.yearFilter||'',
               brandFilter:seed.brandFilter||'',
               vendorFilter:seed.vendorFilter||'',
+              collectionFilter:seed.collectionFilter||'',
               typeFilter:Array.isArray(seed.typeFilter)?seed.typeFilter.slice():['image'],
               typeCounts:Object.assign(this.defaultTypeCounts(),seed.typeCounts||{}),
               currentPage:Number(seed.currentPage)||1,
@@ -3699,7 +3700,7 @@
             var tab=this.activeSearchTab();
             if(!tab)return;
             var q=this.q.trim();
-            tab.title=q||(this.yearFilter||this.brandFilter||this.vendorFilter||this.typeFilter.length===0?'필터 검색':'새 검색');
+            tab.title=q||this.collectionLabel(this.collectionFilter)||(this.yearFilter||this.brandFilter||this.vendorFilter||this.typeFilter.length===0?'필터 검색':'새 검색');
           },
           applySearchTab(tab){
             if(!tab)return;
@@ -3711,6 +3712,7 @@
             this.yearFilter=tab.yearFilter||'';
             this.brandFilter=tab.brandFilter||'';
             this.vendorFilter=tab.vendorFilter||'';
+            this.collectionFilter=tab.collectionFilter||'';
             this.typeFilter=Array.isArray(tab.typeFilter)?tab.typeFilter.slice():['image'];
             this.typeCounts=Object.assign(this.defaultTypeCounts(),tab.typeCounts||{});
             this.currentPage=Number(tab.currentPage)||1;
@@ -3729,6 +3731,7 @@
             tab.yearFilter=this.yearFilter||'';
             tab.brandFilter=this.brandFilter||'';
             tab.vendorFilter=this.vendorFilter||'';
+            tab.collectionFilter=this.collectionFilter||'';
             tab.typeFilter=(this.typeFilter||[]).slice();
             tab.typeCounts=Object.assign(this.defaultTypeCounts(),this.typeCounts||{});
             tab.currentPage=Number(this.currentPage)||1;
@@ -3860,7 +3863,14 @@
             {id:'hwp',label:'한글',icon:'description',color:'#0284c7'},
             {id:'word',label:'Word',icon:'article',color:'#2563eb'}
           ],
+          collectionOptions:[
+            {id:'designerPdf',label:'디자이너 PDF',icon:'folder_special',color:'#7c3aed'}
+          ],
           preview:{open:false,index:-1},
+          collectionLabel(id){
+            var c=this.collectionOptions.find(function(item){return item.id===id;});
+            return c?c.label:'';
+          },
           brandOptions(){return (this.designMasters&&Array.isArray(this.designMasters.brands))?this.designMasters.brands:[];},
           async loadDesignMasters(force){
             if(this.mastersLoading)return;
@@ -3885,7 +3895,9 @@
             this.loadSearchTabs();
             // 파일종류별 개수 미리 가져오기 (빈 검색 허용)
             try{
-              var c=await fetch('/api/design/search?q=__countonly__').then(function(r){return r.json();});
+              var countUrl='/api/design/search?q=__countonly__';
+              if(this.collectionFilter)countUrl+='&collection='+encodeURIComponent(this.collectionFilter);
+              var c=await fetch(countUrl).then(function(r){return r.json();});
               if(c.typeCounts)this.typeCounts=c.typeCounts;
             }catch(e){}
             // 키보드 이벤트 등록
@@ -3914,6 +3926,14 @@
             if(this.searched)this.doSearch();
             else this.rememberSearchTab();
           },
+          setCollection(id){
+            var next=this.collectionFilter===id?'':id;
+            this.collectionFilter=next;
+            if(next==='designerPdf')this.typeFilter=['pdf'];
+            else if(this.typeFilter.length===1&&this.typeFilter[0]==='pdf')this.typeFilter=['image'];
+            if(this.searched||next)this.doSearch();
+            else this.rememberSearchTab();
+          },
           buildUrl(page){
             var params=new URLSearchParams();
             if(this.q.trim())params.set('q',this.q.trim());
@@ -3923,10 +3943,11 @@
             if(this.typeFilter.length>0)params.set('types',this.typeFilter.join(','));
             if(this.brandFilter)params.set('brand',this.brandFilter);
             if(this.vendorFilter)params.set('vendor',this.vendorFilter);
+            if(this.collectionFilter)params.set('collection',this.collectionFilter);
             return '/api/design/search?'+params.toString();
           },
           async doSearch(){
-            if(!this.q.trim()&&!this.yearFilter&&!this.brandFilter&&!this.vendorFilter&&this.typeFilter.length===0){this.results=[];this.total=0;this.searched=false;this.hasMore=false;this.selectedPaths=[];this.rememberSearchTab();return;}
+            if(!this.q.trim()&&!this.yearFilter&&!this.brandFilter&&!this.vendorFilter&&!this.collectionFilter&&this.typeFilter.length===0){this.results=[];this.total=0;this.searched=false;this.hasMore=false;this.selectedPaths=[];this.rememberSearchTab();return;}
             this.loading=true;this.searched=true;this.currentPage=1;
             this.selectedPaths=[];this.preview={open:false,index:-1};
             try{
@@ -4098,8 +4119,8 @@
                   </template>
                 </select>
               </div>
-              <button type="button" @click="yearFilter='';brandFilter='';vendorFilter='';doSearch()"
-                x-show="yearFilter || brandFilter || vendorFilter"
+              <button type="button" @click="yearFilter='';brandFilter='';vendorFilter='';collectionFilter='';if(typeFilter.length===1&&typeFilter[0]==='pdf')typeFilter=['image'];doSearch()"
+                x-show="yearFilter || brandFilter || vendorFilter || collectionFilter"
                 class="text-[11px] px-3 py-2 rounded-lg"
                 style="background:#fff;border:1px solid #e5e7eb;color:#64748b;">
                 필터 해제
@@ -4110,6 +4131,17 @@
                 style="background:#eef2ff;border:1px solid #c7d2fe;color:#4f46e5;">
                 폴더목록 새로고침
               </button>
+            </div>
+            <!-- 분류 필터 칩 -->
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center;">
+              <span style="font-size:11px;color:#6b7280;font-weight:600;margin-right:2px;">분류:</span>
+              <template x-for="c in collectionOptions" :key="c.id">
+                <button type="button" @click="setCollection(c.id)"
+                  :style="'display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:5px 12px;border-radius:20px;cursor:pointer;border:1px solid '+(collectionFilter===c.id?c.color:'#e5e7eb')+';background:'+(collectionFilter===c.id?c.color:'#ffffff')+';color:'+(collectionFilter===c.id?'#ffffff':'#64748b')+';'">
+                  <span class="material-symbols-outlined" style="font-size:13px;" x-text="c.icon"></span>
+                  <span x-text="c.label"></span>
+                </button>
+              </template>
             </div>
             <!-- 파일종류 필터 칩 -->
             <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center;">

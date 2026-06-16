@@ -63,6 +63,34 @@ function matchesAnyDesignTerm(item, terms) {
   return terms.some(term => text.includes(term));
 }
 
+const DESIGN_COLLECTIONS = {
+  designerPdf: {
+    rootFolders: new Set(['＆디자이너', '&디자이너']),
+    fileTypes: new Set(['pdf']),
+  },
+};
+
+function getDesignCollection(value) {
+  return DESIGN_COLLECTIONS[String(value || '').trim()] || null;
+}
+
+function matchesDesignCollection(item, collection) {
+  if (!collection) return true;
+  const root = item && item.parts && item.parts[0];
+  if (!root || !collection.rootFolders.has(root)) return false;
+  if (collection.fileTypes && !collection.fileTypes.has(item.fileType)) return false;
+  return true;
+}
+
+function buildTypeCounts(items) {
+  const counts = {};
+  for (const t of Object.keys(FILE_TYPES)) counts[t] = 0;
+  for (const item of items || []) {
+    if (item.fileType && counts[item.fileType] !== undefined) counts[item.fileType]++;
+  }
+  return counts;
+}
+
 const HANGUL_INITIALS = ['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
 const HANGUL_MEDIALS = ['ㅏ','ㅐ','ㅑ','ㅒ','ㅓ','ㅔ','ㅕ','ㅖ','ㅗ','ㅘ','ㅙ','ㅚ','ㅛ','ㅜ','ㅝ','ㅞ','ㅟ','ㅠ','ㅡ','ㅢ','ㅣ'];
 const HANGUL_FINALS = ['', 'ㄱ','ㄲ','ㄳ','ㄴ','ㄵ','ㄶ','ㄷ','ㄹ','ㄺ','ㄻ','ㄼ','ㄽ','ㄾ','ㄿ','ㅀ','ㅁ','ㅂ','ㅄ','ㅅ','ㅆ','ㅇ','ㅈ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
@@ -461,13 +489,13 @@ router.get('/design/search', requireAuth, (req, res) => {
   // types 파라미터: 콤마로 구분된 파일종류 목록 (예: "image,pdf")
   const typesParam = (req.query.types || '').trim();
   const typeFilter = typesParam ? new Set(typesParam.split(',').filter(Boolean)) : null;
+  const collectionFilter = getDesignCollection(req.query.collection);
+  const collectionItems = collectionFilter
+    ? designIndex.filter(item => matchesDesignCollection(item, collectionFilter))
+    : designIndex;
 
-  // 파일종류별 개수 집계 (전체 인덱스 기준 — 필터 UI에서 숫자 표시용)
-  const typeCounts = {};
-  for (const t of Object.keys(FILE_TYPES)) typeCounts[t] = 0;
-  for (const item of designIndex) {
-    if (item.fileType && typeCounts[item.fileType] !== undefined) typeCounts[item.fileType]++;
-  }
+  // 파일종류별 개수 집계 (현재 분류 기준 - 필터 UI에서 숫자 표시용)
+  const typeCounts = buildTypeCounts(collectionItems);
 
   // 회사명 필터: brand (건설사), vendor (발주처) — 공백을 제거하고 소문자 매칭
   const brandTerms = makeFilterTerms(req.query.brand);
@@ -485,8 +513,8 @@ router.get('/design/search', requireAuth, (req, res) => {
 
   if (!q || q === '__countonly__') {
     // 필터만 있고 검색어 없을 때도 목록 검색 허용
-    if (hasBrandFilter || hasVendorFilter || hasYearFilter || (typeFilter && typeFilter.size > 0)) {
-      let baseMatches = designIndex.slice();
+    if (collectionFilter || hasBrandFilter || hasVendorFilter || hasYearFilter || (typeFilter && typeFilter.size > 0)) {
+      let baseMatches = collectionItems.slice();
       if (hasBrandFilter) baseMatches = baseMatches.filter(item => matchesAnyDesignTerm(item, brandTerms));
       if (hasVendorFilter) baseMatches = baseMatches.filter(item => matchesAnyDesignTerm(item, vendorTerms));
       if (typeFilter && typeFilter.size > 0) baseMatches = baseMatches.filter(item => typeFilter.has(item.fileType));
@@ -507,7 +535,7 @@ router.get('/design/search', requireAuth, (req, res) => {
   }
   const keywords = q.split(/\s+/).filter(Boolean);
   const keywordGroups = keywords.map(expandDesignKeyword).filter(group => group.length > 0);
-  let matches = designIndex.filter(item => keywordGroups.every(group => matchesDesignKeyword(item, group)));
+  let matches = collectionItems.filter(item => keywordGroups.every(group => matchesDesignKeyword(item, group)));
   // 회사명 필터 (건설사/발주처) — 공백 제거 비교 (검색어와 별개 AND)
   if (hasBrandFilter) {
     matches = matches.filter(item => matchesAnyDesignTerm(item, brandTerms));
