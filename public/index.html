@@ -3665,9 +3665,138 @@
           currentPage:1, pageSize:40, hasMore:false,
           typeFilter:['image'], // 기본은 이미지 — '전체' 버튼으로 전부 보기 가능
           typeCounts:{image:0,pdf:0,ai:0,psd:0,excel:0,hwp:0,word:0},
+          searchTabs:[], activeSearchTabId:'', searchTabsStorageKey:'designSearchTabs:v1', searchTabSerial:0,
           selectedPaths:[],          // 체크박스로 선택된 시안 경로 배열
           watermarkBusy:false,       // 워터마크 다운로드 진행 중 플래그
           watermarkProgress:'',      // 진행 상태 텍스트 (3/10 처리 중...)
+          defaultTypeCounts(){return {image:0,pdf:0,ai:0,psd:0,excel:0,hwp:0,word:0};},
+          makeSearchTab(seed){
+            seed=seed||{};
+            return {
+              id:seed.id||('tab-'+Date.now()+'-'+(++this.searchTabSerial)),
+              title:seed.title||'새 검색',
+              q:seed.q||'',
+              results:Array.isArray(seed.results)?seed.results:[],
+              total:Number(seed.total)||0,
+              searched:!!seed.searched,
+              yearFilter:seed.yearFilter||'',
+              brandFilter:seed.brandFilter||'',
+              vendorFilter:seed.vendorFilter||'',
+              typeFilter:Array.isArray(seed.typeFilter)?seed.typeFilter.slice():['image'],
+              typeCounts:Object.assign(this.defaultTypeCounts(),seed.typeCounts||{}),
+              currentPage:Number(seed.currentPage)||1,
+              hasMore:!!seed.hasMore,
+              selectedPaths:Array.isArray(seed.selectedPaths)?seed.selectedPaths:[]
+            };
+          },
+          activeSearchTab(){return this.searchTabs.find(function(t){return t.id===this.activeSearchTabId;},this)||this.searchTabs[0]||null;},
+          searchTabLabel(tab){
+            if(!tab)return '새 검색';
+            var label=(tab.title||tab.q||'새 검색').trim()||'새 검색';
+            return label.length>18?label.slice(0,18)+'...':label;
+          },
+          updateActiveSearchTabTitle(){
+            var tab=this.activeSearchTab();
+            if(!tab)return;
+            var q=this.q.trim();
+            tab.title=q||(this.yearFilter||this.brandFilter||this.vendorFilter||this.typeFilter.length===0?'필터 검색':'새 검색');
+          },
+          applySearchTab(tab){
+            if(!tab)return;
+            clearTimeout(this.searchTimer);
+            this.q=tab.q||'';
+            this.results=Array.isArray(tab.results)?tab.results.slice():[];
+            this.total=Number(tab.total)||0;
+            this.searched=!!tab.searched;
+            this.yearFilter=tab.yearFilter||'';
+            this.brandFilter=tab.brandFilter||'';
+            this.vendorFilter=tab.vendorFilter||'';
+            this.typeFilter=Array.isArray(tab.typeFilter)?tab.typeFilter.slice():['image'];
+            this.typeCounts=Object.assign(this.defaultTypeCounts(),tab.typeCounts||{});
+            this.currentPage=Number(tab.currentPage)||1;
+            this.hasMore=!!tab.hasMore;
+            this.selectedPaths=Array.isArray(tab.selectedPaths)?tab.selectedPaths.slice():[];
+            this.loading=false;this.loadingMore=false;this.watermarkBusy=false;this.watermarkProgress='';
+            this.preview={open:false,index:-1};
+          },
+          rememberSearchTab(){
+            var tab=this.activeSearchTab();
+            if(!tab)return;
+            tab.q=this.q;
+            tab.results=(this.results||[]).slice(0,160);
+            tab.total=Number(this.total)||0;
+            tab.searched=!!this.searched;
+            tab.yearFilter=this.yearFilter||'';
+            tab.brandFilter=this.brandFilter||'';
+            tab.vendorFilter=this.vendorFilter||'';
+            tab.typeFilter=(this.typeFilter||[]).slice();
+            tab.typeCounts=Object.assign(this.defaultTypeCounts(),this.typeCounts||{});
+            tab.currentPage=Number(this.currentPage)||1;
+            tab.hasMore=!!this.hasMore;
+            tab.selectedPaths=(this.selectedPaths||[]).slice(0,300);
+            this.updateActiveSearchTabTitle();
+            this.saveSearchTabs();
+          },
+          saveSearchTabs(){
+            try{
+              var tabs=this.searchTabs.slice(-10).map(function(tab){
+                return Object.assign({},tab,{
+                  results:(tab.results||[]).slice(0,160),
+                  selectedPaths:(tab.selectedPaths||[]).slice(0,300)
+                });
+              });
+              localStorage.setItem(this.searchTabsStorageKey,JSON.stringify({activeId:this.activeSearchTabId,tabs:tabs}));
+            }catch(e){}
+          },
+          loadSearchTabs(){
+            var saved=null;
+            try{saved=JSON.parse(localStorage.getItem(this.searchTabsStorageKey)||'null');}catch(e){saved=null;}
+            var rawTabs=saved&&Array.isArray(saved.tabs)?saved.tabs:[];
+            this.searchTabs=rawTabs.slice(0,10).map((function(t){return this.makeSearchTab(t);}).bind(this));
+            if(this.searchTabs.length===0)this.searchTabs=[this.makeSearchTab()];
+            this.activeSearchTabId=(saved&&saved.activeId&&this.searchTabs.some(function(t){return t.id===saved.activeId;}))?saved.activeId:this.searchTabs[0].id;
+            this.applySearchTab(this.activeSearchTab());
+            this.saveSearchTabs();
+          },
+          switchSearchTab(id){
+            if(!id||id===this.activeSearchTabId)return;
+            this.rememberSearchTab();
+            this.activeSearchTabId=id;
+            this.applySearchTab(this.activeSearchTab());
+            this.saveSearchTabs();
+          },
+          addSearchTab(){
+            this.rememberSearchTab();
+            var tab=this.makeSearchTab();
+            this.searchTabs.push(tab);
+            if(this.searchTabs.length>10)this.searchTabs.shift();
+            this.activeSearchTabId=tab.id;
+            this.applySearchTab(tab);
+            this.saveSearchTabs();
+            this.$nextTick(()=>{if(this.$refs.designSearchInput)this.$refs.designSearchInput.focus();});
+          },
+          closeSearchTab(id){
+            if(!id)return;
+            this.rememberSearchTab();
+            if(this.searchTabs.length<=1){
+              var fresh=this.makeSearchTab();
+              this.searchTabs=[fresh];
+              this.activeSearchTabId=fresh.id;
+              this.applySearchTab(fresh);
+              this.saveSearchTabs();
+              return;
+            }
+            var idx=this.searchTabs.findIndex(function(t){return t.id===id;});
+            if(idx<0)return;
+            var wasActive=this.activeSearchTabId===id;
+            this.searchTabs.splice(idx,1);
+            if(wasActive){
+              var next=this.searchTabs[Math.min(idx,this.searchTabs.length-1)];
+              this.activeSearchTabId=next.id;
+              this.applySearchTab(next);
+            }
+            this.saveSearchTabs();
+          },
           isImageItem(item){
             const ext=(item.ext||(item.name||'').slice((item.name||'').lastIndexOf('.'))||'').toLowerCase();
             return ['.jpg','.jpeg','.png','.webp','.bmp','.gif'].includes(ext);
@@ -3676,11 +3805,13 @@
             const i=this.selectedPaths.indexOf(path);
             if(i>=0)this.selectedPaths.splice(i,1);
             else this.selectedPaths.push(path);
+            this.rememberSearchTab();
           },
           selectAllImages(){
             this.selectedPaths=this.results.filter(r=>this.isImageItem(r)).map(r=>r.path);
+            this.rememberSearchTab();
           },
-          clearSelection(){this.selectedPaths=[];},
+          clearSelection(){this.selectedPaths=[];this.rememberSearchTab();},
           // ZIP 일괄 다운로드 — 한 번에 받음 (워터마크 박힘)
           async downloadZip(includeOriginal){
             if(this.selectedPaths.length===0||this.watermarkBusy)return;
@@ -3751,6 +3882,7 @@
             var info=await fetch('/api/session/info').then(function(r){return r.json();}).catch(function(){return {};});
             this.isInternal=!!info.isInternal;
             this.loadDesignMasters(false);
+            this.loadSearchTabs();
             // 파일종류별 개수 미리 가져오기 (빈 검색 허용)
             try{
               var c=await fetch('/api/design/search?q=__countonly__').then(function(r){return r.json();});
@@ -3775,10 +3907,12 @@
             if(i>=0)this.typeFilter.splice(i,1);
             else this.typeFilter.push(typeId);
             if(this.searched)this.doSearch();
+            else this.rememberSearchTab();
           },
           clearTypes(){
             this.typeFilter=[];
             if(this.searched)this.doSearch();
+            else this.rememberSearchTab();
           },
           buildUrl(page){
             var params=new URLSearchParams();
@@ -3792,8 +3926,9 @@
             return '/api/design/search?'+params.toString();
           },
           async doSearch(){
-            if(!this.q.trim()&&!this.yearFilter&&!this.brandFilter&&!this.vendorFilter&&this.typeFilter.length===0){this.results=[];this.searched=false;this.hasMore=false;return;}
+            if(!this.q.trim()&&!this.yearFilter&&!this.brandFilter&&!this.vendorFilter&&this.typeFilter.length===0){this.results=[];this.total=0;this.searched=false;this.hasMore=false;this.selectedPaths=[];this.rememberSearchTab();return;}
             this.loading=true;this.searched=true;this.currentPage=1;
+            this.selectedPaths=[];this.preview={open:false,index:-1};
             try{
               var r=await fetch(this.buildUrl(1)).then(function(r){return r.json();});
               this.results=r.items||[];
@@ -3801,6 +3936,7 @@
               this.hasMore=this.results.length<this.total;
               if(r.status)this.indexStatus=r.status;
               if(r.typeCounts)this.typeCounts=r.typeCounts;
+              this.rememberSearchTab();
             }
             finally{this.loading=false;}
           },
@@ -3814,10 +3950,11 @@
               this.results=this.results.concat(add);
               this.currentPage=next;
               this.hasMore=this.results.length<this.total;
+              this.rememberSearchTab();
             }
             finally{this.loadingMore=false;}
           },
-          onInput(){clearTimeout(this.searchTimer);var self=this;this.searchTimer=setTimeout(function(){self.doSearch();},500);},
+          onInput(){clearTimeout(this.searchTimer);this.rememberSearchTab();var self=this;this.searchTimer=setTimeout(function(){self.doSearch();},500);},
           get keywords(){return this.q.trim().split(/\s+/).filter(Boolean);},
           // fileType 없을 때 확장자로 유추 (구 인덱스 호환)
           itemType(item){
@@ -3913,10 +4050,28 @@
                   x-text="indexStatus.building ? '인덱싱 중...' : '재인덱싱'"></button>
               </div>
             </div>
+            <div style="display:flex;align-items:center;gap:6px;margin:-2px 0 10px;overflow-x:auto;padding-bottom:2px;">
+              <template x-for="tab in searchTabs" :key="tab.id">
+                <div @click="switchSearchTab(tab.id)"
+                  :style="'flex:0 0 auto;max-width:230px;display:flex;align-items:center;gap:5px;height:32px;padding:0 6px 0 10px;border-radius:8px;border:1px solid '+(activeSearchTabId===tab.id?'#4f6ef7':'#e5e7eb')+';background:'+(activeSearchTabId===tab.id?'#eef2ff':'#fff')+';color:'+(activeSearchTabId===tab.id?'#3730a3':'#64748b')+';cursor:pointer;'">
+                  <span class="material-symbols-outlined" style="font-size:14px;flex:0 0 auto;">search</span>
+                  <span style="font-size:12px;font-weight:700;max-width:145px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" x-text="searchTabLabel(tab)"></span>
+                  <span x-show="tab.searched" style="font-size:10px;font-weight:700;padding:1px 5px;border-radius:999px;background:#fff;color:#4f6ef7;border:1px solid #c7d2fe;" x-text="(tab.total||0).toLocaleString()"></span>
+                  <button type="button" x-show="searchTabs.length > 1" @click.stop="closeSearchTab(tab.id)" title="탭 닫기"
+                    style="width:18px;height:18px;border:none;border-radius:50%;display:flex;align-items:center;justify-content:center;background:transparent;color:#94a3b8;cursor:pointer;padding:0;">
+                    <span class="material-symbols-outlined" style="font-size:14px;">close</span>
+                  </button>
+                </div>
+              </template>
+              <button type="button" @click="addSearchTab()" title="새 검색 탭"
+                style="flex:0 0 auto;width:32px;height:32px;border-radius:8px;border:1px solid #dbeafe;background:#f8fbff;color:#4f6ef7;display:flex;align-items:center;justify-content:center;cursor:pointer;">
+                <span class="material-symbols-outlined" style="font-size:18px;">add</span>
+              </button>
+            </div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <div style="position:relative;flex:1 1 360px;min-width:260px;">
                 <span class="material-symbols-outlined" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:18px;color:#94a3b8;pointer-events:none;">search</span>
-                <input x-model="q" @input="onInput()" @keydown.enter="doSearch()"
+                <input x-ref="designSearchInput" x-model="q" @input="onInput()" @keydown.enter="doSearch()"
                   placeholder="띄어쓰기로 AND 검색  예) 현수막 750g 2024"
                 class="w-full rounded-xl text-sm border border-gray-200 focus:outline-none focus:border-blue-400"
                 style="padding:12px 16px 12px 40px;background:#f8fafc;">
