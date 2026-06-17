@@ -97,6 +97,12 @@
   .wf-col.mini .wf-rc-thumb:hover{transform:none;}
   .wf-col.mini .wf-rc-minititle{display:block;}
   .wf-rc-minititle{display:none;font-size:9.5px;font-weight:800;color:#334155;text-align:center;line-height:1.25;word-break:break-all;}
+  /* 발주 물량 적응형 — 한 칸에 카드 많으면(≥14) 자동 조밀: 썸네일·간격·업체명만 압축. 액션버튼(.wf-rc-bot)·상태색·뱃지·발주자는 유지. (.mini 레일엔 미적용) */
+  .wf-col.dense:not(.mini) .wf-col-list{gap:3px;padding:6px;}
+  .wf-col.dense:not(.mini) .wf-rowcard{padding:3px 7px;}
+  .wf-col.dense:not(.mini) .wf-rowcard.active{padding:4px 7px;}
+  .wf-col.dense:not(.mini) .wf-rc-thumb{width:38px;height:38px;}
+  .wf-col.dense:not(.mini) .wf-rc-co{display:none;}
   /* 상세 닫기(✕) — 닫으면 보드가 전체 폭 */
   .wf-detail-head{position:relative;}
   .wf-detail-close{position:absolute;top:10px;right:10px;width:26px;height:26px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#64748b;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0;z-index:2;}
@@ -802,7 +808,7 @@
       </div>
       <div class="wf-columns" x-show="!(wfFilterActive() && wfVisibleCount()===0)">
         <template x-for="stage in stages" :key="stage.id">
-          <div class="wf-col" :class="[jobsForStage(stage.id).length ? 'has-jobs' : 'is-empty', boardFocus===stage.id ? 'focus' : '', (boardFocus && boardFocus!==stage.id) ? 'mini' : '']"
+          <div class="wf-col" :class="[jobsForStage(stage.id).length ? 'has-jobs' : 'is-empty', boardFocus===stage.id ? 'focus' : '', (boardFocus && boardFocus!==stage.id) ? 'mini' : '', colDensityClass(stage.id)]"
             @click="(boardFocus && boardFocus!==stage.id) ? setBoardFocus(stage.id) : null">
             <div class="wf-col-head">
               <span class="wf-col-headlabel" style="display:flex;align-items:center;gap:5px;min-width:0;">

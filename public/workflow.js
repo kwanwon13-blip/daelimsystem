@@ -2085,6 +2085,11 @@ function workflowApp() {
       return !!this.detail?.job && !this.isWorkflowJobClosed(this.detail.job);
     },
 
+    // 발주 물량 적응형: 한 칸(단계)에 카드가 많으면(≥14) 자동 '조밀' — 썸네일·간격 압축(액션버튼·상태색·뱃지는 유지). 적으면 기본(여유·64px 썸네일).
+    colDensityClass(stageId) {
+      return (this.jobsForStage(stageId) || []).length >= 14 ? 'dense' : '';
+    },
+
     formatDateInput(date) {
       const y = date.getFullYear();
       const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -3683,27 +3688,24 @@ function workflowApp() {
 
     async uploadFiles(ev) {
       const files = ev?.target?.files || ev?.dataTransfer?.files || ev;
-      if (!this.detail || !files || !files.length) return;
-      if (!this.canUploadToCurrentJob()) {
-        alert('완료/취소된 작업에는 파일을 추가할 수 없습니다.');
-        if (ev?.target) ev.target.value = '';
-        return;
-      }
-      this.applyFileGuessToUpload(files);
-      const storageCompanyName = String(this.uploadCompanyName || this.detail.job.companyName || '').trim();
-      const storageProjectName = String(this.uploadProjectName || this.detail.job.projectName || this.detail.job.title || '').trim();
-      if (!storageCompanyName) {
-        // 현장명(프로젝트)은 선택 — 비우면 회사\연도 폴더에 저장. 회사명만 필수.
-        alert('회사명을 먼저 선택해주세요.');
-        return;
-      }
-      const storageYear = this.uploadStorageYear();
-      const ready = await this.confirmWorkflowStorageReady(storageCompanyName, storageProjectName, storageYear, '파일 업로드');
-      if (!ready) {
-        if (ev?.target) ev.target.value = '';
-        return;
-      }
+      if (!this.detail || !files || !files.length) { if (ev?.target) ev.target.value = ''; return; }
+      // 업로드는 절대 '조용히' 실패하면 안 됨 — 알림 이전 단계의 예외/캐시 문제로 무반응이던 것 방지(전체 try로 감싸 원인 노출).
       try {
+        if (!this.canUploadToCurrentJob()) {
+          alert('완료/취소된 작업에는 파일을 추가할 수 없습니다.');
+          return;
+        }
+        this.applyFileGuessToUpload(files);
+        const storageCompanyName = String(this.uploadCompanyName || this.detail.job.companyName || '').trim();
+        const storageProjectName = String(this.uploadProjectName || this.detail.job.projectName || this.detail.job.title || '').trim();
+        if (!storageCompanyName) {
+          // 현장명(프로젝트)은 선택 — 비우면 회사\연도 폴더에 저장. 회사명만 필수.
+          alert('회사명을 먼저 선택해주세요.');
+          return;
+        }
+        const storageYear = this.uploadStorageYear();
+        const ready = await this.confirmWorkflowStorageReady(storageCompanyName, storageProjectName, storageYear, '파일 업로드');
+        if (!ready) return;
         const result = await this.uploadFilesForJob(this.detail.job.id, files, {
           companyName: storageCompanyName,
           projectName: storageProjectName,
@@ -3714,19 +3716,18 @@ function workflowApp() {
           targetLabel: this.uploadTargetLabel(),
         });
         this.clearStoragePreview(storageCompanyName, storageProjectName, result?.storage?.year || storageYear);
+        this.uploadNote = '';
+        this.uploadDesignDueDate = this.detail?.job?.dueDate || this.defaultWorkDate();
+        this.uploadUrgent = false;
+        if (this.boardTeam) this.boardTeam = ''; // 팀(용접/출력) 필터가 켜진 채 올리면 팀 미배정 새 시안이 detailTiles에서 숨겨짐 → 초기화해 바로 보이게
+        await this.loadDesignWorkflowOptions(true);
+        await this.loadJobs();
+        await this.refreshDetail(false);
       } catch (e) {
-        alert(e.message);
-        return;
+        alert('시안 업로드 실패: ' + (e?.message || e || '알 수 없는 오류'));
       } finally {
         if (ev?.target) ev.target.value = '';
       }
-      this.uploadNote = '';
-      this.uploadDesignDueDate = this.detail?.job?.dueDate || this.defaultWorkDate();
-      this.uploadUrgent = false;
-      if (this.boardTeam) this.boardTeam = ''; // 팀(용접/출력) 필터가 켜진 채 올리면 팀 미배정 새 시안이 detailTiles에서 숨겨짐 → 초기화해 바로 보이게
-      await this.loadDesignWorkflowOptions(true);
-      await this.loadJobs();
-      await this.refreshDetail(false);
     },
 
     async uploadFilesForJob(jobId, files, options = {}) {
