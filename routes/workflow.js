@@ -3613,10 +3613,39 @@ router.put('/projects/:id', (req, res) => {
   });
 });
 
+// 등록코드(regCode) = 등록일 기준 일별 순번 YYYYMMDD-NNN. 등록 즉시 발번·끝까지 고정 — 통합 '내역' 표의 기준 코드(2026-06-17).
+function assignRegistrationCode(jobs, job) {
+  if (!job) return '';
+  if (job.regCode) return job.regCode;
+  const m = String(job.createdAt || '').match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return '';
+  const ymd = m[1] + m[2] + m[3];
+  let max = 0;
+  for (const j of (jobs || [])) {
+    if (j === job) continue;
+    const c = String(j.regCode || '');
+    if (c.slice(0, 8) === ymd && c.charAt(8) === '-') {
+      const n = parseInt(c.slice(9), 10);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+  }
+  job.regCode = `${ymd}-${String(max + 1).padStart(3, '0')}`;
+  return job.regCode;
+}
+let _regCodeBackfilled = false;
+function backfillRegistrationCodes(data) {
+  if (_regCodeBackfilled) return false;
+  _regCodeBackfilled = true;
+  const missing = (data.jobs || []).filter(j => !j.regCode).sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+  for (const job of missing) assignRegistrationCode(data.jobs, job);
+  return missing.length > 0;
+}
+
 router.get('/jobs', (req, res) => {
   const __t0 = Date.now();
   const __s0 = workflowPerfSnapshot();
   const data = loadStore();
+  if (backfillRegistrationCodes(data)) saveStore(data); // 기존 작업에 등록코드 1회 백필(과거+현재 코드 보유)
   const q = safeText(req.query.q, 100).toLowerCase();
   const status = safeText(req.query.status, 30);
   const scope = safeText(req.query.scope, 30) || 'all';
@@ -3758,6 +3787,7 @@ router.post('/jobs', (req, res) => {
     job.productionRoute = 'internal';
   }
   data.jobs.push(job);
+  assignRegistrationCode(data.jobs, job); // 등록 즉시 등록코드 발번(끝까지 고정)
   addEvent(data, req, job.id, 'create', '작업 생성', { title: job.title });
   saveStore(data);
   res.json({ ok: true, job: decorateJob(data, job, req.user) });
