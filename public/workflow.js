@@ -39,7 +39,15 @@ function workflowApp() {
     boardSort: 'date',
     boardTeam: '', // '' 전체 / 'welding' 용접팀 / 'output' 출력팀
     boardFocus: '', // '' = 모든 칸 동일 / stageId = 그 칸만 크게(나머지는 시안 레일)
-    boardView: 'board', // 'board' 진행 3칸 / 'week' 주간일정 / 'archive' 과거내역 (상단 탭)
+    boardView: 'board', // 'board' 진행 3칸 / 'week' 주간일정 / 'ledger' 통합 내역표 (상단 탭)
+    ledgerRows: [],
+    ledgerLoading: false,
+    ledgerBasis: 'reg',   // 'reg' 등록일 / 'done' 완료일 기준
+    ledgerFrom: '',
+    ledgerTo: '',
+    ledgerSearch: '',
+    ledgerColOrder: null, // 헤더 드래그 순서(localStorage)
+    _ledgerDrag: null,
     weekAnchor: '', // 주간달력 기준 월요일(YYYY-MM-DD), 빈값이면 이번주
     newOpen: false,
     newFiles: [],
@@ -644,6 +652,86 @@ function workflowApp() {
         }
       } catch (_) { this.archiveJobs = []; }
     },
+
+    // ── 통합 '내역' 표(2026-06-17) — 진행+완료+취소를 코드·날짜로 한 표에, 헤더 드래그·달력필터·CSV ──
+    ledgerAllColumns() {
+      return [
+        { key: 'code', label: '코드' }, { key: 'regDate', label: '등록일' }, { key: 'doneDate', label: '완료일' },
+        { key: 'companyName', label: '매출처' }, { key: 'projectName', label: '현장' }, { key: 'status', label: '상태' },
+        { key: 'stage', label: '단계' }, { key: 'createdByName', label: '발주자' }, { key: 'fileCount', label: '시안' },
+      ];
+    },
+    ledgerColumns() {
+      const all = this.ledgerAllColumns();
+      if (this.ledgerColOrder === null) { try { const s = localStorage.getItem('wfLedgerColOrder'); this.ledgerColOrder = s ? JSON.parse(s) : []; } catch (_) { this.ledgerColOrder = []; } }
+      const order = this.ledgerColOrder;
+      if (!order || !order.length) return all;
+      const byKey = Object.fromEntries(all.map(c => [c.key, c]));
+      const ordered = order.map(k => byKey[k]).filter(Boolean);
+      for (const c of all) if (!order.includes(c.key)) ordered.push(c); // 새 컬럼 누락 방지
+      return ordered;
+    },
+    ledgerColDragStart(key) { this._ledgerDrag = key; },
+    ledgerColDrop(targetKey) {
+      const from = this._ledgerDrag; this._ledgerDrag = null;
+      if (!from || from === targetKey) return;
+      const order = this.ledgerColumns().map(c => c.key);
+      const fi = order.indexOf(from), ti = order.indexOf(targetKey);
+      if (fi < 0 || ti < 0) return;
+      order.splice(ti, 0, order.splice(fi, 1)[0]);
+      this.ledgerColOrder = order;
+      try { localStorage.setItem('wfLedgerColOrder', JSON.stringify(order)); } catch (_) {}
+    },
+    ledgerStatusLabel(s) { return s === 'done' ? '완료' : s === 'cancelled' ? '취소' : '진행'; },
+    ledgerCell(row, key) {
+      if (key === 'status') return this.ledgerStatusLabel(row.status);
+      if (key === 'stage') return row.status === 'active' ? (this.stageLabel(row.currentStage) || '') : (row.status === 'done' ? '완료' : '');
+      if (key === 'regDate') return row.regDate || '';
+      if (key === 'doneDate') return row.doneDate || '';
+      if (key === 'fileCount') return row.fileCount || 0;
+      return row[key] || '';
+    },
+    ledgerDefaultRange() {
+      const now = new Date(); const y = now.getFullYear(), m = now.getMonth(); const p = n => String(n).padStart(2, '0');
+      const last = new Date(y, m + 1, 0);
+      return { from: `${y}-${p(m + 1)}-01`, to: `${last.getFullYear()}-${p(last.getMonth() + 1)}-${p(last.getDate())}` };
+    },
+    async loadLedger() {
+      if (!this.ledgerFrom || !this.ledgerTo) { const r = this.ledgerDefaultRange(); this.ledgerFrom = r.from; this.ledgerTo = r.to; }
+      this.ledgerLoading = true;
+      try {
+        const qs = new URLSearchParams({ from: this.ledgerFrom, to: this.ledgerTo, basis: this.ledgerBasis });
+        const r = await fetch('/api/workflow/ledger?' + qs.toString());
+        const d = await r.json();
+        this.ledgerRows = (d && d.ok && Array.isArray(d.rows)) ? d.rows : [];
+      } catch (_) { this.ledgerRows = []; }
+      finally { this.ledgerLoading = false; }
+    },
+    ledgerFilteredRows() {
+      const q = (this.ledgerSearch || '').trim().toLowerCase();
+      if (!q) return this.ledgerRows;
+      return this.ledgerRows.filter(r => `${r.code} ${r.companyName} ${r.projectName} ${r.createdByName}`.toLowerCase().includes(q));
+    },
+    ledgerSetQuickRange(which) {
+      const now = new Date(); const y = now.getFullYear(), m = now.getMonth(); const p = n => String(n).padStart(2, '0'); const fmt = dt => `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
+      if (which === 'lastMonth') { this.ledgerFrom = fmt(new Date(y, m - 1, 1)); this.ledgerTo = fmt(new Date(y, m, 0)); }
+      else if (which === 'thisYear') { this.ledgerFrom = `${y}-01-01`; this.ledgerTo = `${y}-12-31`; }
+      else if (which === 'all') { this.ledgerFrom = '2000-01-01'; this.ledgerTo = `${y}-12-31`; }
+      else { const r = this.ledgerDefaultRange(); this.ledgerFrom = r.from; this.ledgerTo = r.to; }
+      this.loadLedger();
+    },
+    openLedgerRow(row) { if (row && row.id) this.selectJob(row.id); },
+    ledgerCsv() {
+      const cols = this.ledgerColumns();
+      const esc = v => { v = String(v == null ? '' : v).replace(/"/g, '""'); return /[",\n]/.test(v) ? `"${v}"` : v; };
+      const head = cols.map(c => esc(c.label)).join(',');
+      const lines = this.ledgerFilteredRows().map(r => cols.map(c => esc(this.ledgerCell(r, c.key))).join(',')).join('\n');
+      const blob = new Blob(['﻿' + head + '\n' + lines], { type: 'text/csv;charset=utf-8;' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+      a.download = `내역_${this.ledgerFrom}_${this.ledgerTo}.csv`; a.click();
+      setTimeout(() => { try { URL.revokeObjectURL(a.href); } catch (_) {} }, 2000);
+    },
+
     // 배지(항상 렌더)는 archiveJobs.length를 쓰므로 정렬 안 탐. 이 함수는 과거내역 뷰에서만 호출.
     archiveFiltered() {
       const q = (this.archiveQuery || '').trim().toLowerCase();
