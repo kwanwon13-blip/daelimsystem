@@ -2194,6 +2194,15 @@ function workflowApp() {
       const name = rep ? this.fileTitlePart(rep.originalName || rep.storedName || '') : '';
       return name || (this.detail && this.detail.job && this.detail.job.title) || '워크플로우 작업';
     },
+    // 보드 카드 제목 = 대표 시안 '파일명'(현장명 아님). 목록 카드의 primaryVisualFile은 디스크 존재확인을 건너뛰어 항상 잡힘.
+    cardTitle(job) {
+      const fn = (job && job.primaryVisualFile) ? this.fileTitlePart(job.primaryVisualFile.originalName) : '';
+      return fn || (job && (job.projectName || job.companyName || job.title)) || '현장 미지정';
+    },
+    cardSubtitle(job) {
+      if (!job) return '';
+      return [job.companyName, job.projectName].filter(Boolean).join(' - ');
+    },
 
     fileNameSearchText(files = []) {
       return Array.from(files || [])

@@ -91,18 +91,18 @@
   .wf-col.mini .wf-colzoom{display:none;}
   .wf-col.mini .wf-col-list{padding:5px;gap:5px;}
   .wf-col.mini .wf-grp-head{display:none;}
-  .wf-col.mini .wf-card{flex-direction:column;padding:4px;gap:3px;align-items:stretch;}
-  .wf-col.mini .wf-rc-main{display:none;}
-  .wf-col.mini .wf-rc-thumb{width:100%;height:58px;border-radius:5px;}
-  .wf-col.mini .wf-rc-thumb:hover{transform:none;}
+  .wf-col.mini .wf-card{padding:4px;gap:3px;}
+  .wf-col.mini .wf-rc-imgwrap{height:58px;border-radius:5px;}
+  .wf-col.mini .wf-rc-ov{display:none;}
+  .wf-col.mini .wf-rc-bot{display:none;}
   .wf-col.mini .wf-rc-minititle{display:block;}
   .wf-rc-minititle{display:none;font-size:9.5px;font-weight:800;color:#334155;text-align:center;line-height:1.25;word-break:break-all;}
   /* 발주 물량 적응형 — 한 칸에 카드 많으면(≥14) 자동 조밀: 썸네일·간격·업체명만 압축. 액션버튼(.wf-rc-bot)·상태색·뱃지·발주자는 유지. (.mini 레일엔 미적용) */
-  .wf-col.dense:not(.mini) .wf-col-list{gap:3px;padding:6px;}
-  .wf-col.dense:not(.mini) .wf-rowcard{padding:3px 7px;}
-  .wf-col.dense:not(.mini) .wf-rowcard.active{padding:4px 7px;}
-  .wf-col.dense:not(.mini) .wf-rc-thumb{width:38px;height:38px;}
+  .wf-col.dense:not(.mini) .wf-col-list{gap:4px;padding:6px;}
+  .wf-col.dense:not(.mini) .wf-rc-imgwrap{height:66px;}
+  .wf-col.dense:not(.mini) .wf-rc-title{-webkit-line-clamp:1;font-size:12px;}
   .wf-col.dense:not(.mini) .wf-rc-co{display:none;}
+  .wf-col.dense:not(.mini) .wf-rc-ov{padding:5px 8px;gap:1px;}
   /* 상세 닫기(✕) — 닫으면 보드가 전체 폭 */
   .wf-detail-head{position:relative;}
   .wf-detail-close{position:absolute;top:10px;right:10px;width:26px;height:26px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#64748b;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0;z-index:2;}
@@ -119,18 +119,20 @@
   .wf-card.st-late{background:#fff7ed;border-color:#fed7aa;}
   .wf-card.st-done{background:#f0fdf4;border-color:#bbf7d0;}
   .wf-card.st-cancelled{background:#f8fafc;border-color:#e2e8f0;}
-  /* === 컴팩트 줄카드 (하루 20건+ 대량 대응): 제목·마감·발주자·완료버튼만, 나머지는 클릭→상세 === */
-  .wf-rowcard{padding:6px 9px 7px;display:flex;flex-direction:row;align-items:center;gap:8px;}
-  .wf-rowcard.active{padding:7px 9px 8px;}
-  .wf-rc-thumb{flex:0 0 auto;width:64px;height:64px;border-radius:7px;overflow:hidden;border:1px solid rgba(15,23,42,.1);background:#eef2f7;padding:0;cursor:zoom-in;display:block;position:relative;transition:transform .12s ease,box-shadow .12s ease;}
-  .wf-rc-more{position:absolute;right:1px;bottom:1px;background:rgba(15,23,42,.74);color:#fff;font-size:9px;font-weight:800;border-radius:4px;padding:0 4px;line-height:13px;pointer-events:none;}
-  .wf-rc-thumb:hover{transform:scale(1.5);box-shadow:0 4px 14px rgba(15,23,42,.28);z-index:5;}
+  /* === 카드식(이미지 위 + hover 시안 공개): 평소 텍스트, 마우스 올리면 텍스트가 사라지고 시안 노출. 액션줄은 하단 항상 고정. 많을 땐 auto-density가 압축 === */
+  .wf-rowcard{padding:0;display:flex;flex-direction:column;align-items:stretch;gap:0;position:relative;overflow:hidden;}
+  .wf-rowcard.active{padding:0;}
+  .wf-rc-imgwrap{position:relative;width:100%;height:150px;flex:0 0 auto;overflow:hidden;background-color:inherit;}
+  .wf-rc-thumb{position:absolute;inset:0;width:100%;height:100%;border:0;border-radius:0;padding:0;margin:0;background:#eef2f7;cursor:zoom-in;display:block;}
   .wf-rc-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
   .wf-rc-thumb.image-failed{display:none;}
-  .wf-rc-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
-  .wf-rc-top{display:flex;align-items:center;gap:5px;min-width:0;}
-  .wf-rc-title{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px;font-weight:800;color:#111827;line-height:1.3;}
-  .wf-rc-co{flex:0 1 auto;min-width:0;max-width:55%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;font-weight:700;color:#94a3b8;}
+  .wf-rc-more{position:absolute;right:5px;bottom:5px;background:rgba(15,23,42,.74);color:#fff;font-size:11px;font-weight:800;border-radius:5px;padding:1px 7px;line-height:1.4;pointer-events:none;z-index:3;}
+  .wf-rc-ov{position:absolute;inset:0;z-index:2;background-color:inherit;padding:9px 11px;display:flex;flex-direction:column;gap:3px;transition:opacity .15s ease;}
+  .wf-rowcard:hover .wf-rc-ov{opacity:0;pointer-events:none;}
+  .wf-rowcard.no-img:hover .wf-rc-ov{opacity:1;pointer-events:auto;}
+  .wf-rc-ovfoot{margin-top:auto;display:flex;align-items:center;gap:5px;min-width:0;}
+  .wf-rc-title{min-width:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:13px;font-weight:800;color:#111827;line-height:1.32;}
+  .wf-rc-co{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;font-weight:700;color:#64748b;}
   .wf-rc-flag{flex:0 0 auto;display:inline-flex;align-items:center;font-size:9.5px;font-weight:900;color:#9a3412;background:#ffedd5;border:1px solid #fdba74;border-radius:4px;padding:0 4px;height:16px;line-height:1;white-space:nowrap;}
   /* 전달 특이사항 강조 배너 (상세 맨 위) */
   .wf-special-note{display:flex;gap:8px;align-items:flex-start;margin-top:8px;padding:8px 10px;background:#fff7ed;border:1px solid #fdba74;border-left:3px solid #ea580c;border-radius:6px;}
@@ -326,7 +328,7 @@
   .wf-rc-late{display:inline-flex;flex:0 0 auto;color:#b91c1c;}
   .wf-rc-late .material-symbols-outlined{font-size:15px;}
   .wf-rc-dot{flex:0 0 auto;width:7px;height:7px;border-radius:50%;background:#2563eb;}
-  .wf-rc-bot{margin-top:2px;min-width:0;}
+  .wf-rc-bot{padding:6px 8px;min-width:0;border-top:1px solid rgba(15,23,42,.06);}
   .wf-rc-line{display:flex;align-items:center;gap:6px;min-width:0;}
   .wf-rc-dlabel{flex:0 0 auto;font-size:10px;font-weight:900;color:#9a3412;}
   .wf-rc-dateinput{flex:1;min-width:64px;height:25px;font-size:11px;font-weight:700;padding:0 5px;border:1.5px solid #fb923c;border-radius:5px;background:#fff;color:#111827;font-variant-numeric:tabular-nums;}
@@ -839,26 +841,29 @@
                 <div class="wf-grp">
                 <div class="wf-grp-head" x-show="boardSort==='person'"><span class="material-symbols-outlined" style="font-size:14px;">person</span><span x-text="grp.person"></span><span class="wf-grp-n" x-text="grp.jobs.length"></span></div>
                 <template x-for="job in grp.jobs" :key="job.id">
-                <div class="wf-card wf-rowcard text-left" role="button" tabindex="0" :class="[cardStateClass(job), (selectedId===job.id && (!selectedWorkStageId || selectedWorkStageId===stage.id)) ? 'active' : '', job.status === 'cancelled' ? 'cancelled' : '']" @click="selectJob(job.id, stage.id)">
-                  <template x-if="job.primaryVisualFile">
-                    <button type="button" class="wf-rc-thumb" @click.stop="openCardPreview(job)" :title="'클릭하면 시안 크게 보기' + ((job.visualFileCount||0)>1 ? ' · 총 ' + job.visualFileCount + '장 ◀▶로 넘기기' : '')">
-                      <img :src="job.primaryVisualFile.thumbUrl || job.primaryVisualFile.previewUrl" loading="lazy" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, job.primaryVisualFile.previewUrl)">
-                      <span class="wf-rc-more" x-show="(job.visualFileCount||0)>1" x-text="'+' + (job.visualFileCount - 1)"></span>
-                    </button>
-                  </template>
-                  <div class="wf-rc-minititle" x-text="(job.projectName || job.companyName || job.title || '현장 미지정').slice(0, 8)"></div>
-                  <div class="wf-rc-main">
-                  <div class="wf-rc-top">
-                    <span class="wf-rc-title" :title="(job.projectName||'') + (job.companyName ? ' / '+job.companyName : '')" x-text="job.projectName || job.companyName || job.title || '현장 미지정'"></span>
-                    <span class="wf-rc-co" x-show="job.projectName && job.companyName" x-text="'· ' + job.companyName"></span>
-                    <span class="wf-rc-flag" x-show="job.handoffNote" :title="'전달 특이사항(확인): ' + job.handoffNote">📌특이</span>
-                    <span class="wf-rc-flag rename" x-show="job.renameRequest" :title="'현장명 변경 대기(팀장 승인): ' + ((job.renameRequest||{}).from||'') + ' → ' + ((job.renameRequest||{}).to||'')">📝이름변경</span>
-                    <span class="wf-rc-late" x-show="job.scheduleLate" title="일정지연"><span class="material-symbols-outlined">warning</span></span>
-                    <span class="wf-rc-dot" x-show="job.urgentFileCount" style="background:#ef4444;" title="긴급"></span>
-                    <span class="wf-rc-dot" x-show="!job.urgentFileCount && (job.unreadCount || job.unreadFileCount)" :title="'확인 ' + (job.unreadCount || job.unreadFileCount)"></span>
-                    <span style="flex:1"></span>
-                    <span class="wf-rc-person" x-show="job.createdByName" title="발주자(시안 올린 사람) — 모든 단계 표시"><span class="material-symbols-outlined" style="font-size:12px;">person</span><span x-text="'발주 ' + job.createdByName"></span></span>
+                <div class="wf-card wf-rowcard text-left" role="button" tabindex="0" :class="[cardStateClass(job), (selectedId===job.id && (!selectedWorkStageId || selectedWorkStageId===stage.id)) ? 'active' : '', job.status === 'cancelled' ? 'cancelled' : '', (!job.primaryVisualFile ? 'no-img' : '')]" @click="selectJob(job.id, stage.id)">
+                  <div class="wf-rc-imgwrap">
+                    <template x-if="job.primaryVisualFile">
+                      <button type="button" class="wf-rc-thumb" @click.stop="openCardPreview(job)" :title="'마우스 올리면 시안 · 클릭하면 크게 보기' + ((job.visualFileCount||0)>1 ? ' · 총 ' + job.visualFileCount + '장 ◀▶' : '')">
+                        <img :src="job.primaryVisualFile.thumbUrl || job.primaryVisualFile.previewUrl" loading="lazy" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, job.primaryVisualFile.previewUrl)">
+                        <span class="wf-rc-more" x-show="(job.visualFileCount||0)>1" x-text="'+' + (job.visualFileCount - 1)"></span>
+                      </button>
+                    </template>
+                    <div class="wf-rc-ov">
+                      <div class="wf-rc-title" :title="cardTitle(job)" x-text="cardTitle(job)"></div>
+                      <div class="wf-rc-co" x-show="cardSubtitle(job)" x-text="cardSubtitle(job)"></div>
+                      <div class="wf-rc-ovfoot">
+                        <span class="wf-rc-person" x-show="job.createdByName" title="발주자(시안 올린 사람) — 모든 단계 표시"><span class="material-symbols-outlined" style="font-size:12px;">person</span><span x-text="'발주 ' + job.createdByName"></span></span>
+                        <span style="flex:1"></span>
+                        <span class="wf-rc-flag" x-show="job.handoffNote" :title="'전달 특이사항(확인): ' + job.handoffNote">📌특이</span>
+                        <span class="wf-rc-flag rename" x-show="job.renameRequest" :title="'현장명 변경 대기(팀장 승인): ' + ((job.renameRequest||{}).from||'') + ' → ' + ((job.renameRequest||{}).to||'')">📝이름변경</span>
+                        <span class="wf-rc-late" x-show="job.scheduleLate" title="일정지연"><span class="material-symbols-outlined">warning</span></span>
+                        <span class="wf-rc-dot" x-show="job.urgentFileCount" style="background:#ef4444;" title="긴급"></span>
+                        <span class="wf-rc-dot" x-show="!job.urgentFileCount && (job.unreadCount || job.unreadFileCount)" :title="'확인 ' + (job.unreadCount || job.unreadFileCount)"></span>
+                      </div>
+                    </div>
                   </div>
+                  <div class="wf-rc-minititle" x-text="(job.projectName || job.companyName || job.title || '현장 미지정').slice(0, 8)"></div>
                   <div class="wf-rc-bot">
                     <template x-if="stage.id==='design'">
                       <div class="wf-rc-line">
@@ -898,7 +903,6 @@
                         <button type="button" class="wf-rc-btn" @click.stop="cardHandoff(job.id, stage.id)" x-show="job.status!=='done' && job.status!=='cancelled' && job.viewerCanCurrentStage">납품준비</button>
                       </div>
                     </template>
-                  </div>
                   </div>
                 </div>
                 </template>
@@ -1093,7 +1097,7 @@
         <div style="height:100%;display:flex;flex-direction:column;">
           <div class="wf-detail-head">
             <button type="button" class="wf-detail-close" @click="closeDetail()" title="상세 닫기 — 보드를 넓게"><span class="material-symbols-outlined">close</span></button>
-            <div class="wf-detail-title" style="padding-right:30px;" x-text="(detail.job.primaryVisualFile && fileTitlePart(detail.job.primaryVisualFile.originalName)) || detail.job.title || '워크플로우 작업'"></div>
+            <div class="wf-detail-title" style="padding-right:30px;" x-text="detailHeaderTitle()"></div>
             <div x-show="detail.job.viewerCanManage && detail.job.status!=='done' && detail.job.status!=='cancelled'" style="margin-top:6px;">
               <button type="button" class="wf-btn ghost" style="height:26px;padding:0 9px;font-size:11px;color:#dc2626;border-color:#fca5a5;" @click="cancelWorkflowJob()" :disabled="saving" title="이 발주를 취소(기록 보존·복구 가능, 작성자·관리자)"><span class="material-symbols-outlined" style="font-size:14px;">block</span>발주 취소</button>
             </div>
