@@ -1902,24 +1902,24 @@
           <div class="wf-field">
             <label>회사명</label>
             <input class="wf-input" x-ref="newJobCompany" x-model="form.companyName" @change="syncAutoJobTitle()" @keydown.enter.prevent="enterPickCompany('form')" autocomplete="off" placeholder="직접 입력 또는 선택">
-            <div class="wf-company-picks" x-show="workflowCompanySuggestions(form.companyName, 12).length">
+            <div class="wf-company-picks" x-show="!workflowCompanyExact(form.companyName) && workflowCompanySuggestions(form.companyName, 12).length">
               <template x-for="company in workflowCompanySuggestions(form.companyName, 12)" :key="'new-company-'+company.name">
                 <div class="wf-company-pickrow">
-                  <button type="button" class="wf-company-pick" @click="form.companyName = company.name; form.projectName = ''; syncAutoJobTitle(true)">
+                  <button type="button" tabindex="-1" class="wf-company-pick" @click="form.companyName = company.name; form.projectName = ''; syncAutoJobTitle(true)">
                     <strong x-text="company.name"></strong>
                     <small x-text="(company.projectCount || 0) + ' 현장'"></small>
                   </button>
-                  <button type="button" class="wf-company-hide" @click.stop="hideDesignFolder(company.folderName || company.name)" title="이 폴더를 검색·자동완성에서 숨기기">🙈</button>
+                  <button type="button" tabindex="-1" class="wf-company-hide" @click.stop="hideDesignFolder(company.folderName || company.name)" title="이 폴더를 검색·자동완성에서 숨기기">🙈</button>
                 </div>
               </template>
             </div>
             <div class="wf-hidden-mgr" x-show="hiddenDesignFolders.length">
-              <button type="button" class="wf-hidden-toggle" @click="showHiddenFolders = !showHiddenFolders" x-text="showHiddenFolders ? '숨긴 폴더 닫기' : ('숨긴 폴더 ' + hiddenDesignFolders.length + '개')"></button>
+              <button type="button" tabindex="-1" class="wf-hidden-toggle" @click="showHiddenFolders = !showHiddenFolders" x-text="showHiddenFolders ? '숨긴 폴더 닫기' : ('숨긴 폴더 ' + hiddenDesignFolders.length + '개')"></button>
               <div class="wf-hidden-list" x-show="showHiddenFolders">
                 <template x-for="hf in hiddenDesignFolders" :key="'hidden-'+hf">
                   <div class="wf-hidden-item">
                     <span x-text="hf"></span>
-                    <button type="button" class="wf-hidden-restore" @click="restoreDesignFolder(hf)">복원</button>
+                    <button type="button" tabindex="-1" class="wf-hidden-restore" @click="restoreDesignFolder(hf)">복원</button>
                   </div>
                 </template>
               </div>
@@ -1928,9 +1928,9 @@
           <div class="wf-field">
             <label>프로젝트/현장</label>
             <input class="wf-input" x-model="form.projectName" @change="syncAutoJobTitle()" @keydown.enter.prevent="enterPickProject('form')" autocomplete="off" placeholder="프로젝트명">
-            <div class="wf-project-picks" x-show="workflowCompanyHasProjects(form.companyName) && workflowProjectSuggestions(form.companyName, 8, form.projectName).length">
-              <template x-for="project in workflowProjectSuggestions(form.companyName, 8, form.projectName)" :key="'new-project-'+project.name">
-                <button type="button" class="wf-project-pick" @click="form.projectName = project.name; syncAutoJobTitle(true)">
+            <div class="wf-project-picks" x-show="!workflowProjectExact(form.companyName, form.projectName) && workflowCompanyHasProjects(form.companyName) && workflowProjectSuggestions(form.companyName, 999, form.projectName).length">
+              <template x-for="project in workflowProjectSuggestions(form.companyName, 999, form.projectName)" :key="'new-project-'+project.name">
+                <button type="button" tabindex="-1" class="wf-project-pick" @click="form.projectName = project.name; syncAutoJobTitle(true)">
                   <span x-text="project.name"></span>
                   <small x-show="projectBadge(project)" x-text="projectBadge(project)"></small>
                 </button>

@@ -1582,6 +1582,17 @@ function workflowApp() {
     // 입력값이 부분일치면 top 추천으로 완성. 이미 정확히 입력했으면 추천이 비어 no-op(엔터가 값 안 건드림).
     topCompanyName(q) { const c = this.workflowCompanySuggestions(q, 1)[0]; return (c && c.name) ? c.name : ''; },
     topProjectName(company, q) { const p = this.workflowProjectSuggestions(company, 1, q)[0]; return (p && p.name) ? p.name : ''; },
+    // 입력값이 실제 회사/현장과 정확히 일치하면 추천 드롭다운을 닫는다 — 엔터/선택 후 자동 닫힘 → Tab이 다음 칸(프로젝트)으로 바로 간다(2026-06-17).
+    workflowCompanyExact(name) {
+      const key = this.normalizeOptionName(name);
+      if (!key) return false;
+      return (this.designWorkflowOptions.companies || []).some(c => this.normalizeOptionName(c.name) === key || this.normalizeOptionName(c.folderName) === key);
+    },
+    workflowProjectExact(companyName, projectName) {
+      const key = this.normalizeOptionName(projectName);
+      if (!key) return false;
+      return this.workflowProjectOptionsForCompany(companyName, true).some(p => this.normalizeOptionName(p.name || p) === key);
+    },
     enterPickCompany(scope) {
       const cur = scope === 'form' ? this.form.companyName : scope === 'upload' ? this.uploadCompanyName : (this.detail && this.detail.job ? this.detail.job.companyName : '');
       const n = this.topCompanyName(cur);
