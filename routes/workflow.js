@@ -2741,6 +2741,7 @@ function buildSummary(data, req) {
     scheduleItems,
     myActions: myActionJobs.length,
     myActionItems,
+    viewerStageIds: STAGES.filter(s => canDeptActOnStage(req, s.id)).map(s => s.id), // 로그인 부서가 담당하는 단계 — 상단 알림 부서별 분기용(2026-06-17)
     byStage,
   };
 }

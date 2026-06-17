@@ -990,7 +990,38 @@ function workflowApp() {
       return '메모';
     },
 
+    // ── 부서별 상단 알림(2026-06-17): 로그인 부서가 단일 단계 담당이면 그 기준으로 ②긴급카드·③가로줄을 채움 ──
+    viewerSingleStage() {
+      if (this.currentUser && this.currentUser.role === 'admin') return null; // 관리자=전체
+      const ids = (this.summary && this.summary.viewerStageIds) || [];
+      return ids.length === 1 ? ids[0] : null; // 단일 단계 담당만 특화; 0개·여러개면 전체 폴백(빈 화면 방지)
+    },
+    roleFocusItems() {
+      const stage = this.viewerSingleStage();
+      if (!stage) return null; // 전체(기존 동작)
+      const me = String((this.currentUser && this.currentUser.userId) || '').toLowerCase();
+      let jobs = (this.jobs || []).filter(j => (j.status || 'active') === 'active');
+      if (stage === 'design') jobs = jobs.filter(j => String(j.createdBy || '').toLowerCase() === me); // 디자인=내가 발주한 것
+      else jobs = jobs.filter(j => (j.currentStage || 'design') === stage); // 공장/경영관리=그 단계 작업(빨리 완료·납품 임박)
+      const isUrgent = j => !!(j.urgentFileCount || j.urgent);
+      const isLate = j => !!j.scheduleLate || this.isPastDue(j.dueDate);
+      jobs = jobs.slice().sort((a, b) => (isUrgent(b) - isUrgent(a)) || (isLate(b) - isLate(a)) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+      return jobs.slice(0, 8).map(j => {
+        const urgent = isUrgent(j), late = isLate(j);
+        const date = j.factoryAvailableDate || j.dueDate || '';
+        return {
+          key: 'role:' + j.id, kind: 'role',
+          label: urgent ? '긴급' : late ? '지연' : (this.stageLabel(j.currentStage) || '진행'),
+          title: j.projectName || j.companyName || j.title || '작업',
+          meta: [j.companyName, date].filter(Boolean).join(' · '),
+          level: urgent ? 'urgent' : late ? 'warn' : 'info',
+          source: j,
+        };
+      });
+    },
     workflowFocusItems() {
+      const role = this.roleFocusItems();
+      if (role) return role; // 부서별: 그 부서 기준만 표시
       const items = [];
       const push = (kind, label, title, meta, source, level = 'info') => {
         if (!source) return;
@@ -1027,6 +1058,8 @@ function workflowApp() {
     },
 
     workflowAlertItems() {
+      const role = this.roleFocusItems();
+      if (role) return role.length ? [{ ...role[0], count: role.length }] : []; // 부서별: 제일 급한 1건 + '처리 N'(부서 기준 총개수)
       const items = [];
       const push = (kind, label, title, meta, source, level = 'info', count = 1) => {
         if (!source && !count) return;
@@ -1108,6 +1141,7 @@ function workflowApp() {
 
     async openFocusItem(item) {
       if (!item || !item.source) return;
+      if (item.kind === 'role') return this.selectJob(item.source.id); // 부서별 항목 = 작업 카드 열기
       if (item.kind === 'schedule') return this.openScheduleItem(item.source);
       if (item.kind === 'action') return this.openActionJob(item.source);
       if (item.kind === 'event') return this.openUnreadEvent(item.source);
