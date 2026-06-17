@@ -66,9 +66,13 @@ function matchesAnyDesignTerm(item, terms) {
 const DESIGN_COLLECTIONS = {
   designerPdf: {
     rootFolders: new Set(['＆디자이너', '&디자이너']),
+    subFolders: new Set(['★PDF모음']), // ＆디자이너 폴더 전체가 아니라 이 하위폴더만 — 견적서 등 다른 하위폴더 제외(2026-06-17)
     fileTypes: new Set(['pdf']),
   },
 };
+function designCollectionFolderKey(value) {
+  return String(value || '').replace(/[\s★☆＊*]/g, '').toLowerCase();
+}
 
 function getDesignCollection(value) {
   return DESIGN_COLLECTIONS[String(value || '').trim()] || null;
@@ -76,8 +80,14 @@ function getDesignCollection(value) {
 
 function matchesDesignCollection(item, collection) {
   if (!collection) return true;
-  const root = item && item.parts && item.parts[0];
+  const parts = (item && item.parts) || [];
+  const root = parts[0];
   if (!root || !collection.rootFolders.has(root)) return false;
+  if (collection.subFolders) {
+    // 지정 하위폴더(예: ★PDF모음)만 — ★/공백 변형에 견고하게 정규화 비교
+    const sub = designCollectionFolderKey(parts[1]);
+    if (![...collection.subFolders].some(sf => designCollectionFolderKey(sf) === sub)) return false;
+  }
   if (collection.fileTypes && !collection.fileTypes.has(item.fileType)) return false;
   return true;
 }
@@ -631,6 +641,34 @@ function iconSvg(fileType, ext) {
 </svg>`;
 }
 
+// PDF 첫 페이지 → JPEG 썸네일(Ghostscript 설치돼 있을 때만). 없으면 null → 호출부가 아이콘으로 폴백. 결과 캐시.
+let _gsBinCache;
+function ghostscriptBin() {
+  if (_gsBinCache !== undefined) return _gsBinCache;
+  const cp = require('child_process');
+  for (const bin of ['gswin64c', 'gswin32c', 'gs']) {
+    try { cp.execSync('"' + bin + '" --version', { stdio: 'ignore', timeout: 4000, windowsHide: true }); _gsBinCache = bin; return _gsBinCache; } catch (_) {}
+  }
+  _gsBinCache = '';
+  return _gsBinCache;
+}
+function renderPdfFirstPageThumb(pdfPath) {
+  const bin = ghostscriptBin();
+  if (!bin) return Promise.resolve(null);
+  const out = path.join(THUMB_DIR, 'pdf_' + crypto.createHash('md5').update(pdfPath).digest('hex') + '.jpg');
+  try { if (fs.existsSync(out)) return Promise.resolve(out); } catch (_) {}
+  return new Promise(resolve => {
+    let done = false;
+    const finish = v => { if (done) return; done = true; resolve(v); };
+    try {
+      const cp = require('child_process').spawn(bin, ['-q', '-dNOPAUSE', '-dBATCH', '-dSAFER', '-dFirstPage=1', '-dLastPage=1', '-sDEVICE=jpeg', '-dJPEGQ=72', '-r60', '-sOutputFile=' + out, pdfPath], { windowsHide: true });
+      const timer = setTimeout(() => { try { cp.kill(); } catch (_) {} finish(null); }, 12000);
+      cp.on('error', () => { clearTimeout(timer); finish(null); });
+      cp.on('close', code => { clearTimeout(timer); finish(code === 0 && fs.existsSync(out) ? out : null); });
+    } catch (_) { finish(null); }
+  });
+}
+
 router.get('/design/thumb', requireAuth, async (req, res) => {
   const filePath = req.query.path;
   if (!filePath) return res.status(400).send('path required');
@@ -643,6 +681,13 @@ router.get('/design/thumb', requireAuth, async (req, res) => {
   const ext = path.extname(resolved).toLowerCase();
   const fileType = EXT_TO_TYPE[ext];
 
+  // PDF는 첫 페이지를 이미지로 렌더(Ghostscript 있을 때)·캐시 — 없으면 아래 아이콘으로 폴백
+  if (fileType === 'pdf') {
+    try {
+      const thumb = await renderPdfFirstPageThumb(resolved);
+      if (thumb) return res.type('image/jpeg').sendFile(thumb);
+    } catch (_) {}
+  }
   // 이미지가 아니면 파일종류 아이콘 SVG 반환
   if (fileType && fileType !== 'image') {
     res.type('image/svg+xml').send(iconSvg(fileType, ext));
