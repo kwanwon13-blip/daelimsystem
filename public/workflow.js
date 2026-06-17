@@ -122,7 +122,7 @@ function workflowApp() {
     fileStageFilter: 'all',
     fileKindFilter: 'all',
     filePreview: { open: false, file: null, zoom: 1, fit: true, list: [], index: 0 },
-    cardZoom: { url: '', style: '', timer: null }, // 카드 hover 시 그 카드 자리에 시안을 크게 '덮어서' 표시(아래 카드 안 밀림)
+    cardZoom: { files: [], index: 0, style: '', show: false, jobId: '', showTimer: null, hideTimer: null }, // 카드 hover 시 그 카드 자리에 시안을 크게 '덮어서' 표시(여러 장이면 ◀▶로 넘김, 아래 카드 안 밀림)
     expandedFileId: '',
     highlightedEventId: '',
     quickFactoryOrderSaving: false,
@@ -2204,26 +2204,56 @@ function workflowApp() {
       if (!job) return '';
       return [job.companyName, job.projectName].filter(Boolean).join(' - ');
     },
-    // 카드에 마우스 올리면 '그 카드 자리'에 시안을 크게 덮어 표시(아래 카드를 밀지 않고 오버레이). 원본은 hover한 1장만 지연 로드, 풀스크린 모달 열리면 안 뜸.
+    // 카드 hover → '그 카드 자리'에 시안을 크게 덮어 표시(아래 카드 안 밀림). 여러 장이면 ◀▶로 넘겨봄(전체화면 안 열어도).
+    // 대표 1장 먼저 즉시, 여러 장은 /jobs/:id 목록을 1회 가져와 캐시. 오버레이에 마우스 올리면 유지(버튼 클릭). 풀스크린 모달 열리면 안 뜸.
     cardZoomShow(ev, job) {
-      clearTimeout(this.cardZoom.timer);
-      const u = job && job.primaryVisualFile && job.primaryVisualFile.previewUrl;
+      clearTimeout(this.cardZoom.hideTimer);
+      clearTimeout(this.cardZoom.showTimer);
       const card = ev && ev.currentTarget;
-      if (!u || !card || !card.getBoundingClientRect) { this.cardZoom.url = ''; return; }
-      this.cardZoom.timer = setTimeout(() => {
-        if (this.filePreview && this.filePreview.open) { this.cardZoom.url = ''; return; }
-        const r = card.getBoundingClientRect();
+      const first = job && job.primaryVisualFile && job.primaryVisualFile.previewUrl;
+      if (!first || !card || !card.getBoundingClientRect) return;
+      const r = card.getBoundingClientRect();
+      this.cardZoom.showTimer = setTimeout(async () => {
+        if (this.filePreview && this.filePreview.open) return;
         const h = Math.min(600, Math.round(window.innerHeight * 0.64));
         const w = Math.min(window.innerWidth - 16, Math.max(Math.round(r.width), 380));
         let left = r.left; if (left + w > window.innerWidth - 8) left = window.innerWidth - w - 8; if (left < 8) left = 8;
         let top = r.top; if (top + h > window.innerHeight - 8) top = Math.max(8, window.innerHeight - h - 8);
         this.cardZoom.style = `left:${Math.round(left)}px;top:${Math.round(top)}px;width:${w}px;height:${h}px;`;
-        this.cardZoom.url = u;
+        this.cardZoom.index = 0;
+        this.cardZoom.jobId = job.id;
+        if (!this._cardZoomCache) this._cardZoomCache = {};
+        const cached = this._cardZoomCache[job.id];
+        this.cardZoom.files = cached || [first]; // 대표 1장 먼저 즉시 표시
+        this.cardZoom.show = true;
+        if (!cached && (job.visualFileCount || 0) > 1) { // 여러 장이면 목록 1회 가져와 ◀▶ 활성화
+          try {
+            const resp = await fetch('/api/workflow/jobs/' + encodeURIComponent(job.id));
+            const d = await resp.json().catch(() => ({}));
+            if (resp.ok && d && Array.isArray(d.files)) {
+              let imgs = d.files.filter(x => x && x.isImage && x.exists !== false && x.previewUrl);
+              if (this.boardTeam === 'welding' || this.boardTeam === 'output') {
+                const t = imgs.filter(x => x.team === this.boardTeam); if (t.length) imgs = t;
+              }
+              const list = imgs.map(x => x.previewUrl);
+              if (list.length) { this._cardZoomCache[job.id] = list; if (this.cardZoom.jobId === job.id && this.cardZoom.show) this.cardZoom.files = list; }
+            }
+          } catch (_) {}
+        } else if (!cached) {
+          this._cardZoomCache[job.id] = [first];
+        }
       }, 160);
     },
-    cardZoomHide() {
-      clearTimeout(this.cardZoom.timer);
-      this.cardZoom.url = '';
+    cardZoomKeep() { clearTimeout(this.cardZoom.hideTimer); }, // 오버레이에 마우스 올리면 안 사라지게(버튼 클릭 가능)
+    cardZoomHideSoon() {
+      clearTimeout(this.cardZoom.showTimer);
+      clearTimeout(this.cardZoom.hideTimer);
+      this.cardZoom.hideTimer = setTimeout(() => { this.cardZoom.show = false; }, 180);
+    },
+    cardZoomStep(d) {
+      const n = (this.cardZoom.files || []).length;
+      if (n < 2) return;
+      this.cardZoom.index = (this.cardZoom.index + d + n) % n;
     },
 
     fileNameSearchText(files = []) {
