@@ -2026,23 +2026,14 @@ function defaultWorkflowOrderMailSubject(job, order) {
 }
 
 function buildWorkflowOrderMailHtml(job, order, files, message, publicUrl) {
-  const project = job.projectName || job.title || '';
-  const rows = [
-    ['회사', job.companyName || '-'],
-    ['프로젝트/현장', project || '-'],
-    ['희망 납기', order.dueDate || '협의'],
-    ['파일', `${files.length}건`],
-  ];
-  const memo = message || order.note || '제작 가능 여부와 납기 확인 부탁드립니다.';
+  // 본문 = 사장님이 적은 내용만(2026-06-17 요청) — 자동 인사말/표(회사·프로젝트·납기·파일)/맺음말 넣지 않음.
+  // 링크(publicUrl)는 호출부가 '대용량 첨부 폴백(attachFiles=false)'일 때만 넘겨준다 — 일반 첨부 메일엔 링크 없음.
+  const memo = String(message || order.note || '').trim();
+  const bodyHtml = memo ? escapeHtml(memo).replace(/\n/g, '<br>') : '';
   return `<!doctype html><html><body style="margin:0;padding:0;font-family:'Malgun Gothic','맑은 고딕',Arial,sans-serif;color:#222;">
     <div style="font-size:14px;line-height:1.8;">
-      <p style="margin:0 0 14px;">${escapeHtml(order.targetName || '담당자')} 담당자님,</p>
-      <p style="margin:0 0 16px;">${escapeHtml(memo).replace(/\n/g, '<br>')}</p>
-      <table style="border-collapse:collapse;margin:0 0 16px;font-size:13px;">
-        ${rows.map(([k, v]) => `<tr><th style="text-align:left;background:#f3f4f6;border:1px solid #d1d5db;padding:6px 10px;">${escapeHtml(k)}</th><td style="border:1px solid #d1d5db;padding:6px 10px;">${escapeHtml(v)}</td></tr>`).join('')}
-      </table>
-      ${publicUrl ? `<p style="margin:0 0 14px;">ERP 확인/다운로드: <a href="${escapeHtml(publicUrl)}">${escapeHtml(publicUrl)}</a></p>` : ''}
-      <p style="margin:0;">확인 후 회신 부탁드립니다.</p>
+      ${bodyHtml ? `<p style="margin:0 0 16px;">${bodyHtml}</p>` : ''}
+      ${publicUrl ? `<p style="margin:0;">ERP 확인/다운로드: <a href="${escapeHtml(publicUrl)}">${escapeHtml(publicUrl)}</a></p>` : ''}
     </div>
   </body></html>`;
 }
@@ -4532,7 +4523,8 @@ router.post('/jobs/:id/orders/:orderId/email', async (req, res) => {
 
     const subject = safeText(req.body?.subject, 240) || defaultWorkflowOrderMailSubject(job, order);
     const message = safeText(req.body?.message, 3000);
-    const html = buildWorkflowOrderMailHtml(job, order, files, message, publicUrl);
+    // 링크는 대용량 폴백(attachFiles=false, 파일을 첨부 못 해 링크로 보내는 경우)에만 — 일반 첨부 메일엔 링크 안 넣음(2026-06-17 요청).
+    const html = buildWorkflowOrderMailHtml(job, order, files, message, attachFiles ? '' : publicUrl);
 
     try {
       await sendSmtpMail({

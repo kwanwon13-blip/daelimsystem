@@ -1294,9 +1294,7 @@ function workflowApp() {
         alert(cached?.error || '저장 경로를 확인하지 못했습니다.');
         return false;
       }
-      if (!preview.created) return true;
-      const label = preview.label || this.estimatedWorkflowStorageLabel(company, project, yearValue);
-      return confirm(`저장 폴더가 아직 없습니다.\n\n${label}\n\n새 폴더를 만들고 ${actionLabel}할까요?`);
+      return true; // 폴더가 없으면 업로드 시 자동 생성 — 매번 "새 폴더 만들까요?" 묻지 않음(사장님 요청 2026-06-17)
     },
 
     scheduleStoragePreview(companyName, projectName, yearValue) {
@@ -1412,6 +1410,28 @@ function workflowApp() {
     workflowCompanyHasProjects(companyName) {
       if (!String(companyName || '').trim()) return false;
       return this.workflowProjectOptionsForCompany(companyName, true).length > 0;
+    },
+
+    // ── Enter로 회사/현장 자동완성 top 선택(마우스 클릭 대체, 2026-06-17 요청) ──
+    // 입력값이 부분일치면 top 추천으로 완성. 이미 정확히 입력했으면 추천이 비어 no-op(엔터가 값 안 건드림).
+    topCompanyName(q) { const c = this.workflowCompanySuggestions(q, 1)[0]; return (c && c.name) ? c.name : ''; },
+    topProjectName(company, q) { const p = this.workflowProjectSuggestions(company, 1, q)[0]; return (p && p.name) ? p.name : ''; },
+    enterPickCompany(scope) {
+      const cur = scope === 'form' ? this.form.companyName : scope === 'upload' ? this.uploadCompanyName : (this.detail && this.detail.job ? this.detail.job.companyName : '');
+      const n = this.topCompanyName(cur);
+      if (!n) return; // 추천 없음(이미 정확/빈값) → 엔터가 값 안 바꿈
+      if (scope === 'form') { this.form.companyName = n; this.form.projectName = ''; this.syncAutoJobTitle(true); }
+      else if (scope === 'upload') { this.uploadCompanyName = n; this.uploadProjectName = ''; }
+      else if (this.detail && this.detail.job) { this.detail.job.companyName = n; this.detail.job.projectName = ''; }
+    },
+    enterPickProject(scope) {
+      const company = scope === 'form' ? this.form.companyName : scope === 'upload' ? this.uploadCompanyName : (this.detail && this.detail.job ? this.detail.job.companyName : '');
+      const cur = scope === 'form' ? this.form.projectName : scope === 'upload' ? this.uploadProjectName : (this.detail && this.detail.job ? this.detail.job.projectName : '');
+      const n = this.topProjectName(company, cur);
+      if (!n) return;
+      if (scope === 'form') { this.form.projectName = n; this.syncAutoJobTitle(true); }
+      else if (scope === 'upload') { this.uploadProjectName = n; }
+      else if (this.detail && this.detail.job) { this.detail.job.projectName = n; }
     },
 
     projectStatusLabel(status) {
