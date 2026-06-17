@@ -3723,6 +3723,7 @@ function workflowApp() {
       this.uploadNote = '';
       this.uploadDesignDueDate = this.detail?.job?.dueDate || this.defaultWorkDate();
       this.uploadUrgent = false;
+      if (this.boardTeam) this.boardTeam = ''; // 팀(용접/출력) 필터가 켜진 채 올리면 팀 미배정 새 시안이 detailTiles에서 숨겨짐 → 초기화해 바로 보이게
       await this.loadDesignWorkflowOptions(true);
       await this.loadJobs();
       await this.refreshDetail(false);
