@@ -205,6 +205,7 @@ function workflowApp() {
       if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
       await this.loadJobs();
       this.startWorkflowPolling();
+      this.setupDesktopNotify(); // 공장 수락 등 '나에게 온' 새 알림을 OS 데스크탑 팝업(우하단)으로
       this.consumeWorkflowDraft();
       await this.consumeWorkflowOpenTarget();
     },
@@ -540,7 +541,48 @@ function workflowApp() {
       try {
         const r = await fetch('/api/workflow/summary');
         const d = await r.json();
-        if (r.ok && d.ok) this.summary = d.summary || this.summary;
+        if (r.ok && d.ok) { this.summary = d.summary || this.summary; this.checkDesktopNotifications(); }
+      } catch (_) {}
+    },
+
+    // ── 데스크탑 알림(아웃룩식 OS 우하단 팝업, 2026-06-17) — '나에게 온' 새 이벤트(공장 수락 등)를 브라우저 Notification으로 ──
+    setupDesktopNotify() {
+      try {
+        if (typeof Notification === 'undefined') return; // 미지원 브라우저 → 기존 in-app 알림만
+        if (Notification.permission !== 'default') return; // granted/denied → 더 물을 것 없음
+        // 브라우저가 무제스처 권한요청을 무시할 수 있어, 첫 사용자 동작(클릭/키)에서 1회만 요청
+        const ask = () => { try { Notification.requestPermission(); } catch (_) {} };
+        document.addEventListener('click', ask, { once: true });
+        document.addEventListener('keydown', ask, { once: true });
+      } catch (_) {}
+    },
+    desktopNotifyEnabled() { try { return typeof Notification !== 'undefined' && Notification.permission === 'granted'; } catch (_) { return false; } },
+    checkDesktopNotifications() {
+      try {
+        if (!this.desktopNotifyEnabled()) return;
+        if (!this._notifiedEventIds) this._notifiedEventIds = new Set();
+        const items = this.unreadEventItems() || [];
+        if (!this._notifyBaselined) {
+          // 권한 켜진 첫 시점의 기존 미확인은 팝업하지 않고 기준선만 — 새로 도착한 것만 알림(열자마자 쏟아짐 방지)
+          items.forEach(it => { if (it && it.id) this._notifiedEventIds.add(it.id); });
+          this._notifyBaselined = true;
+          return;
+        }
+        for (const it of items) {
+          if (!it || !it.id || this._notifiedEventIds.has(it.id)) continue;
+          this._notifiedEventIds.add(it.id);
+          this.fireDesktopNotification(it);
+        }
+        if (this._notifiedEventIds.size > 800) this._notifiedEventIds = new Set(items.map(it => it && it.id).filter(Boolean));
+      } catch (_) {}
+    },
+    fireDesktopNotification(item) {
+      try {
+        const title = (this.workflowEventFocusLabel(item) || '워크플로우') + (item.jobTitle ? ' · ' + item.jobTitle : '');
+        const body = String(item.message || '').slice(0, 180) + (item.actorName ? '\n— ' + item.actorName : '');
+        const n = new Notification(title, { body, tag: 'wf-' + item.id, icon: '/favicon.ico' });
+        n.onclick = () => { try { window.focus(); if (item.jobId) this.selectJob(item.jobId); } catch (_) {} try { n.close(); } catch (_) {} };
+        setTimeout(() => { try { n.close(); } catch (_) {} }, 12000); // 12초 후 자동 닫힘
       } catch (_) {}
     },
 
@@ -583,7 +625,7 @@ function workflowApp() {
         if (this.selectedId && !this.jobs.find(j => j.id === this.selectedId)) this.selectedId = '';
         if (!this.selectedId) this.detail = null;
         if (this.selectedId) await this.refreshDetail(false);
-        if (d.summary) this.summary = d.summary;
+        if (d.summary) { this.summary = d.summary; this.checkDesktopNotifications(); }
         else await this.loadSummary();
       } finally {
         this.loading = false;
