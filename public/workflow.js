@@ -38,6 +38,7 @@ function workflowApp() {
     wfVendor: '',
     boardSort: 'date',
     boardTeam: '', // '' 전체 / 'welding' 용접팀 / 'output' 출력팀
+    toasts: [], // 인앱 알림(우하단) — OS 알림이 막힌 HTTP에서도 작동. 자동으로 안 사라지고 [확인]해야 닫힘
     boardFocus: '', // '' = 모든 칸 동일 / stageId = 그 칸만 크게(나머지는 시안 레일)
     boardView: 'board', // 'board' 진행 3칸 / 'week' 주간일정 / 'ledger' 통합 내역표 (상단 탭)
     ledgerRows: [],
@@ -567,19 +568,21 @@ function workflowApp() {
     desktopNotifyEnabled() { try { return typeof Notification !== 'undefined' && Notification.permission === 'granted'; } catch (_) { return false; } },
     checkDesktopNotifications() {
       try {
-        if (!this.desktopNotifyEnabled()) return;
+        // 인앱 토스트는 HTTP에서도 떠야 하므로 OS 권한과 무관하게 동작. OS 알림(데스크탑)은 HTTPS+권한일 때만 보너스로.
         if (!this._notifiedEventIds) this._notifiedEventIds = new Set();
         const items = this.unreadEventItems() || [];
         if (!this._notifyBaselined) {
-          // 권한 켜진 첫 시점의 기존 미확인은 팝업하지 않고 기준선만 — 새로 도착한 것만 알림(열자마자 쏟아짐 방지)
+          // 첫 시점의 기존 미확인은 띄우지 않고 기준선만 — 새로 도착한 것만 알림(열자마자 쏟아짐 방지)
           items.forEach(it => { if (it && it.id) this._notifiedEventIds.add(it.id); });
           this._notifyBaselined = true;
           return;
         }
+        const osOk = this.desktopNotifyEnabled();
         for (const it of items) {
           if (!it || !it.id || this._notifiedEventIds.has(it.id)) continue;
           this._notifiedEventIds.add(it.id);
-          this.fireDesktopNotification(it);
+          this.pushToast(it);                  // 인앱 토스트(우하단) — 본인이 [확인] 눌러야 사라짐
+          if (osOk) this.fireDesktopNotification(it); // HTTPS+권한이면 OS 데스크탑 알림도 함께
         }
         if (this._notifiedEventIds.size > 800) this._notifiedEventIds = new Set(items.map(it => it && it.id).filter(Boolean));
       } catch (_) {}
@@ -592,6 +595,26 @@ function workflowApp() {
         n.onclick = () => { try { window.focus(); if (item.jobId) this.selectJob(item.jobId); } catch (_) {} try { n.close(); } catch (_) {} };
         setTimeout(() => { try { n.close(); } catch (_) {} }, 12000); // 12초 후 자동 닫힘
       } catch (_) {}
+    },
+    // ── 인앱 토스트(우하단) — OS 알림이 막힌 HTTP에서도 작동. 자동 사라짐 없음: 본인이 [보기]/[확인] 눌러야 닫힘 ──
+    pushToast(item) {
+      if (!item || !item.id) return;
+      if (this.toasts.some(t => t.id === item.id)) return; // 같은 알림 중복 방지
+      this.toasts.unshift({
+        id: item.id,
+        jobId: item.jobId || '',
+        title: (this.workflowEventFocusLabel(item) || '알림') + (item.jobTitle ? ' · ' + item.jobTitle : ''),
+        body: String(item.message || '').slice(0, 200),
+        actorName: item.actorName || '',
+      });
+      if (this.toasts.length > 20) this.toasts = this.toasts.slice(0, 20); // 확인 안 한 게 쌓여도 메모리 보호(최신 20개)
+    },
+    dismissToast(id) {
+      this.toasts = this.toasts.filter(t => t.id !== id);
+    },
+    openToast(t) {
+      if (t && t.jobId) { try { this.selectJob(t.jobId); } catch (_) {} }
+      if (t) this.dismissToast(t.id);
     },
 
     startWorkflowPolling() {
