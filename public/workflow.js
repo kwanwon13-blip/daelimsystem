@@ -2203,6 +2203,14 @@ function workflowApp() {
       if (!job) return '';
       return [job.companyName, job.projectName].filter(Boolean).join(' - ');
     },
+    // 카드에 마우스 올리면 전체 시안(원본 previewUrl) 1장만 그때 지연 로드 → object-fit:contain로 세로 시안도 통째로 노출.
+    // 평소엔 안 받음(가벼움). 썸네일은 320x220 cover로 이미 크롭돼 있어 hover엔 원본을 써야 전체가 보임.
+    revealFull(ev) {
+      const card = ev && ev.currentTarget;
+      if (!card || !card.querySelector) return;
+      const img = card.querySelector('.wf-rc-fullimg');
+      if (img && !img.getAttribute('src') && img.dataset && img.dataset.src) img.setAttribute('src', img.dataset.src);
+    },
 
     fileNameSearchText(files = []) {
       return Array.from(files || [])

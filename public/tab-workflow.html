@@ -122,12 +122,23 @@
   /* === 카드식(이미지 위 + hover 시안 공개): 평소 텍스트, 마우스 올리면 텍스트가 사라지고 시안 노출. 액션줄은 하단 항상 고정. 많을 땐 auto-density가 압축 === */
   .wf-rowcard{padding:0;display:flex;flex-direction:column;align-items:stretch;gap:0;position:relative;overflow:hidden;}
   .wf-rowcard.active{padding:0;}
-  .wf-rc-imgwrap{position:relative;width:100%;height:150px;flex:0 0 auto;overflow:hidden;background-color:inherit;}
+  .wf-rc-imgwrap{position:relative;width:100%;height:150px;flex:0 0 auto;overflow:hidden;background:#eef2f7;}
   .wf-rc-thumb{position:absolute;inset:0;width:100%;height:100%;border:0;border-radius:0;padding:0;margin:0;background:#eef2f7;cursor:zoom-in;display:block;}
   .wf-rc-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
   .wf-rc-thumb.image-failed{display:none;}
+  .wf-rc-thumb img.wf-rc-fullimg{position:absolute;inset:0;object-fit:contain;background:#0f172a;opacity:0;transition:opacity .15s ease;z-index:1;}
+  .wf-rowcard:hover .wf-rc-thumb img.wf-rc-fullimg{opacity:1;}
+  .wf-rc-thumb img.wf-rc-fullimg.image-failed{display:none;}
   .wf-rc-more{position:absolute;right:5px;bottom:5px;background:rgba(15,23,42,.74);color:#fff;font-size:11px;font-weight:800;border-radius:5px;padding:1px 7px;line-height:1.4;pointer-events:none;z-index:3;}
-  .wf-rc-ov{position:absolute;inset:0;z-index:2;background-color:inherit;padding:9px 11px;display:flex;flex-direction:column;gap:3px;transition:opacity .15s ease;}
+  .wf-rc-ov{position:absolute;inset:0;z-index:2;background:#fff;padding:9px 11px;display:flex;flex-direction:column;gap:3px;transition:opacity .15s ease;}
+  .wf-card.st-active .wf-rc-ov{background:#eff6ff;}
+  .wf-card.st-soon .wf-rc-ov{background:#fffbeb;}
+  .wf-card.st-overdue .wf-rc-ov{background:#fef2f2;}
+  .wf-card.st-blocked .wf-rc-ov{background:#fef2f2;}
+  .wf-card.st-late .wf-rc-ov{background:#fff7ed;}
+  .wf-card.st-done .wf-rc-ov{background:#f0fdf4;}
+  .wf-card.st-cancelled .wf-rc-ov{background:#f8fafc;}
+  .wf-card.cancelled .wf-rc-ov{background:#fff7f7;}
   .wf-rowcard:hover .wf-rc-ov{opacity:0;pointer-events:none;}
   .wf-rowcard.no-img:hover .wf-rc-ov{opacity:1;pointer-events:auto;}
   .wf-rc-ovfoot{margin-top:auto;display:flex;align-items:center;gap:5px;min-width:0;}
@@ -841,11 +852,12 @@
                 <div class="wf-grp">
                 <div class="wf-grp-head" x-show="boardSort==='person'"><span class="material-symbols-outlined" style="font-size:14px;">person</span><span x-text="grp.person"></span><span class="wf-grp-n" x-text="grp.jobs.length"></span></div>
                 <template x-for="job in grp.jobs" :key="job.id">
-                <div class="wf-card wf-rowcard text-left" role="button" tabindex="0" :class="[cardStateClass(job), (selectedId===job.id && (!selectedWorkStageId || selectedWorkStageId===stage.id)) ? 'active' : '', job.status === 'cancelled' ? 'cancelled' : '', (!job.primaryVisualFile ? 'no-img' : '')]" @click="selectJob(job.id, stage.id)">
+                <div class="wf-card wf-rowcard text-left" role="button" tabindex="0" :class="[cardStateClass(job), (selectedId===job.id && (!selectedWorkStageId || selectedWorkStageId===stage.id)) ? 'active' : '', job.status === 'cancelled' ? 'cancelled' : '', (!job.primaryVisualFile ? 'no-img' : '')]" @click="selectJob(job.id, stage.id)" @mouseenter="revealFull($event)">
                   <div class="wf-rc-imgwrap">
                     <template x-if="job.primaryVisualFile">
-                      <button type="button" class="wf-rc-thumb" @click.stop="openCardPreview(job)" :title="'마우스 올리면 시안 · 클릭하면 크게 보기' + ((job.visualFileCount||0)>1 ? ' · 총 ' + job.visualFileCount + '장 ◀▶' : '')">
+                      <button type="button" class="wf-rc-thumb" @click.stop="openCardPreview(job)" :title="'마우스 올리면 시안 전체 · 클릭하면 크게 보기' + ((job.visualFileCount||0)>1 ? ' · 총 ' + job.visualFileCount + '장 ◀▶' : '')">
                         <img :src="job.primaryVisualFile.thumbUrl || job.primaryVisualFile.previewUrl" loading="lazy" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, job.primaryVisualFile.previewUrl)">
+                        <img class="wf-rc-fullimg" :data-src="job.primaryVisualFile.previewUrl" alt="" @error="$event.target.classList.add('image-failed')">
                         <span class="wf-rc-more" x-show="(job.visualFileCount||0)>1" x-text="'+' + (job.visualFileCount - 1)"></span>
                       </button>
                     </template>
