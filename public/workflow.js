@@ -999,6 +999,8 @@ function workflowApp() {
     roleFocusItems() {
       const stage = this.viewerSingleStage();
       if (!stage) return null; // 전체(기존 동작)
+      // 보드 필터가 기본(진행 전체)일 때만 부서 역할뷰 — 완료/취소 보관·내담당 등으로 목록을 거르면 this.jobs가 좁혀져 알림이 비므로 기존 전체(summary) 알림으로 폴백(빈 화면 방지, ultracode 검토 회귀수정)
+      if (this.statusFilter !== 'active' || (this.scopeFilter && this.scopeFilter !== 'all')) return null;
       const me = String((this.currentUser && this.currentUser.userId) || '').toLowerCase();
       let jobs = (this.jobs || []).filter(j => (j.status || 'active') === 'active');
       if (stage === 'design') jobs = jobs.filter(j => String(j.createdBy || '').toLowerCase() === me); // 디자인=내가 발주한 것
