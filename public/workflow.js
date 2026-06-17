@@ -122,7 +122,6 @@ function workflowApp() {
     fileStageFilter: 'all',
     fileKindFilter: 'all',
     filePreview: { open: false, file: null, zoom: 1, fit: true, list: [], index: 0 },
-    hoverPop: { url: '', timer: null }, // 카드 hover 대형 미리보기(화면당 단일 노드) — 카드 박스에 안 가두고 70vh로 크게
     expandedFileId: '',
     highlightedEventId: '',
     quickFactoryOrderSaving: false,
@@ -2204,20 +2203,12 @@ function workflowApp() {
       if (!job) return '';
       return [job.companyName, job.projectName].filter(Boolean).join(' - ');
     },
-    // 카드에 마우스 올리면 화면 우측에 대형(70vh) 미리보기 1개로 전체 시안(원본)을 크게 — 카드 150px 박스에 안 가둠.
-    // 220ms 지연(카드 사이 스칠 때 안 뜸), hover한 1장만 로드(단일 공유 노드), 풀스크린 모달 열리면 안 뜸.
-    hoverPreviewShow(job) {
-      clearTimeout(this.hoverPop.timer);
-      const u = job && job.primaryVisualFile && job.primaryVisualFile.previewUrl;
-      if (!u) { this.hoverPop.url = ''; return; } // 이미지 없는 카드로 이동 시 이전 이미지 잔존 제거
-      this.hoverPop.timer = setTimeout(() => {
-        if (this.filePreview && this.filePreview.open) { this.hoverPop.url = ''; return; }
-        if (this.hoverPop.url !== u) this.hoverPop.url = u; // 같은 url이면 재설정 스킵(깜빡임 방지)
-      }, 220);
-    },
-    hoverPreviewHide() {
-      clearTimeout(this.hoverPop.timer);
-      this.hoverPop.url = '';
+    // 카드에 마우스 올리면 그 카드 안에서 전체 시안(원본)을 크게 보여줌(카드가 그 자리에서 커짐). 원본은 hover한 1장만 지연 로드.
+    revealFull(ev) {
+      const card = ev && ev.currentTarget;
+      if (!card || !card.querySelector) return;
+      const img = card.querySelector('.wf-rc-fullimg');
+      if (img && !img.getAttribute('src') && img.dataset && img.dataset.src) img.setAttribute('src', img.dataset.src);
     },
 
     fileNameSearchText(files = []) {
