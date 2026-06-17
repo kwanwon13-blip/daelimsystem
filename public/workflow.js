@@ -682,10 +682,10 @@ function workflowApp() {
       this.ledgerColOrder = order;
       try { localStorage.setItem('wfLedgerColOrder', JSON.stringify(order)); } catch (_) {}
     },
-    ledgerStatusLabel(s) { return s === 'done' ? '완료' : s === 'cancelled' ? '취소' : '진행'; },
+    ledgerStatusLabel(s) { return s === 'done' ? '완료' : s === 'cancelled' ? '취소' : s === 'hold' ? '보류' : '진행'; },
     ledgerCell(row, key) {
       if (key === 'status') return this.ledgerStatusLabel(row.status);
-      if (key === 'stage') return row.status === 'active' ? (this.stageLabel(row.currentStage) || '') : (row.status === 'done' ? '완료' : '');
+      if (key === 'stage') return row.status === 'done' ? '완료' : row.status === 'cancelled' ? '' : (this.stageLabel(row.currentStage) || '');
       if (key === 'regDate') return row.regDate || '';
       if (key === 'doneDate') return row.doneDate || '';
       if (key === 'fileCount') return row.fileCount || 0;

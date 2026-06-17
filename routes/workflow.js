@@ -290,6 +290,14 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+// 한국시간(KST, UTC+9) 기준 'YYYY-MM-DD'. createdAt/completedAt은 toISOString()=UTC라 그대로 자르면
+// 한국 새벽 0~9시 건이 전날로 샌다 → 등록코드 날짜부·내역 날짜를 KST로 통일(2026-06-17).
+function kstDay(iso) {
+  const t = Date.parse(iso || '');
+  if (!Number.isFinite(t)) return '';
+  return new Date(t + 9 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
 function makeId(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -3617,9 +3625,8 @@ router.put('/projects/:id', (req, res) => {
 function assignRegistrationCode(jobs, job) {
   if (!job) return '';
   if (job.regCode) return job.regCode;
-  const m = String(job.createdAt || '').match(/(\d{4})-(\d{2})-(\d{2})/);
-  if (!m) return '';
-  const ymd = m[1] + m[2] + m[3];
+  const ymd = kstDay(job.createdAt).replace(/-/g, ''); // KST 기준 YYYYMMDD(새벽 0~9시 건이 전날로 새지 않게)
+  if (!ymd) return '';
   let max = 0;
   for (const j of (jobs || [])) {
     if (j === job) continue;
@@ -3653,8 +3660,8 @@ router.get('/ledger', (req, res) => {
   const rows = (data.jobs || []).map(job => ({
     id: job.id,
     code: job.regCode || job.completionCode || '',
-    regDate: String(job.createdAt || '').slice(0, 10),
-    doneDate: String(job.completedAt || '').slice(0, 10),
+    regDate: kstDay(job.createdAt),  // KST 기준 — 등록코드와 동일 기준(날짜필터 누락 방지)
+    doneDate: kstDay(job.completedAt),
     companyName: job.companyName || '',
     projectName: job.projectName || '',
     status: job.status || 'active',
@@ -3817,6 +3824,7 @@ router.post('/jobs', (req, res) => {
     job.productionRoute = 'internal';
   }
   data.jobs.push(job);
+  backfillRegistrationCodes(data); // 콜드스타트(첫 GET 전 POST) 대비: 기존 같은날 건 먼저 발번 → 등록순서 보존
   assignRegistrationCode(data.jobs, job); // 등록 즉시 등록코드 발번(끝까지 고정)
   addEvent(data, req, job.id, 'create', '작업 생성', { title: job.title });
   saveStore(data);
