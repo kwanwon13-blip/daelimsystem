@@ -2185,6 +2185,15 @@ function workflowApp() {
       if (!name) return '';
       return name.replace(/\.[^.\\\/]{1,12}$/i, '').trim() || name;
     },
+    // 상세 헤더 제목 = 대표 시안 '파일명'. detail.files(전체·팀필터 무관)에서 이미지 최신순 대표를 잡아 확장자 제거.
+    // (primaryVisualFile은 상세에서 디스크 존재확인=네트워크 드라이브에 걸려 null이 되면 회사명으로 폴백되던 버그 → 파일목록으로 직접 산출, 존재 무관)
+    detailHeaderTitle() {
+      const files = (this.detail && Array.isArray(this.detail.files)) ? this.detail.files : [];
+      const imgs = files.filter(f => f && f.isImage).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+      const rep = imgs[0] || files[0];
+      const name = rep ? this.fileTitlePart(rep.originalName || rep.storedName || '') : '';
+      return name || (this.detail && this.detail.job && this.detail.job.title) || '워크플로우 작업';
+    },
 
     fileNameSearchText(files = []) {
       return Array.from(files || [])
