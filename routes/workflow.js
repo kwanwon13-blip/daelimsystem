@@ -3641,6 +3641,36 @@ function backfillRegistrationCodes(data) {
   return missing.length > 0;
 }
 
+// 통합 '내역' 표 데이터 — 진행+완료+취소 전부, 경량 행(무거운 job 객체 아님). 등록일/완료일 기준 날짜범위 필터로 가볍게.
+router.get('/ledger', (req, res) => {
+  const data = loadStore();
+  if (backfillRegistrationCodes(data)) saveStore(data);
+  const from = safeDate(req.query.from);
+  const to = safeDate(req.query.to);
+  const basis = String(req.query.basis || 'reg') === 'done' ? 'done' : 'reg'; // 등록일(reg) 또는 완료일(done) 기준
+  const countByJob = new Map();
+  for (const f of (data.files || [])) countByJob.set(f.jobId, (countByJob.get(f.jobId) || 0) + 1);
+  const rows = (data.jobs || []).map(job => ({
+    id: job.id,
+    code: job.regCode || job.completionCode || '',
+    regDate: String(job.createdAt || '').slice(0, 10),
+    doneDate: String(job.completedAt || '').slice(0, 10),
+    companyName: job.companyName || '',
+    projectName: job.projectName || '',
+    status: job.status || 'active',
+    currentStage: job.currentStage || 'design',
+    createdByName: job.createdByName || '',
+    fileCount: countByJob.get(job.id) || 0,
+  })).filter(r => {
+    const d = basis === 'done' ? r.doneDate : r.regDate;
+    if (!d) return false; // 기준 날짜 없으면 제외(완료일 기준인데 미완료 등)
+    if (from && d < from) return false;
+    if (to && d > to) return false;
+    return true;
+  }).sort((a, b) => String(b.regDate).localeCompare(String(a.regDate)) || String(b.code).localeCompare(String(a.code)));
+  res.json({ ok: true, rows, total: rows.length });
+});
+
 router.get('/jobs', (req, res) => {
   const __t0 = Date.now();
   const __s0 = workflowPerfSnapshot();
