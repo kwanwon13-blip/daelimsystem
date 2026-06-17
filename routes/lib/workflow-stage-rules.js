@@ -23,10 +23,13 @@ function applyDateRoleGuard(existingJob, payload) {
   return payload;
 }
 
-// completedAt(제작완료일)에서 YYYYMMDD 추출
+// completedAt(제작완료일)에서 KST(UTC+9) 기준 YYYYMMDD 추출.
+// completedAt은 toISOString()=UTC라 그대로 자르면 한국 새벽 0~9시 완료건이 전날 코드로 발번된다
+// → +9h 보정해 한국 날짜로 통일(등록코드 kstDay와 동일 기준, 2026-06-17).
 function completionCodeDatePart(job) {
-  const m = String((job && job.completedAt) || '').match(/(\d{4})-(\d{2})-(\d{2})/);
-  return m ? m[1] + m[2] + m[3] : '';
+  const t = Date.parse(String((job && job.completedAt) || ''));
+  if (!Number.isFinite(t)) return '';
+  return new Date(t + 9 * 3600 * 1000).toISOString().slice(0, 10).replace(/-/g, '');
 }
 
 // 일별 순번 완료코드(YYYYMMDD-NNN) 발번. 한 번 발급되면 영구 고정(송장번호) — reopen·재완료해도 안 바뀜.
