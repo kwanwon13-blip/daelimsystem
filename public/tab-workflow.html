@@ -126,9 +126,6 @@
   .wf-rc-thumb{position:absolute;inset:0;width:100%;height:100%;border:0;border-radius:0;padding:0;margin:0;background:#eef2f7;cursor:zoom-in;display:block;}
   .wf-rc-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
   .wf-rc-thumb.image-failed{display:none;}
-  .wf-rc-thumb img.wf-rc-fullimg{position:absolute;inset:0;object-fit:contain;background:#0f172a;opacity:0;transition:opacity .15s ease;z-index:1;}
-  .wf-rowcard:hover .wf-rc-thumb img.wf-rc-fullimg{opacity:1;}
-  .wf-rc-thumb img.wf-rc-fullimg.image-failed{display:none;}
   .wf-rc-more{position:absolute;right:5px;bottom:5px;background:rgba(15,23,42,.74);color:#fff;font-size:11px;font-weight:800;border-radius:5px;padding:1px 7px;line-height:1.4;pointer-events:none;z-index:3;}
   .wf-rc-ov{position:absolute;inset:0;z-index:2;background:#fff;padding:9px 11px;display:flex;flex-direction:column;gap:3px;transition:opacity .15s ease;}
   .wf-card.st-active .wf-rc-ov{background:#eff6ff;}
@@ -551,6 +548,11 @@
   .wf-preview-stage{flex:1;min-height:0;overflow:auto;background:#020617;display:flex;align-items:center;justify-content:center;padding:12px;}
   .wf-preview-stage.zoomed{align-items:flex-start;justify-content:flex-start;}
   .wf-preview-image{display:block;object-fit:contain;background:#111827;}
+  /* 카드 hover 대형 미리보기 — 카드 150px 박스에 안 가두고 화면 크게(70vh). position:fixed라 칸 overflow에 안 잘림. hover한 1장만 로드 */
+  .wf-hoverpop{position:fixed;top:64px;right:20px;width:min(46vw,560px);height:min(70vh,760px);z-index:9990;background:#0f172a;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:8px;pointer-events:none;opacity:0;transition:opacity .12s ease;}
+  .wf-hoverpop.show{opacity:1;}
+  .wf-hoverpop img{max-width:100%;max-height:100%;object-fit:contain;background:#111827;display:block;border-radius:4px;}
+  @media (max-width:1024px){.wf-hoverpop{display:none;}}
   .wf-modal{position:fixed;inset:0;z-index:9998;background:rgba(15,23,42,.42);display:flex;align-items:center;justify-content:center;padding:18px;}
   .wf-dialog{width:min(560px,calc(100vw - 36px));background:#fff;border:1px solid #dfe4ed;border-radius:8px;box-shadow:0 24px 70px rgba(15,23,42,.24);overflow:hidden;}
   .wf-dialog.wide{width:min(760px,calc(100vw - 36px));}
@@ -852,12 +854,11 @@
                 <div class="wf-grp">
                 <div class="wf-grp-head" x-show="boardSort==='person'"><span class="material-symbols-outlined" style="font-size:14px;">person</span><span x-text="grp.person"></span><span class="wf-grp-n" x-text="grp.jobs.length"></span></div>
                 <template x-for="job in grp.jobs" :key="job.id">
-                <div class="wf-card wf-rowcard text-left" role="button" tabindex="0" :class="[cardStateClass(job), (selectedId===job.id && (!selectedWorkStageId || selectedWorkStageId===stage.id)) ? 'active' : '', job.status === 'cancelled' ? 'cancelled' : '', (!job.primaryVisualFile ? 'no-img' : '')]" @click="selectJob(job.id, stage.id)" @mouseenter="revealFull($event)">
+                <div class="wf-card wf-rowcard text-left" role="button" tabindex="0" :class="[cardStateClass(job), (selectedId===job.id && (!selectedWorkStageId || selectedWorkStageId===stage.id)) ? 'active' : '', job.status === 'cancelled' ? 'cancelled' : '', (!job.primaryVisualFile ? 'no-img' : '')]" @click="selectJob(job.id, stage.id)" @mouseenter="hoverPreviewShow(job)" @mouseleave="hoverPreviewHide()">
                   <div class="wf-rc-imgwrap">
                     <template x-if="job.primaryVisualFile">
                       <button type="button" class="wf-rc-thumb" @click.stop="openCardPreview(job)" :title="'마우스 올리면 시안 전체 · 클릭하면 크게 보기' + ((job.visualFileCount||0)>1 ? ' · 총 ' + job.visualFileCount + '장 ◀▶' : '')">
                         <img :src="job.primaryVisualFile.thumbUrl || job.primaryVisualFile.previewUrl" loading="lazy" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, job.primaryVisualFile.previewUrl)">
-                        <img class="wf-rc-fullimg" :data-src="job.primaryVisualFile.previewUrl" alt="" @error="$event.target.classList.add('image-failed')">
                         <span class="wf-rc-more" x-show="(job.visualFileCount||0)>1" x-text="'+' + (job.visualFileCount - 1)"></span>
                       </button>
                     </template>
@@ -2115,6 +2116,9 @@
     </div>
   </template>
 </div>
+
+<!-- 카드 hover 대형 미리보기(단일 노드, 보드 바깥 루트) — previewUrl 원본을 70vh로 크게. 풀스크린 모달 열리면 숨김 -->
+<div class="wf-hoverpop" :class="(hoverPop.url && !filePreview.open) ? 'show' : ''" x-cloak><img :src="hoverPop.url" decoding="async" @error="hoverPop.url=''" alt=""></div>
 
 <div class="wf-preview-modal" x-show="filePreview.open" x-cloak @click.self="closeFilePreview()" @keydown.window.escape="closeFilePreview()" @keydown.window.arrow-left="filePreview.open && stepPreview(-1)" @keydown.window.arrow-right="filePreview.open && stepPreview(1)">
   <div class="wf-preview-panel">
