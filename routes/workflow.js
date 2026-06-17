@@ -2529,7 +2529,7 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
     viewerCanHandoff: canHandoffJob(job, reqLikePL, curStageIdPL, nextStageIdPL),
     viewerCanCurrentStage: canActOnCurrentStage(job, reqLikePL),
     viewerCanFactory: vuPL.role === 'admin' || canDeptActOnStage({ user: vuPL }, 'factory'),
-    viewerCanAssignTeam: vuPL.role === 'admin' || isStageDeptLeader({ user: vuPL }, 'factory'),
+    viewerCanAssignTeam: vuPL.role === 'admin' || canDeptActOnStage({ user: vuPL }, 'factory'),
     viewerCanReopen: vuPL.role === 'admin' || canDeptActOnStage({ user: vuPL }, 'delivery') || (!!vuPL.userId && String(vuPL.userId).toLowerCase() === String(job.createdBy || '').toLowerCase()),
     viewerCanManage: vuPL.role === 'admin' || (!!vuPL.userId && String(vuPL.userId).toLowerCase() === String(job.createdBy || '').toLowerCase()), // 파일삭제·발주취소: 작성자+관리자
     // 공장 팀 분배(전상현) — 시안 파일을 용접/출력으로 나눈 개수
@@ -3073,61 +3073,17 @@ async function buildArchiveFromFiles(job, files, filters = {}, suffix = 'all', c
 
   const zip = new JSZip();
   const used = new Set();
-  const root = safeFilePart(`${job.companyName || 'workflow'}_${job.projectName || ''}_${job.title || job.id}`, job.id);
+  // ZIP 내부 구조 단순화(사장님 요청 2026-06-17): 짧은 현장명 폴더 + 파일 평탄 저장.
+  // 기존: 회사_프로젝트_긴제목 / 단계 / 종류 / v버전_파일 (경로 너무 길고 _manifest.json 등 군더더기).
+  const root = safeFilePart(job.projectName || job.companyName || job.title || job.id, job.id);
   for (const file of files) {
-    const stage = safeFilePart(file.stageId || 'stage');
-    const fileKind = safeFilePart(file.kind || 'attachment');
     const original = safeFilePart(file.originalName || file.storedName || file.id, file.id);
-    const version = Number(file.version || 1);
-    const zipPath = uniqueZipPath(used, `${root}/${stage}/${fileKind}/v${version}_${original}`);
+    const zipPath = uniqueZipPath(used, `${root}/${original}`);
     zip.file(zipPath, fs.readFileSync(fileDiskPath(file)));
   }
-  const generatedAt = nowIso();
-  const orders = Array.isArray(context.orders) ? context.orders : [];
-  const order = context.order || null;
-  zip.file(`${root}/_manifest.json`, JSON.stringify({
-    archive: {
-      suffix,
-      filters,
-      fileCount: files.length,
-      generatedAt,
-      archiveStatus: job.archiveStatus || '',
-      archiveUpdatedAt: job.archiveUpdatedAt || '',
-      archiveFileCount: Number(job.archiveFileCount || files.length),
-      archiveStorageBucket: job.archiveStorageBucket || job.storageBucket || '',
-      completedAt: job.completedAt || '',
-      completedByName: job.completedByName || '',
-    },
-    job: {
-      id: job.id,
-      title: job.title,
-      companyName: job.companyName || '',
-      projectName: job.projectName || '',
-      status: job.status || '',
-      priority: job.priority || '',
-      dueDate: job.dueDate || '',
-      deliveryDate: job.deliveryDate || '',
-      currentStage: job.currentStage || '',
-      createdByName: job.createdByName || '',
-      createdAt: job.createdAt || '',
-      updatedAt: job.updatedAt || '',
-      completedAt: job.completedAt || '',
-      completedByName: job.completedByName || '',
-      storageRoot: job.storageRoot || '',
-      storageBucket: job.storageBucket || '',
-      storagePath: job.storagePath || '',
-      storageNetPath: job.storageNetPath || '',
-      stageChecks: archiveStageChecksForManifest(job),
-    },
-    filters,
-    order: order ? archiveOrderForManifest(order) : null,
-    orders: orders.map(archiveOrderForManifest),
-    files: files.map(archiveFileForManifest),
-    generatedAt,
-  }, null, 2));
 
   const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
-  const filename = safeFilePart(`${job.companyName || 'workflow'}_${job.projectName || job.title || job.id}_${suffix}`) + '.zip';
+  const filename = safeFilePart(`${job.projectName || job.companyName || job.title || job.id}${suffix && suffix !== 'all' ? '_' + suffix : ''}`) + '.zip';
   return { buffer, filename, files };
 }
 
@@ -4911,7 +4867,7 @@ router.post('/jobs/:id/files/:fileId/team', (req, res) => {
   if (!job || !file) return res.status(404).json({ error: '작업 또는 파일을 찾을 수 없습니다.' });
   if (job.status === 'done' || job.status === 'cancelled') return res.status(400).json({ error: '완료/취소된 작업은 변경할 수 없습니다.' });
   // 디자인팀은 팀을 모름 — 시안 팀배정은 공장 부서(전상현 실장)·관리자만. 생성자 우회 없음.
-  if (!(isWorkflowAdmin(req) || isStageDeptLeader(req, 'factory'))) return res.status(403).json({ error: '시안 용접/출력 배정은 대림컴퍼니 팀장(또는 관리자)만 가능합니다.' });
+  if (!(isWorkflowAdmin(req) || canDeptActOnStage(req, 'factory'))) return res.status(403).json({ error: '시안 용접/출력 배정은 대림컴퍼니(공장) 담당 또는 관리자만 가능합니다.' });
   const team = ['welding', 'output', ''].includes(req.body.team) ? req.body.team : '';
   file.team = team;
   file.teamUpdatedAt = nowIso();

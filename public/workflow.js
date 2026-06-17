@@ -1421,8 +1421,8 @@ function workflowApp() {
       const n = this.topCompanyName(cur);
       if (!n) return; // 추천 없음(이미 정확/빈값) → 엔터가 값 안 바꿈
       if (scope === 'form') { this.form.companyName = n; this.form.projectName = ''; this.syncAutoJobTitle(true); }
-      else if (scope === 'upload') { this.uploadCompanyName = n; this.uploadProjectName = ''; }
-      else if (this.detail && this.detail.job) { this.detail.job.companyName = n; this.detail.job.projectName = ''; }
+      else if (scope === 'upload') { this.uploadCompanyName = n; } // 기존 현장 유지 — 엔터로 의도치 않게 안 지움
+      else if (this.detail && this.detail.job) { this.detail.job.companyName = n; } // 상세는 편집화면이라 현장명 보존
     },
     enterPickProject(scope) {
       const company = scope === 'form' ? this.form.companyName : scope === 'upload' ? this.uploadCompanyName : (this.detail && this.detail.job ? this.detail.job.companyName : '');
@@ -2731,7 +2731,7 @@ function workflowApp() {
         toEmail: recipient,
         ccEmail: order.recipientCc || '',
         subject: order.mailSubject || this.defaultOrderMailSubject(order),
-        message: order.note || this.defaultOrderMailMessage(order),
+        message: order.note || '', // 본문은 사장님이 적은 내용만 — 자동 인사말/맺음말 템플릿 주입 안 함(2026-06-17)
         attachFiles: !tooLarge,
         error: '',
         linkOnlySuggested: tooLarge,
