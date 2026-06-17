@@ -122,6 +122,7 @@ function workflowApp() {
     fileStageFilter: 'all',
     fileKindFilter: 'all',
     filePreview: { open: false, file: null, zoom: 1, fit: true, list: [], index: 0 },
+    cardZoom: { url: '', style: '', timer: null }, // 카드 hover 시 그 카드 자리에 시안을 크게 '덮어서' 표시(아래 카드 안 밀림)
     expandedFileId: '',
     highlightedEventId: '',
     quickFactoryOrderSaving: false,
@@ -2203,12 +2204,26 @@ function workflowApp() {
       if (!job) return '';
       return [job.companyName, job.projectName].filter(Boolean).join(' - ');
     },
-    // 카드에 마우스 올리면 그 카드 안에서 전체 시안(원본)을 크게 보여줌(카드가 그 자리에서 커짐). 원본은 hover한 1장만 지연 로드.
-    revealFull(ev) {
+    // 카드에 마우스 올리면 '그 카드 자리'에 시안을 크게 덮어 표시(아래 카드를 밀지 않고 오버레이). 원본은 hover한 1장만 지연 로드, 풀스크린 모달 열리면 안 뜸.
+    cardZoomShow(ev, job) {
+      clearTimeout(this.cardZoom.timer);
+      const u = job && job.primaryVisualFile && job.primaryVisualFile.previewUrl;
       const card = ev && ev.currentTarget;
-      if (!card || !card.querySelector) return;
-      const img = card.querySelector('.wf-rc-fullimg');
-      if (img && !img.getAttribute('src') && img.dataset && img.dataset.src) img.setAttribute('src', img.dataset.src);
+      if (!u || !card || !card.getBoundingClientRect) { this.cardZoom.url = ''; return; }
+      this.cardZoom.timer = setTimeout(() => {
+        if (this.filePreview && this.filePreview.open) { this.cardZoom.url = ''; return; }
+        const r = card.getBoundingClientRect();
+        const h = Math.min(600, Math.round(window.innerHeight * 0.64));
+        const w = Math.min(window.innerWidth - 16, Math.max(Math.round(r.width), 380));
+        let left = r.left; if (left + w > window.innerWidth - 8) left = window.innerWidth - w - 8; if (left < 8) left = 8;
+        let top = r.top; if (top + h > window.innerHeight - 8) top = Math.max(8, window.innerHeight - h - 8);
+        this.cardZoom.style = `left:${Math.round(left)}px;top:${Math.round(top)}px;width:${w}px;height:${h}px;`;
+        this.cardZoom.url = u;
+      }, 160);
+    },
+    cardZoomHide() {
+      clearTimeout(this.cardZoom.timer);
+      this.cardZoom.url = '';
     },
 
     fileNameSearchText(files = []) {
