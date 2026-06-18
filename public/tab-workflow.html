@@ -217,15 +217,15 @@
   .wf-ledger-foot{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#94a3b8;flex:0 0 auto;padding:0 2px;}
   /* 인앱 알림 토스트(우하단) — 자동 사라짐 없음: [보기]/[확인]으로만 닫힘. HTTP에서도 작동(OS 알림 불필요) */
   .wf-toast-wrap{position:fixed;right:16px;bottom:16px;z-index:9999;display:flex;flex-direction:column;gap:8px;width:340px;max-width:calc(100vw - 32px);max-height:calc(100vh - 32px);overflow-y:auto;}
-  .wf-toast{background:#fff;border:1px solid #cbd5e1;border-left:4px solid #2563eb;border-radius:10px;box-shadow:0 8px 24px rgba(15,23,42,.22);padding:10px 12px;display:flex;flex-direction:column;gap:8px;animation:wfToastIn .18s ease;}
+  .wf-toast{background:#fffbeb;border:1px solid #fcd34d;border-left:5px solid #f59e0b;border-radius:10px;box-shadow:0 8px 24px rgba(120,80,0,.22);padding:10px 12px;display:flex;flex-direction:column;gap:8px;animation:wfToastIn .18s ease;}
   @keyframes wfToastIn{from{transform:translateX(24px);opacity:0;}to{transform:translateX(0);opacity:1;}}
   .wf-toast-body{cursor:pointer;min-width:0;}
-  .wf-toast-title{font-size:12.5px;font-weight:900;color:#1e293b;line-height:1.3;word-break:break-all;}
+  .wf-toast-title{font-size:12.5px;font-weight:900;color:#92400e;line-height:1.3;word-break:break-all;}
   .wf-toast-msg{font-size:12px;color:#475569;line-height:1.35;margin-top:3px;white-space:pre-wrap;word-break:break-word;}
   .wf-toast-actor{font-size:11px;color:#94a3b8;font-weight:700;margin-top:2px;}
   .wf-toast-acts{display:flex;justify-content:flex-end;gap:6px;}
-  .wf-toast-open{height:28px;padding:0 13px;border:1px solid #2563eb;background:#2563eb;color:#fff;border-radius:7px;font-size:12px;font-weight:800;cursor:pointer;}
-  .wf-toast-open:hover{background:#1d4ed8;}
+  .wf-toast-open{height:28px;padding:0 13px;border:1px solid #d97706;background:#d97706;color:#fff;border-radius:7px;font-size:12px;font-weight:800;cursor:pointer;}
+  .wf-toast-open:hover{background:#b45309;}
   .wf-toast-ok{height:28px;padding:0 13px;border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:7px;font-size:12px;font-weight:800;cursor:pointer;}
   .wf-toast-ok:hover{background:#f1f5f9;}
   /* ===== 과거내역 = 컴퍼니매입 2분할(좌 날짜·코드표 / 우 코드클릭→시안) 구조 차용 · 워크플로우 톤 ===== */
