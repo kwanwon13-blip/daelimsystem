@@ -100,8 +100,9 @@
   /* 발주 물량 적응형 — 한 칸에 카드 많으면(≥14) 자동 조밀: 썸네일·간격·업체명만 압축. 액션버튼(.wf-rc-bot)·상태색·뱃지·발주자는 유지. (.mini 레일엔 미적용) */
   .wf-col.dense:not(.mini) .wf-col-list{gap:3px;padding:6px;}
   .wf-col.dense:not(.mini) .wf-rowcard{padding:4px 8px;align-items:center;}
-  .wf-col.dense:not(.mini) .wf-rc-thumb{width:42px;height:42px;}
+  .wf-col.dense:not(.mini) .wf-rc-thumb{width:60px;height:60px;}
   .wf-col.dense:not(.mini) .wf-rc-title{font-size:12.5px;-webkit-line-clamp:1;}
+  .wf-col.dense:not(.mini) .wf-rc-bot{padding:3px 8px;}
   .wf-col.dense:not(.mini) .wf-rc-sub{margin-top:2px;padding-top:2px;border-top:0;}
   .wf-col.dense:not(.mini) .wf-rc-co{display:none;}
   /* 상세 닫기(✕) — 닫으면 보드가 전체 폭 */
@@ -329,6 +330,7 @@
   .wf-rc-dot{flex:0 0 auto;width:7px;height:7px;border-radius:50%;background:#2563eb;}
   .wf-rc-bot{padding:6px 8px;min-width:0;border-top:1px solid rgba(15,23,42,.06);}
   .wf-rc-line{display:flex;align-items:center;gap:6px;min-width:0;}
+  .wf-rc-line.wf-rc-line-wrap{flex-wrap:wrap;row-gap:4px;}
   .wf-rc-dlabel{flex:0 0 auto;font-size:10px;font-weight:900;color:#9a3412;}
   .wf-rc-dateinput{flex:0 0 auto;width:122px;height:23px;font-size:11px;font-weight:700;padding:0 5px;border:1.5px solid #fb923c;border-radius:5px;background:#fff;color:#111827;font-variant-numeric:tabular-nums;}
   .wf-rc-icon{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:27px;height:25px;border:1px solid #cbd5e1;border-radius:5px;color:#475569;background:#fff;cursor:pointer;text-decoration:none;}
@@ -889,20 +891,15 @@
                       </div>
                     </template>
                     <template x-if="stage.id==='factory'">
-                      <div>
-                        <div class="wf-rc-teams" x-show="job.weldingFileCount || job.outputFileCount || job.unassignedFileCount">
-                          <span class="wf-rc-team weld" x-show="job.weldingFileCount">용접 <span x-text="job.weldingFileCount"></span></span>
-                          <span class="wf-rc-team out" x-show="job.outputFileCount">출력 <span x-text="job.outputFileCount"></span></span>
-                          <span class="wf-rc-team un" x-show="job.unassignedFileCount" title="전상현 실장이 팀 배정 필요">미배정 <span x-text="job.unassignedFileCount"></span></span>
-                        </div>
-                        <div class="wf-rc-line">
-                        <span class="wf-rc-dlabel">가능일</span>
+                      <div class="wf-rc-line wf-rc-line-wrap">
+                        <span class="wf-rc-team un" x-show="job.unassignedFileCount" title="전상현 실장이 팀 배정 필요">미배정 <span x-text="job.unassignedFileCount"></span></span>
+                        <span class="wf-rc-team weld" x-show="job.weldingFileCount">용접 <span x-text="job.weldingFileCount"></span></span>
+                        <span class="wf-rc-team out" x-show="job.outputFileCount">출력 <span x-text="job.outputFileCount"></span></span>
                         <input class="wf-rc-dateinput" type="date" x-show="job.viewerCanFactory" :value="cardFactoryDateValue(job)" @click.stop @change.stop="factoryDatePending[job.id] = $event.target.value" title="완료가능일 — 요청일이 기본값. 바꾸면 [수락]을 눌러 확정(요청일과 다르면 디자인팀에 자동 알림)">
                         <span class="wf-rc-date" x-show="!job.viewerCanFactory" x-text="cardFactoryDateValue(job) || '미정'" title="완료가능일(공장 확정)"></span>
                         <span style="flex:1"></span>
                         <button type="button" class="wf-rc-btn ok" @click.stop="cardSetFactoryDate(job.id, cardFactoryDateValue(job))" x-show="cardDateDirty(job) && job.viewerCanFactory" title="이 날짜로 확정">수락</button>
                         <button type="button" class="wf-rc-btn" @click.stop="cardHandoff(job.id, stage.id)" x-show="!cardDateDirty(job) && job.status!=='done' && job.status!=='cancelled' && job.viewerCanCurrentStage">완료</button>
-                        </div>
                       </div>
                     </template>
                     <template x-if="stage.id==='delivery'">
