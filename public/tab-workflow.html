@@ -81,6 +81,8 @@
   .wf-colzoom:hover{background:#eff6ff;border-color:#93c5fd;color:#2563eb;}
   .wf-colzoom.on{background:#2563eb;border-color:#2563eb;color:#fff;}
   .wf-colzoom .material-symbols-outlined{font-size:14px;}
+  .wf-colsort{height:22px;font-size:10.5px;font-weight:800;border:1px solid #cbd5e1;border-radius:5px;background:#fff;color:#475569;padding:0 4px;max-width:92px;cursor:pointer;}
+  .wf-col.mini .wf-colsort{display:none;}
   /* 포커스 모드: 보고 있는 칸만 크게, 나머지는 시안 썸네일 레일 */
   .wf-col.focus{flex:4 1 0;min-width:380px;}
   .wf-col.mini{flex:0 0 96px;min-width:96px;background:#f8fafc;cursor:pointer;}
@@ -835,6 +837,11 @@
               </span>
               <span style="display:flex;align-items:center;gap:4px;flex:0 0 auto;">
                 <span class="wf-chip" x-text="jobsForStage(stage.id).length"></span>
+                <select class="wf-colsort" x-show="stage.id==='factory'" x-model="factorySort" @click.stop title="공장 칸 정렬 기준 선택">
+                  <option value="created">등록순</option>
+                  <option value="available">완료가능일</option>
+                  <option value="due">완료요청일</option>
+                </select>
                 <button type="button" class="wf-colzoom" x-show="boardFocus!==stage.id" @click.stop="setBoardFocus(stage.id)" title="이 칸 크게 보기 (나머지는 시안만 작게)"><span class="material-symbols-outlined">open_in_full</span></button>
                 <button type="button" class="wf-colzoom on" x-show="boardFocus===stage.id" @click.stop="clearBoardFocus()" title="원래대로 — 모든 칸 동일 크기"><span class="material-symbols-outlined">close_fullscreen</span></button>
               </span>

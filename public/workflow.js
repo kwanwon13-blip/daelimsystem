@@ -37,6 +37,7 @@ function workflowApp() {
     wfDateTo: '',
     wfVendor: '',
     boardSort: 'date',
+    factorySort: 'created', // 공장 칸 정렬 기준: created(등록순)/available(완료가능일)/due(완료요청일)
     boardTeam: '', // '' 전체 / 'welding' 용접팀 / 'output' 출력팀
     boardUnordered: false, // true면 미발주(발주 전) 시안만 — 평소엔 보드에서 숨김
     mgrCfg: { open: false, loading: false, saving: false, rules: [], fallback: '우정은', unassigned: [] }, // 업체별 경영관리 담당자(관리자 전용 설정)
@@ -958,7 +959,11 @@ function workflowApp() {
       const prioRank = j => (j && j.priority === 'urgent') ? 2 : ((j && j.priority === 'high') ? 1 : 0);
       const dateKey = j => {
         if (!j) return '9999-99-99';
-        if (stageId === 'factory') return ''; // 공장=등록순서(날짜 무시 → 아래 createdAt 오름차순)
+        if (stageId === 'factory') { // 공장=선택 기준(드롭다운, 기본 등록순)
+          if (this.factorySort === 'available') return j.factoryAvailableDate || j.dueDate || '9999-99-99';
+          if (this.factorySort === 'due') return j.dueDate || '9999-99-99';
+          return ''; // created → 등록순(날짜 무시 → 아래 createdAt 오름차순)
+        }
         if (stageId === 'delivery') return j.factoryAvailableDate || j.dueDate || '9999-99-99'; // 경영관리=완료가능일
         return j.dueDate || '9999-99-99'; // 디자인=완료요청일
       };
