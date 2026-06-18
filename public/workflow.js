@@ -2212,8 +2212,19 @@ function workflowApp() {
       const card = ev && ev.currentTarget;
       const first = job && job.primaryVisualFile && job.primaryVisualFile.previewUrl;
       if (!first || !card || !card.getBoundingClientRect) return;
+      // 보드 데이터에 이미 들어있는 visualFilesBrief(서버가 목록과 함께 내려줌)만 사용 → hover마다 /jobs/:id 호출 안 함(서버 부하 0, 루프 블로킹 방지). 팀 필터 반영.
+      let urls = [first];
+      const brief = Array.isArray(job.visualFilesBrief) ? job.visualFilesBrief : [];
+      if (brief.length) {
+        let imgs = brief;
+        if (this.boardTeam === 'welding' || this.boardTeam === 'output') {
+          const t = brief.filter(x => x && x.team === this.boardTeam); if (t.length) imgs = t;
+        }
+        const list = imgs.map(x => x && x.previewUrl).filter(Boolean);
+        if (list.length) urls = list;
+      }
       const r = card.getBoundingClientRect();
-      this.cardZoom.showTimer = setTimeout(async () => {
+      this.cardZoom.showTimer = setTimeout(() => {
         if (this.filePreview && this.filePreview.open) return;
         const h = Math.min(600, Math.round(window.innerHeight * 0.64));
         const w = Math.min(window.innerWidth - 16, Math.max(Math.round(r.width), 380));
@@ -2221,27 +2232,8 @@ function workflowApp() {
         let top = r.top; if (top + h > window.innerHeight - 8) top = Math.max(8, window.innerHeight - h - 8);
         this.cardZoom.style = `left:${Math.round(left)}px;top:${Math.round(top)}px;width:${w}px;height:${h}px;`;
         this.cardZoom.index = 0;
-        this.cardZoom.jobId = job.id;
-        if (!this._cardZoomCache) this._cardZoomCache = {};
-        const cached = this._cardZoomCache[job.id];
-        this.cardZoom.files = cached || [first]; // 대표 1장 먼저 즉시 표시
+        this.cardZoom.files = urls;
         this.cardZoom.show = true;
-        if (!cached && (job.visualFileCount || 0) > 1) { // 여러 장이면 목록 1회 가져와 ◀▶ 활성화
-          try {
-            const resp = await fetch('/api/workflow/jobs/' + encodeURIComponent(job.id));
-            const d = await resp.json().catch(() => ({}));
-            if (resp.ok && d && Array.isArray(d.files)) {
-              let imgs = d.files.filter(x => x && x.isImage && x.exists !== false && x.previewUrl);
-              if (this.boardTeam === 'welding' || this.boardTeam === 'output') {
-                const t = imgs.filter(x => x.team === this.boardTeam); if (t.length) imgs = t;
-              }
-              const list = imgs.map(x => x.previewUrl);
-              if (list.length) { this._cardZoomCache[job.id] = list; if (this.cardZoom.jobId === job.id && this.cardZoom.show) this.cardZoom.files = list; }
-            }
-          } catch (_) {}
-        } else if (!cached) {
-          this._cardZoomCache[job.id] = [first];
-        }
       }, 160);
     },
     cardZoomKeep() { clearTimeout(this.cardZoom.hideTimer); }, // 오버레이에 마우스 올리면 안 사라지게(버튼 클릭 가능)
