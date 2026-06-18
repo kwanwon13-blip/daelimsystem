@@ -121,17 +121,17 @@
   .wf-card.st-done{background:#f0fdf4;border-color:#bbf7d0;}
   .wf-card.st-cancelled{background:#f8fafc;border-color:#e2e8f0;}
   /* === 줄카드(샘플): 썸네일(좌, 큼) + [큰 파일명 제목 2줄 / 구분선 / 회사-현장·특이·발주자]. 썸네일 hover 시 시안 '위로' 크게 === */
-  .wf-rowcard{padding:9px 11px;display:flex;flex-direction:row;align-items:flex-start;gap:10px;}
-  .wf-rowcard.active{padding:10px 11px;}
-  .wf-rc-thumb{flex:0 0 auto;width:78px;height:78px;border-radius:8px;overflow:hidden;border:1px solid rgba(15,23,42,.1);background:#eef2f7;padding:0;cursor:zoom-in;display:block;position:relative;}
+  .wf-rowcard{padding:11px 13px;display:flex;flex-direction:row;align-items:flex-start;gap:12px;}
+  .wf-rowcard.active{padding:12px 13px;}
+  .wf-rc-thumb{flex:0 0 auto;width:96px;height:96px;border-radius:8px;overflow:hidden;border:1px solid rgba(15,23,42,.1);background:#eef2f7;padding:0;cursor:zoom-in;display:block;position:relative;}
   .wf-rc-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
   .wf-rc-thumb.image-failed{display:none;}
   .wf-rc-more{position:absolute;right:3px;bottom:3px;background:rgba(15,23,42,.74);color:#fff;font-size:10px;font-weight:800;border-radius:4px;padding:0 5px;line-height:15px;pointer-events:none;}
   .wf-rc-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:0;}
   .wf-rc-top{min-width:0;}
-  .wf-rc-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-width:0;font-size:15px;font-weight:800;color:#1e293b;line-height:1.32;}
-  .wf-rc-sub{display:flex;align-items:center;gap:6px;min-width:0;margin-top:6px;padding-top:6px;border-top:1px solid rgba(15,23,42,.1);}
-  .wf-rc-co{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px;font-weight:700;color:#64748b;}
+  .wf-rc-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-width:0;font-size:19px;font-weight:800;color:#1e293b;line-height:1.3;letter-spacing:-.2px;}
+  .wf-rc-sub{display:flex;align-items:center;gap:7px;min-width:0;margin-top:8px;padding-top:8px;border-top:1px solid #e2e8f0;}
+  .wf-rc-co{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px;font-weight:600;color:#64748b;}
   .wf-rc-flag{flex:0 0 auto;display:inline-flex;align-items:center;font-size:11px;font-weight:900;color:#9a3412;background:#ffedd5;border:1px solid #fdba74;border-radius:5px;padding:1px 6px;height:19px;line-height:1;white-space:nowrap;}
   /* 전달 특이사항 강조 배너 (상세 맨 위) */
   .wf-special-note{display:flex;gap:8px;align-items:flex-start;margin-top:8px;padding:8px 10px;background:#fff7ed;border:1px solid #fdba74;border-left:3px solid #ea580c;border-radius:6px;}
@@ -352,7 +352,7 @@
   .wf-team-btn.out.on{background:#eff6ff;border-color:#60a5fa;color:#1d4ed8;}
   .wf-team-btn:hover{background:#f1f5f9;}
   .wf-rc-date{flex:0 0 auto;font-size:11px;font-weight:800;color:#475569;font-variant-numeric:tabular-nums;letter-spacing:-.2px;}
-  .wf-rc-person{display:inline-flex;align-items:center;gap:3px;min-width:0;max-width:130px;font-size:11.5px;font-weight:600;color:#64748b;}
+  .wf-rc-person{display:inline-flex;align-items:center;gap:3px;min-width:0;max-width:150px;font-size:12px;font-weight:600;color:#64748b;}
   .wf-rc-person>span:last-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .wf-rc-person .material-symbols-outlined{flex:0 0 auto;color:#94a3b8;}
   .wf-rc-btn{flex:0 0 auto;height:25px;padding:0 11px;border:0;border-radius:6px;background:#2563eb;color:#fff;font-size:11.5px;font-weight:800;cursor:pointer;white-space:nowrap;}
