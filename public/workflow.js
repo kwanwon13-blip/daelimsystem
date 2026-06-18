@@ -3280,6 +3280,19 @@ function workflowApp() {
       return 'st-active';
     },
 
+    // 완료가능일(공장 확정)이 완료요청일(디자인)과 다를 때 — 며칠 빠름/늦음(카드 마커용)
+    cardDateShift(job) {
+      if (!job || !job.dueDate || !job.factoryAvailableDate) return null;
+      const md = String(job.dueDate).match(/(\d{4})-(\d{2})-(\d{2})/);
+      const mf = String(job.factoryAvailableDate).match(/(\d{4})-(\d{2})-(\d{2})/);
+      if (!md || !mf) return null;
+      const due = new Date(+md[1], +md[2] - 1, +md[3]);
+      const fac = new Date(+mf[1], +mf[2] - 1, +mf[3]);
+      const days = Math.round((fac - due) / 86400000);
+      if (!days) return null;
+      return { dir: days > 0 ? 'late' : 'early', days: Math.abs(days) };
+    },
+
     // 단계별 처리자 (누가 발주/공장확인/최종체크) — stageChecks.completedByName
     stageActor(job, stageId) {
       return (job && job.stageChecks && job.stageChecks[stageId] && job.stageChecks[stageId].completedByName) || '';

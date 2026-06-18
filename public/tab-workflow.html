@@ -329,6 +329,10 @@
   .wf-tile-teams button.on.out{background:#eff6ff;border-color:#60a5fa;color:#1d4ed8;}
   .wf-rc-late{display:inline-flex;flex:0 0 auto;color:#b91c1c;}
   .wf-rc-late .material-symbols-outlined{font-size:15px;}
+  .wf-rc-shift{flex:0 0 auto;display:inline-flex;align-items:center;gap:1px;font-size:10.5px;font-weight:900;border-radius:5px;padding:1px 5px;line-height:1;white-space:nowrap;}
+  .wf-rc-shift .material-symbols-outlined{font-size:13px;}
+  .wf-rc-shift.late{color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;}
+  .wf-rc-shift.early{color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;}
   .wf-rc-dot{flex:0 0 auto;width:7px;height:7px;border-radius:50%;background:#2563eb;}
   .wf-rc-bot{padding:6px 8px;min-width:0;border-top:1px solid rgba(15,23,42,.06);}
   .wf-rc-line{display:flex;align-items:center;gap:6px;min-width:0;}
@@ -745,27 +749,8 @@
         </button>
       </div>
 
-      <div class="wf-alert-panel" x-show="shouldShowWorkflowAlert()" x-cloak :class="focusItemClass(workflowAlertItem())" aria-live="polite">
-        <button type="button" class="wf-alert-main" @click="openWorkflowAlert()">
-          <span class="wf-alert-tag" x-text="workflowAlertItem() ? workflowAlertItem().label : ''"></span>
-          <strong x-text="workflowAlertItem() ? workflowAlertItem().title : ''"></strong>
-          <span x-text="workflowAlertItem() ? workflowAlertItem().meta : ''"></span>
-        </button>
-        <div class="wf-alert-side">
-          <span class="wf-chip" x-show="workflowAlertCount() > 1" x-text="'처리 ' + workflowAlertCount()"></span>
-          <button type="button" class="wf-btn ghost" style="height:28px;padding:0 8px;" @click="dismissWorkflowAlert()">접기</button>
-        </div>
-      </div>
+      <!-- 상단 처리/긴급·지연 칩 요약 제거(불필요 — 사용자 요청) -->
 
-      <div class="wf-focus-strip" x-show="workflowFocusItems().length">
-        <template x-for="item in workflowFocusItems()" :key="item.key">
-          <button class="wf-focus-item" :class="focusItemClass(item)" @click="openFocusItem(item)">
-            <span class="wf-focus-tag" x-text="item.label"></span>
-            <strong x-text="item.title"></strong>
-            <span x-text="item.meta"></span>
-          </button>
-        </template>
-      </div>
 
       <div class="wf-inbox" x-show="scheduleItems().length">
         <template x-for="item in scheduleItems()" :key="item.id">
@@ -873,7 +858,9 @@
                     <span class="wf-rc-co" x-show="cardSubtitle(job)" x-text="cardSubtitle(job)"></span>
                     <span class="wf-rc-flag" x-show="job.handoffNote" :title="'전달 특이사항(확인): ' + job.handoffNote">📌특이</span>
                     <span class="wf-rc-flag rename" x-show="job.renameRequest" :title="'현장명 변경 대기(팀장 승인): ' + ((job.renameRequest||{}).from||'') + ' → ' + ((job.renameRequest||{}).to||'')">📝이름변경</span>
-                    <span class="wf-rc-late" x-show="job.scheduleLate" title="일정지연"><span class="material-symbols-outlined">warning</span></span>
+                    <template x-if="cardDateShift(job)">
+                      <span class="wf-rc-shift" :class="cardDateShift(job).dir" :title="'완료가능일이 완료요청일보다 ' + cardDateShift(job).days + '일 ' + (cardDateShift(job).dir==='late' ? '늦음(지연)' : '빠름')"><span class="material-symbols-outlined">event</span><span x-text="(cardDateShift(job).dir==='late' ? '+' : '−') + cardDateShift(job).days + '일'"></span></span>
+                    </template>
                     <span class="wf-rc-dot" x-show="job.urgentFileCount" style="background:#ef4444;" title="긴급"></span>
                     <span class="wf-rc-dot" x-show="!job.urgentFileCount && (job.unreadCount || job.unreadFileCount)" :title="'확인 ' + (job.unreadCount || job.unreadFileCount)"></span>
                     <span style="flex:1"></span>
@@ -895,7 +882,7 @@
                         <span class="wf-rc-team un" x-show="job.unassignedFileCount" title="전상현 실장이 팀 배정 필요">미배정 <span x-text="job.unassignedFileCount"></span></span>
                         <span class="wf-rc-team weld" x-show="job.weldingFileCount">용접 <span x-text="job.weldingFileCount"></span></span>
                         <span class="wf-rc-team out" x-show="job.outputFileCount">출력 <span x-text="job.outputFileCount"></span></span>
-                        <input class="wf-rc-dateinput" type="date" x-show="job.viewerCanFactory && job.priority!=='urgent'" :value="cardFactoryDateValue(job)" @click.stop @change.stop="factoryDatePending[job.id] = $event.target.value" title="완료가능일 — 요청일이 기본값. 바꾸면 [수락]을 눌러 확정(요청일과 다르면 디자인팀에 자동 알림)">
+                        <input class="wf-rc-dateinput" type="date" x-show="job.viewerCanFactory && job.priority!=='urgent'" :value="cardFactoryDateValue(job)" @click.stop @change.stop="factoryDatePending[job.id] = $event.target.value" title="완료가능일 — 완료요청일이 기본값. 바꾸면 [수락]을 눌러 확정(완료요청일과 다르면 디자인팀에 자동 알림)">
                         <span class="wf-rc-date" x-show="!job.viewerCanFactory || job.priority==='urgent'" :title="job.priority==='urgent' ? '긴급건 — 컴퍼니에서 일정 수정 불가(요청일 준수)' : '완료가능일(공장 확정)'" x-text="cardFactoryDateValue(job) || '미정'"></span>
                         <span style="flex:1"></span>
                         <button type="button" class="wf-rc-btn ok" @click.stop="cardSetFactoryDate(job.id, cardFactoryDateValue(job))" x-show="cardDateDirty(job) && job.viewerCanFactory && job.priority!=='urgent'" title="이 날짜로 확정">수락</button>
@@ -1170,9 +1157,9 @@
             <div class="wf-keybox" style="order:-1" x-show="detail.job.status!=='done' && detail.job.status!=='cancelled'" x-cloak>
               <div class="wf-keybox-row">
                 <div class="wf-keybox-date" :class="detail.job.currentStage==='design' ? 'hot' : ''">
-                  <label>요청날짜 <span class="wf-muted" style="font-weight:600;">디자인팀</span></label>
+                  <label>완료요청일 <span class="wf-muted" style="font-weight:600;">디자인팀</span></label>
                   <template x-if="detail.job.currentStage==='design' && detail.job.viewerCanCurrentStage">
-                    <input class="wf-input" type="date" x-model="detail.job.dueDate" @change="saveJob()" title="요청날짜(디자인팀 단계에서만 정정 가능)">
+                    <input class="wf-input" type="date" x-model="detail.job.dueDate" @change="saveJob()" title="완료요청일(디자인팀 단계에서만 정정 가능)">
                   </template>
                   <template x-if="!(detail.job.currentStage==='design' && detail.job.viewerCanCurrentStage)">
                     <div class="wf-keybox-text" x-text="detail.job.dueDate || '-'"></div>
@@ -1184,7 +1171,7 @@
                 </div>
               </div>
               <div class="wf-muted" x-show="detail.job.currentStage==='factory'" style="font-size:11px;">완료가능일은 보드 공장 칸의 [가능일]에서 조절합니다 · 상세는 보기 전용</div>
-              <div x-show="detail.job.scheduleLate" style="font-size:11.5px;color:#b91c1c;font-weight:800;">⚠ 요청일보다 늦음 — 디자인팀에 지연 알림됨</div>
+              <div x-show="detail.job.scheduleLate" style="font-size:11.5px;color:#b91c1c;font-weight:800;">⚠ 완료요청일보다 늦음 — 디자인팀에 지연 알림됨</div>
             </div>
             <section class="wf-section" x-show="detailMoreOpen" x-cloak>
               <div class="wf-section-title"><span class="material-symbols-outlined" style="font-size:16px;">business</span>기본</div>
