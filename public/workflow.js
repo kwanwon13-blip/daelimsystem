@@ -954,9 +954,15 @@ function workflowApp() {
 
     // 보드 한 칸을 정렬/그룹해서 반환. 날짜별=단일그룹(마감순), 사람별=사람별 그룹(소제목용)
     boardGroups(stageId) {
-      // 긴급(>높음) 건은 칸 맨 위 고정 — 그다음 마감일/생성순
+      // 긴급(>높음) 건은 칸 맨 위 고정. 그다음 칸별 날짜 기준: 디자인=완료요청일 / 공장=등록순서 / 경영관리=완료가능일
       const prioRank = j => (j && j.priority === 'urgent') ? 2 : ((j && j.priority === 'high') ? 1 : 0);
-      const byDate = (a, b) => (prioRank(b) - prioRank(a)) || String(a.dueDate || '9999-99-99').localeCompare(String(b.dueDate || '9999-99-99')) || String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+      const dateKey = j => {
+        if (!j) return '9999-99-99';
+        if (stageId === 'factory') return ''; // 공장=등록순서(날짜 무시 → 아래 createdAt 오름차순)
+        if (stageId === 'delivery') return j.factoryAvailableDate || j.dueDate || '9999-99-99'; // 경영관리=완료가능일
+        return j.dueDate || '9999-99-99'; // 디자인=완료요청일
+      };
+      const byDate = (a, b) => (prioRank(b) - prioRank(a)) || String(dateKey(a)).localeCompare(String(dateKey(b))) || String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
       const jobs = (this.jobsForStage(stageId) || []).slice();
       if (this.boardSort !== 'person') {
         return [{ key: '__all', person: '', jobs: jobs.sort(byDate) }];
