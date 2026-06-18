@@ -948,7 +948,7 @@ function workflowApp() {
       if (!job) return '미지정';
       if (stageId === 'design') return job.createdByName || '미지정';
       if (stageId === 'factory') return this.stageActor(job, 'design') || job.createdByName || '미지정';
-      if (stageId === 'delivery') return this.stageActor(job, 'factory') || this.stageActor(job, 'design') || job.createdByName || '미지정';
+      if (stageId === 'delivery') return job.managerName || this.stageActor(job, 'factory') || this.stageActor(job, 'design') || job.createdByName || '미지정'; // 경영관리=업체별 지정 담당자 기준(공장에서 넘긴 사람 아님)
       return job.createdByName || '미지정';
     },
 

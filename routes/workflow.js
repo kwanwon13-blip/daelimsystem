@@ -1224,19 +1224,27 @@ function sanitizeManagerRules(rules) {
     .map(r => ({ keyword: safeText(r && r.keyword, 80).trim(), manager: safeText(r && r.manager, 80).trim() }))
     .filter(r => r.keyword && r.manager);
 }
+let _companyMgrCache = null, _companyMgrCacheAt = 0;
 function loadCompanyManagerConfig() {
+  const now = Date.now();
+  if (_companyMgrCache && (now - _companyMgrCacheAt) < 5000) return _companyMgrCache; // 작업별 decorateJob 호출 대비 5초 캐시
   const { workflow } = loadWorkflowSettings();
   const cfg = workflow.companyManagers;
+  let out;
   if (cfg && Array.isArray(cfg.rules)) {
-    return { rules: sanitizeManagerRules(cfg.rules), fallback: (safeText(cfg.fallback, 80).trim() || DEFAULT_COMPANY_MANAGER_FALLBACK) };
+    out = { rules: sanitizeManagerRules(cfg.rules), fallback: (safeText(cfg.fallback, 80).trim() || DEFAULT_COMPANY_MANAGER_FALLBACK) };
+  } else {
+    out = { rules: DEFAULT_COMPANY_MANAGERS.slice(), fallback: DEFAULT_COMPANY_MANAGER_FALLBACK }; // 미설정 → 기본값
   }
-  return { rules: DEFAULT_COMPANY_MANAGERS.slice(), fallback: DEFAULT_COMPANY_MANAGER_FALLBACK }; // 미설정 → 기본값
+  _companyMgrCache = out; _companyMgrCacheAt = now;
+  return out;
 }
 function saveCompanyManagerConfig(rules, fallback) {
   const settings = db['설정'].load() || {};
   if (!settings.workflow || typeof settings.workflow !== 'object') settings.workflow = {};
   settings.workflow.companyManagers = { rules: sanitizeManagerRules(rules), fallback: (safeText(fallback, 80).trim() || DEFAULT_COMPANY_MANAGER_FALLBACK) };
   db['설정'].save(settings);
+  _companyMgrCache = null; // 저장 시 캐시 무효화
   return settings.workflow.companyManagers;
 }
 function managerNameForCompany(companyName) {
@@ -2617,6 +2625,7 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
     viewerCanAssignTeam: vuPL.role === 'admin' || isStageDeptLeader({ user: vuPL }, 'factory'),
     viewerCanReopen: vuPL.role === 'admin' || canDeptActOnStage({ user: vuPL }, 'delivery') || (!!vuPL.userId && String(vuPL.userId).toLowerCase() === String(job.createdBy || '').toLowerCase()),
     viewerCanManage: vuPL.role === 'admin' || (!!vuPL.userId && String(vuPL.userId).toLowerCase() === String(job.createdBy || '').toLowerCase()), // 파일삭제·발주취소: 작성자+관리자
+    managerName: managerNameForCompany(job.companyName), // 경영관리 담당자(업체별 규칙) — 경영관리 칸 '사람별' 그룹·알림 라우팅용
     // 공장 팀 분배(전상현) — 시안 파일을 용접/출력으로 나눈 개수
     weldingFileCount: visualFiles.filter(f => f.team === 'welding').length,
     outputFileCount: visualFiles.filter(f => f.team === 'output').length,
