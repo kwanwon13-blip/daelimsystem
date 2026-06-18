@@ -99,8 +99,10 @@
   .wf-rc-minititle{display:none;font-size:9.5px;font-weight:800;color:#334155;text-align:center;line-height:1.25;word-break:break-all;}
   /* 발주 물량 적응형 — 한 칸에 카드 많으면(≥14) 자동 조밀: 썸네일·간격·업체명만 압축. 액션버튼(.wf-rc-bot)·상태색·뱃지·발주자는 유지. (.mini 레일엔 미적용) */
   .wf-col.dense:not(.mini) .wf-col-list{gap:3px;padding:6px;}
-  .wf-col.dense:not(.mini) .wf-rowcard{padding:3px 8px;}
-  .wf-col.dense:not(.mini) .wf-rc-thumb{width:38px;height:38px;}
+  .wf-col.dense:not(.mini) .wf-rowcard{padding:4px 8px;align-items:center;}
+  .wf-col.dense:not(.mini) .wf-rc-thumb{width:42px;height:42px;}
+  .wf-col.dense:not(.mini) .wf-rc-title{font-size:12.5px;-webkit-line-clamp:1;}
+  .wf-col.dense:not(.mini) .wf-rc-sub{margin-top:2px;padding-top:2px;border-top:0;}
   .wf-col.dense:not(.mini) .wf-rc-co{display:none;}
   /* 상세 닫기(✕) — 닫으면 보드가 전체 폭 */
   .wf-detail-head{position:relative;}
@@ -118,18 +120,19 @@
   .wf-card.st-late{background:#fff7ed;border-color:#fed7aa;}
   .wf-card.st-done{background:#f0fdf4;border-color:#bbf7d0;}
   .wf-card.st-cancelled{background:#f8fafc;border-color:#e2e8f0;}
-  /* === 컴팩트 줄카드(원본): 썸네일(좌) + 내용(우). 썸네일에 마우스 올리면만 시안이 '위로' 크게 뜸 === */
-  .wf-rowcard{padding:6px 9px 7px;display:flex;flex-direction:row;align-items:center;gap:8px;}
-  .wf-rowcard.active{padding:7px 9px 8px;}
-  .wf-rc-thumb{flex:0 0 auto;width:52px;height:52px;border-radius:6px;overflow:hidden;border:1px solid rgba(15,23,42,.1);background:#eef2f7;padding:0;cursor:zoom-in;display:block;position:relative;}
+  /* === 줄카드(샘플): 썸네일(좌, 큼) + [큰 파일명 제목 2줄 / 구분선 / 회사-현장·특이·발주자]. 썸네일 hover 시 시안 '위로' 크게 === */
+  .wf-rowcard{padding:9px 11px;display:flex;flex-direction:row;align-items:flex-start;gap:10px;}
+  .wf-rowcard.active{padding:10px 11px;}
+  .wf-rc-thumb{flex:0 0 auto;width:78px;height:78px;border-radius:8px;overflow:hidden;border:1px solid rgba(15,23,42,.1);background:#eef2f7;padding:0;cursor:zoom-in;display:block;position:relative;}
   .wf-rc-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
   .wf-rc-thumb.image-failed{display:none;}
-  .wf-rc-more{position:absolute;right:2px;bottom:2px;background:rgba(15,23,42,.74);color:#fff;font-size:9px;font-weight:800;border-radius:4px;padding:0 3px;line-height:13px;pointer-events:none;}
-  .wf-rc-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
-  .wf-rc-top{display:flex;align-items:center;gap:5px;min-width:0;}
-  .wf-rc-title{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px;font-weight:800;color:#111827;line-height:1.3;}
-  .wf-rc-co{flex:0 1 auto;min-width:0;max-width:52%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;font-weight:700;color:#64748b;}
-  .wf-rc-flag{flex:0 0 auto;display:inline-flex;align-items:center;font-size:9.5px;font-weight:900;color:#9a3412;background:#ffedd5;border:1px solid #fdba74;border-radius:4px;padding:0 4px;height:16px;line-height:1;white-space:nowrap;}
+  .wf-rc-more{position:absolute;right:3px;bottom:3px;background:rgba(15,23,42,.74);color:#fff;font-size:10px;font-weight:800;border-radius:4px;padding:0 5px;line-height:15px;pointer-events:none;}
+  .wf-rc-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:0;}
+  .wf-rc-top{min-width:0;}
+  .wf-rc-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-width:0;font-size:15px;font-weight:800;color:#1e293b;line-height:1.32;}
+  .wf-rc-sub{display:flex;align-items:center;gap:6px;min-width:0;margin-top:6px;padding-top:6px;border-top:1px solid rgba(15,23,42,.1);}
+  .wf-rc-co{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px;font-weight:700;color:#64748b;}
+  .wf-rc-flag{flex:0 0 auto;display:inline-flex;align-items:center;font-size:11px;font-weight:900;color:#9a3412;background:#ffedd5;border:1px solid #fdba74;border-radius:5px;padding:1px 6px;height:19px;line-height:1;white-space:nowrap;}
   /* 전달 특이사항 강조 배너 (상세 맨 위) */
   .wf-special-note{display:flex;gap:8px;align-items:flex-start;margin-top:8px;padding:8px 10px;background:#fff7ed;border:1px solid #fdba74;border-left:3px solid #ea580c;border-radius:6px;}
   .wf-special-note>.material-symbols-outlined{font-size:18px;color:#ea580c;flex:0 0 auto;margin-top:1px;}
@@ -349,7 +352,7 @@
   .wf-team-btn.out.on{background:#eff6ff;border-color:#60a5fa;color:#1d4ed8;}
   .wf-team-btn:hover{background:#f1f5f9;}
   .wf-rc-date{flex:0 0 auto;font-size:11px;font-weight:800;color:#475569;font-variant-numeric:tabular-nums;letter-spacing:-.2px;}
-  .wf-rc-person{display:inline-flex;align-items:center;gap:2px;min-width:0;max-width:96px;font-size:10.5px;color:#64748b;}
+  .wf-rc-person{display:inline-flex;align-items:center;gap:3px;min-width:0;max-width:130px;font-size:11.5px;font-weight:600;color:#64748b;}
   .wf-rc-person>span:last-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .wf-rc-person .material-symbols-outlined{flex:0 0 auto;color:#94a3b8;}
   .wf-rc-btn{flex:0 0 auto;height:25px;padding:0 11px;border:0;border-radius:6px;background:#2563eb;color:#fff;font-size:11.5px;font-weight:800;cursor:pointer;white-space:nowrap;}
@@ -858,6 +861,8 @@
                   <div class="wf-rc-main">
                   <div class="wf-rc-top">
                     <span class="wf-rc-title" :title="cardTitle(job)" x-text="cardTitle(job)"></span>
+                  </div>
+                  <div class="wf-rc-sub">
                     <span class="wf-rc-co" x-show="cardSubtitle(job)" x-text="cardSubtitle(job)"></span>
                     <span class="wf-rc-flag" x-show="job.handoffNote" :title="'전달 특이사항(확인): ' + job.handoffNote">📌특이</span>
                     <span class="wf-rc-flag rename" x-show="job.renameRequest" :title="'현장명 변경 대기(팀장 승인): ' + ((job.renameRequest||{}).from||'') + ' → ' + ((job.renameRequest||{}).to||'')">📝이름변경</span>
@@ -865,7 +870,7 @@
                     <span class="wf-rc-dot" x-show="job.urgentFileCount" style="background:#ef4444;" title="긴급"></span>
                     <span class="wf-rc-dot" x-show="!job.urgentFileCount && (job.unreadCount || job.unreadFileCount)" :title="'확인 ' + (job.unreadCount || job.unreadFileCount)"></span>
                     <span style="flex:1"></span>
-                    <span class="wf-rc-person" x-show="job.createdByName" title="발주자(시안 올린 사람) — 모든 단계 표시"><span class="material-symbols-outlined" style="font-size:12px;">person</span><span x-text="'발주 ' + job.createdByName"></span></span>
+                    <span class="wf-rc-person" x-show="job.createdByName" title="발주자(시안 올린 사람) — 모든 단계 표시"><span class="material-symbols-outlined" style="font-size:13px;">person</span><span x-text="'발주 ' + job.createdByName"></span></span>
                   </div>
                   <div class="wf-rc-bot">
                     <template x-if="stage.id==='design'">
