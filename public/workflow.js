@@ -2208,6 +2208,7 @@ function workflowApp() {
     // 대표 1장 먼저 즉시, 여러 장은 /jobs/:id 목록을 1회 가져와 캐시. 오버레이에 마우스 올리면 유지(버튼 클릭). 풀스크린 모달 열리면 안 뜸.
     cardZoomShow(ev, job) {
       clearTimeout(this.cardZoom.hideTimer);
+      if (this.cardZoom.show && this.cardZoom.jobId === (job && job.id)) { clearTimeout(this.cardZoom.showTimer); return; } // 같은 작업이면 유지(◀▶ 누를 때 리셋/깜빡임 방지)
       clearTimeout(this.cardZoom.showTimer);
       const card = ev && ev.currentTarget;
       const first = job && job.primaryVisualFile && job.primaryVisualFile.previewUrl;
@@ -2233,10 +2234,11 @@ function workflowApp() {
         this.cardZoom.style = `left:${Math.round(left)}px;top:${Math.round(top)}px;width:${w}px;height:${h}px;`;
         this.cardZoom.index = 0;
         this.cardZoom.files = urls;
+        this.cardZoom.jobId = job.id;
         this.cardZoom.show = true;
       }, 160);
     },
-    cardZoomKeep() { clearTimeout(this.cardZoom.hideTimer); }, // 오버레이에 마우스 올리면 안 사라지게(버튼 클릭 가능)
+    cardZoomKeep() { clearTimeout(this.cardZoom.hideTimer); }, // ◀▶ 버튼에 마우스 올릴 때 안 사라지게(오버레이 본체는 클릭통과라 카드 클릭/버튼/상세 그대로 작동)
     cardZoomHideSoon() {
       clearTimeout(this.cardZoom.showTimer);
       clearTimeout(this.cardZoom.hideTimer);
