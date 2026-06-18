@@ -244,13 +244,59 @@ const KOREAN_HOLIDAYS = {
   '2027-12-25': '성탄절',
 };
 
+// ── 사용자 지정 휴일 (선거일·임시공휴일·회사 휴무 등) ──
+// 출퇴근관리.json 의 customHolidays { 'YYYY-MM-DD': '이름' } 에 저장. 하드코딩 공휴일과 합쳐 판정.
+let _customHolidays = {};
+function loadCustomHolidays() {
+  try {
+    const d = db.출퇴근관리.load();
+    _customHolidays = (d && d.customHolidays && typeof d.customHolidays === 'object') ? d.customHolidays : {};
+  } catch (e) { _customHolidays = {}; }
+  return _customHolidays;
+}
+loadCustomHolidays();
+
 function isKoreanHoliday(dateStr) {
-  return KOREAN_HOLIDAYS[dateStr] || null;
+  return KOREAN_HOLIDAYS[dateStr] || _customHolidays[dateStr] || null;
 }
 
-// 공휴일 목록 API
+// 공휴일 목록 API (하드코딩 + 사용자 지정 합본 → 프론트 달력/표가 자동 반영)
 router.get('/holidays', (req, res) => {
-  res.json(KOREAN_HOLIDAYS);
+  res.json(Object.assign({}, KOREAN_HOLIDAYS, _customHolidays));
+});
+
+// 사용자 지정 휴일 — 목록 (관리 UI용, 지정분만)
+router.get('/custom-holidays', requireAuth, (req, res) => {
+  res.json(_customHolidays);
+});
+
+// 사용자 지정 휴일 — 추가/수정 (관리자)
+router.post('/custom-holidays', requireAdmin, (req, res) => {
+  const date = String((req.body && req.body.date) || '').trim();
+  const name = String((req.body && req.body.name) || '').trim().replace(/[\x00-\x1F\x7F]/g, '').slice(0, 30);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: '날짜 형식이 올바르지 않습니다 (YYYY-MM-DD)' });
+  if (!name) return res.status(400).json({ error: '휴일 이름을 입력하세요' });
+  const d = db.출퇴근관리.load();
+  if (!d.customHolidays || typeof d.customHolidays !== 'object') d.customHolidays = {};
+  d.customHolidays[date] = name;
+  db.출퇴근관리.save(d);
+  loadCustomHolidays();
+  try { auditLog(req.user?.userId, '지정휴일 추가', date + ' ' + name); } catch (e) {}
+  res.json({ ok: true, date, name });
+});
+
+// 사용자 지정 휴일 — 삭제 (관리자)
+router.delete('/custom-holidays/:date', requireAdmin, (req, res) => {
+  const date = String(req.params.date || '').trim();
+  const d = db.출퇴근관리.load();
+  if (d.customHolidays && d.customHolidays[date] !== undefined) {
+    const nm = d.customHolidays[date];
+    delete d.customHolidays[date];
+    db.출퇴근관리.save(d);
+    loadCustomHolidays();
+    try { auditLog(req.user?.userId, '지정휴일 삭제', date + ' ' + nm); } catch (e) {}
+  }
+  res.json({ ok: true });
 });
 
 /**

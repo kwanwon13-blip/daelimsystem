@@ -409,6 +409,26 @@
                 class="btn-primary" style="height:26px;padding:0 8px;font-size:10px;">추가</button>
             </div>
           </div>
+          <!-- 지정 휴일 (선거일·임시공휴일 등) -->
+          <div style="flex:1;min-width:200px;">
+            <div style="font-size:10px;font-weight:600;color:#6b7280;margin-bottom:4px;">지정 휴일 <span style="color:#9ca3af;font-weight:400;">(선거일·임시공휴일 등)</span></div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;">
+              <template x-for="dt in Object.keys(customHolidays).sort()" :key="'ch_'+dt">
+                <span style="display:inline-flex;align-items:center;gap:3px;background:#fce7f3;color:#be185d;font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;">
+                  <span x-text="dt.slice(5)+' '+customHolidays[dt]"></span>
+                  <button @click="removeCustomHoliday(dt)" style="background:none;border:none;color:#be185d;cursor:pointer;font-size:12px;padding:0;" title="삭제">×</button>
+                </span>
+              </template>
+              <template x-if="Object.keys(customHolidays).length===0">
+                <span style="font-size:10px;color:#9ca3af;">지정된 휴일 없음</span>
+              </template>
+            </div>
+            <div style="display:flex;gap:4px;">
+              <input type="date" x-model="newHoliday.date" class="input-base" style="height:26px;font-size:10px;flex:1;" title="날짜">
+              <input type="text" x-model="newHoliday.name" placeholder="휴일명" class="input-base" style="height:26px;font-size:10px;width:70px;" @keydown.enter="addCustomHoliday()">
+              <button @click="addCustomHoliday()" class="btn-primary" style="height:26px;padding:0 8px;font-size:10px;">추가</button>
+            </div>
+          </div>
           <!-- 기록 제외 직원 (체크박스로 표시/숨김 관리) -->
           <div style="flex:1;min-width:220px;">
             <div style="font-size:10px;font-weight:600;color:#6b7280;margin-bottom:6px;">

@@ -7618,7 +7618,9 @@ function app() {
     },
 
     // ── 출퇴근 관리 ──
-    holidays: {},  // { '2026-03-01': '삼일절', ... }
+    holidays: {},  // { '2026-03-01': '삼일절', ... } (공휴일+지정휴일 합본)
+    customHolidays: {},          // 사용자 지정 휴일 { '2025-06-03': '대선일' } (관리용)
+    newHoliday: { date: '', name: '' },
     attendance: {
       bridgeOk: false, bridgeConnected: false, bridgeError: '',
       loading: false,
@@ -8574,7 +8576,7 @@ function app() {
 
     async loadData() {
       const tasks = [this.loadCategories(), this.loadOptions(), this.loadVendors(), this.loadDepartments(), this.checkCsv(), this.loadQuotesList(), this.loadSmtpSettings(), this.loadNamecard(), this.loadHolidays(), this.loadRegistrationStatus(), this.loadDelegates(), this.loadAllUsers(), this.loadCalendarEvents()];
-      if (this.auth.role === 'admin') tasks.push(this.loadAdminUsers());
+      if (this.auth.role === 'admin') { tasks.push(this.loadAdminUsers()); tasks.push(this.loadCustomHolidays()); }
       await Promise.all(tasks);
       // 출퇴근 현재 월 데이터 백그라운드 프리로드 (탭 진입 전 메모리 캐시)
       this.preloadAttendance();
@@ -8748,6 +8750,32 @@ function app() {
         const r = await fetch('/api/holidays');
         this.holidays = await r.json();
       } catch(e) { this.holidays = {}; }
+    },
+
+    // ── 지정 휴일 (선거일·임시공휴일 등) ──
+    async loadCustomHolidays() {
+      try { const r = await fetch('/api/custom-holidays'); if (r.ok) this.customHolidays = await r.json(); } catch(e) {}
+    },
+    async addCustomHoliday() {
+      const date = (this.newHoliday.date || '').trim();
+      const name = (this.newHoliday.name || '').trim();
+      if (!date || !name) { alert('날짜와 휴일 이름을 모두 입력하세요'); return; }
+      try {
+        const r = await fetch('/api/custom-holidays', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ date, name }) });
+        const j = await r.json().catch(()=>({}));
+        if (!r.ok) { alert(j.error || '추가 실패'); return; }
+        this.newHoliday = { date:'', name:'' };
+        await this.loadHolidays();        // 공휴일 합본 다시 받기 → 달력/표 자동 갱신
+        await this.loadCustomHolidays();  // 지정 목록 갱신
+      } catch(e) { alert('추가 실패'); }
+    },
+    async removeCustomHoliday(date) {
+      if (!confirm(date + ' 지정휴일을 삭제할까요?')) return;
+      try {
+        await fetch('/api/custom-holidays/' + encodeURIComponent(date), { method:'DELETE' });
+        await this.loadHolidays();
+        await this.loadCustomHolidays();
+      } catch(e) {}
     },
 
     async doRegister() {
