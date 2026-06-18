@@ -40,6 +40,7 @@ function workflowApp() {
     boardTeam: '', // '' 전체 / 'welding' 용접팀 / 'output' 출력팀
     boardUnordered: false, // true면 미발주(발주 전) 시안만 — 평소엔 보드에서 숨김
     mgrCfg: { open: false, loading: false, saving: false, rules: [], fallback: '우정은', unassigned: [] }, // 업체별 경영관리 담당자(관리자 전용 설정)
+    companyActiveIndex: { form: -1, upload: -1, detail: -1 }, // 회사검색 드롭다운 키보드 하이라이트 인덱스
     toasts: [], // 인앱 알림(우하단) — OS 알림이 막힌 HTTP에서도 작동. 자동으로 안 사라지고 [확인]해야 닫힘
     boardFocus: '', // '' = 모든 칸 동일 / stageId = 그 칸만 크게(나머지는 시안 레일)
     boardView: 'board', // 'board' 진행 3칸 / 'week' 주간일정 / 'ledger' 통합 내역표 (상단 탭)
@@ -1631,7 +1632,36 @@ function workflowApp() {
       if (!key) return false;
       return this.workflowProjectOptionsForCompany(companyName, true).some(p => this.normalizeOptionName(p.name || p) === key);
     },
+    // 회사검색 드롭다운 키보드 네비게이션(위/아래로 이동, 엔터로 확정) — 마우스 호버와 인덱스 공유
+    companyListForScope(scope) {
+      if (scope === 'form') return this.workflowCompanyExact(this.form.companyName) ? [] : this.workflowCompanySuggestions(this.form.companyName, 12);
+      if (scope === 'upload') return this.workflowCompanySuggestions(this.uploadCompanyName, 36);
+      return (this.detail && this.detail.job) ? this.workflowCompanySuggestions(this.detail.job.companyName, 8) : [];
+    },
+    moveCompanyActive(scope, delta) {
+      const list = this.companyListForScope(scope) || [];
+      if (!list.length) { this.companyActiveIndex[scope] = -1; return; }
+      const cur = Number(this.companyActiveIndex[scope]);
+      let idx = (cur < 0) ? (delta > 0 ? 0 : list.length - 1) : cur + delta;
+      if (idx < 0) idx = list.length - 1;
+      if (idx >= list.length) idx = 0;
+      this.companyActiveIndex[scope] = idx;
+    },
+    applyCompanyPick(scope, name) {
+      if (!name) return;
+      if (scope === 'form') { this.form.companyName = name; this.form.projectName = ''; this.syncAutoJobTitle(true); }
+      else if (scope === 'upload') { this.uploadCompanyName = name; this.uploadProjectName = ''; }
+      else if (this.detail && this.detail.job) { this.detail.job.companyName = name; this.detail.job.projectName = ''; }
+      this.companyActiveIndex[scope] = -1;
+    },
+    pickCompanyByIndex(scope, idx) {
+      const list = this.companyListForScope(scope) || [];
+      const co = list[idx];
+      if (co && co.name) this.applyCompanyPick(scope, co.name);
+    },
     enterPickCompany(scope) {
+      const ai = Number(this.companyActiveIndex && this.companyActiveIndex[scope]);
+      if (ai >= 0) { this.pickCompanyByIndex(scope, ai); return; } // 화살표로 고른 항목 확정
       const cur = scope === 'form' ? this.form.companyName : scope === 'upload' ? this.uploadCompanyName : (this.detail && this.detail.job ? this.detail.job.companyName : '');
       const n = this.topCompanyName(cur);
       if (!n) return; // 추천 없음(이미 정확/빈값) → 엔터가 값 안 바꿈

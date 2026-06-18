@@ -534,6 +534,9 @@
   .wf-company-pick small, .wf-project-pick small{font-size:10.5px;color:#94a3b8;font-weight:800;white-space:nowrap;flex:0 0 auto;}
   .wf-company-pickrow{display:flex;align-items:stretch;border-bottom:1px solid #f1f5f9;}
   .wf-company-pickrow:last-child{border-bottom:0;}
+  .wf-company-pick.is-active{background:#eff6ff;}
+  .wf-company-pickrow.is-active{background:#eff6ff;}
+  .wf-company-pickrow.is-active .wf-company-pick{background:#eff6ff;}
   .wf-company-pickrow .wf-company-pick{border-bottom:0;flex:1;min-width:0;}
   .wf-company-hide{flex:0 0 auto;border:0;border-left:1px solid #f1f5f9;background:#fff;color:#94a3b8;padding:0 10px;font-size:14px;line-height:1;cursor:pointer;}
   .wf-company-hide:hover{background:#fef2f2;}
@@ -1197,10 +1200,10 @@
                 </div>
                 <div class="wf-grid-2">
                   <div class="wf-field">
-                    <input class="wf-input" list="wfCompanyNames" x-model="detail.job.companyName" @keydown.enter.prevent="enterPickCompany('detail')" placeholder="업체">
+                    <input class="wf-input" list="wfCompanyNames" x-model="detail.job.companyName" @keydown.enter.prevent="enterPickCompany('detail')" @keydown.down.prevent="moveCompanyActive('detail',1)" @keydown.up.prevent="moveCompanyActive('detail',-1)" @input="companyActiveIndex.detail=-1" placeholder="업체">
                     <div class="wf-company-picks" x-show="workflowCompanySuggestions(detail.job.companyName, 8).length">
-                      <template x-for="company in workflowCompanySuggestions(detail.job.companyName, 8)" :key="'detail-company-'+company.name">
-                        <button type="button" class="wf-company-pick" @click="detail.job.companyName = company.name; detail.job.projectName = ''">
+                      <template x-for="(company, ci) in workflowCompanySuggestions(detail.job.companyName, 8)" :key="'detail-company-'+company.name">
+                        <button type="button" class="wf-company-pick" :class="companyActiveIndex.detail===ci ? 'is-active' : ''" @mouseenter="companyActiveIndex.detail=ci" @click="detail.job.companyName = company.name; detail.job.projectName = ''">
                           <strong x-text="company.name"></strong>
                           <small x-text="(company.projectCount || 0) + ' 현장'"></small>
                         </button>
@@ -1300,13 +1303,13 @@
                     </label>
                   </div>
                   <div style="display:grid;grid-template-columns:1fr 1fr 130px;gap:8px;">
-                    <input class="wf-input" list="wfCompanyNames" x-model="uploadCompanyName" @keydown.enter.prevent="enterPickCompany('upload')" placeholder="회사">
+                    <input class="wf-input" list="wfCompanyNames" x-model="uploadCompanyName" @keydown.enter.prevent="enterPickCompany('upload')" @keydown.down.prevent="moveCompanyActive('upload',1)" @keydown.up.prevent="moveCompanyActive('upload',-1)" @input="companyActiveIndex.upload=-1" placeholder="회사">
                     <input class="wf-input" list="wfUploadProjectNames" x-model="uploadProjectName" @keydown.enter.prevent="enterPickProject('upload')" placeholder="프로젝트">
                     <input class="wf-input" type="date" x-model="uploadDesignDueDate" title="디자인 희망 완료일">
                   </div>
                   <div class="wf-company-picks" x-show="workflowCompanySuggestions(uploadCompanyName, 36).length">
-                    <template x-for="company in workflowCompanySuggestions(uploadCompanyName, 36)" :key="'upload-company-'+company.name">
-                      <button type="button" class="wf-company-pick" @click="uploadCompanyName = company.name; uploadProjectName = ''">
+                    <template x-for="(company, ci) in workflowCompanySuggestions(uploadCompanyName, 36)" :key="'upload-company-'+company.name">
+                      <button type="button" class="wf-company-pick" :class="companyActiveIndex.upload===ci ? 'is-active' : ''" @mouseenter="companyActiveIndex.upload=ci" @click="uploadCompanyName = company.name; uploadProjectName = ''">
                         <strong x-text="company.name"></strong>
                         <small x-text="(company.projectCount || 0) + ' 현장'"></small>
                       </button>
@@ -1918,10 +1921,10 @@
         <div class="wf-modal-grid">
           <div class="wf-field">
             <label>회사명</label>
-            <input class="wf-input" x-ref="newJobCompany" x-model="form.companyName" @change="syncAutoJobTitle()" @keydown.enter.prevent="enterPickCompany('form')" autocomplete="off" placeholder="직접 입력 또는 선택">
+            <input class="wf-input" x-ref="newJobCompany" x-model="form.companyName" @change="syncAutoJobTitle()" @keydown.enter.prevent="enterPickCompany('form')" @keydown.down.prevent="moveCompanyActive('form',1)" @keydown.up.prevent="moveCompanyActive('form',-1)" @input="companyActiveIndex.form=-1" autocomplete="off" placeholder="직접 입력 또는 선택">
             <div class="wf-company-picks" x-show="!workflowCompanyExact(form.companyName) && workflowCompanySuggestions(form.companyName, 12).length">
-              <template x-for="company in workflowCompanySuggestions(form.companyName, 12)" :key="'new-company-'+company.name">
-                <div class="wf-company-pickrow">
+              <template x-for="(company, ci) in workflowCompanySuggestions(form.companyName, 12)" :key="'new-company-'+company.name">
+                <div class="wf-company-pickrow" :class="companyActiveIndex.form===ci ? 'is-active' : ''" @mouseenter="companyActiveIndex.form=ci">
                   <button type="button" tabindex="-1" class="wf-company-pick" @click="form.companyName = company.name; form.projectName = ''; syncAutoJobTitle(true)">
                     <strong x-text="company.name"></strong>
                     <small x-text="(company.projectCount || 0) + ' 현장'"></small>
