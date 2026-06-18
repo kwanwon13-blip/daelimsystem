@@ -626,12 +626,7 @@
       <div class="wf-view-board" x-show="boardView==='board'">
       <div class="wf-filterbar">
         <div class="wf-e2e-filter">
-          <span class="wf-e2e-lbl">마감</span>
-          <input class="wf-e2e-inp" type="date" x-model="wfDateFrom" @change="rebuildJobsByStage()" title="마감일 시작">
-          <span class="wf-e2e-sep">~</span>
-          <input class="wf-e2e-inp" type="date" x-model="wfDateTo" @change="rebuildJobsByStage()" title="마감일 끝">
-          <input class="wf-e2e-inp" style="width:120px;" x-model="wfVendor" @input="rebuildJobsByStage()" placeholder="업체">
-          <input class="wf-e2e-inp" style="width:160px;" x-model="query" @input="rebuildJobsByStage()" placeholder="🔍 코드·현장·제목">
+          <input class="wf-e2e-inp" style="width:280px;max-width:44vw;" x-model="query" @input="rebuildJobsByStage()" placeholder="🔍 업체·현장·코드·제목 (띄어쓰기로 여러 단어)">
           <select class="wf-e2e-inp" x-model="statusFilter" @change="loadJobs()">
             <option value="active">진행</option>
             <option value="hold">보류</option>
@@ -646,6 +641,7 @@
             <option value="urgent">긴급</option>
             <option value="risk">지연/막힘</option>
           </select>
+          <button type="button" class="wf-e2e-reset" @click="boardUnordered=!boardUnordered; rebuildJobsByStage()" :style="boardUnordered ? 'width:auto;padding:0 11px;font-weight:800;background:#dc2626;color:#fff;border-color:#dc2626;' : 'width:auto;padding:0 11px;font-weight:800;'" :title="boardUnordered ? '미발주만 보는 중 — 클릭하면 전체로' : '미발주(아직 발주 안 한) 시안만 보기'">미발주</button>
           <button class="wf-e2e-reset" @click="wfFilterReset()" title="필터 초기화">↻</button>
         </div>
         <div style="flex:1"></div>

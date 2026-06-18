@@ -38,6 +38,7 @@ function workflowApp() {
     wfVendor: '',
     boardSort: 'date',
     boardTeam: '', // '' 전체 / 'welding' 용접팀 / 'output' 출력팀
+    boardUnordered: false, // true면 미발주(발주 전) 시안만 — 평소엔 보드에서 숨김
     toasts: [], // 인앱 알림(우하단) — OS 알림이 막힌 HTTP에서도 작동. 자동으로 안 사라지고 [확인]해야 닫힘
     boardFocus: '', // '' = 모든 칸 동일 / stageId = 그 칸만 크게(나머지는 시안 레일)
     boardView: 'board', // 'board' 진행 3칸 / 'week' 주간일정 / 'ledger' 통합 내역표 (상단 탭)
@@ -988,6 +989,9 @@ function workflowApp() {
       if (this.wfDateTo && (!due || due > this.wfDateTo)) return false;
       // 외주(타 회사) 건은 보드에서 제외 — 헷갈림 방지(외주는 종이 시안으로 전달)
       if (job.productionRoute === 'external') return false;
+      // 미발주(발주 전) — 평소엔 숨기고, [미발주] 버튼 켤 때만 미발주만 표시
+      if (this.boardUnordered) { if (!job.unordered) return false; }
+      else if (job.unordered) return false;
       // 업체·검색: 띄어쓰기로 여러 단어 = 각 단어 모두 포함(AND, 시안검색식 토큰)
       const v = (this.wfVendor || '').trim().toLowerCase();
       if (v) {
@@ -1006,7 +1010,7 @@ function workflowApp() {
     },
 
     wfFilterReset() {
-      this.wfDateFrom = ''; this.wfDateTo = ''; this.wfVendor = ''; this.query = '';
+      this.wfDateFrom = ''; this.wfDateTo = ''; this.wfVendor = ''; this.query = ''; this.boardUnordered = false;
       this.rebuildJobsByStage();
     },
 
