@@ -2487,9 +2487,12 @@ function canDeptActOnStage(req, stageId) {
   const dept = (org.departments || []).find(d => lowerText(d.id) === lowerText(deptVal) || lowerText(d.name) === lowerText(deptVal));
   const deptId = lowerText(dept ? dept.id : deptVal);
   const deptKey = departmentMatchKey(dept ? dept.name : deptVal);
+  // 단계 분리 방어: 디자인팀(디자인 단계 전용 부서명)은 공장/경영관리 단계 액션 불가.
+  // 매핑/부서가 잘못 설정돼 디자인 소속이 공장 권한을 얻는 버그 방지(송지현 케이스). 관리자(admin)는 위에서 이미 예외.
+  if (stageId !== 'design' && (STAGE_AUTHZ_ALIASES.design || []).map(departmentMatchKey).includes(deptKey)) return false;
   const mappedId = lowerText(storedWorkflowStageDepartmentMap()[stageId] || '');
-  if (mappedId) return deptId === mappedId; // 팀-단계 매핑이 설정돼 있으면 그 부서만 신뢰(별칭 폴백 안 탐 — 디자인팀이 공장 별칭으로 새는 오매칭 방지)
-  return (STAGE_AUTHZ_ALIASES[stageId] || []).map(departmentMatchKey).includes(deptKey); // 매핑 미설정 시에만 풀네임 별칭 폴백
+  if (mappedId && deptId === mappedId) return true; // 팀-단계 매핑 설정 시 정확 id 일치
+  return (STAGE_AUTHZ_ALIASES[stageId] || []).map(departmentMatchKey).includes(deptKey); // 폴백: 풀네임 별칭 정확일치(용접팀/출력팀 등 공장 하위팀 포함)
 }
 // 이 단계 담당 부서의 '팀장'인가 — 예: 공장=대림컴퍼니 팀장(전상현 실장) → 시안 용접/출력 배정 전담.
 // (가져오기는 공장원 누구나, 팀 나누기만 팀장 몫)
