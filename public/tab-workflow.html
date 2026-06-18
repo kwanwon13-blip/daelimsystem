@@ -330,7 +330,7 @@
   .wf-rc-bot{padding:6px 8px;min-width:0;border-top:1px solid rgba(15,23,42,.06);}
   .wf-rc-line{display:flex;align-items:center;gap:6px;min-width:0;}
   .wf-rc-dlabel{flex:0 0 auto;font-size:10px;font-weight:900;color:#9a3412;}
-  .wf-rc-dateinput{flex:1;min-width:64px;height:25px;font-size:11px;font-weight:700;padding:0 5px;border:1.5px solid #fb923c;border-radius:5px;background:#fff;color:#111827;font-variant-numeric:tabular-nums;}
+  .wf-rc-dateinput{flex:0 0 auto;width:122px;height:23px;font-size:11px;font-weight:700;padding:0 5px;border:1.5px solid #fb923c;border-radius:5px;background:#fff;color:#111827;font-variant-numeric:tabular-nums;}
   .wf-rc-icon{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:27px;height:25px;border:1px solid #cbd5e1;border-radius:5px;color:#475569;background:#fff;cursor:pointer;text-decoration:none;}
   .wf-rc-mini{flex:0 0 auto;display:inline-flex;align-items:center;gap:3px;height:25px;padding:0 8px;border:1px solid #cbd5e1;border-radius:5px;font-size:10.5px;font-weight:800;color:#475569;background:#fff;cursor:pointer;text-decoration:none;}
   .wf-rc-icon:hover,.wf-rc-mini:hover{background:#f1f5f9;}
@@ -430,7 +430,12 @@
   .wf-detail-body .wf-section:nth-of-type(3){order:1;}
   .wf-detail-body .wf-section:nth-of-type(4){order:4;}
   .wf-section{border:1px solid #e1e6ef;border-radius:8px;background:#fff;}
-  .wf-section-title{height:34px;display:flex;align-items:center;gap:6px;padding:0 10px;border-bottom:1px solid #edf0f5;background:#f8fafc;font-size:12px;font-weight:800;color:#374151;}
+  .wf-section-title{height:36px;display:flex;align-items:center;gap:6px;padding:0 10px;border-bottom:1px solid #e2e8f0;border-left:3px solid #cbd5e1;background:#f8fafc;font-size:12.5px;font-weight:800;color:#1e293b;}
+  .wf-section-title .material-symbols-outlined{color:#64748b;}
+  .wf-section-title.sec-design{border-left-color:#1d4ed8;background:#eff6ff;}
+  .wf-section-title.sec-design .material-symbols-outlined{color:#1d4ed8;}
+  .wf-section-title.sec-record{border-left-color:#6366f1;background:#eef2ff;}
+  .wf-section-title.sec-record .material-symbols-outlined{color:#6366f1;}
   .wf-section-body{padding:10px;display:flex;flex-direction:column;gap:8px;}
   .wf-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
   .wf-stage-row{display:grid;grid-template-columns:84px 84px 1fr auto auto;gap:6px;align-items:center;padding:7px;border:1px solid #edf0f5;border-radius:6px;background:#fff;}
@@ -891,11 +896,10 @@
                           <span class="wf-rc-team un" x-show="job.unassignedFileCount" title="전상현 실장이 팀 배정 필요">미배정 <span x-text="job.unassignedFileCount"></span></span>
                         </div>
                         <div class="wf-rc-line">
-                        <button type="button" class="wf-rc-undo" @click.stop="cardStepBack(job.id)" x-show="job.viewerCanCurrentStage" title="실수로 받았으면 디자인팀으로 되돌리기"><span class="material-symbols-outlined">undo</span></button>
-                        <a class="wf-rc-icon" :href="job.archiveUrl" @click.stop x-show="job.fileCount" title="시안 받기"><span class="material-symbols-outlined">download</span></a>
                         <span class="wf-rc-dlabel">가능일</span>
                         <input class="wf-rc-dateinput" type="date" x-show="job.viewerCanFactory" :value="cardFactoryDateValue(job)" @click.stop @change.stop="factoryDatePending[job.id] = $event.target.value" title="완료가능일 — 요청일이 기본값. 바꾸면 [수락]을 눌러 확정(요청일과 다르면 디자인팀에 자동 알림)">
                         <span class="wf-rc-date" x-show="!job.viewerCanFactory" x-text="cardFactoryDateValue(job) || '미정'" title="완료가능일(공장 확정)"></span>
+                        <span style="flex:1"></span>
                         <button type="button" class="wf-rc-btn ok" @click.stop="cardSetFactoryDate(job.id, cardFactoryDateValue(job))" x-show="cardDateDirty(job) && job.viewerCanFactory" title="이 날짜로 확정">수락</button>
                         <button type="button" class="wf-rc-btn" @click.stop="cardHandoff(job.id, stage.id)" x-show="!cardDateDirty(job) && job.status!=='done' && job.status!=='cancelled' && job.viewerCanCurrentStage">완료</button>
                         </div>
@@ -903,7 +907,6 @@
                     </template>
                     <template x-if="stage.id==='delivery'">
                       <div class="wf-rc-line">
-                        <button type="button" class="wf-rc-undo" @click.stop="cardStepBack(job.id)" x-show="job.viewerCanCurrentStage" title="실수로 받았으면 공장으로 되돌리기"><span class="material-symbols-outlined">undo</span></button>
                         <a class="wf-rc-mini" :href="job.archiveUrl + '?images=1'" @click.stop x-show="job.visualFileCount" title="JPG(이미지)만 받기"><span class="material-symbols-outlined">photo</span>JPG</a>
                         <button type="button" class="wf-rc-mini" @click.stop="printDeliverySheet(job)" title="납품 지시서 인쇄(종이 전달용)"><span class="material-symbols-outlined">print</span>인쇄</button>
                         <span class="wf-rc-date" x-show="job.factoryAvailableDate" x-text="job.factoryAvailableDate" title="완료가능일"></span>
@@ -1123,6 +1126,7 @@
               <span class="wf-chip" x-show="jobOrderedAt(detail.job)" style="background:#eff6ff;color:#1d4ed8;font-weight:800;" title="실제 발주 시각 — 공장으로 넘어가거나(가져오기) 외주로 발송된 시점"><span class="material-symbols-outlined" style="font-size:13px;vertical-align:-2px;">schedule_send</span> 발주 <span x-text="jobOrderedAt(detail.job)"></span></span>
               <span class="wf-chip" :class="detail.job.canComplete ? 'ready' : 'not_ready'" x-text="completionBlockerShortText(detail.job)"></span>
               <button type="button" class="wf-btn ghost" @click="printDeliverySheet(detail.job)" x-show="detail.job.currentStage==='delivery' || detail.job.status==='done'" title="납품 지시서 인쇄(종이로 출력해 납품팀에 전달)">🖨 인쇄</button>
+              <button type="button" class="wf-btn ghost" @click="cardStepBack(detail.job.id)" x-show="detail.job.viewerCanCurrentStage && detail.job.status!=='done' && detail.job.status!=='cancelled' && detail.job.currentStage!=='design'" :disabled="saving" title="이전 단계로 되돌리기 — 실수로 받았을 때 이전 팀으로 돌려보냅니다"><span class="material-symbols-outlined" style="font-size:14px;">undo</span>되돌리기</button>
             </div>
             <div class="wf-special-note" x-show="detail.job.handoffNote" x-cloak>
               <span class="material-symbols-outlined">push_pin</span>
@@ -1281,7 +1285,7 @@
             </section>
 
             <section class="wf-section">
-              <div class="wf-section-title" style="justify-content:space-between;">
+              <div class="wf-section-title sec-design" style="justify-content:space-between;">
                 <span style="display:flex;align-items:center;gap:6px;min-width:0;">
                   <span class="material-symbols-outlined" style="font-size:16px;">imagesmode</span>
                   <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" x-text="'시안 ' + detailTiles().length + '개 — ' + (detail.job.companyName || '-') + (detail.job.projectName ? ' · ' + detail.job.projectName : '')"></span>
@@ -1685,7 +1689,7 @@
             </section>
 
             <section class="wf-section">
-              <div class="wf-section-title" style="justify-content:space-between;">
+              <div class="wf-section-title sec-record" style="justify-content:space-between;">
                 <span style="display:flex;align-items:center;gap:6px;">
                   <span class="material-symbols-outlined" style="font-size:16px;">forum</span>기록
                 </span>
