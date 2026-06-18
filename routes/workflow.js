@@ -1206,20 +1206,47 @@ function isApprovedWorkflowUser(user) {
   return !!(user && user.userId && (!user.status || user.status === 'approved'));
 }
 
-// 경영관리팀 업체별 업무담당자 — 워크플로 알림을 해당 업체 담당자에게도 보냄(2026-06 미팅)
-// 포스코=김선율 · DL/디엘=안소현 · 퍼시스/두산/한신/요진/골든플랫폼=김다한 · 그 외(쌍용·컴퍼니매출 등)=우정은
-const WF_COMPANY_MANAGERS = [
-  { kw: ['포스코'], name: '김선율' },
-  { kw: ['dl', '디엘'], name: '안소현' },
-  { kw: ['퍼시스', '두산', '한신', '요진', '골든플랫폼'], name: '김다한' },
+// 경영관리팀 업체별 업무담당자 — 워크플로 알림을 해당 업체 담당자에게도 보냄.
+// 관리자 화면에서 편집(db.설정.workflow.companyManagers). 미설정이면 아래 기본값으로 시드(2026-06 미팅).
+const DEFAULT_COMPANY_MANAGERS = [
+  { keyword: '포스코', manager: '김선율' },
+  { keyword: 'DL', manager: '안소현' },
+  { keyword: '디엘', manager: '안소현' },
+  { keyword: '퍼시스', manager: '김다한' },
+  { keyword: '두산', manager: '김다한' },
+  { keyword: '한신', manager: '김다한' },
+  { keyword: '요진', manager: '김다한' },
+  { keyword: '골든플랫폼', manager: '김다한' },
 ];
-function managerNameForCompany(companyName) {
-  const c = lowerText(companyName);
-  if (!c) return '우정은';
-  for (const m of WF_COMPANY_MANAGERS) {
-    if (m.kw.some(k => c.includes(k))) return m.name;
+const DEFAULT_COMPANY_MANAGER_FALLBACK = '우정은'; // 그 외(쌍용·대림컴퍼니 매출 등) 기본 담당
+function sanitizeManagerRules(rules) {
+  return (Array.isArray(rules) ? rules : [])
+    .map(r => ({ keyword: safeText(r && r.keyword, 80).trim(), manager: safeText(r && r.manager, 80).trim() }))
+    .filter(r => r.keyword && r.manager);
+}
+function loadCompanyManagerConfig() {
+  const { workflow } = loadWorkflowSettings();
+  const cfg = workflow.companyManagers;
+  if (cfg && Array.isArray(cfg.rules)) {
+    return { rules: sanitizeManagerRules(cfg.rules), fallback: (safeText(cfg.fallback, 80).trim() || DEFAULT_COMPANY_MANAGER_FALLBACK) };
   }
-  return '우정은'; // 쌍용·대림컴퍼니 매출 등 기본값(catch-all)
+  return { rules: DEFAULT_COMPANY_MANAGERS.slice(), fallback: DEFAULT_COMPANY_MANAGER_FALLBACK }; // 미설정 → 기본값
+}
+function saveCompanyManagerConfig(rules, fallback) {
+  const settings = db['설정'].load() || {};
+  if (!settings.workflow || typeof settings.workflow !== 'object') settings.workflow = {};
+  settings.workflow.companyManagers = { rules: sanitizeManagerRules(rules), fallback: (safeText(fallback, 80).trim() || DEFAULT_COMPANY_MANAGER_FALLBACK) };
+  db['설정'].save(settings);
+  return settings.workflow.companyManagers;
+}
+function managerNameForCompany(companyName) {
+  const cfg = loadCompanyManagerConfig();
+  const c = lowerText(companyName);
+  if (!c) return cfg.fallback;
+  for (const r of cfg.rules) {
+    if (c.includes(lowerText(r.keyword))) return r.manager;
+  }
+  return cfg.fallback;
 }
 function managerUsersForJob(job, actorId = '') {
   const name = managerNameForCompany(job && job.companyName);
@@ -3458,6 +3485,17 @@ router.post('/settings/departments', requireAdmin, (req, res) => {
     suggestedStageDepartmentMap: suggestedWorkflowStageDepartmentMap(refreshedOrg),
     stageDepartmentMissingIds: stages.filter(stage => !stage.mappedDepartmentId).map(stage => stage.id),
   });
+});
+
+// 업체별 경영관리 담당자 — 관리자 전용 조회/저장
+router.get('/settings/company-managers', requireAdmin, (req, res) => {
+  const cfg = loadCompanyManagerConfig();
+  res.json({ ok: true, rules: cfg.rules, fallback: cfg.fallback });
+});
+
+router.post('/settings/company-managers', requireAdmin, (req, res) => {
+  const saved = saveCompanyManagerConfig(req.body && req.body.rules, req.body && req.body.fallback);
+  res.json({ ok: true, rules: saved.rules, fallback: saved.fallback });
 });
 
 router.get('/settings/public-link', (req, res) => {

@@ -654,6 +654,7 @@
           <button type="button" :class="boardSort==='date'?'on':''" @click="boardSort='date'">날짜별</button>
           <button type="button" :class="boardSort==='person'?'on':''" @click="boardSort='person'">사람별</button>
         </div>
+        <button type="button" class="wf-e2e-reset" x-show="currentUser && currentUser.role==='admin'" @click="openManagerSettings()" style="width:auto;padding:0 11px;font-weight:800;margin-left:6px;" title="업체별 경영관리 담당자 설정(관리자 전용)"><span class="material-symbols-outlined" style="font-size:14px;vertical-align:-2px;">manage_accounts</span> 담당자</button>
       </div>
 
       <div class="wf-team-map" x-show="departmentMappingPanelOpen || missingDepartmentMappings().length" x-cloak>
@@ -2113,6 +2114,40 @@
 </div>
 
 <!-- 카드 hover 시 그 카드 자리에 시안을 크게 '덮어서' 표시. 여러 장이면 ◀▶로 넘겨봄(전체화면 안 열어도). 풀스크린 모달 열리면 숨김 -->
+<!-- 업체별 경영관리 담당자 설정(관리자 전용) -->
+<div x-show="mgrCfg.open" x-cloak @click.self="mgrCfg.open=false" style="position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:9995;display:flex;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:12px;width:min(560px,94vw);max-height:86vh;overflow:auto;padding:18px 20px;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+      <div style="font-size:16px;font-weight:800;color:#1e293b;"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:-3px;color:#1d4ed8;">manage_accounts</span> 업체별 경영관리 담당자</div>
+      <button type="button" @click="mgrCfg.open=false" style="border:1px solid #cbd5e1;border-radius:6px;background:#fff;width:28px;height:28px;cursor:pointer;">✕</button>
+    </div>
+    <div style="font-size:12px;color:#64748b;margin-bottom:12px;line-height:1.5;">업체명에 <b>키워드</b>가 포함되면 그 <b>담당자</b>에게도 워크플로 알림이 갑니다(디자인 담당자에 더해). 위에서부터 먼저 맞는 규칙 적용. <b>담당자 이름은 ERP 가입자 이름과 정확히</b> 같아야 매칭됩니다.</div>
+    <div x-show="mgrCfg.loading" style="padding:24px;text-align:center;color:#94a3b8;">불러오는 중…</div>
+    <template x-if="!mgrCfg.loading">
+      <div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 34px;gap:8px;font-size:11px;font-weight:800;color:#64748b;padding:0 2px 4px;">
+          <span>업체 키워드</span><span>담당자(이름)</span><span></span>
+        </div>
+        <template x-for="(rule, i) in mgrCfg.rules" :key="i">
+          <div style="display:grid;grid-template-columns:1fr 1fr 34px;gap:8px;margin-bottom:6px;">
+            <input class="wf-input" type="text" x-model="rule.keyword" placeholder="예: 포스코">
+            <input class="wf-input" type="text" x-model="rule.manager" placeholder="예: 김선율">
+            <button type="button" @click="removeManagerRule(i)" style="border:1px solid #fca5a5;border-radius:6px;background:#fff;color:#dc2626;cursor:pointer;font-weight:800;" title="이 줄 삭제">✕</button>
+          </div>
+        </template>
+        <button type="button" @click="addManagerRule()" style="margin-top:4px;border:1px dashed #94a3b8;border-radius:7px;background:#f8fafc;color:#475569;padding:7px 12px;cursor:pointer;font-weight:700;font-size:12px;width:100%;">+ 업체 추가</button>
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid #e2e8f0;display:flex;align-items:center;gap:8px;">
+          <span style="font-size:12px;font-weight:800;color:#64748b;flex:0 0 auto;">그 외 전부(기본)</span>
+          <input class="wf-input" type="text" x-model="mgrCfg.fallback" placeholder="예: 우정은" style="flex:1;">
+        </div>
+        <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px;">
+          <button type="button" @click="mgrCfg.open=false" style="border:1px solid #cbd5e1;border-radius:7px;background:#fff;padding:8px 14px;cursor:pointer;font-weight:700;">취소</button>
+          <button type="button" @click="saveManagerSettings()" :disabled="mgrCfg.saving" style="border:0;border-radius:7px;background:#1d4ed8;color:#fff;padding:8px 16px;cursor:pointer;font-weight:800;" x-text="mgrCfg.saving ? '저장 중…' : '저장'"></button>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
 <div class="wf-cardzoom" :class="(cardZoom.show && cardZoom.files.length && !filePreview.open) ? 'show' : ''" :style="cardZoom.style" x-cloak @mouseenter="cardZoomKeep()" @mouseleave="cardZoomHideSoon()" @click="cardZoom.show=false; cardZoom.jobId && selectJob(cardZoom.jobId)" title="클릭하면 상세 열기">
   <img :src="cardZoom.files[cardZoom.index] || ''" decoding="async" alt="">
   <button type="button" class="wf-cardzoom-nav prev" x-show="cardZoom.files.length>1" @click.stop="cardZoomStep(-1)" @mouseenter="cardZoomKeep()" title="이전 시안">‹</button>
