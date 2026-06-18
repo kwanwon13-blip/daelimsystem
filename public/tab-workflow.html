@@ -318,7 +318,7 @@
   .wf-feed-filebar{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;}
   .wf-feed-filebar.missing{opacity:.6;}
   .wf-feed-ext{flex:0 0 auto;font-size:11px;font-weight:900;color:#fff;background:#0f172a;border-radius:5px;padding:3px 7px;letter-spacing:.5px;}
-  .wf-feed-name{font-size:11.5px;font-weight:700;color:#64748b;}
+  .wf-feed-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11.5px;font-weight:700;color:#334155;}
   .wf-tile-dl{position:absolute;bottom:8px;right:8px;width:26px;height:26px;border-radius:6px;background:rgba(255,255,255,.94);border:1px solid #cbd5e1;display:inline-flex;align-items:center;justify-content:center;color:#475569;text-decoration:none;}
   .wf-tile-dl:hover{background:#fff;border-color:#94a3b8;}
   .wf-tile-teams{display:flex;gap:3px;max-width:220px;}
@@ -1375,14 +1375,15 @@
                           <img :src="filePreviewUrl(file) || fileThumbUrl(file)" loading="lazy" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, fileThumbUrl(file))">
                           <span class="wf-feed-zoom"><span class="material-symbols-outlined">zoom_in</span></span>
                           <a class="wf-tile-dl" :href="smartFileUrl(file)" @click.stop title="이 파일 받기"><span class="material-symbols-outlined" style="font-size:14px;">download</span></a>
+                          <button type="button" class="wf-tile-dl" x-show="detail.job.viewerCanManage" @click.stop="deleteWorkflowFile(file)" :disabled="saving" title="이 파일 삭제 — 실수로 올렸을 때(작성자·관리자, 원본은 보존)" style="top:8px;left:8px;right:auto;bottom:auto;color:#dc2626;"><span class="material-symbols-outlined" style="font-size:14px;">delete</span></button>
                         </div>
                       </template>
                       <template x-if="!(file.isImage && file.exists!==false)">
                         <div class="wf-feed-filebar" :class="file.exists===false ? 'missing' : ''" :title="file.originalName || ''">
                           <span class="wf-feed-ext" x-text="file.exists===false ? '⚠' : fileTypeLabel(file)"></span>
-                          <span class="wf-feed-name" x-text="file.exists===false ? '서버 파일 없음' : (fileTypeLabel(file) + ' 파일')"></span>
-                          <span style="flex:1"></span>
+                          <span class="wf-feed-name" :title="file.originalName || ''" x-text="file.exists===false ? '서버 파일 없음' : (file.originalName || (fileTypeLabel(file) + ' 파일'))"></span>
                           <a class="wf-rc-icon" x-show="file.exists!==false" :href="smartFileUrl(file)" @click.stop title="이 파일 받기"><span class="material-symbols-outlined">download</span></a>
+                          <button type="button" class="wf-rc-icon" x-show="detail.job.viewerCanManage" @click.stop="deleteWorkflowFile(file)" :disabled="saving" title="이 파일 삭제 — 실수로 올렸을 때(작성자·관리자, 원본은 보존)" style="color:#dc2626;border-color:#fca5a5;"><span class="material-symbols-outlined">delete</span></button>
                         </div>
                       </template>
                       <div class="wf-tile-teams" x-show="file.isImage && (detail.job.currentStage==='factory' || detail.job.currentStage==='delivery') && detail.job.viewerCanAssignTeam">
