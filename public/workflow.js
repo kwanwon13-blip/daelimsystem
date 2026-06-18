@@ -607,7 +607,7 @@ function workflowApp() {
         id: item.id,
         jobId: item.jobId || '',
         itemId: item.id,
-        title: (this.workflowEventFocusLabel(item) || '알림') + (item.jobTitle ? ' · ' + item.jobTitle : ''),
+        title: (this.workflowEventFocusLabel(item) || '알림') + ' · ' + (([item.companyName, item.projectName].filter(Boolean).join(' ')) || item.jobTitle || ''),
         body: String(item.message || '').slice(0, 200),
         actorName: item.actorName || '',
       });

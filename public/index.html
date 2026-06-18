@@ -46,7 +46,7 @@
   <script src="/statements.js"></script>
   <script src="/esm-purchase.js"></script>
   <script src="/company-purchase.js"></script>
-  <script src="/workflow.js?v=20260617y"></script><!-- v= 캐시버스트: workflow.js 배포 때마다 올릴 것 (옛 JS 캐시로 새 버튼이 죽는 사고 방지) -->
+  <script src="/workflow.js?v=20260617z"></script><!-- v= 캐시버스트: workflow.js 배포 때마다 올릴 것 (옛 JS 캐시로 새 버튼이 죽는 사고 방지) -->
   <!-- Chart.js (홈 대시보드 그래프) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <!-- SheetJS — AI 챗에서 엑셀 인라인 미리보기 -->
@@ -8318,7 +8318,7 @@ function app() {
       (summary.urgentFileItems || []).slice(0, 4).forEach(file => {
         add(
           `urgent_file_${file.id || file.jobId}`,
-          `긴급 시안 확인 · ${file.originalName || file.jobTitle || '파일'}${file.designDueDate ? ' · 희망 ' + file.designDueDate : ''}`,
+          `긴급 · ${[file.companyName, file.projectName].filter(Boolean).join(' ') || file.jobTitle || '시안'} · ${file.originalName || '파일'}`,
           `workflow:${encodeURIComponent(file.jobId || '')}:${encodeURIComponent(file.id || '')}`,
           file.createdAt
         );
@@ -8330,15 +8330,16 @@ function app() {
         .forEach(file => {
           add(
             `unread_file_${file.id || file.jobId}`,
-            `시안/파일 확인 필요 · ${file.originalName || file.jobTitle || '파일'}`,
+            `확인 필요 · ${[file.companyName, file.projectName].filter(Boolean).join(' ') || file.jobTitle || ''} · ${file.originalName || '파일'}`,
             `workflow:${encodeURIComponent(file.jobId || '')}:${encodeURIComponent(file.id || '')}`,
             file.createdAt
           );
         });
       (summary.unreadEventItems || []).slice(0, 4).forEach(event => {
+        const coSite = [event.companyName, event.projectName].filter(Boolean).join(' ');
         add(
           `unread_event_${event.id || event.jobId}`,
-          this.workflowEventNotificationMessage(event),
+          (coSite ? coSite + ' · ' : '') + this.workflowEventNotificationMessage(event),
           `workflow:${encodeURIComponent(event.jobId || '')}:${encodeURIComponent(event.id || '')}`,
           event.createdAt
         );

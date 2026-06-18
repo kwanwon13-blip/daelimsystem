@@ -2711,6 +2711,8 @@ function buildSummary(data, req) {
         stageLabel: workflowStageLabel(file.stageId) || STAGES.find(s => s.id === file.stageId)?.label || file.stageId,
         kind: file.kind || 'attachment',
         originalName: file.originalName,
+        companyName: job?.companyName || '',
+        projectName: job?.projectName || '',
         note: file.note || '',
         targetLabel: file.targetLabel || '',
         reviewStatus: file.reviewStatus || 'pending',
@@ -2728,6 +2730,8 @@ function buildSummary(data, req) {
         id: event.id,
         jobId: event.jobId,
         jobTitle: job?.title || '',
+        companyName: job?.companyName || '',
+        projectName: job?.projectName || '',
         message: event.message || '',
         type: event.type || '',
         targetLabel: event.targetLabel || '',
@@ -2753,6 +2757,8 @@ function buildSummary(data, req) {
         stageId: file.stageId,
         stageLabel: workflowStageLabel(file.stageId) || STAGES.find(s => s.id === file.stageId)?.label || file.stageId,
         originalName: file.originalName,
+        companyName: job?.companyName || '',
+        projectName: job?.projectName || '',
         designDueDate: file.designDueDate || '',
         factoryAvailableDate: file.factoryAvailableDate || '',
         scheduleNegotiation: file.scheduleNegotiation || 'pending',
@@ -4122,7 +4128,16 @@ router.put('/jobs/:id', (req, res) => {
   // 공장(대림컴퍼니)이 완료가능일을 바꾸면 디자인팀에 알림 — 요청일보다 늦으면 긴급(지연)
   if (job.currentStage === 'factory' && job.factoryAvailableDate && job.factoryAvailableDate !== prevFactoryDate) {
     const late = !!(job.dueDate && job.factoryAvailableDate > job.dueDate);
-    addEvent(data, req, job.id, 'schedule', `공장 완료가능일 ${job.factoryAvailableDate}${late ? ` · 요청일(${job.dueDate})보다 지연` : ' · 일정 조정'}`, {
+    let shiftLabel = ' · 일정 조정';
+    if (job.dueDate) {
+      const md = String(job.dueDate).match(/(\d{4})-(\d{2})-(\d{2})/);
+      const mf = String(job.factoryAvailableDate).match(/(\d{4})-(\d{2})-(\d{2})/);
+      if (md && mf) {
+        const diff = Math.round((new Date(+mf[1], +mf[2] - 1, +mf[3]) - new Date(+md[1], +md[2] - 1, +md[3])) / 86400000);
+        shiftLabel = diff > 0 ? ` · 완료요청일보다 ${diff}일 지연` : (diff < 0 ? ` · 완료요청일보다 ${Math.abs(diff)}일 빠름` : ' · 완료요청일과 동일');
+      }
+    }
+    addEvent(data, req, job.id, 'schedule', `공장 완료가능일 ${job.factoryAvailableDate}${shiftLabel}`, {
       targetStageIds: ['design'],
       factoryAvailableDate: job.factoryAvailableDate,
       dueDate: job.dueDate,
