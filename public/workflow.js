@@ -2227,11 +2227,11 @@ function workflowApp() {
       const r = card.getBoundingClientRect();
       this.cardZoom.showTimer = setTimeout(() => {
         if (this.filePreview && this.filePreview.open) return;
-        const h = Math.min(600, Math.round(window.innerHeight * 0.64));
-        const w = Math.min(window.innerWidth - 16, Math.max(Math.round(r.width), 380));
-        let left = r.left; if (left + w > window.innerWidth - 8) left = window.innerWidth - w - 8; if (left < 8) left = 8;
-        let top = r.top; if (top + h > window.innerHeight - 8) top = Math.max(8, window.innerHeight - h - 8);
-        this.cardZoom.style = `left:${Math.round(left)}px;top:${Math.round(top)}px;width:${w}px;height:${h}px;`;
+        const w = Math.min(window.innerWidth - 16, 520);
+        const bottom = Math.max(8, window.innerHeight - Math.round(r.bottom)); // 오버레이 바닥 = 썸네일 바닥 → '위로만' 자람(아래로 안 커짐, 아래 카드/버튼 안 가림)
+        const h = Math.max(180, Math.min(Math.round(window.innerHeight * 0.66), Math.round(r.bottom) - 8));
+        let left = Math.round(r.left); if (left + w > window.innerWidth - 8) left = window.innerWidth - w - 8; if (left < 8) left = 8;
+        this.cardZoom.style = `left:${left}px;bottom:${bottom}px;width:${w}px;height:${h}px;`;
         this.cardZoom.index = 0;
         this.cardZoom.files = urls;
         this.cardZoom.jobId = job.id;
