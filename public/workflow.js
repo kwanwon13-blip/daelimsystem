@@ -39,7 +39,7 @@ function workflowApp() {
     boardSort: 'date',
     boardTeam: '', // '' 전체 / 'welding' 용접팀 / 'output' 출력팀
     boardUnordered: false, // true면 미발주(발주 전) 시안만 — 평소엔 보드에서 숨김
-    mgrCfg: { open: false, loading: false, saving: false, rules: [], fallback: '우정은' }, // 업체별 경영관리 담당자(관리자 전용 설정)
+    mgrCfg: { open: false, loading: false, saving: false, rules: [], fallback: '우정은', unassigned: [] }, // 업체별 경영관리 담당자(관리자 전용 설정)
     toasts: [], // 인앱 알림(우하단) — OS 알림이 막힌 HTTP에서도 작동. 자동으로 안 사라지고 [확인]해야 닫힘
     boardFocus: '', // '' = 모든 칸 동일 / stageId = 그 칸만 크게(나머지는 시안 레일)
     boardView: 'board', // 'board' 진행 3칸 / 'week' 주간일정 / 'ledger' 통합 내역표 (상단 탭)
@@ -1686,10 +1686,16 @@ function workflowApp() {
         if (!r.ok || !d.ok) throw new Error(d.error || '불러오기 실패');
         this.mgrCfg.rules = (d.rules || []).map(x => ({ keyword: x.keyword || '', manager: x.manager || '' }));
         this.mgrCfg.fallback = d.fallback || '우정은';
+        this.mgrCfg.unassigned = d.unassigned || [];
       } catch (e) { alert(e.message); this.mgrCfg.open = false; }
       finally { this.mgrCfg.loading = false; }
     },
     addManagerRule() { this.mgrCfg.rules.push({ keyword: '', manager: '' }); },
+    addManagerRuleFor(name) {
+      if (!name) return;
+      if (!this.mgrCfg.rules.some(r => (r.keyword || '').trim() === name)) this.mgrCfg.rules.push({ keyword: name, manager: '' });
+      this.mgrCfg.unassigned = (this.mgrCfg.unassigned || []).filter(c => c.name !== name);
+    },
     removeManagerRule(i) { this.mgrCfg.rules.splice(i, 1); },
     async saveManagerSettings() {
       this.mgrCfg.saving = true;
@@ -1700,6 +1706,7 @@ function workflowApp() {
         if (!r.ok || !d.ok) throw new Error(d.error || '저장 실패');
         this.mgrCfg.rules = (d.rules || []).map(x => ({ keyword: x.keyword || '', manager: x.manager || '' }));
         this.mgrCfg.fallback = d.fallback || '우정은';
+        this.mgrCfg.unassigned = d.unassigned || [];
         this.mgrCfg.open = false;
         alert('업체별 담당자가 저장됐습니다.');
       } catch (e) { alert(e.message); }

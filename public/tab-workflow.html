@@ -2136,6 +2136,17 @@
           </div>
         </template>
         <button type="button" @click="addManagerRule()" style="margin-top:4px;border:1px dashed #94a3b8;border-radius:7px;background:#f8fafc;color:#475569;padding:7px 12px;cursor:pointer;font-weight:700;font-size:12px;width:100%;">+ 업체 추가</button>
+        <div x-show="mgrCfg.unassigned && mgrCfg.unassigned.length" style="margin-top:14px;padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;">
+          <div style="font-size:12px;font-weight:800;color:#92400e;margin-bottom:7px;"><span class="material-symbols-outlined" style="font-size:15px;vertical-align:-3px;">report</span> 그 외(기본 담당)로 처리 중인 업체 — 담당자 지정 필요 <span x-text="'('+mgrCfg.unassigned.length+')'"></span></div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            <template x-for="(co, i) in mgrCfg.unassigned" :key="'un'+i">
+              <button type="button" @click="addManagerRuleFor(co.name)" style="border:1px solid #fcd34d;border-radius:999px;background:#fff;color:#92400e;padding:3px 10px;font-size:11.5px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:4px;" :title="'클릭하면 규칙에 추가: ' + co.name">
+                <span x-text="co.name"></span><span style="color:#b45309;font-weight:600;" x-text="co.count + '건'"></span><span style="color:#16a34a;font-weight:900;">＋</span>
+              </button>
+            </template>
+          </div>
+          <div style="font-size:11px;color:#a16207;margin-top:6px;">칩을 누르면 규칙에 추가됩니다 → 담당자 이름을 채우고 저장하세요.</div>
+        </div>
         <div style="margin-top:14px;padding-top:12px;border-top:1px solid #e2e8f0;display:flex;align-items:center;gap:8px;">
           <span style="font-size:12px;font-weight:800;color:#64748b;flex:0 0 auto;">그 외 전부(기본)</span>
           <input class="wf-input" type="text" x-model="mgrCfg.fallback" placeholder="예: 우정은" style="flex:1;">

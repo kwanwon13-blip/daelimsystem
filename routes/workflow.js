@@ -1248,6 +1248,25 @@ function managerNameForCompany(companyName) {
   }
   return cfg.fallback;
 }
+// 규칙에 안 걸려 '그 외(기본 담당)'로 처리 중인 업체 목록(진행중 작업 기준) — 관리자가 보고 담당자 지정용
+function unassignedCompanies(cfg) {
+  const conf = cfg || loadCompanyManagerConfig();
+  let data;
+  try { data = loadStore(); } catch (_) { return []; }
+  const counts = new Map();
+  for (const job of data.jobs || []) {
+    if (job && job.status === 'cancelled') continue;
+    const name = safeText(job && job.companyName, 120).trim();
+    if (!name) continue;
+    const c = lowerText(name);
+    if ((conf.rules || []).some(r => c.includes(lowerText(r.keyword)))) continue;
+    counts.set(name, (counts.get(name) || 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ko'));
+}
+
 function managerUsersForJob(job, actorId = '') {
   const name = managerNameForCompany(job && job.companyName);
   if (!name) return [];
@@ -3490,12 +3509,12 @@ router.post('/settings/departments', requireAdmin, (req, res) => {
 // 업체별 경영관리 담당자 — 관리자 전용 조회/저장
 router.get('/settings/company-managers', requireAdmin, (req, res) => {
   const cfg = loadCompanyManagerConfig();
-  res.json({ ok: true, rules: cfg.rules, fallback: cfg.fallback });
+  res.json({ ok: true, rules: cfg.rules, fallback: cfg.fallback, unassigned: unassignedCompanies(cfg) });
 });
 
 router.post('/settings/company-managers', requireAdmin, (req, res) => {
   const saved = saveCompanyManagerConfig(req.body && req.body.rules, req.body && req.body.fallback);
-  res.json({ ok: true, rules: saved.rules, fallback: saved.fallback });
+  res.json({ ok: true, rules: saved.rules, fallback: saved.fallback, unassigned: unassignedCompanies(saved) });
 });
 
 router.get('/settings/public-link', (req, res) => {
