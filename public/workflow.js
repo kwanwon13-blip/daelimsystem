@@ -950,7 +950,9 @@ function workflowApp() {
 
     // 보드 한 칸을 정렬/그룹해서 반환. 날짜별=단일그룹(마감순), 사람별=사람별 그룹(소제목용)
     boardGroups(stageId) {
-      const byDate = (a, b) => String(a.dueDate || '9999-99-99').localeCompare(String(b.dueDate || '9999-99-99')) || String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+      // 긴급(>높음) 건은 칸 맨 위 고정 — 그다음 마감일/생성순
+      const prioRank = j => (j && j.priority === 'urgent') ? 2 : ((j && j.priority === 'high') ? 1 : 0);
+      const byDate = (a, b) => (prioRank(b) - prioRank(a)) || String(a.dueDate || '9999-99-99').localeCompare(String(b.dueDate || '9999-99-99')) || String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
       const jobs = (this.jobsForStage(stageId) || []).slice();
       if (this.boardSort !== 'person') {
         return [{ key: '__all', person: '', jobs: jobs.sort(byDate) }];
@@ -984,12 +986,18 @@ function workflowApp() {
       const due = String(job.dueDate || '').slice(0, 10);
       if (this.wfDateFrom && (!due || due < this.wfDateFrom)) return false;
       if (this.wfDateTo && (!due || due > this.wfDateTo)) return false;
+      // 외주(타 회사) 건은 보드에서 제외 — 헷갈림 방지(외주는 종이 시안으로 전달)
+      if (job.productionRoute === 'external') return false;
+      // 업체·검색: 띄어쓰기로 여러 단어 = 각 단어 모두 포함(AND, 시안검색식 토큰)
       const v = (this.wfVendor || '').trim().toLowerCase();
-      if (v && !String(job.companyName || '').toLowerCase().includes(v)) return false;
+      if (v) {
+        const vhay = String(job.companyName || '').toLowerCase();
+        if (!v.split(/\s+/).filter(Boolean).every(t => vhay.includes(t))) return false;
+      }
       const q = (this.query || '').trim().toLowerCase();
       if (q) {
         const hay = `${job.title || ''} ${job.companyName || ''} ${job.projectName || ''} ${job.completionCode || ''}`.toLowerCase();
-        if (!hay.includes(q)) return false;
+        if (!q.split(/\s+/).filter(Boolean).every(t => hay.includes(t))) return false;
       }
       // 공장 팀 필터 — 용접팀/출력팀이 자기 시안 있는 작업만 보기
       if (this.boardTeam === 'welding' && !(job.weldingFileCount > 0)) return false;

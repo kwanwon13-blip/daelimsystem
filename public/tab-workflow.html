@@ -121,6 +121,8 @@
   .wf-card.st-late{background:#fff7ed;border-color:#fed7aa;}
   .wf-card.st-done{background:#f0fdf4;border-color:#bbf7d0;}
   .wf-card.st-cancelled{background:#f8fafc;border-color:#e2e8f0;}
+  .wf-card.urgent{border-color:#dc2626;box-shadow:0 0 0 1.5px rgba(220,38,38,.5);}
+  .wf-rc-urgent{flex:0 0 auto;display:inline-flex;align-items:center;font-size:10.5px;font-weight:900;color:#fff;background:#dc2626;border-radius:5px;padding:1px 7px;height:18px;line-height:1;letter-spacing:.3px;}
   /* === 줄카드(샘플): 썸네일(좌, 큼) + [큰 파일명 제목 2줄 / 구분선 / 회사-현장·특이·발주자]. 썸네일 hover 시 시안 '위로' 크게 === */
   .wf-rowcard{padding:11px 13px;display:flex;flex-direction:row;align-items:flex-start;gap:12px;}
   .wf-rowcard.active{padding:12px 13px;}
@@ -857,9 +859,9 @@
                 <div class="wf-grp">
                 <div class="wf-grp-head" x-show="boardSort==='person'"><span class="material-symbols-outlined" style="font-size:14px;">person</span><span x-text="grp.person"></span><span class="wf-grp-n" x-text="grp.jobs.length"></span></div>
                 <template x-for="job in grp.jobs" :key="job.id">
-                <div class="wf-card wf-rowcard text-left" role="button" tabindex="0" :class="[cardStateClass(job), (selectedId===job.id && (!selectedWorkStageId || selectedWorkStageId===stage.id)) ? 'active' : '', job.status === 'cancelled' ? 'cancelled' : '', (!job.primaryVisualFile ? 'no-img' : '')]" @click="selectJob(job.id, stage.id)">
+                <div class="wf-card wf-rowcard text-left" role="button" tabindex="0" :class="[cardStateClass(job), (selectedId===job.id && (!selectedWorkStageId || selectedWorkStageId===stage.id)) ? 'active' : '', job.status === 'cancelled' ? 'cancelled' : '', (job.priority==='urgent' ? 'urgent' : ''), (!job.primaryVisualFile ? 'no-img' : '')]" @click="selectJob(job.id, stage.id)">
                   <template x-if="job.primaryVisualFile">
-                    <button type="button" class="wf-rc-thumb" @click.stop="openCardPreview(job)" @mouseenter="cardZoomShow($event, job)" @mouseleave="cardZoomHideSoon()" :title="'마우스 올리면 시안 크게(위로) · 클릭하면 전체화면' + ((job.visualFileCount||0)>1 ? ' · 총 ' + job.visualFileCount + '장 ◀▶' : '')">
+                    <button type="button" class="wf-rc-thumb" @click.stop="openCardPreview(job)" :title="'클릭하면 전체화면' + ((job.visualFileCount||0)>1 ? ' · 총 ' + job.visualFileCount + '장 ◀▶' : '')">
                       <img :src="job.primaryVisualFile.thumbUrl || job.primaryVisualFile.previewUrl" loading="lazy" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, job.primaryVisualFile.previewUrl)">
                       <span class="wf-rc-more" x-show="(job.visualFileCount||0)>1" x-text="'+' + (job.visualFileCount - 1)"></span>
                     </button>
@@ -870,6 +872,7 @@
                     <span class="wf-rc-title" :title="cardTitle(job)" x-text="cardTitle(job)"></span>
                   </div>
                   <div class="wf-rc-sub">
+                    <span class="wf-rc-urgent" x-show="job.priority==='urgent'" title="긴급">긴급</span>
                     <span class="wf-rc-co" x-show="cardSubtitle(job)" x-text="cardSubtitle(job)"></span>
                     <span class="wf-rc-flag" x-show="job.handoffNote" :title="'전달 특이사항(확인): ' + job.handoffNote">📌특이</span>
                     <span class="wf-rc-flag rename" x-show="job.renameRequest" :title="'현장명 변경 대기(팀장 승인): ' + ((job.renameRequest||{}).from||'') + ' → ' + ((job.renameRequest||{}).to||'')">📝이름변경</span>
@@ -895,17 +898,15 @@
                         <span class="wf-rc-team un" x-show="job.unassignedFileCount" title="전상현 실장이 팀 배정 필요">미배정 <span x-text="job.unassignedFileCount"></span></span>
                         <span class="wf-rc-team weld" x-show="job.weldingFileCount">용접 <span x-text="job.weldingFileCount"></span></span>
                         <span class="wf-rc-team out" x-show="job.outputFileCount">출력 <span x-text="job.outputFileCount"></span></span>
-                        <input class="wf-rc-dateinput" type="date" x-show="job.viewerCanFactory" :value="cardFactoryDateValue(job)" @click.stop @change.stop="factoryDatePending[job.id] = $event.target.value" title="완료가능일 — 요청일이 기본값. 바꾸면 [수락]을 눌러 확정(요청일과 다르면 디자인팀에 자동 알림)">
-                        <span class="wf-rc-date" x-show="!job.viewerCanFactory" x-text="cardFactoryDateValue(job) || '미정'" title="완료가능일(공장 확정)"></span>
+                        <input class="wf-rc-dateinput" type="date" x-show="job.viewerCanFactory && job.priority!=='urgent'" :value="cardFactoryDateValue(job)" @click.stop @change.stop="factoryDatePending[job.id] = $event.target.value" title="완료가능일 — 요청일이 기본값. 바꾸면 [수락]을 눌러 확정(요청일과 다르면 디자인팀에 자동 알림)">
+                        <span class="wf-rc-date" x-show="!job.viewerCanFactory || job.priority==='urgent'" :title="job.priority==='urgent' ? '긴급건 — 컴퍼니에서 일정 수정 불가(요청일 준수)' : '완료가능일(공장 확정)'" x-text="cardFactoryDateValue(job) || '미정'"></span>
                         <span style="flex:1"></span>
-                        <button type="button" class="wf-rc-btn ok" @click.stop="cardSetFactoryDate(job.id, cardFactoryDateValue(job))" x-show="cardDateDirty(job) && job.viewerCanFactory" title="이 날짜로 확정">수락</button>
+                        <button type="button" class="wf-rc-btn ok" @click.stop="cardSetFactoryDate(job.id, cardFactoryDateValue(job))" x-show="cardDateDirty(job) && job.viewerCanFactory && job.priority!=='urgent'" title="이 날짜로 확정">수락</button>
                         <button type="button" class="wf-rc-btn" @click.stop="cardHandoff(job.id, stage.id)" x-show="!cardDateDirty(job) && job.status!=='done' && job.status!=='cancelled' && job.viewerCanCurrentStage">완료</button>
                       </div>
                     </template>
                     <template x-if="stage.id==='delivery'">
                       <div class="wf-rc-line">
-                        <a class="wf-rc-mini" :href="job.archiveUrl + '?images=1'" @click.stop x-show="job.visualFileCount" title="JPG(이미지)만 받기"><span class="material-symbols-outlined">photo</span>JPG</a>
-                        <button type="button" class="wf-rc-mini" @click.stop="printDeliverySheet(job)" title="납품 지시서 인쇄(종이 전달용)"><span class="material-symbols-outlined">print</span>인쇄</button>
                         <span class="wf-rc-date" x-show="job.factoryAvailableDate" x-text="job.factoryAvailableDate" title="완료가능일"></span>
                         <span style="flex:1"></span>
                         <button type="button" class="wf-rc-btn" @click.stop="cardHandoff(job.id, stage.id)" x-show="job.status!=='done' && job.status!=='cancelled' && job.viewerCanCurrentStage">납품준비</button>

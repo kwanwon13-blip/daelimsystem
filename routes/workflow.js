@@ -1206,6 +1206,29 @@ function isApprovedWorkflowUser(user) {
   return !!(user && user.userId && (!user.status || user.status === 'approved'));
 }
 
+// 경영관리팀 업체별 업무담당자 — 워크플로 알림을 해당 업체 담당자에게도 보냄(2026-06 미팅)
+// 포스코=김선율 · DL/디엘=안소현 · 퍼시스/두산/한신/요진/골든플랫폼=김다한 · 그 외(쌍용·컴퍼니매출 등)=우정은
+const WF_COMPANY_MANAGERS = [
+  { kw: ['포스코'], name: '김선율' },
+  { kw: ['dl', '디엘'], name: '안소현' },
+  { kw: ['퍼시스', '두산', '한신', '요진', '골든플랫폼'], name: '김다한' },
+];
+function managerNameForCompany(companyName) {
+  const c = lowerText(companyName);
+  if (!c) return '우정은';
+  for (const m of WF_COMPANY_MANAGERS) {
+    if (m.kw.some(k => c.includes(k))) return m.name;
+  }
+  return '우정은'; // 쌍용·대림컴퍼니 매출 등 기본값(catch-all)
+}
+function managerUsersForJob(job, actorId = '') {
+  const name = managerNameForCompany(job && job.companyName);
+  if (!name) return [];
+  const org = loadOrgSnapshot();
+  const actor = lowerText(actorId);
+  return (org.users || []).filter(u => isApprovedWorkflowUser(u) && lowerText(u.name) === lowerText(name) && lowerText(u.userId) !== actor);
+}
+
 function workflowTargetUsers(job, target = {}, actorId = '') {
   const org = loadOrgSnapshot();
   const users = (org.users || []).filter(isApprovedWorkflowUser);
@@ -1242,17 +1265,22 @@ function notifyWorkflowEventTargets(data, req, event) {
   if (!event || !hasEventTarget(event)) return;
   const job = data.jobs.find(j => j.id === event.jobId);
   if (!job) return;
+  const actorId = req.user?.userId || event.actorId || '';
   const users = workflowTargetUsers(job, {
     targetUserId: event.targetUserId,
     targetUserName: event.targetUserName,
     targetLabel: event.targetLabel,
     targetStageIds: eventTargetStageIds(event),
-  }, req.user?.userId || event.actorId || '');
-  if (!users.length) return;
+  }, actorId);
+  // 경영관리팀 업체별 담당자도 항상 수신(기존 디자인 담당자 알림에 더해)
+  const recipients = new Map();
+  for (const u of users) recipients.set(String(u.userId), u);
+  for (const u of managerUsersForJob(job, actorId)) recipients.set(String(u.userId), u);
+  if (!recipients.size) return;
   const title = safeText(job.title, 80) || '워크플로우';
   const message = safeText(event.message, 180);
   const link = `workflow:${event.jobId || ''}:${event.id || ''}`;
-  for (const user of users) {
+  for (const user of recipients.values()) {
     notify(user.userId, 'workflow', `[워크플로우] ${title}${message ? ' - ' + message : ''}`, link);
   }
 }
