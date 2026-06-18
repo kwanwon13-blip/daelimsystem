@@ -606,6 +606,7 @@ function workflowApp() {
       this.toasts.unshift({
         id: item.id,
         jobId: item.jobId || '',
+        itemId: item.id,
         title: (this.workflowEventFocusLabel(item) || '알림') + (item.jobTitle ? ' · ' + item.jobTitle : ''),
         body: String(item.message || '').slice(0, 200),
         actorName: item.actorName || '',
@@ -616,7 +617,7 @@ function workflowApp() {
       this.toasts = this.toasts.filter(t => t.id !== id);
     },
     openToast(t) {
-      if (t && t.jobId) { try { this.selectJob(t.jobId); } catch (_) {} }
+      if (t && t.jobId) { try { this.openWorkflowTarget(t.jobId, t.itemId || ''); } catch (_) { try { this.selectJob(t.jobId); } catch (__) {} } }
       if (t) this.dismissToast(t.id);
     },
 

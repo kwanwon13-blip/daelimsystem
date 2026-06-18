@@ -46,7 +46,7 @@
   <script src="/statements.js"></script>
   <script src="/esm-purchase.js"></script>
   <script src="/company-purchase.js"></script>
-  <script src="/workflow.js?v=20260617x"></script><!-- v= 캐시버스트: workflow.js 배포 때마다 올릴 것 (옛 JS 캐시로 새 버튼이 죽는 사고 방지) -->
+  <script src="/workflow.js?v=20260617y"></script><!-- v= 캐시버스트: workflow.js 배포 때마다 올릴 것 (옛 JS 캐시로 새 버튼이 죽는 사고 방지) -->
   <!-- Chart.js (홈 대시보드 그래프) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <!-- SheetJS — AI 챗에서 엑셀 인라인 미리보기 -->
@@ -8186,7 +8186,8 @@ function app() {
         let workflowItems = [];
         if (workflowResult.status === 'fulfilled' && workflowResult.value && workflowResult.value.ok) {
           const wd = await workflowResult.value.json();
-          workflowItems = this.workflowNotificationItems(wd.summary || {});
+          const seenPopup = this.workflowPopupSeenSet();
+          workflowItems = this.workflowNotificationItems(wd.summary || {}).filter(it => it && !seenPopup.has(String(it.id)));
         }
         const workflowLinks = new Set(workflowItems.map(item => item.link).filter(Boolean));
         const merged = [
@@ -8370,6 +8371,10 @@ function app() {
     async markNotificationRead(item) {
       if (!item || item.read) return;
       if (item.synthetic) {
+        // 읽음 영속화: 링크에 itemId 있으면 서버 readBy, 없으면(일정/내담당) localStorage seen — 새로고침해도 부활 안 함
+        const tgt = this.workflowNotificationTarget(item.link || '');
+        if (tgt.jobId && tgt.itemId) this.markWorkflowLinkedItemRead(tgt.jobId, tgt.itemId);
+        this.rememberWorkflowPopupItems([item]);
         item.read = true;
         this.notifCenter.unreadCount = Math.max(0, Number(this.notifCenter.unreadCount || 0) - 1);
         return;
@@ -8384,6 +8389,13 @@ function app() {
     async markAllNotificationsRead() {
       try {
         await fetch('/api/notifications/read-all', { method: 'PUT' });
+        // 워크플로 synthetic 항목도 함께 영속 처리(서버 readBy + localStorage seen) — 모두읽음 후 새로고침해도 부활 방지
+        const synth = (this.notifCenter.items || []).filter(it => it && it.synthetic && !it.read);
+        this.rememberWorkflowPopupItems(synth);
+        await Promise.allSettled(synth.map(it => {
+          const tgt = this.workflowNotificationTarget(it.link || '');
+          return (tgt.jobId && tgt.itemId) ? this.markWorkflowLinkedItemRead(tgt.jobId, tgt.itemId) : Promise.resolve();
+        }));
         this.notifCenter.items.forEach(item => item.read = true);
         this.notifCenter.unreadCount = 0;
       } catch(e) {}
