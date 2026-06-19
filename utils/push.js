@@ -68,6 +68,11 @@ function saveSubscription(userId, subscription, ua = '') {
   return true;
 }
 
+function countForUser(userId) {
+  try { const id = String(userId || ''); return _load().subscriptions.filter(s => String(s.userId) === id).length; }
+  catch (_) { return 0; }
+}
+
 function removeSubscription(endpoint) {
   if (!endpoint) return;
   const store = _load();
@@ -113,4 +118,4 @@ function sendPushToUsers(userIds, payload) {
   }
 }
 
-module.exports = { getPublicKey, isReady, saveSubscription, removeSubscription, sendPushToUsers };
+module.exports = { getPublicKey, isReady, saveSubscription, removeSubscription, sendPushToUsers, countForUser };

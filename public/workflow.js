@@ -673,7 +673,14 @@ function workflowApp() {
         const es = new EventSource('/api/workflow/events');
         this._sse = es;
         es.onopen = () => { this.sseOn = true; };
-        es.onmessage = () => { this.loadSummary(); }; // 변화 신호 → 즉시 갱신(토스트/OS알림 파이프라인 그대로 탐)
+        es.onmessage = (ev) => {
+          let d = {}; try { d = JSON.parse(ev.data); } catch (_) {}
+          if (d && d.t === 'test') { // 테스트 알림: SSE 왕복(서버→이 탭)이 살아있음을 눈으로 확인
+            this.pushToast({ id: 'sse-test-' + Date.now(), jobId: '', message: '🔔 SSE 실시간 도착! (서버 → 이 탭)', companyName: '테스트 알림', projectName: '', actorName: '' });
+            return;
+          }
+          this.loadSummary(); // 변화 신호 → 즉시 갱신(토스트/OS알림 파이프라인 그대로 탐)
+        };
         es.onerror = () => { this.sseOn = false; /* EventSource가 retry(5s)로 자동 재연결 */ };
       } catch (_) { this.sseOn = false; }
     },
@@ -761,6 +768,29 @@ function workflowApp() {
         }
         this.pushState = 'off';
       } catch (_) { this.pushState = 'off'; }
+    },
+    // 테스트 알림: ① 화면 토스트(즉시) ② SSE 실시간 왕복 ③ 웹푸시(OS 알림) — 3채널을 한 번에 점검 + 진단
+    async testNotify() {
+      // ① 화면(인앱) 토스트 — 권한·구독과 무관하게 항상 보임
+      this.pushToast({ id: 'local-test-' + Date.now(), jobId: '', message: '🔔 화면 알림 정상 (이 토스트가 보이면 OK)', companyName: '테스트 알림', projectName: '', actorName: '' });
+      // ②③ 서버에 테스트 발송(SSE + 웹푸시) + 진단
+      try {
+        const r = await fetch('/api/push/test', { method: 'POST' });
+        const j = await r.json().catch(() => ({}));
+        let msg = '테스트 알림을 보냈습니다.\n\n';
+        msg += '· 화면 토스트(우하단): 방금 떴는지 확인\n';
+        msg += '· SSE 실시간: 잠시 후 "SSE 실시간 도착" 토스트가 뜨면 정상\n';
+        msg += '· 서버 푸시 준비: ' + (j.pushReady ? '✅ 됨' : '❌ 안 됨(web-push 미설치/미초기화)') + '\n';
+        msg += '· 이 계정 구독 기기: ' + (j.subscriptions || 0) + '대';
+        if (!j.subscriptions) {
+          msg += '\n\n→ 이 기기는 아직 OS 푸시 구독 전입니다. [알림 받기]를 먼저 누르면, 다음 테스트부터 ERP를 꺼둬도 OS 알림이 옵니다.';
+        } else {
+          msg += '\n\n→ OS 알림(우측 하단/잠금화면)이 떴는지 확인하세요.';
+        }
+        alert(msg);
+      } catch (e) {
+        alert('테스트 발송 실패: ' + ((e && e.message) || e));
+      }
     },
 
     async setWorkflowListFilter(status = 'active', scope = 'all') {

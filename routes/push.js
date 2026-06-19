@@ -9,8 +9,25 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
 const push = require('../utils/push');
+const realtime = require('../utils/realtime');
 
 router.use(requireAuth);
+
+// 테스트 알림 — 본인에게 SSE(실시간) + 웹푸시(OS 알림) 동시 발송 + 진단 반환
+router.post('/test', (req, res) => {
+  const uid = req.user.userId;
+  const now = new Date().toLocaleTimeString('ko-KR');
+  try { realtime.send(uid, { t: 'test', message: '🔔 SSE 실시간 테스트 (' + now + ')' }); } catch (_) {}
+  try {
+    push.sendPushToUsers([uid], {
+      title: '🔔 테스트 알림',
+      body: '대림에스엠 ERP 알림이 정상 작동합니다. (' + now + ')',
+      link: '/#workflow',
+      tag: 'wf-test',
+    });
+  } catch (_) {}
+  res.json({ ok: true, pushReady: push.isReady(), subscriptions: push.countForUser(uid) });
+});
 
 router.get('/vapid-public-key', (req, res) => {
   res.json({ key: push.getPublicKey(), ready: push.isReady() });

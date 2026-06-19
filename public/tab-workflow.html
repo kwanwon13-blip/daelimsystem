@@ -630,6 +630,9 @@
           <span class="material-symbols-outlined" style="font-size:16px;" x-text="pushState==='on' ? 'notifications_active' : 'notifications'"></span>
           <span x-text="pushState==='on' ? '알림 켜짐' : '알림 받기'"></span>
         </button>
+        <button class="wf-btn ghost" @click="testNotify()" title="이 기기로 테스트 알림을 보내 화면·실시간·OS 알림이 잘 오는지 확인">
+          <span class="material-symbols-outlined" style="font-size:16px;">notification_add</span>테스트
+        </button>
         <button class="wf-btn ghost" @click="toggleDepartmentMappingPanel()">
           <span class="material-symbols-outlined" style="font-size:16px;">account_tree</span>
           <span x-text="departmentMappingSummary()"></span>
