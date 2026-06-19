@@ -4,6 +4,7 @@
  */
 const db = require('../db');
 const push = require('./push');
+const realtime = require('./realtime');
 
 // notify()의 link(앱 내부 표기)를 푸시 클릭 시 열 URL + 묶음 tag로 변환
 function pushTargetFromLink(type, link) {
@@ -37,6 +38,8 @@ function notify(targetUserId, type, message, link = '') {
   } catch (e) {
     console.error('[알림] 저장 실패:', e.message);
   }
+  // 변화 즉시 통지(열린 탭) — SSE로 그 사용자의 열린 ERP 탭에 바로 신호. 폴링 30초를 기다리지 않음.
+  try { realtime.send(targetUserId, { t: 'notify', type }); } catch (_) {}
   // 웹푸시(탭 닫혀도 OS 알림) — 구독한 기기로 발송. 미구독/미설치면 자동 no-op. 저장과 독립(실패해도 무방).
   try {
     const t = pushTargetFromLink(type, link);

@@ -44,6 +44,7 @@ function workflowApp() {
     companyActiveIndex: { form: -1, upload: -1, detail: -1 }, // 회사검색 드롭다운 키보드 하이라이트 인덱스
     toasts: [], // 인앱 알림(우하단) — OS 알림이 막힌 HTTP에서도 작동. 자동으로 안 사라지고 [확인]해야 닫힘
     pushState: 'unknown', // 웹푸시 구독상태: unknown/unsupported/off/on/denied (탭 닫혀도 OS 알림)
+    sseOn: false,         // SSE(변화 즉시 통지) 연결 여부 — 붙어 있으면 폴링은 백스톱만
     boardFocus: '', // '' = 모든 칸 동일 / stageId = 그 칸만 크게(나머지는 시안 레일)
     boardView: 'board', // 'board' 진행 3칸 / 'week' 주간일정 / 'ledger' 통합 내역표 (상단 탭)
     ledgerRows: [],
@@ -222,6 +223,7 @@ function workflowApp() {
       ['boardSort', 'boardTeam', 'factorySort', 'statusFilter', 'scopeFilter', 'boardUnordered'].forEach(k => { try { this.$watch(k, () => this.saveBoardPrefs()); } catch (_) {} });
       await this.loadJobs();
       this.startWorkflowPolling();
+      this.connectEvents();      // SSE: 변화 즉시 통지(열린 탭) — 30초 폴링 대신 실시간
       this.setupDesktopNotify(); // 공장 수락 등 '나에게 온' 새 알림을 OS 데스크탑 팝업(우하단)으로
       this.initPush();           // 웹푸시 구독상태 확인 + 서비스워커 등록(탭 닫혀도 OS 알림)
       this.consumeWorkflowDraft();
@@ -651,14 +653,29 @@ function workflowApp() {
 
     startWorkflowPolling() {
       if (this.workflowPollTimer) return;
-      // 탭이 가려져 있어도(백그라운드) 폴링을 멈추지 않는다 — 멈추면 '있으나 마나'였음.
-      // 단 부하 완충: 보이면 30초, 가려져 있으면 60초마다(매 2틱)만 요약을 끌어온다.
+      // 실시간은 SSE(connectEvents)가 담당 — 변화가 생긴 순간 바로 갱신. 폴링은 '백스톱'(SSE가 끊겼을 때의 안전망)일 뿐.
+      //  · SSE 연결됨: 2분(매 4틱)마다 한 번만 — 30초마다 두드리지 않는다.
+      //  · SSE 끊김:   보이면 30초, 가려지면 60초로 촘촘히(폴백).
       let _tick = 0;
       this.workflowPollTimer = setInterval(() => {
         _tick++;
-        if (document.hidden && (_tick % 2 !== 0)) return;
+        if (this.sseOn) { if (_tick % 4 !== 0) return; }
+        else if (document.hidden && (_tick % 2 !== 0)) return;
         this.loadSummary();
       }, 30000);
+    },
+
+    // ── SSE: 서버에서 '변화 있음' 신호가 오면 즉시 요약 갱신(폴링 30초를 기다리지 않음) ──
+    connectEvents() {
+      try {
+        if (typeof EventSource === 'undefined') return; // 미지원 → 폴링이 백업
+        if (this._sse) { try { this._sse.close(); } catch (_) {} }
+        const es = new EventSource('/api/workflow/events');
+        this._sse = es;
+        es.onopen = () => { this.sseOn = true; };
+        es.onmessage = () => { this.loadSummary(); }; // 변화 신호 → 즉시 갱신(토스트/OS알림 파이프라인 그대로 탐)
+        es.onerror = () => { this.sseOn = false; /* EventSource가 retry(5s)로 자동 재연결 */ };
+      } catch (_) { this.sseOn = false; }
     },
 
     // ── 웹푸시(서비스워커 Web Push): ERP를 꺼둬도 OS 알림. HTTPS(보안컨텍스트)에서만 가능 ──

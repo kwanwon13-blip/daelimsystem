@@ -7,6 +7,7 @@ const JSZip = require('jszip');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const db = require('../db');
 const { notify } = require('../utils/notify');
+const realtime = require('../utils/realtime');
 const designModule = require('./design');
 const mailRoute = require('./mail');
 const { isPathInside } = require('./lib/design-workflow-storage');
@@ -3487,6 +3488,22 @@ router.post('/public/orders/:token/reply', (req, res) => {
 });
 
 router.use(requireAuth);
+
+// ── SSE: 변화 즉시 통지(열린 탭이 30초 폴링을 기다리지 않고 바로 갱신) ──
+router.get('/events', (req, res) => {
+  res.set({
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',   // 프록시 버퍼링 방지
+  });
+  if (res.flushHeaders) res.flushHeaders();
+  res.write('retry: 5000\n\n');
+  res.write('data: {"t":"hello"}\n\n');
+  const remove = realtime.addClient(req.user.userId, res);
+  const ping = setInterval(() => { try { res.write(': ping\n\n'); } catch (_) {} }, 25000); // keep-alive
+  req.on('close', () => { clearInterval(ping); remove(); });
+});
 
 router.get('/meta', (req, res) => {
   const publicLink = publicWorkflowLinkState();
