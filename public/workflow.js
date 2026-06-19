@@ -3529,6 +3529,10 @@ function workflowApp() {
         return alert('시안 파일을 올릴 때는 회사명을 입력하세요.');
       }
       if (this.newFiles.length) {
+        const _mm = this.uploadFolderMismatch(this.newFiles, this.form.companyName, this.form.projectName);
+        if (_mm && !confirm('⚠ 파일명이 이 작업의 회사/현장과 안 맞아 보입니다.\n\n파일: ' + _mm.file + '\n저장 위치: ' + this.form.companyName + (this.form.projectName ? ' / ' + this.form.projectName : '') + '\n\n이 경로에 그대로 저장할까요?\n(아니면 [취소] 후 회사/현장을 바로잡으세요)')) return;
+        const _others = this.otherCompaniesWithProject(this.form.companyName, this.form.projectName);
+        if (_others.length && !confirm("⚠ 현장 '" + (this.form.projectName || '') + "'은(는) 다른 회사(" + _others.join(', ') + ")에도 있습니다.\n\n이 작업은 '" + this.form.companyName + "'로 저장됩니다 — 회사가 맞나요?\n(아니면 [취소] 후 회사를 정확히 선택)")) return;
         const ready = await this.confirmWorkflowStorageReady(
           this.form.companyName,
           this.form.projectName,
@@ -3910,6 +3914,28 @@ function workflowApp() {
       await this.loadJobs();
     },
 
+    // 현장명이 다른 회사에도 있으면(예: '부평'이 요진건설·디엘건설 둘 다) 반환 — 회사 오선택 경고용
+    otherCompaniesWithProject(setCompany, projectName) {
+      const pk = this.normalizeOptionName(projectName);
+      if (!pk || pk.length < 2) return [];
+      const setKey = this.normalizeOptionName(setCompany);
+      const byCo = this.designWorkflowOptions.projectsByCompany || {};
+      const companies = this.designWorkflowOptions.companies || [];
+      const out = [];
+      for (const coKey of Object.keys(byCo)) {
+        if (!coKey || coKey === setKey) continue;
+        const match = (byCo[coKey] || []).some(p => {
+          const k = this.normalizeOptionName(p && (p.name || p.folderName) || p);
+          return k && (k === pk || k.includes(pk) || pk.includes(k));
+        });
+        if (match) {
+          const co = companies.find(c => this.normalizeOptionName(c.name) === coKey || this.normalizeOptionName(c.folderName) === coKey);
+          out.push(co ? co.name : coKey);
+          if (out.length >= 4) break;
+        }
+      }
+      return out;
+    },
     // 업로드 파일명이 작업(회사/현장)과 전혀 안 맞으면 경고용 — 파일명에 회사/현장 의미토큰이 하나도 없으면 불일치 의심
     uploadFolderMismatch(files, companyName, projectName) {
       const stop = new Set(['발주', '공장', '시안', '작업', '발주공장', '양면', '단면', '파일', '대지', '사본', 'pdf', 'jpg', 'jpeg', 'png', 'ai', 'psd']);
@@ -3945,6 +3971,8 @@ function workflowApp() {
         }
         const _mm = this.uploadFolderMismatch(files, storageCompanyName, storageProjectName);
         if (_mm && !confirm('⚠ 파일명이 이 작업의 회사/현장과 안 맞아 보입니다.\n\n파일: ' + _mm.file + '\n저장 위치: ' + storageCompanyName + (storageProjectName ? ' / ' + storageProjectName : '') + '\n\n이 경로에 그대로 저장할까요?\n(아니면 [취소] 후 위쪽 회사/현장을 바로잡으세요)')) return;
+        const _others = this.otherCompaniesWithProject(storageCompanyName, storageProjectName);
+        if (_others.length && !confirm("⚠ 현장 '" + (storageProjectName || '') + "'은(는) 다른 회사(" + _others.join(', ') + ")에도 있습니다.\n\n'" + storageCompanyName + "'로 저장됩니다 — 회사가 맞나요?\n(아니면 [취소] 후 회사를 바로잡으세요)")) return;
         const storageYear = this.uploadStorageYear();
         const ready = await this.confirmWorkflowStorageReady(storageCompanyName, storageProjectName, storageYear, '파일 업로드');
         if (!ready) return;
