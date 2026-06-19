@@ -4782,8 +4782,7 @@ router.post('/jobs/:id/orders/:orderId/email', async (req, res) => {
       attachedCount: mailFiles.attachments.length,
       publicUrl,
       recipientSavedToVendor,
-      targetStageIds: ['delivery'],
-      eventTargetLabel: stageTargetLabels(freshJob, ['delivery']).join(', '),
+      // 외주(기타업체) 메일 발주는 알림 미발송(사용자 요청) — targetStageIds 제거로 hasEventTarget=false → 알림 안 감. 기록(기록 탭)엔 그대로 남음.
     });
     saveStore(fresh);
     res.json({
