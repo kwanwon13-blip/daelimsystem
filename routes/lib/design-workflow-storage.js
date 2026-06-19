@@ -27,6 +27,15 @@ function normalizeKey(value) {
     .replace(/[\s._\-()（）\[\]{}]/g, '');
 }
 
+// 폴더 재사용용 부분일치 — 정확일치는 별도로 우선 처리. '짧은 쪽이 4자 미만이면 부분일치 금지'로
+// "포스코"(3자) 같은 짧은 폴더가 다른 현장(성수장미 등)을 통째로 빨아들이는 collapse 버그 방지.
+function looseKeyIncludes(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (Math.min(a.length, b.length) < 4) return false;
+  return a.includes(b) || b.includes(a);
+}
+
 function safePathPart(value, fallback = 'item') {
   const cleaned = String(value || '')
     .replace(/[\\/:*?"<>|\r\n\t]+/g, '_')
@@ -407,12 +416,7 @@ function findProjectForStorage(options, company, projectName) {
     }
   }
   return projects.find(project => normalizeKey(project.name) === key || normalizeKey(project.folderName) === key)
-    || projects.find(project => {
-      const nameKey = normalizeKey(project.name);
-      const folderKey = normalizeKey(project.folderName);
-      return (nameKey && (nameKey.includes(key) || key.includes(nameKey)))
-        || (folderKey && (folderKey.includes(key) || key.includes(folderKey)));
-    })
+    || projects.find(project => looseKeyIncludes(normalizeKey(project.name), key) || looseKeyIncludes(normalizeKey(project.folderName), key))
     || null;
 }
 
@@ -424,8 +428,7 @@ function projectFolderForYear(yearDir, projectName, preferredFolderName) {
     || entries.find(name => preferredKey && normalizeKey(name) === preferredKey)
     || entries.find(name => {
       const folderKey = normalizeKey(name);
-      return folderKey && ((key && (folderKey.includes(key) || key.includes(folderKey)))
-        || (preferredKey && (folderKey.includes(preferredKey) || preferredKey.includes(folderKey))));
+      return looseKeyIncludes(folderKey, key) || looseKeyIncludes(folderKey, preferredKey);
     });
   return found || preferredFolderName;
 }

@@ -3902,6 +3902,22 @@ function workflowApp() {
       await this.loadJobs();
     },
 
+    // 업로드 파일명이 작업(회사/현장)과 전혀 안 맞으면 경고용 — 파일명에 회사/현장 의미토큰이 하나도 없으면 불일치 의심
+    uploadFolderMismatch(files, companyName, projectName) {
+      const stop = new Set(['발주', '공장', '시안', '작업', '발주공장', '양면', '단면', '파일', '대지', '사본', 'pdf', 'jpg', 'jpeg', 'png', 'ai', 'psd']);
+      const norm = s => this.normalizeOptionName(s);
+      const refTokens = (String(companyName || '') + ' ' + String(projectName || ''))
+        .split(/[\s._\-()（）\[\]{}]+/)
+        .map(t => norm(t))
+        .filter(t => t && t.length >= 2 && !stop.has(t) && !/^\d+$/.test(t));
+      if (!refTokens.length) return null; // 비교 기준 없음 → 경고 안 함
+      for (const f of Array.from(files || [])) {
+        const fkey = norm(f && f.name);
+        if (!fkey) continue;
+        if (!refTokens.some(t => fkey.includes(t))) return { file: (f && f.name) || '' };
+      }
+      return null;
+    },
     async uploadFiles(ev) {
       const files = ev?.target?.files || ev?.dataTransfer?.files || ev;
       if (!this.detail || !files || !files.length) { if (ev?.target) ev.target.value = ''; return; }
@@ -3919,6 +3935,8 @@ function workflowApp() {
           alert('회사명을 먼저 선택해주세요.');
           return;
         }
+        const _mm = this.uploadFolderMismatch(files, storageCompanyName, storageProjectName);
+        if (_mm && !confirm('⚠ 파일명이 이 작업의 회사/현장과 안 맞아 보입니다.\n\n파일: ' + _mm.file + '\n저장 위치: ' + storageCompanyName + (storageProjectName ? ' / ' + storageProjectName : '') + '\n\n이 경로에 그대로 저장할까요?\n(아니면 [취소] 후 위쪽 회사/현장을 바로잡으세요)')) return;
         const storageYear = this.uploadStorageYear();
         const ready = await this.confirmWorkflowStorageReady(storageCompanyName, storageProjectName, storageYear, '파일 업로드');
         if (!ready) return;
