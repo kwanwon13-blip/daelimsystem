@@ -26,9 +26,9 @@ const STORE_PATH = path.join(DATA_DIR, 'workflow.json');
 const FILE_DIR = path.join(DATA_DIR, 'workflow-files');
 const THUMB_DIR = path.join(DATA_DIR, 'workflow-thumbs');
 const MAX_WORKFLOW_UPLOAD_FILES = 20;
-// 파일당 한도(안전장치). 사내 IP(192.168.0.133) 직접 업로드는 이 값만 적용된다.
+// 0 = 파일당 용량 제한 없음(무제한). 사내 IP(192.168.0.133) 직접 업로드는 사실상 디스크 공간만 한계.
 // ※ 터널(erp.daelimsm.com)은 Cloudflare 무료플랜의 요청본문 ~100MB 제한이 별도로 걸려, 큰 파일은 사내 IP로 올려야 한다.
-const MAX_WORKFLOW_UPLOAD_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5GB (대형 시안/원본 대응, 디스크 보호용 상한)
+const MAX_WORKFLOW_UPLOAD_FILE_SIZE = 0; // 무제한
 const MAX_WORKFLOW_MAIL_ATTACH_BYTES = 24 * 1024 * 1024;
 
 // 3단계 직선 흐름: 디자인팀 → 대림컴퍼니 → 영업지원팀
@@ -3071,7 +3071,9 @@ function workflowUploadFileFilter(req, file, cb) {
   e.code = 'UNSUPPORTED_FILE_TYPE';
   cb(e, false);
 }
-const upload = multer({ storage, limits: { fileSize: MAX_WORKFLOW_UPLOAD_FILE_SIZE, files: MAX_WORKFLOW_UPLOAD_FILES }, fileFilter: workflowUploadFileFilter });
+const _workflowUploadLimits = { files: MAX_WORKFLOW_UPLOAD_FILES };
+if (MAX_WORKFLOW_UPLOAD_FILE_SIZE > 0) _workflowUploadLimits.fileSize = MAX_WORKFLOW_UPLOAD_FILE_SIZE; // 0이면 파일당 용량 무제한
+const upload = multer({ storage, limits: _workflowUploadLimits, fileFilter: workflowUploadFileFilter });
 
 function workflowUploadFiles(req, res, next) {
   upload.array('files', MAX_WORKFLOW_UPLOAD_FILES)(req, res, err => {
