@@ -3783,6 +3783,8 @@ function workflowApp() {
         return;
       }
       this.detail = d;
+      this.detail._origCompany = (d.job && d.job.companyName) || ''; // 회사명 정정 감지용(바꾸면 파일 이동 확인)
+      this.detail._origProject = (d.job && d.job.projectName) || '';
       if (force) {
         this.detailMoreOpen = false;
         this.orderPanelOpen = false;
@@ -3799,6 +3801,11 @@ function workflowApp() {
 
     async saveJob() {
       if (!this.detail || !this.detail.job) return;
+      const _origCo = this.detail._origCompany || '';
+      if (_origCo && this.detail.job.companyName && this.detail.job.companyName !== _origCo) {
+        const _n = (this.detail.files || []).length;
+        if (!confirm('회사를 "' + _origCo + '" → "' + this.detail.job.companyName + '" 로 바꿉니다.\n\n업로드된 파일 ' + _n + '개도 "' + this.detail.job.companyName + (this.detail.job.projectName ? ' / ' + this.detail.job.projectName : '') + '" 폴더로 이동합니다.\n\n진행할까요?')) return;
+      }
       this.saving = true;
       try {
         const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id), {
@@ -3811,6 +3818,7 @@ function workflowApp() {
         if (d.renamePending) alert('현장명 변경은 팀장 승인 후 적용됩니다.\n변경 요청을 보냈습니다 — 승인 전까지는 기존 이름으로 표시됩니다.\n(승인되면 폴더까지 함께 바뀝니다)');
         else if (d.renamed) alert('현장명 변경 완료 — 디스크 폴더와 파일 경로까지 함께 변경했습니다.');
         if (d.companyLocked) alert('회사명 변경은 팀장(또는 관리자)만 할 수 있습니다 — 기존 회사명을 유지했습니다.');
+        else if (d.companyMoved) alert('회사 변경 완료 — 파일 ' + d.companyMoved + '개를 새 회사 폴더로 이동했습니다.');
         await this.loadDesignWorkflowOptions(true);
         await this.loadJobs();
         await this.refreshDetail(false);

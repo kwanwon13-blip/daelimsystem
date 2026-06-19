@@ -2905,6 +2905,40 @@ function moveWorkflowFile(source, target) {
   }
 }
 
+// 회사/현장 정정 시 — 이 작업의 파일들을 현재 해석된 폴더(newDir)로 실제 이동(회사 변경 등). EXDEV 안전.
+// 옮긴 목록을 반환 → 저장 실패 시 호출부에서 역롤백 가능. 디스크에 원본 없으면 스킵.
+function refileJobFilesToFolder(data, job, newDir) {
+  if (!newDir) return [];
+  const files = (data.files || []).filter(f => f.jobId === job.id);
+  const moved = [];
+  try {
+    for (const f of files) {
+      const src = fileDiskPath(f);
+      if (!src || !fs.existsSync(src)) continue;
+      if (path.resolve(path.dirname(src)) === path.resolve(newDir)) { // 이미 새 폴더 — 메타만 보정
+        f.storageRoot = 'design'; f.storagePath = newDir; f.storedPath = src;
+        f.storageBucket = job.storageBucket; f.storageRelDir = job.storageBucket;
+        f.storageNetPath = workflowDesignNetworkPath(src);
+        continue;
+      }
+      const tgt = uniqueStoredFileTarget(newDir, path.basename(src));
+      moveWorkflowFile(src, tgt.fullPath);
+      moved.push({ from: src, to: tgt.fullPath });
+      f.storageRoot = 'design';
+      f.storagePath = newDir;
+      f.storageBucket = job.storageBucket;
+      f.storageRelDir = job.storageBucket;
+      f.storageNetPath = workflowDesignNetworkPath(tgt.fullPath);
+      f.storedPath = tgt.fullPath;
+    }
+  } catch (e) {
+    for (const m of moved.slice().reverse()) { try { moveWorkflowFile(m.to, m.from); } catch (_) {} }
+    throw e;
+  }
+  try { fileLocator().clear(); } catch (_) {}
+  return moved;
+}
+
 function repairLegacyWorkflowFileStorage(data, options = {}) {
   const dryRun = !!options.dryRun;
   const limit = Math.max(1, Math.min(Number(options.limit || 200), 1000));
@@ -4109,6 +4143,13 @@ router.put('/jobs/:id', (req, res) => {
   } catch (e) {
     return res.status(400).json({ error: '시안 저장 폴더를 만들 수 없습니다: ' + e.message });
   }
+  // 회사명 변경(승인권자) → 업로드된 파일을 새 회사 폴더로 실제 이동(확인은 프론트). 실패 시 400.
+  let companyMoveList = [];
+  if (companyFrom && companyTo && companyTo !== companyFrom && approver && job.storagePath) {
+    try { companyMoveList = refileJobFilesToFolder(data, job, job.storagePath); }
+    catch (e) { return res.status(400).json({ error: '회사 변경 — 파일 이동 실패: ' + e.message }); }
+    if (companyMoveList.length) addEvent(data, req, job.id, 'update', `회사 변경 · 파일 ${companyMoveList.length}개를 '${companyTo}' 폴더로 이동`, { companyChanged: true, fromCompany: companyFrom, toCompany: companyTo });
+  }
   upsertWorkflowProject(data, {
     ...job,
     status: workflowProjectStatusFromJobs(data, job.companyName, job.projectName, ['done', 'cancelled'].includes(job.status) ? 'done' : 'active'),
@@ -4169,14 +4210,15 @@ router.put('/jobs/:id', (req, res) => {
   try {
     saveStore(data);
   } catch (e) {
-    // 저장 실패 → 방금 한 디스크 rename 을 역롤백해 디스크-DB 분리 방지 (감사 #10)
+    // 저장 실패 → 방금 한 디스크 rename·파일이동을 역롤백해 디스크-DB 분리 방지 (감사 #10)
     if (renameInfo && renameInfo.oldDir && renameInfo.newDir) {
       try { fs.renameSync(renameInfo.newDir, renameInfo.oldDir); } catch (_) {}
-      try { fileLocator().clear(); } catch (_) {}
     }
-    return res.status(500).json({ error: '저장 실패: ' + e.message + (renameInfo ? ' (현장명 변경은 되돌렸습니다)' : '') });
+    for (const m of (companyMoveList || []).slice().reverse()) { try { moveWorkflowFile(m.to, m.from); } catch (_) {} }
+    try { fileLocator().clear(); } catch (_) {}
+    return res.status(500).json({ error: '저장 실패: ' + e.message + ((renameInfo || (companyMoveList && companyMoveList.length)) ? ' (변경/이동은 되돌렸습니다)' : '') });
   }
-  res.json({ ok: true, job: decorateJob(data, job, req.user), renamed, renamePending, companyLocked });
+  res.json({ ok: true, job: decorateJob(data, job, req.user), renamed, renamePending, companyLocked, companyMoved: (companyMoveList || []).length });
 });
 
 // 현장명 변경 승인/거절 — 팀장(부서 leaderId) 또는 관리자만
