@@ -45,6 +45,7 @@ function workflowApp() {
     toasts: [], // 인앱 알림(우하단) — OS 알림이 막힌 HTTP에서도 작동. 자동으로 안 사라지고 [확인]해야 닫힘
     pushState: 'unknown', // 웹푸시 구독상태: unknown/unsupported/off/on/denied (탭 닫혀도 OS 알림)
     sseOn: false,         // SSE(변화 즉시 통지) 연결 여부 — 붙어 있으면 폴링은 백스톱만
+    pushOnboard: { show: false, mode: '' }, // 알림 켜기 안내 팝업: enable(여기서 켜기)/gotoerp(erp서 켜기)/denied
     boardFocus: '', // '' = 모든 칸 동일 / stageId = 그 칸만 크게(나머지는 시안 레일)
     boardView: 'board', // 'board' 진행 3칸 / 'week' 주간일정 / 'ledger' 통합 내역표 (상단 탭)
     ledgerRows: [],
@@ -692,11 +693,15 @@ function workflowApp() {
     },
     async initPush() {
       try {
-        if (!this.pushSupported()) { this.pushState = 'unsupported'; return; }
-        // 서비스워커 등록(이미 있으면 갱신) — 구독자는 이걸로 푸시를 받는다
-        try { await navigator.serviceWorker.register('/sw.js'); } catch (_) {}
-        await this.refreshPushState();
+        if (this.pushSupported()) {
+          // 서비스워커 등록(이미 있으면 갱신) — 구독자는 이걸로 푸시를 받는다
+          try { await navigator.serviceWorker.register('/sw.js'); } catch (_) {}
+          await this.refreshPushState();
+        } else {
+          this.pushState = 'unsupported';
+        }
       } catch (_) { this.pushState = 'off'; }
+      this.checkPushOnboarding(); // 구독 안 했으면 환경별 안내 팝업(사내 IP에서도 동작)
     },
     async refreshPushState() {
       try {
@@ -769,6 +774,25 @@ function workflowApp() {
         this.pushState = 'off';
       } catch (_) { this.pushState = 'off'; }
     },
+    // ── 알림 켜기 안내 팝업: 구독 안 한 직원에게 환경별로 자동 안내(꼭 켜도록) ──
+    async checkPushOnboarding() {
+      try {
+        if (this.pushState === 'on') { this.pushOnboard.show = false; return; }
+        try { if (sessionStorage.getItem('wf:pushOnboardDismissed') === '1') return; } catch (_) {}
+        // 이 계정이 어느 기기에서든 이미 구독했으면 안 띄운다
+        let count = 0;
+        try { const s = await fetch('/api/push/status').then(r => r.json()); count = (s && s.count) || 0; } catch (_) {}
+        if (count > 0) return;
+        let mode = 'enable';                                 // https + 구독 가능 → 여기서 바로 켜기
+        if (!this.pushSupported()) mode = 'gotoerp';          // 사내 IP(http) 등 → erp에서 켜야 함
+        else if (typeof Notification !== 'undefined' && Notification.permission === 'denied') mode = 'denied';
+        this.pushOnboard = { show: true, mode };
+      } catch (_) {}
+    },
+    dismissPushOnboard() { this.pushOnboard.show = false; try { sessionStorage.setItem('wf:pushOnboardDismissed', '1'); } catch (_) {} },
+    openErpForPush() { try { window.open('https://erp.daelimsm.com/#workflow', '_blank'); } catch (_) {} this.dismissPushOnboard(); },
+    async enablePushFromOnboard() { await this.enablePush(); if (this.pushState === 'on') this.pushOnboard.show = false; },
+
     // 테스트 알림: ① 화면 토스트(즉시) ② SSE 실시간 왕복 ③ 웹푸시(OS 알림) — 3채널을 한 번에 점검 + 진단
     async testNotify() {
       // ① 화면(인앱) 토스트 — 권한·구독과 무관하게 항상 보임

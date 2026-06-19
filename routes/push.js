@@ -33,6 +33,11 @@ router.get('/vapid-public-key', (req, res) => {
   res.json({ key: push.getPublicKey(), ready: push.isReady() });
 });
 
+// 이 계정이 어느 기기에서든 구독했는지(안내 팝업 표시 여부 판단용)
+router.get('/status', (req, res) => {
+  res.json({ ready: push.isReady(), count: push.countForUser(req.user.userId) });
+});
+
 router.post('/subscribe', (req, res) => {
   try {
     const sub = req.body && req.body.subscription;

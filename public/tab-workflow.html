@@ -630,9 +630,6 @@
           <span class="material-symbols-outlined" style="font-size:16px;" x-text="pushState==='on' ? 'notifications_active' : 'notifications'"></span>
           <span x-text="pushState==='on' ? '알림 켜짐' : '알림 받기'"></span>
         </button>
-        <button class="wf-btn ghost" @click="testNotify()" title="이 기기로 테스트 알림을 보내 화면·실시간·OS 알림이 잘 오는지 확인">
-          <span class="material-symbols-outlined" style="font-size:16px;">notification_add</span>테스트
-        </button>
         <button class="wf-btn ghost" @click="toggleDepartmentMappingPanel()">
           <span class="material-symbols-outlined" style="font-size:16px;">account_tree</span>
           <span x-text="departmentMappingSummary()"></span>
@@ -1924,6 +1921,47 @@
       </div>
     </div>
   </div>
+  <!-- 알림 켜기 안내 팝업 — 구독 안 한 직원에게 환경별로 자동 안내 -->
+  <div class="wf-modal" x-show="pushOnboard.show" x-cloak x-transition @click.self="dismissPushOnboard()">
+    <div class="wf-dialog" style="max-width:470px;">
+      <div class="wf-dialog-head">
+        <div class="wf-dialog-title"><span class="material-symbols-outlined" style="font-size:18px;color:#dc2626;">notifications_active</span> 바탕화면 알림 설정 <span style="color:#dc2626;">(필수)</span></div>
+      </div>
+      <div class="wf-dialog-body" style="gap:12px;">
+        <template x-if="pushOnboard.mode==='enable'">
+          <div>
+            <p style="font-weight:800;margin:0 0 8px;font-size:15px;">작업 알림을 받으려면 <span style="color:#dc2626;">알림을 켜주세요.</span></p>
+            <p class="wf-muted" style="font-size:13px;line-height:1.7;margin:0;">한 번만 켜두면 ERP를 꺼두거나 다른 일을 해도, 새 작업이 오면 <b>바탕화면 우하단에 알림</b>이 뜹니다. 아래 [지금 알림 켜기] → 브라우저 <b>"허용"</b> 누르면 끝입니다.</p>
+          </div>
+        </template>
+        <template x-if="pushOnboard.mode==='gotoerp'">
+          <div>
+            <p style="font-weight:800;margin:0 0 8px;font-size:15px;">바탕화면 알림은 <span style="color:#2563eb;">erp.daelimsm.com</span> 에서 한 번 켜야 합니다.</p>
+            <p class="wf-muted" style="font-size:13px;line-height:1.7;margin:0;">지금은 사내 주소(<b>192.168.0.133</b>)로 접속 중이라 여기선 켤 수 없어요. 아래 버튼으로 <b>erp.daelimsm.com</b>에 접속해 우측 상단 <b>[알림 받기]</b>를 <b>한 번만</b> 눌러주세요.<br><b style="color:#16a34a;">그 뒤론 사내 주소로 일해도 알림이 옵니다.</b></p>
+          </div>
+        </template>
+        <template x-if="pushOnboard.mode==='denied'">
+          <div>
+            <p style="font-weight:800;margin:0 0 8px;font-size:15px;">알림이 차단되어 있습니다.</p>
+            <p class="wf-muted" style="font-size:13px;line-height:1.7;margin:0;">브라우저 주소창 왼쪽 <b>자물쇠 아이콘 → 알림 → '허용'</b>으로 바꾼 뒤 새로고침해주세요.</p>
+          </div>
+        </template>
+      </div>
+      <div class="wf-dialog-foot">
+        <button class="wf-btn ghost" @click="dismissPushOnboard()">나중에</button>
+        <template x-if="pushOnboard.mode==='enable'">
+          <button class="wf-btn primary" @click="enablePushFromOnboard()"><span class="material-symbols-outlined" style="font-size:16px;">notifications_active</span> 지금 알림 켜기</button>
+        </template>
+        <template x-if="pushOnboard.mode==='gotoerp'">
+          <button class="wf-btn primary" @click="openErpForPush()"><span class="material-symbols-outlined" style="font-size:16px;">open_in_new</span> erp.daelimsm.com 열기</button>
+        </template>
+        <template x-if="pushOnboard.mode==='denied'">
+          <button class="wf-btn primary" @click="dismissPushOnboard()">확인</button>
+        </template>
+      </div>
+    </div>
+  </div>
+
   <div class="wf-modal" x-show="newOpen" x-cloak x-transition @click.self="closeNewJobModal()" @keydown.window.escape="closeNewJobModal()">
     <div class="wf-dialog wide">
       <div class="wf-dialog-head">
