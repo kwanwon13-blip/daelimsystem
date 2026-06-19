@@ -115,6 +115,9 @@ app.get('/api/admin/clear-cache', (req, res) => {
 app.get(['/', '/index.html'], (req, res) => {
   try {
     const html = buildIndexHtml();
+    // index.html은 항상 재검증(no-cache): 옛 버전이 캐시에 박혀 ?v= 캐시버스트가 무력화되는 사고 방지.
+    // 내용이 같으면 ETag로 304(가벼움), 바뀌면 새 HTML을 받아 새 workflow.js?v= 를 로드한다.
+    res.set('Cache-Control', 'no-cache');
     res.type('html').send(html);
   } catch (e) {
     console.error('[SSI] 오류:', e.message);
