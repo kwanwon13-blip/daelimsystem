@@ -217,11 +217,35 @@ function workflowApp() {
       await Promise.all([this.loadAuth(), this.loadMeta(), this.loadHiddenDesignFolders()]); // 숨김목록 선로딩 — 새로고침해도 숨김 유지(모달 안 열어도 자동완성 필터 적용). 안 하면 hiddenDesignFolders=[]로 남아 숨김이 풀림.
       this.loadPublicLinkSettings();
       if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
+      this.loadBoardPrefs(); // 사용자별 보드 필터/정렬 복원(로그인 계정 기준) — loadJobs 전에 적용
+      ['boardSort', 'boardTeam', 'factorySort', 'statusFilter', 'scopeFilter', 'boardUnordered'].forEach(k => { try { this.$watch(k, () => this.saveBoardPrefs()); } catch (_) {} });
       await this.loadJobs();
       this.startWorkflowPolling();
       this.setupDesktopNotify(); // 공장 수락 등 '나에게 온' 새 알림을 OS 데스크탑 팝업(우하단)으로
       this.consumeWorkflowDraft();
       await this.consumeWorkflowOpenTarget();
+    },
+
+    // 사용자별 보드 필터/정렬 저장·복원(localStorage, 로그인 계정 기준) — 검색어(query)는 일시적이라 제외
+    boardPrefsKey() { return 'wf:boardPrefs:' + (this.currentUser?.userId || 'anon'); },
+    loadBoardPrefs() {
+      try {
+        const p = JSON.parse(localStorage.getItem(this.boardPrefsKey()) || '{}') || {};
+        if (['date', 'person'].includes(p.boardSort)) this.boardSort = p.boardSort;
+        if (['', 'welding', 'output'].includes(p.boardTeam)) this.boardTeam = p.boardTeam;
+        if (['created', 'available', 'due'].includes(p.factorySort)) this.factorySort = p.factorySort;
+        if (['active', 'hold', 'done', 'cancelled', 'all'].includes(p.statusFilter)) this.statusFilter = p.statusFilter;
+        if (['all', 'mine', 'unread', 'urgent', 'risk'].includes(p.scopeFilter)) this.scopeFilter = p.scopeFilter;
+        if (typeof p.boardUnordered === 'boolean') this.boardUnordered = p.boardUnordered;
+      } catch (_) {}
+    },
+    saveBoardPrefs() {
+      try {
+        localStorage.setItem(this.boardPrefsKey(), JSON.stringify({
+          boardSort: this.boardSort, boardTeam: this.boardTeam, factorySort: this.factorySort,
+          statusFilter: this.statusFilter, scopeFilter: this.scopeFilter, boardUnordered: this.boardUnordered,
+        }));
+      } catch (_) {}
     },
 
     async loadAuth() {
