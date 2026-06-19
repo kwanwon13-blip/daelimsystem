@@ -3200,13 +3200,11 @@ function archiveFileForManifest(file = {}) {
 
 async function buildArchiveFromFiles(job, files, filters = {}, suffix = 'all', context = {}) {
   if (!files.length) return null;
-  // DoS 방지: ZIP은 전체를 메모리 버퍼로 만들므로 총 개수/용량 상한(초과 시 413). 무제한이면 OOM으로 단일 프로세스 ERP가 다운된다.
-  const MAX_ARCHIVE_FILES = 300;
-  const MAX_ARCHIVE_BYTES = 500 * 1024 * 1024;
-  let _archiveBytes = 0;
-  for (const f of files) _archiveBytes += Number(f.size || 0);
-  if (files.length > MAX_ARCHIVE_FILES || _archiveBytes > MAX_ARCHIVE_BYTES) {
-    const e = new Error('아카이브가 너무 큽니다(파일 수/용량 제한 초과). 개별 다운로드를 이용하세요.');
+  // 스트리밍 ZIP: 파일을 '읽기 스트림'으로 추가하고 generateNodeStream으로 흘려보낸다 → 전체를 메모리에 안 쌓으므로 대용량도 OK.
+  // (과거엔 메모리 버퍼라 총 500MB 상한이 있었음. 업로드 무제한과 맞춰 '용량' 상한 제거, '파일 수'만 안전상한.)
+  const MAX_ARCHIVE_FILES = 500;
+  if (files.length > MAX_ARCHIVE_FILES) {
+    const e = new Error(`한 번에 ${MAX_ARCHIVE_FILES}개까지만 묶을 수 있습니다. 개별 다운로드를 이용하세요.`);
     e.statusCode = 413;
     throw e;
   }
@@ -3214,17 +3212,24 @@ async function buildArchiveFromFiles(job, files, filters = {}, suffix = 'all', c
   const zip = new JSZip();
   const used = new Set();
   // ZIP 내부 구조 단순화(사장님 요청 2026-06-17): 짧은 현장명 폴더 + 파일 평탄 저장.
-  // 기존: 회사_프로젝트_긴제목 / 단계 / 종류 / v버전_파일 (경로 너무 길고 _manifest.json 등 군더더기).
   const root = safeFilePart(job.projectName || job.companyName || job.title || job.id, job.id);
   for (const file of files) {
     const original = safeFilePart(file.originalName || file.storedName || file.id, file.id);
     const zipPath = uniqueZipPath(used, `${root}/${original}`);
-    zip.file(zipPath, fs.readFileSync(fileDiskPath(file)));
+    zip.file(zipPath, fs.createReadStream(fileDiskPath(file))); // 스트림 입력 — 파일 전체를 메모리에 올리지 않음
   }
 
-  const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+  // STORE(무압축): 시안/원본은 이미 압축형(.ai/.jpg/.png/.pdf)이라 DEFLATE는 CPU만 먹고 이득 적음. 대용량은 STORE가 빠르고 안전.
+  const stream = zip.generateNodeStream({ type: 'nodebuffer', streamFiles: true, compression: 'STORE' });
   const filename = safeFilePart(`${job.projectName || job.companyName || job.title || job.id}${suffix && suffix !== 'all' ? '_' + suffix : ''}`) + '.zip';
-  return { buffer, filename, files };
+  return { stream, filename, files };
+}
+
+// ZIP 스트림을 응답으로 흘려보낸다(메모리 버퍼 없이). 헤더는 호출부에서 먼저 설정.
+function pipeArchive(res, archive) {
+  archive.stream.on('error', () => { try { res.destroy(); } catch (_) {} });
+  res.on('close', () => { try { archive.stream.destroy(); } catch (_) {} }); // 클라가 받기 중단하면 ZIP 생성도 중단
+  archive.stream.pipe(res);
 }
 
 async function buildJobArchive(data, job, filters = {}) {
@@ -3397,7 +3402,7 @@ router.get('/public/jobs/:token/files.zip', async (req, res, next) => {
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', attachmentDisposition(archive.filename));
     res.setHeader('Cache-Control', 'public, max-age=60');
-    res.send(archive.buffer);
+    pipeArchive(res, archive);
   } catch (e) {
     next(e);
   }
@@ -3426,7 +3431,7 @@ router.get('/public/orders/:token/files.zip', async (req, res, next) => {
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', attachmentDisposition(archive.filename));
     res.setHeader('Cache-Control', 'public, max-age=60');
-    res.send(archive.buffer);
+    pipeArchive(res, archive);
   } catch (e) {
     next(e);
   }
@@ -5162,7 +5167,7 @@ router.get('/jobs/:id/files/archive', async (req, res) => {
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', attachmentDisposition(archive.filename));
     res.setHeader('Cache-Control', 'private, max-age=60');
-    res.send(archive.buffer);
+    pipeArchive(res, archive);
   } catch (e) {
     // 용량 상한(413) 등 — 핸들 안 하면 unhandled rejection. 메모리 OOM은 buildArchiveFromFiles에서 이미 사전 차단.
     res.status(e && e.statusCode === 413 ? 413 : 500).send(e && e.statusCode === 413 ? String(e.message) : '아카이브 생성 실패');
