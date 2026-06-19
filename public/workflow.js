@@ -43,6 +43,7 @@ function workflowApp() {
     mgrCfg: { open: false, loading: false, saving: false, rules: [], fallback: '우정은', unassigned: [] }, // 업체별 경영관리 담당자(관리자 전용 설정)
     companyActiveIndex: { form: -1, upload: -1, detail: -1 }, // 회사검색 드롭다운 키보드 하이라이트 인덱스
     toasts: [], // 인앱 알림(우하단) — OS 알림이 막힌 HTTP에서도 작동. 자동으로 안 사라지고 [확인]해야 닫힘
+    pushState: 'unknown', // 웹푸시 구독상태: unknown/unsupported/off/on/denied (탭 닫혀도 OS 알림)
     boardFocus: '', // '' = 모든 칸 동일 / stageId = 그 칸만 크게(나머지는 시안 레일)
     boardView: 'board', // 'board' 진행 3칸 / 'week' 주간일정 / 'ledger' 통합 내역표 (상단 탭)
     ledgerRows: [],
@@ -222,6 +223,7 @@ function workflowApp() {
       await this.loadJobs();
       this.startWorkflowPolling();
       this.setupDesktopNotify(); // 공장 수락 등 '나에게 온' 새 알림을 OS 데스크탑 팝업(우하단)으로
+      this.initPush();           // 웹푸시 구독상태 확인 + 서비스워커 등록(탭 닫혀도 OS 알림)
       this.consumeWorkflowDraft();
       await this.consumeWorkflowOpenTarget();
     },
@@ -657,6 +659,91 @@ function workflowApp() {
         if (document.hidden && (_tick % 2 !== 0)) return;
         this.loadSummary();
       }, 30000);
+    },
+
+    // ── 웹푸시(서비스워커 Web Push): ERP를 꺼둬도 OS 알림. HTTPS(보안컨텍스트)에서만 가능 ──
+    pushSupported() {
+      try { return ('serviceWorker' in navigator) && ('PushManager' in window) && (typeof Notification !== 'undefined') && window.isSecureContext; }
+      catch (_) { return false; }
+    },
+    async initPush() {
+      try {
+        if (!this.pushSupported()) { this.pushState = 'unsupported'; return; }
+        // 서비스워커 등록(이미 있으면 갱신) — 구독자는 이걸로 푸시를 받는다
+        try { await navigator.serviceWorker.register('/sw.js'); } catch (_) {}
+        await this.refreshPushState();
+      } catch (_) { this.pushState = 'off'; }
+    },
+    async refreshPushState() {
+      try {
+        if (!this.pushSupported()) { this.pushState = 'unsupported'; return; }
+        if (Notification.permission === 'denied') { this.pushState = 'denied'; return; }
+        const reg = await navigator.serviceWorker.getRegistration();
+        const sub = reg ? await reg.pushManager.getSubscription() : null;
+        this.pushState = sub ? 'on' : 'off';
+      } catch (_) { this.pushState = 'off'; }
+    },
+    _urlBase64ToUint8Array(base64String) {
+      const padding = '='.repeat((4 - base64String.length % 4) % 4);
+      const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+      const raw = atob(base64);
+      const arr = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+      return arr;
+    },
+    async togglePush() {
+      if (this.pushState === 'on') {
+        if (!confirm('이 기기에서 알림을 끌까요?\n(다시 켜려면 [알림 받기]를 누르면 됩니다)')) return;
+        return this.disablePush();
+      }
+      return this.enablePush();
+    },
+    async enablePush() {
+      try {
+        if (!this.pushSupported()) {
+          alert('이 접속 방식에선 푸시 알림을 켤 수 없습니다.\n\n· 핸드폰: erp.daelimsm.com(https)로 접속 → 홈 화면에 추가 → 알림 켜기\n· 사내 IP(http://192.168.0.133:3000) 접속은 푸시 불가지만, 화면 알림(우하단)은 그대로 옵니다.');
+          return;
+        }
+        const perm = await Notification.requestPermission();
+        if (perm !== 'granted') {
+          this.pushState = (perm === 'denied') ? 'denied' : 'off';
+          alert(perm === 'denied'
+            ? '알림이 차단되어 있습니다. 브라우저 주소창의 자물쇠 → 알림 → 허용으로 바꿔주세요.'
+            : '알림 권한이 허용되지 않았습니다.');
+          return;
+        }
+        const reg = await navigator.serviceWorker.register('/sw.js');
+        await navigator.serviceWorker.ready;
+        const r = await fetch('/api/push/vapid-public-key');
+        const j = await r.json();
+        if (!j || !j.key) { alert('서버 푸시가 아직 준비되지 않았습니다.\n(관리자: 서버에 web-push 설치 후 재시작이 필요합니다.)'); return; }
+        let sub = await reg.pushManager.getSubscription();
+        if (!sub) {
+          sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: this._urlBase64ToUint8Array(j.key),
+          });
+        }
+        const sr = await fetch('/api/push/subscribe', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subscription: sub }),
+        });
+        if (sr.ok) { this.pushState = 'on'; alert('알림을 켰습니다 ✅\n이제 ERP를 꺼두거나 다른 일을 해도, 새 작업이 오면 이 기기로 알려드립니다.'); }
+        else { alert('구독 저장에 실패했습니다. 잠시 후 다시 시도해 주세요.'); }
+      } catch (e) {
+        alert('알림 켜기 실패: ' + ((e && e.message) || e));
+      }
+    },
+    async disablePush() {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        const sub = reg ? await reg.pushManager.getSubscription() : null;
+        if (sub) {
+          try { await fetch('/api/push/unsubscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint }) }); } catch (_) {}
+          try { await sub.unsubscribe(); } catch (_) {}
+        }
+        this.pushState = 'off';
+      } catch (_) { this.pushState = 'off'; }
     },
 
     async setWorkflowListFilter(status = 'active', scope = 'all') {

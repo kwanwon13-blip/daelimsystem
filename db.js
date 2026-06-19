@@ -125,6 +125,9 @@ const jsonStores = {
   '일정관리': {
     events: []
   },
+  '푸시구독': {            // 웹푸시(서비스워커 Web Push) 구독 — userId별 기기 endpoint
+    subscriptions: []
+  },
 };
 
 // JSON 폴백용 (SQLite 미설치 시)

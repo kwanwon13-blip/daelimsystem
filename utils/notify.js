@@ -3,6 +3,21 @@
  * notify(), notifyRole()
  */
 const db = require('../db');
+const push = require('./push');
+
+// notify()의 link(앱 내부 표기)를 푸시 클릭 시 열 URL + 묶음 tag로 변환
+function pushTargetFromLink(type, link) {
+  const s = String(link || '');
+  if (type === 'workflow' || s.startsWith('workflow:')) {
+    const jobId = s.startsWith('workflow:') ? (s.split(':')[1] || '') : '';
+    return { url: '/#workflow', tag: jobId ? 'wf-' + jobId : 'wf' }; // 같은 작업 알림은 하나로 묶임
+  }
+  if (s.startsWith('#')) return { url: '/' + s, tag: type || 'erp' };
+  if (s.startsWith('/')) return { url: s, tag: type || 'erp' };
+  return { url: '/', tag: type || 'erp' };
+}
+
+const PUSH_TITLES = { workflow: '워크플로우 알림', approval: '결재 알림', quote: '견적 알림' };
 
 function notify(targetUserId, type, message, link = '') {
   try {
@@ -22,6 +37,16 @@ function notify(targetUserId, type, message, link = '') {
   } catch (e) {
     console.error('[알림] 저장 실패:', e.message);
   }
+  // 웹푸시(탭 닫혀도 OS 알림) — 구독한 기기로 발송. 미구독/미설치면 자동 no-op. 저장과 독립(실패해도 무방).
+  try {
+    const t = pushTargetFromLink(type, link);
+    push.sendPushToUsers([targetUserId], {
+      title: PUSH_TITLES[type] || '대림에스엠 ERP',
+      body: String(message || '').slice(0, 200),
+      link: t.url,
+      tag: t.tag,
+    });
+  } catch (_) {}
 }
 
 function notifyRole(role, type, message, link = '') {

@@ -4,7 +4,7 @@
 //  (b) 그 외 /api/*          -> 항상 네트워크 (geocode·card-scan·card-register 등 절대 캐시 금지)
 //  (c) 앱 셸/정적            -> cache-first
 // 토큰/개인정보는 셸 + all목록 외에는 캐시하지 않는다.
-const CACHE_VER = 'dcf-v1';
+const CACHE_VER = 'dcf-v2';
 const APP_SHELL = [
   '/contacts-mobile.html',
   '/manifest.webmanifest',
@@ -64,5 +64,36 @@ self.addEventListener('fetch', (event) => {
   // (c) 앱 셸/정적: cache-first (없으면 네트워크)
   event.respondWith(
     caches.match(req).then((cached) => cached || fetch(req))
+  );
+});
+
+// ── 웹푸시: 서버가 보낸 푸시를 받아 OS 알림으로 표시(ERP 탭/창이 닫혀 있어도 동작) ──
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; }
+  catch (_) { try { data = { body: event.data && event.data.text() }; } catch (__) { data = {}; } }
+  const title = data.title || '대림에스엠 ERP';
+  const options = {
+    body: data.body || '',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
+    tag: data.tag || undefined,
+    renotify: !!data.tag,           // 같은 tag면 새로 울림(묶되 갱신 알림)
+    data: { link: data.link || '/' }
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// 알림 클릭 → 이미 열린 ERP 창이 있으면 포커스+이동, 없으면 새로 연다
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const link = (event.notification.data && event.notification.data.link) || '/';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((cs) => {
+      for (const c of cs) {
+        if ('focus' in c) { try { c.navigate(link); } catch (_) {} return c.focus(); }
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(link);
+    })
   );
 });

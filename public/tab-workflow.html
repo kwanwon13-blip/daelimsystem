@@ -624,6 +624,12 @@
           <button type="button" :class="boardView==='ledger'?'on':''" @click="boardView='ledger'; loadLedger()"><span class="material-symbols-outlined">table_rows</span>내역</button>
         </div>
         <div style="flex:1"></div>
+        <button class="wf-btn" @click="togglePush()"
+                :style="pushState==='on' ? 'background:#dcfce7;border-color:#16a34a;color:#15803d;font-weight:800;' : (pushState==='denied' ? 'background:#fef2f2;border-color:#fca5a5;color:#b91c1c;' : '')"
+                :title="pushState==='on' ? '이 기기 알림 켜짐 — 클릭하면 끄기' : (pushState==='denied' ? '브라우저에서 알림이 차단됨 — 주소창 자물쇠 → 알림 → 허용' : 'ERP를 꺼두거나 다른 일을 해도 새 작업 알림을 이 기기(PC·폰)로 받기')">
+          <span class="material-symbols-outlined" style="font-size:16px;" x-text="pushState==='on' ? 'notifications_active' : 'notifications'"></span>
+          <span x-text="pushState==='on' ? '알림 켜짐' : '알림 받기'"></span>
+        </button>
         <button class="wf-btn ghost" @click="toggleDepartmentMappingPanel()">
           <span class="material-symbols-outlined" style="font-size:16px;">account_tree</span>
           <span x-text="departmentMappingSummary()"></span>

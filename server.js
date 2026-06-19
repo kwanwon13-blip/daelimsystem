@@ -376,6 +376,7 @@ app.use('/api/master', require('./routes/master'));
 // /api/contacts/m/* (무인증 모바일 라우트) 가 그들에게 가로채여 401 떨어지지 않음.
 app.use('/api/contacts', require('./routes/contacts'));
 app.use('/api/workflow', require('./routes/workflow'));
+app.use('/api/push', require('./routes/push'));   // 웹푸시 구독(VAPID 공개키/등록/해제)
 
 // AI routes must be mounted before broad /api routers that install requireAuth
 // middleware globally, otherwise internal control-secret verification never reaches them.
