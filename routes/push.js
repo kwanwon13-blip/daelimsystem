@@ -23,7 +23,7 @@ router.post('/test', (req, res) => {
       title: '🔔 테스트 알림',
       body: '대림에스엠 ERP 알림이 정상 작동합니다. (' + now + ')',
       link: '/#workflow',
-      tag: 'wf-test',
+      // tag 생략 — 테스트를 여러 번 눌러도 각각 쌓이게(누적 확인용)
     });
   } catch (_) {}
   res.json({ ok: true, pushReady: push.isReady(), subscriptions: push.countForUser(uid) });

@@ -47,7 +47,7 @@ function notify(targetUserId, type, message, link = '') {
       title: PUSH_TITLES[type] || '대림에스엠 ERP',
       body: String(message || '').slice(0, 200),
       link: t.url,
-      tag: t.tag,
+      // tag 생략 — 알림이 합쳐지지 않고 각각 쌓이게(화면 토스트처럼)
     });
   } catch (_) {}
 }

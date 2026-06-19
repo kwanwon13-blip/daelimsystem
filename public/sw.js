@@ -4,7 +4,7 @@
 //  (b) 그 외 /api/*          -> 항상 네트워크 (geocode·card-scan·card-register 등 절대 캐시 금지)
 //  (c) 앱 셸/정적            -> cache-first
 // 토큰/개인정보는 셸 + all목록 외에는 캐시하지 않는다.
-const CACHE_VER = 'dcf-v2';
+const CACHE_VER = 'dcf-v3';
 const APP_SHELL = [
   '/contacts-mobile.html',
   '/manifest.webmanifest',
@@ -77,8 +77,9 @@ self.addEventListener('push', (event) => {
     body: data.body || '',
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
-    tag: data.tag || undefined,
-    renotify: !!data.tag,           // 같은 tag면 새로 울림(묶되 갱신 알림)
+    tag: data.tag || undefined,        // 보통 tag 없이 보냄 → 합쳐지지 않고 각각 쌓인다
+    renotify: !!data.tag,
+    requireInteraction: true,          // 직접 닫을 때까지 화면에 유지(화면 토스트처럼 쌓임, 잠깐 떴다 사라지지 않음)
     data: { link: data.link || '/' }
   };
   event.waitUntil(self.registration.showNotification(title, options));
