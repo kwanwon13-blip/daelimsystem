@@ -649,8 +649,12 @@ function workflowApp() {
 
     startWorkflowPolling() {
       if (this.workflowPollTimer) return;
+      // 탭이 가려져 있어도(백그라운드) 폴링을 멈추지 않는다 — 멈추면 '있으나 마나'였음.
+      // 단 부하 완충: 보이면 30초, 가려져 있으면 60초마다(매 2틱)만 요약을 끌어온다.
+      let _tick = 0;
       this.workflowPollTimer = setInterval(() => {
-        if (document.hidden) return;
+        _tick++;
+        if (document.hidden && (_tick % 2 !== 0)) return;
         this.loadSummary();
       }, 30000);
     },
