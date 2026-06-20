@@ -3,192 +3,225 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>오늘 할일 — 대림에스엠</title>
+<title>할일 — 대림에스엠</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   body { font-family:-apple-system,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif; background:#eef1f6; color:#111827; font-size:15px; }
-  .wrap { max-width:680px; margin:0 auto; min-height:100vh; background:#fff; }
-  .header { background:#2563eb; color:#fff; padding:16px 20px; position:sticky; top:0; z-index:10; }
-  .header-sub { font-size:12px; opacity:.9; }
-  .header h1 { font-size:21px; font-weight:600; }
-  .datebar { display:flex; align-items:center; justify-content:center; gap:14px; padding:12px; border-bottom:1px solid #eef1f6; }
-  .datebar button { border:none; background:#f1f3f7; width:34px; height:34px; border-radius:9px; font-size:17px; cursor:pointer; color:#374151; }
-  .datebar .d { font-size:16px; font-weight:600; min-width:150px; text-align:center; }
-  .datebar .today { font-size:11px; color:#2563eb; cursor:pointer; }
-  .filters { display:flex; gap:6px; padding:10px 14px 4px; flex-wrap:wrap; }
-  .filters button { border:1px solid #e5e7eb; background:#fff; color:#6b7280; border-radius:20px; padding:6px 14px; font-size:13px; cursor:pointer; }
-  .filters button.on { background:#2563eb; color:#fff; border-color:#2563eb; }
-  .addrow { display:flex; gap:7px; padding:12px 14px; }
-  .addrow input[type=text] { flex:1; padding:11px 12px; font-size:15px; border:2px solid #d7dbe3; border-radius:11px; }
-  .addrow input[type=text]:focus { outline:none; border-color:#2563eb; }
-  .addrow select { border:2px solid #d7dbe3; border-radius:11px; padding:0 8px; font-size:14px; background:#fff; }
-  .addrow .add { background:#2563eb; color:#fff; border:none; border-radius:11px; padding:0 18px; font-size:15px; font-weight:600; cursor:pointer; }
-  .list { padding:4px 14px 60px; }
-  .item { display:flex; align-items:center; gap:11px; padding:12px 8px; border-bottom:1px solid #f1f3f7; }
-  .chk { width:24px; height:24px; flex:none; border:2px solid #cbd5e1; border-radius:7px; cursor:pointer; display:flex; align-items:center; justify-content:center; color:#fff; font-size:15px; }
-  .chk.done { background:#16a34a; border-color:#16a34a; }
-  .txt { flex:1; font-size:15px; line-height:1.4; }
-  .item.done .txt { text-decoration:line-through; color:#9ca3af; }
-  .badge { font-size:11px; font-weight:600; padding:2px 8px; border-radius:9px; flex:none; }
-  .b-personal { background:#f1f3f7; color:#6b7280; }
-  .b-dept { background:#dbeafe; color:#1d4ed8; }
-  .b-company { background:#dcfce7; color:#15803d; }
-  .owner { font-size:11px; color:#9ca3af; flex:none; }
-  .del { border:none; background:none; color:#cbd5e1; cursor:pointer; font-size:18px; flex:none; padding:0 4px; }
-  .del:hover { color:#ef4444; }
-  .empty { text-align:center; color:#9ca3af; padding:50px 20px; font-size:15px; }
-  .gate { text-align:center; padding:60px 24px; }
-  .gate a { color:#2563eb; }
+  .wrap { max-width:720px; margin:0 auto; min-height:100vh; background:#fff; }
+  .header { background:#2563eb; color:#fff; padding:14px 18px; position:sticky; top:0; z-index:10; }
+  .header h1 { font-size:20px; font-weight:600; }
+  .datebar { display:flex; align-items:center; justify-content:center; gap:14px; padding:5px 0 2px; }
+  .datebar button { border:none; background:rgba(255,255,255,.2); color:#fff; width:30px; height:30px; border-radius:8px; font-size:16px; cursor:pointer; }
+  .datebar .d { font-size:15px; font-weight:600; min-width:160px; text-align:center; }
+  .datebar .today { font-size:11px; opacity:.85; cursor:pointer; text-decoration:underline; }
+  .tabs { display:flex; border-bottom:1px solid #eef1f6; }
+  .tabs button { flex:1; border:none; background:none; padding:13px; font-size:15px; font-weight:600; color:#9ca3af; cursor:pointer; border-bottom:3px solid transparent; }
+  .tabs button.on { color:#2563eb; border-bottom-color:#2563eb; }
+  .body { padding:8px 16px 80px; }
+
+  /* 메모 체크리스트 */
+  .row { display:flex; align-items:center; gap:11px; padding:9px 4px; border-bottom:1px solid #f4f5f8; }
+  .chk { width:23px; height:23px; flex:none; border:2px solid #cbd5e1; border-radius:6px; cursor:pointer; display:flex; align-items:center; justify-content:center; color:#fff; font-size:14px; line-height:1; }
+  .chk.on { background:#16a34a; border-color:#16a34a; }
+  .row input.t { flex:1; border:none; outline:none; font-size:15px; color:#111827; background:none; padding:4px 0; }
+  .row.done input.t { text-decoration:line-through; color:#9ca3af; }
+  .row .del { border:none; background:none; color:#e5e7eb; cursor:pointer; font-size:18px; padding:0 4px; }
+  .row:hover .del { color:#cbd5e1; }
+  .row .del:hover { color:#ef4444; }
+  .newrow { display:flex; align-items:center; gap:11px; padding:11px 4px; }
+  .newrow .plus { width:23px; height:23px; flex:none; color:#9ca3af; display:flex; align-items:center; justify-content:center; font-size:20px; }
+  .newrow input { flex:1; border:none; outline:none; font-size:15px; padding:4px 0; }
+  .newrow input::placeholder { color:#b6bcc7; }
+
+  /* AI 정리 */
+  .ai-toggle { margin:6px 0 10px; background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; border-radius:11px; padding:11px 14px; font-size:14px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:7px; }
+  .ai-box { display:none; margin:0 0 12px; padding:12px; background:#fff7ed; border:1px solid #fed7aa; border-radius:11px; }
+  .ai-box.open { display:block; }
+  .ai-box textarea { width:100%; min-height:70px; border:1px solid #fed7aa; border-radius:8px; padding:9px; font-size:14px; font-family:inherit; resize:vertical; }
+  .ai-box .go { margin-top:8px; width:100%; background:#ea580c; color:#fff; border:none; border-radius:9px; padding:11px; font-size:15px; font-weight:600; cursor:pointer; }
+  .ai-box .go:disabled { opacity:.6; }
+
+  /* 팀 보기 */
+  .person { border:1px solid #eef1f6; border-radius:12px; margin-bottom:12px; overflow:hidden; }
+  .person-h { display:flex; justify-content:space-between; align-items:center; padding:11px 14px; background:#f8fafc; cursor:pointer; }
+  .person-h .nm { font-size:15px; font-weight:600; }
+  .person-h .dp { font-size:12px; color:#9ca3af; font-weight:400; margin-left:6px; }
+  .person-h .cnt { font-size:12px; font-weight:600; }
+  .person-body { padding:4px 14px 10px; }
+  .titem { display:flex; align-items:center; gap:9px; padding:6px 0; font-size:14px; }
+  .titem .b { width:18px; height:18px; flex:none; border:1.5px solid #cbd5e1; border-radius:5px; display:flex; align-items:center; justify-content:center; color:#fff; font-size:12px; }
+  .titem .b.on { background:#16a34a; border-color:#16a34a; }
+  .titem.done span { text-decoration:line-through; color:#9ca3af; }
+  .none { color:#cbd5e1; font-size:13px; padding:6px 0; }
+
+  .empty { text-align:center; color:#9ca3af; padding:40px 20px; font-size:14px; }
+  .gate { text-align:center; padding:60px 24px; } .gate a { color:#2563eb; }
   .hidden { display:none; }
-  .hint { font-size:12px; color:#9ca3af; padding:0 14px 8px; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="header">
-    <div class="header-sub">대림에스엠 · 워크스페이스</div>
-    <h1>✅ 오늘 할일</h1>
+    <h1>할일</h1>
+    <div class="datebar">
+      <button id="prev">‹</button>
+      <div><div class="d" id="dlabel">—</div><div class="today" id="todayBtn">오늘로</div></div>
+      <button id="next">›</button>
+    </div>
   </div>
 
   <div id="gate" class="gate hidden">
-    <p>로그인이 필요해요.</p>
-    <p style="margin-top:10px;"><a href="/">ERP 로그인하러 가기 →</a></p>
+    <p>로그인이 필요해요.</p><p style="margin-top:10px;"><a href="/">ERP 로그인하러 가기 →</a></p>
   </div>
 
   <div id="main" class="hidden">
-    <div class="datebar">
-      <button id="prev" aria-label="이전 날짜">‹</button>
-      <div>
-        <div class="d" id="dlabel">—</div>
-        <div class="today" id="todayBtn">오늘로</div>
+    <div class="tabs hidden" id="tabs">
+      <button data-tab="mine" class="on">내 할일</button>
+      <button data-tab="team" id="teamTab">팀 보기</button>
+    </div>
+    <div class="body">
+      <!-- 내 할일 -->
+      <div id="mineView">
+        <div class="ai-toggle" id="aiToggle"><span>📋</span> 카톡·메모 붙여넣고 AI로 정리</div>
+        <div class="ai-box" id="aiBox">
+          <textarea id="aiText" placeholder="카톡으로 받은 내용이나 메모를 그대로 붙여넣으세요. AI가 할 일만 뽑아 아래에 넣어드려요."></textarea>
+          <button class="go" id="aiGo">✦ AI로 정리해서 할일에 추가</button>
+        </div>
+        <div id="mineList"></div>
+        <div class="newrow">
+          <span class="plus">+</span>
+          <input id="newInput" placeholder="할 일을 적고 엔터를 누르세요" autocomplete="off">
+        </div>
       </div>
-      <button id="next" aria-label="다음 날짜">›</button>
+      <!-- 팀 보기 -->
+      <div id="teamView" class="hidden"></div>
     </div>
-
-    <div class="filters">
-      <button data-f="all" class="on">전체</button>
-      <button data-f="mine">내것</button>
-      <button data-f="dept">우리 부서</button>
-      <button data-f="company">전사</button>
-    </div>
-
-    <div class="addrow">
-      <input type="text" id="newText" placeholder="할 일을 적어주세요" autocomplete="off">
-      <select id="newScope">
-        <option value="personal">개인</option>
-        <option value="dept">부서</option>
-        <option value="company">전체</option>
-      </select>
-      <button class="add" id="addBtn">추가</button>
-    </div>
-    <div class="hint">‘부서’·‘전체’로 올리면 같은 부서원/전직원이 보고 완료 체크도 같이 합니다. (내용 수정·삭제는 올린 사람만)</div>
-
-    <div class="list" id="list"></div>
   </div>
 </div>
 
 <script>
   const $ = (s) => document.querySelector(s);
   const api = (p, o) => fetch('/api/workspace/todos' + p, Object.assign({ credentials: 'include', headers: { 'Content-Type': 'application/json' } }, o || {}));
-  let myId = '';
+  let viewer = { mode: 'mine', canSeeTeam: false, userId: '' };
+  let tab = 'mine';
   let curDate = todayKST();
-  let filter = 'all';
-  let cache = [];
+  let mine = [];
 
   function todayKST() { return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10); }
   function shiftDate(n) { const d = new Date(curDate + 'T00:00:00'); d.setDate(d.getDate() + n); curDate = d.toISOString().slice(0, 10); }
-  function fmt(ds) {
-    const d = new Date(ds + 'T00:00:00'); const w = ['일','월','화','수','목','금','토'][d.getDay()];
-    const t = (ds === todayKST()) ? ' (오늘)' : '';
-    return (d.getMonth() + 1) + '월 ' + d.getDate() + '일 (' + w + ')' + t;
-  }
-  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
+  function fmt(ds) { const d = new Date(ds + 'T00:00:00'); const w = ['일','월','화','수','목','금','토'][d.getDay()]; return (d.getMonth()+1)+'월 '+d.getDate()+'일 ('+w+')' + (ds===todayKST()?' · 오늘':''); }
+  function esc(s) { return String(s==null?'':s).replace(/[&<>"]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
 
   async function init() {
-    let me = {};
-    try { me = await fetch('/api/auth/me', { credentials: 'include' }).then(r => r.json()); } catch (e) {}
-    const loggedIn = me && (me.loggedIn || me.userId || (me.user && me.user.userId));
-    if (!loggedIn) { $('#gate').classList.remove('hidden'); return; }
-    myId = me.userId || (me.user && me.user.userId) || '';
+    let r;
+    try { r = await api('?date=' + curDate); } catch (e) { $('#gate').classList.remove('hidden'); return; }
+    if (r.status === 401) { $('#gate').classList.remove('hidden'); return; }
+    const j = await r.json();
+    viewer = j.viewer || viewer;
+    mine = j.todos || [];
     $('#main').classList.remove('hidden');
+    if (viewer.canSeeTeam) { $('#tabs').classList.remove('hidden'); $('#teamTab').textContent = viewer.isAdmin ? '전체 보기' : '팀 보기'; }
     bind();
-    load();
+    $('#dlabel').textContent = fmt(curDate);
+    renderMine();
   }
 
   function bind() {
-    $('#prev').onclick = () => { shiftDate(-1); load(); };
-    $('#next').onclick = () => { shiftDate(1); load(); };
-    $('#todayBtn').onclick = () => { curDate = todayKST(); load(); };
-    $('#addBtn').onclick = add;
-    $('#newText').addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
-    document.querySelectorAll('.filters button').forEach(b => b.onclick = () => {
-      filter = b.dataset.f;
-      document.querySelectorAll('.filters button').forEach(x => x.classList.toggle('on', x === b));
-      render();
+    $('#prev').onclick = () => { shiftDate(-1); reload(); };
+    $('#next').onclick = () => { shiftDate(1); reload(); };
+    $('#todayBtn').onclick = () => { curDate = todayKST(); reload(); };
+    document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
+    $('#newInput').addEventListener('keydown', e => { if (e.key === 'Enter') addNew(); });
+    $('#aiToggle').onclick = () => $('#aiBox').classList.toggle('open');
+    $('#aiGo').onclick = ingest;
+  }
+
+  function switchTab(t) {
+    tab = t;
+    document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+    $('#mineView').classList.toggle('hidden', t !== 'mine');
+    $('#teamView').classList.toggle('hidden', t !== 'team');
+    reload();
+  }
+  async function reload() { $('#dlabel').textContent = fmt(curDate); if (tab === 'team') loadTeam(); else loadMine(); }
+
+  async function loadMine() {
+    try { const j = await (await api('?date=' + curDate)).json(); mine = j.todos || []; } catch (e) { mine = []; }
+    renderMine();
+  }
+  function renderMine() {
+    if (!mine.length) { $('#mineList').innerHTML = ''; return; }
+    $('#mineList').innerHTML = mine.map(t =>
+      '<div class="row' + (t.done ? ' done' : '') + '" data-id="' + t.id + '">'
+      + '<div class="chk' + (t.done ? ' on' : '') + '" data-tg="' + t.id + '">' + (t.done ? '✓' : '') + '</div>'
+      + '<input class="t" data-ed="' + t.id + '" value="' + esc(t.text) + '">'
+      + '<button class="del" data-del="' + t.id + '">×</button></div>'
+    ).join('');
+    $('#mineList').querySelectorAll('[data-tg]').forEach(el => el.onclick = () => toggle(el.dataset.tg));
+    $('#mineList').querySelectorAll('[data-del]').forEach(el => el.onclick = () => del(el.dataset.del));
+    $('#mineList').querySelectorAll('[data-ed]').forEach(el => {
+      el.addEventListener('blur', () => saveEdit(el.dataset.ed, el.value));
+      el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); el.blur(); $('#newInput').focus(); } });
     });
   }
 
-  async function load() {
-    $('#dlabel').textContent = fmt(curDate);
+  async function addNew() {
+    const v = $('#newInput').value.trim();
+    if (!v) return;
+    $('#newInput').value = '';
     try {
-      const r = await api('?date=' + curDate);
-      const j = await r.json();
-      cache = (j && j.todos) || [];
-    } catch (e) { cache = []; }
-    render();
+      const j = await (await api('', { method: 'POST', body: JSON.stringify({ text: v, date: curDate }) })).json();
+      if (j.todo) { mine.push(j.todo); renderMine(); }
+    } catch (e) {}
+    $('#newInput').focus();
+  }
+  function toggle(id) {
+    const t = mine.find(x => x.id === id); if (!t) return;
+    t.done = !t.done; renderMine();
+    api('/' + id, { method: 'PUT', body: JSON.stringify({ done: t.done }) }).catch(() => {});
+  }
+  function saveEdit(id, val) {
+    const t = mine.find(x => x.id === id); if (!t) return;
+    const nv = val.trim();
+    if (nv === t.text) return;
+    if (!nv) { del(id, true); return; }
+    t.text = nv;
+    api('/' + id, { method: 'PUT', body: JSON.stringify({ text: nv }) }).catch(() => {});
+  }
+  async function del(id, silent) {
+    if (!silent && !confirm('삭제할까요?')) return;
+    try { await api('/' + id, { method: 'DELETE' }); } catch (e) {}
+    mine = mine.filter(x => x.id !== id); renderMine();
+  }
+  async function ingest() {
+    const v = $('#aiText').value.trim();
+    if (!v) return;
+    $('#aiGo').disabled = true; $('#aiGo').textContent = 'AI가 정리하는 중…';
+    try {
+      const j = await (await api('/ingest', { method: 'POST', body: JSON.stringify({ text: v, date: curDate }) })).json();
+      if (j.ok && j.todos) { mine = mine.concat(j.todos); $('#aiText').value = ''; $('#aiBox').classList.remove('open'); renderMine(); }
+      else alert(j.error || 'AI 정리 실패');
+    } catch (e) { alert('AI 정리 실패'); }
+    $('#aiGo').disabled = false; $('#aiGo').textContent = '✦ AI로 정리해서 할일에 추가';
   }
 
-  function render() {
-    let items = cache.slice();
-    if (filter === 'mine') items = items.filter(t => t.ownerId === myId);
-    else if (filter === 'dept') items = items.filter(t => t.scope === 'dept');
-    else if (filter === 'company') items = items.filter(t => t.scope === 'company');
-    if (!items.length) { $('#list').innerHTML = '<div class="empty">할 일이 없어요. 위에 적어서 추가하세요.</div>'; return; }
-    const badge = { personal: ['b-personal','개인'], dept: ['b-dept','부서'], company: ['b-company','전체'] };
-    $('#list').innerHTML = items.map(t => {
-      const b = badge[t.scope] || badge.personal;
-      const mine = t.ownerId === myId;
-      return '<div class="item' + (t.done ? ' done' : '') + '" data-id="' + t.id + '">'
-        + '<div class="chk' + (t.done ? ' done' : '') + '" data-toggle="' + t.id + '">' + (t.done ? '✓' : '') + '</div>'
-        + '<div class="txt">' + esc(t.text) + '</div>'
-        + '<span class="badge ' + b[0] + '">' + b[1] + '</span>'
-        + (mine ? '' : '<span class="owner">' + esc(t.ownerName || '') + '</span>')
-        + (mine ? '<button class="del" data-del="' + t.id + '" title="삭제">×</button>' : '')
-        + '</div>';
+  async function loadTeam() {
+    let data = { people: [], todos: [] };
+    try { data = await (await api('?view=team&date=' + curDate)).json(); } catch (e) {}
+    const people = data.people || [];
+    const byOwner = {};
+    (data.todos || []).forEach(t => { (byOwner[t.ownerId] = byOwner[t.ownerId] || []).push(t); });
+    // 명단에 없지만 할일 있는 사람도 포함
+    (data.todos || []).forEach(t => { if (!people.find(p => p.userId === t.ownerId)) people.push({ userId: t.ownerId, name: t.ownerName || '?', deptName: '' }); });
+    if (!people.length) { $('#teamView').innerHTML = '<div class="empty">표시할 직원이 없어요.</div>'; return; }
+    $('#teamView').innerHTML = people.map(p => {
+      const ts = byOwner[p.userId] || [];
+      const done = ts.filter(t => t.done).length;
+      const items = ts.length ? ts.map(t => '<div class="titem' + (t.done ? ' done' : '') + '"><span class="b' + (t.done ? ' on' : '') + '">' + (t.done ? '✓' : '') + '</span><span>' + esc(t.text) + '</span></div>').join('') : '<div class="none">아직 작성한 할 일이 없어요</div>';
+      return '<div class="person"><div class="person-h"><div><span class="nm">' + esc(p.name) + '</span>' + (p.deptName ? '<span class="dp">· ' + esc(p.deptName) + '</span>' : '') + '</div>'
+        + '<span class="cnt" style="color:' + (ts.length && done === ts.length ? '#15803d' : '#6b7280') + '">' + (ts.length ? done + '/' + ts.length : '—') + '</span></div>'
+        + '<div class="person-body">' + items + '</div></div>';
     }).join('');
-    $('#list').querySelectorAll('[data-toggle]').forEach(el => el.onclick = () => toggle(el.dataset.toggle));
-    $('#list').querySelectorAll('[data-del]').forEach(el => el.onclick = () => del(el.dataset.del));
-  }
-
-  async function add() {
-    const text = $('#newText').value.trim();
-    if (!text) return;
-    const scope = $('#newScope').value;
-    $('#addBtn').disabled = true;
-    try {
-      const r = await api('', { method: 'POST', body: JSON.stringify({ text, scope, date: curDate }) });
-      const j = await r.json();
-      if (r.ok && j.todo) { cache.push(j.todo); $('#newText').value = ''; render(); }
-      else alert(j.error || '추가 실패');
-    } catch (e) { alert('추가 실패'); }
-    $('#addBtn').disabled = false;
-    $('#newText').focus();
-  }
-
-  async function toggle(id) {
-    const t = cache.find(x => x.id === id); if (!t) return;
-    const next = !t.done; t.done = next; render();
-    try { await api('/' + id, { method: 'PUT', body: JSON.stringify({ done: next }) }); }
-    catch (e) { t.done = !next; render(); }
-  }
-
-  async function del(id) {
-    if (!confirm('삭제할까요?')) return;
-    try {
-      const r = await api('/' + id, { method: 'DELETE' });
-      if (r.ok) { cache = cache.filter(x => x.id !== id); render(); }
-      else { const j = await r.json().catch(() => ({})); alert(j.error || '삭제 실패'); }
-    } catch (e) { alert('삭제 실패'); }
   }
 
   init();
