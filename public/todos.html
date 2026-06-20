@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>오늘 할일 — 대림에스엠</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif; background:#eef1f6; color:#111827; font-size:15px; }
+  .wrap { max-width:680px; margin:0 auto; min-height:100vh; background:#fff; }
+  .header { background:#2563eb; color:#fff; padding:16px 20px; position:sticky; top:0; z-index:10; }
+  .header-sub { font-size:12px; opacity:.9; }
+  .header h1 { font-size:21px; font-weight:600; }
+  .datebar { display:flex; align-items:center; justify-content:center; gap:14px; padding:12px; border-bottom:1px solid #eef1f6; }
+  .datebar button { border:none; background:#f1f3f7; width:34px; height:34px; border-radius:9px; font-size:17px; cursor:pointer; color:#374151; }
+  .datebar .d { font-size:16px; font-weight:600; min-width:150px; text-align:center; }
+  .datebar .today { font-size:11px; color:#2563eb; cursor:pointer; }
+  .filters { display:flex; gap:6px; padding:10px 14px 4px; flex-wrap:wrap; }
+  .filters button { border:1px solid #e5e7eb; background:#fff; color:#6b7280; border-radius:20px; padding:6px 14px; font-size:13px; cursor:pointer; }
+  .filters button.on { background:#2563eb; color:#fff; border-color:#2563eb; }
+  .addrow { display:flex; gap:7px; padding:12px 14px; }
+  .addrow input[type=text] { flex:1; padding:11px 12px; font-size:15px; border:2px solid #d7dbe3; border-radius:11px; }
+  .addrow input[type=text]:focus { outline:none; border-color:#2563eb; }
+  .addrow select { border:2px solid #d7dbe3; border-radius:11px; padding:0 8px; font-size:14px; background:#fff; }
+  .addrow .add { background:#2563eb; color:#fff; border:none; border-radius:11px; padding:0 18px; font-size:15px; font-weight:600; cursor:pointer; }
+  .list { padding:4px 14px 60px; }
+  .item { display:flex; align-items:center; gap:11px; padding:12px 8px; border-bottom:1px solid #f1f3f7; }
+  .chk { width:24px; height:24px; flex:none; border:2px solid #cbd5e1; border-radius:7px; cursor:pointer; display:flex; align-items:center; justify-content:center; color:#fff; font-size:15px; }
+  .chk.done { background:#16a34a; border-color:#16a34a; }
+  .txt { flex:1; font-size:15px; line-height:1.4; }
+  .item.done .txt { text-decoration:line-through; color:#9ca3af; }
+  .badge { font-size:11px; font-weight:600; padding:2px 8px; border-radius:9px; flex:none; }
+  .b-personal { background:#f1f3f7; color:#6b7280; }
+  .b-dept { background:#dbeafe; color:#1d4ed8; }
+  .b-company { background:#dcfce7; color:#15803d; }
+  .owner { font-size:11px; color:#9ca3af; flex:none; }
+  .del { border:none; background:none; color:#cbd5e1; cursor:pointer; font-size:18px; flex:none; padding:0 4px; }
+  .del:hover { color:#ef4444; }
+  .empty { text-align:center; color:#9ca3af; padding:50px 20px; font-size:15px; }
+  .gate { text-align:center; padding:60px 24px; }
+  .gate a { color:#2563eb; }
+  .hidden { display:none; }
+  .hint { font-size:12px; color:#9ca3af; padding:0 14px 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="header-sub">대림에스엠 · 워크스페이스</div>
+    <h1>✅ 오늘 할일</h1>
+  </div>
+
+  <div id="gate" class="gate hidden">
+    <p>로그인이 필요해요.</p>
+    <p style="margin-top:10px;"><a href="/">ERP 로그인하러 가기 →</a></p>
+  </div>
+
+  <div id="main" class="hidden">
+    <div class="datebar">
+      <button id="prev" aria-label="이전 날짜">‹</button>
+      <div>
+        <div class="d" id="dlabel">—</div>
+        <div class="today" id="todayBtn">오늘로</div>
+      </div>
+      <button id="next" aria-label="다음 날짜">›</button>
+    </div>
+
+    <div class="filters">
+      <button data-f="all" class="on">전체</button>
+      <button data-f="mine">내것</button>
+      <button data-f="dept">우리 부서</button>
+      <button data-f="company">전사</button>
+    </div>
+
+    <div class="addrow">
+      <input type="text" id="newText" placeholder="할 일을 적어주세요" autocomplete="off">
+      <select id="newScope">
+        <option value="personal">개인</option>
+        <option value="dept">부서</option>
+        <option value="company">전체</option>
+      </select>
+      <button class="add" id="addBtn">추가</button>
+    </div>
+    <div class="hint">‘부서’·‘전체’로 올리면 같은 부서원/전직원이 보고 완료 체크도 같이 합니다. (내용 수정·삭제는 올린 사람만)</div>
+
+    <div class="list" id="list"></div>
+  </div>
+</div>
+
+<script>
+  const $ = (s) => document.querySelector(s);
+  const api = (p, o) => fetch('/api/workspace/todos' + p, Object.assign({ credentials: 'include', headers: { 'Content-Type': 'application/json' } }, o || {}));
+  let myId = '';
+  let curDate = todayKST();
+  let filter = 'all';
+  let cache = [];
+
+  function todayKST() { return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10); }
+  function shiftDate(n) { const d = new Date(curDate + 'T00:00:00'); d.setDate(d.getDate() + n); curDate = d.toISOString().slice(0, 10); }
+  function fmt(ds) {
+    const d = new Date(ds + 'T00:00:00'); const w = ['일','월','화','수','목','금','토'][d.getDay()];
+    const t = (ds === todayKST()) ? ' (오늘)' : '';
+    return (d.getMonth() + 1) + '월 ' + d.getDate() + '일 (' + w + ')' + t;
+  }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
+
+  async function init() {
+    let me = {};
+    try { me = await fetch('/api/auth/me', { credentials: 'include' }).then(r => r.json()); } catch (e) {}
+    const loggedIn = me && (me.loggedIn || me.userId || (me.user && me.user.userId));
+    if (!loggedIn) { $('#gate').classList.remove('hidden'); return; }
+    myId = me.userId || (me.user && me.user.userId) || '';
+    $('#main').classList.remove('hidden');
+    bind();
+    load();
+  }
+
+  function bind() {
+    $('#prev').onclick = () => { shiftDate(-1); load(); };
+    $('#next').onclick = () => { shiftDate(1); load(); };
+    $('#todayBtn').onclick = () => { curDate = todayKST(); load(); };
+    $('#addBtn').onclick = add;
+    $('#newText').addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
+    document.querySelectorAll('.filters button').forEach(b => b.onclick = () => {
+      filter = b.dataset.f;
+      document.querySelectorAll('.filters button').forEach(x => x.classList.toggle('on', x === b));
+      render();
+    });
+  }
+
+  async function load() {
+    $('#dlabel').textContent = fmt(curDate);
+    try {
+      const r = await api('?date=' + curDate);
+      const j = await r.json();
+      cache = (j && j.todos) || [];
+    } catch (e) { cache = []; }
+    render();
+  }
+
+  function render() {
+    let items = cache.slice();
+    if (filter === 'mine') items = items.filter(t => t.ownerId === myId);
+    else if (filter === 'dept') items = items.filter(t => t.scope === 'dept');
+    else if (filter === 'company') items = items.filter(t => t.scope === 'company');
+    if (!items.length) { $('#list').innerHTML = '<div class="empty">할 일이 없어요. 위에 적어서 추가하세요.</div>'; return; }
+    const badge = { personal: ['b-personal','개인'], dept: ['b-dept','부서'], company: ['b-company','전체'] };
+    $('#list').innerHTML = items.map(t => {
+      const b = badge[t.scope] || badge.personal;
+      const mine = t.ownerId === myId;
+      return '<div class="item' + (t.done ? ' done' : '') + '" data-id="' + t.id + '">'
+        + '<div class="chk' + (t.done ? ' done' : '') + '" data-toggle="' + t.id + '">' + (t.done ? '✓' : '') + '</div>'
+        + '<div class="txt">' + esc(t.text) + '</div>'
+        + '<span class="badge ' + b[0] + '">' + b[1] + '</span>'
+        + (mine ? '' : '<span class="owner">' + esc(t.ownerName || '') + '</span>')
+        + (mine ? '<button class="del" data-del="' + t.id + '" title="삭제">×</button>' : '')
+        + '</div>';
+    }).join('');
+    $('#list').querySelectorAll('[data-toggle]').forEach(el => el.onclick = () => toggle(el.dataset.toggle));
+    $('#list').querySelectorAll('[data-del]').forEach(el => el.onclick = () => del(el.dataset.del));
+  }
+
+  async function add() {
+    const text = $('#newText').value.trim();
+    if (!text) return;
+    const scope = $('#newScope').value;
+    $('#addBtn').disabled = true;
+    try {
+      const r = await api('', { method: 'POST', body: JSON.stringify({ text, scope, date: curDate }) });
+      const j = await r.json();
+      if (r.ok && j.todo) { cache.push(j.todo); $('#newText').value = ''; render(); }
+      else alert(j.error || '추가 실패');
+    } catch (e) { alert('추가 실패'); }
+    $('#addBtn').disabled = false;
+    $('#newText').focus();
+  }
+
+  async function toggle(id) {
+    const t = cache.find(x => x.id === id); if (!t) return;
+    const next = !t.done; t.done = next; render();
+    try { await api('/' + id, { method: 'PUT', body: JSON.stringify({ done: next }) }); }
+    catch (e) { t.done = !next; render(); }
+  }
+
+  async function del(id) {
+    if (!confirm('삭제할까요?')) return;
+    try {
+      const r = await api('/' + id, { method: 'DELETE' });
+      if (r.ok) { cache = cache.filter(x => x.id !== id); render(); }
+      else { const j = await r.json().catch(() => ({})); alert(j.error || '삭제 실패'); }
+    } catch (e) { alert('삭제 실패'); }
+  }
+
+  init();
+</script>
+</body>
+</html>

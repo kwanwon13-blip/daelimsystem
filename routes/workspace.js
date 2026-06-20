@@ -1238,4 +1238,7 @@ router.post('/pinned/sync', (req, res) => {
   }
 });
 
+// 개인/공유 할일(TODO) — /api/workspace/todos 로 마운트 (server.js 무수정)
+router.use('/todos', require('./todos'));
+
 module.exports = router;
