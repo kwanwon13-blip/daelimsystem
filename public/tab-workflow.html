@@ -2001,7 +2001,7 @@
           </div>
           <div class="wf-field">
             <label>프로젝트/현장</label>
-            <input class="wf-input" x-model="form.projectName" @change="syncAutoJobTitle()" @keydown.enter.prevent="enterPickProject('form')" autocomplete="off" placeholder="프로젝트명">
+            <input class="wf-input" x-model="form.projectName" @change="syncAutoJobTitle(); autoFillCompanyFromProject()" @keydown.enter.prevent="enterPickProject('form')" autocomplete="off" placeholder="프로젝트명">
             <div class="wf-project-picks" x-show="!workflowProjectExact(form.companyName, form.projectName) && workflowCompanyHasProjects(form.companyName) && workflowProjectSuggestions(form.companyName, 999, form.projectName).length">
               <template x-for="project in workflowProjectSuggestions(form.companyName, 999, form.projectName)" :key="'new-project-'+project.name">
                 <button type="button" tabindex="-1" class="wf-project-pick" @click="form.projectName = project.name; syncAutoJobTitle(true)">

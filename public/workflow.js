@@ -3689,9 +3689,10 @@ function workflowApp() {
       if (!String(this.form.handoffNote || '').trim()) {
         return alert('특이사항을 적어주세요.\n평소와 다른 점이 없으면 [없음] 버튼을 누르면 됩니다.');
       }
-      if (this.newFiles.length && !String(this.form.companyName || '').trim()) {
+      this.autoFillCompanyFromProject(); // 현장명이 한 회사에만 있으면 회사 자동 채움(회사 안 적고 현장만 적는 경우)
+      if (!String(this.form.companyName || '').trim()) {
         // 현장명(프로젝트)은 선택 — 비우면 회사\연도 폴더에 저장(업체만 있는 곳 대응). 회사명만 필수.
-        return alert('시안 파일을 올릴 때는 회사명을 입력하세요.');
+        return alert('회사를 선택해주세요.\n\n현장명만으로는 어느 회사 폴더에 저장할지 알 수 없습니다.\n(현장명을 입력하면 바로 아래에서 회사를 고를 수 있어요)');
       }
       if (this.newFiles.length) {
         const _mm = this.uploadFolderMismatch(this.newFiles, this.form.companyName, this.form.projectName);
@@ -4129,6 +4130,14 @@ function workflowApp() {
       const m = this.companiesForProject(query);
       if (new Set(m.map(x => x.companyName)).size < 2) return [];
       return m;
+    },
+    // 회사 비었는데 현장명이 '한 회사에만' 있으면 그 회사 자동 채움(직원이 회사 안 적고 현장만 적는 경우)
+    autoFillCompanyFromProject() {
+      try {
+        if (String(this.form.companyName || '').trim()) return;          // 이미 회사 있으면 패스
+        const cos = [...new Set(this.companiesForProject(this.form.projectName).map(m => m.companyName))];
+        if (cos.length === 1) { this.form.companyName = cos[0]; this.syncAutoJobTitle(true); }
+      } catch (_) {}
     },
 
     // 업로드 파일명이 작업(회사/현장)과 전혀 안 맞으면 경고용 — 파일명에 회사/현장 의미토큰이 하나도 없으면 불일치 의심
