@@ -14,12 +14,14 @@ function todosApp(){
     tab: 'mine', curDate: todayStr(),
     memos: [], people: [], expanded: {}, saveTimers: {},
     newTitle: '', aiOpen: false, aiText: '', aiBusy: false, aiMsg: '',
+    assign: { open:false, targetUserId:'', targetName:'', text:'', busy:false, err:'' },
     base: '/api/workspace/todos',
 
     async init(){ await this.reload(); },
 
     fmtDate(s){ const d=new Date(s+'T00:00:00Z'); const wd=['일','월','화','수','목','금','토'][d.getUTCDay()];
       return (d.getUTCMonth()+1)+'월 '+d.getUTCDate()+'일 ('+wd+')'; },
+    shortDate(s){ const d=new Date(s+'T00:00:00Z'); return (d.getUTCMonth()+1)+'/'+d.getUTCDate(); },
 
     async reload(){
       this.loading = true;
@@ -45,10 +47,16 @@ function todosApp(){
 
     countItems(m){ return (m.items||[]).filter(i=>(i.text||'').trim()); },
     progress(m){ const it=this.countItems(m); return it.filter(i=>i.done).length+' / '+it.length; },
-    personMemos(uid){ return this.memos.filter(m=>m.ownerId===uid); },
-    personSummary(uid){ let t=0,d=0; this.personMemos(uid).forEach(m=>{ const it=this.countItems(m); t+=it.length; d+=it.filter(i=>i.done).length; }); return d+' / '+t; },
+    pct(m){ const it=this.countItems(m); if(!it.length) return 0; return Math.round(it.filter(i=>i.done).length/it.length*100); },
     carried(m){ return !!(m.date && m.date < this.curDate); },
-    carriedLabel(m){ if(!(m.date && m.date < this.curDate)) return ''; const d=new Date(m.date+'T00:00:00Z'); return '지난 '+(d.getUTCMonth()+1)+'/'+d.getUTCDate(); },
+    carriedLabel(m){ return this.carried(m) ? '지난 '+this.shortDate(m.date) : ''; },
+    assignedTag(it){ return (it && it.source==='assigned' && it.assignedByName) ? it.assignedByName+' 전달' : ''; },
+
+    // ── 팀/전체 보기: 사람별 ──
+    personMemos(uid){ return this.memos.filter(m=>m.ownerId===uid); },
+    personItems(uid){ const out=[]; this.personMemos(uid).forEach(m=>{ (m.items||[]).forEach(it=>{ if((it.text||'').trim()) out.push(it); }); }); return out; },
+    personDone(uid){ return this.personItems(uid).filter(i=>i.done).length; },
+    personTotal(uid){ return this.personItems(uid).length; },
 
     localId(p){ return (p||'item')+'_'+Date.now()+'_'+Math.random().toString(36).slice(2,6); },
     ensureBlank(m){ if(!m.items) m.items=[]; if(!m.items.some(i=>!(i.text||'').trim())) m.items.push({ id:this.localId('item'), text:'', done:false }); },
@@ -87,18 +95,31 @@ function todosApp(){
       }catch(e){ this.aiMsg='오류가 났어요. 다시 시도해주세요.'; }
       this.aiBusy=false;
     },
+
+    // ── 업무 전달 ──
+    openAssign(p){ this.assign={ open:true, targetUserId:p.userId, targetName:p.name||'', text:'', busy:false, err:'' }; this.$nextTick(()=>{ const el=document.getElementById('assignText'); if(el) el.focus(); }); },
+    closeAssign(){ this.assign.open=false; },
+    async submitAssign(){ const t=(this.assign.text||'').trim(); if(!t){ this.assign.err='업무 내용을 입력하세요'; return; } this.assign.busy=true; this.assign.err='';
+      try{
+        const r=await fetch(this.base+'/assign',{ method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body:JSON.stringify({ targetUserId:this.assign.targetUserId, text:t, date:this.curDate }) });
+        const j=await r.json();
+        if(j.ok){ this.assign.open=false; await this.reload(); }
+        else { this.assign.err=j.error||'전달하지 못했어요.'; }
+      }catch(e){ this.assign.err='오류가 났어요. 다시 시도해주세요.'; }
+      this.assign.busy=false;
+    },
   };
 }
 </script>
 <script src="https://unpkg.com/@alpinejs/collapse@3.x.x/dist/cdn.min.js" defer></script>
 <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 <style>
-  :root{ --bg:#f4f5f7; --card:#fff; --line:#e5e7eb; --line2:#d1d5db; --text:#111827; --muted:#6b7280; --hint:#9ca3af; --accent:#2563eb; --accent-bg:#eff4ff; }
+  :root{ --bg:#f4f5f7; --card:#fff; --line:#e5e7eb; --line2:#d1d5db; --text:#111827; --muted:#6b7280; --hint:#9ca3af; --accent:#4f6ef7; --accent-bg:#eef2ff; --accent-line:#e0e7ff; }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body{ margin:0; }
   body{ background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","맑은 고딕",sans-serif; font-size:15px; line-height:1.5; }
   [x-cloak]{ display:none !important; }
-  .wrap{ max-width:680px; margin:0 auto; padding:14px 14px 80px; }
+  .wrap{ max-width:680px; margin:0 auto; padding:14px 14px 90px; }
 
   .topbar{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
   .title{ font-size:20px; font-weight:700; }
@@ -110,11 +131,11 @@ function todosApp(){
   .dlabel{ flex:1; text-align:center; font-size:15px; font-weight:600; }
   .today{ height:34px; padding:0 12px; border:1px solid var(--line2); background:#fff; border-radius:9px; font-size:13px; color:var(--muted); cursor:pointer; }
 
-  .tabs{ display:flex; gap:8px; margin-bottom:12px; }
-  .tab{ flex:1; height:38px; border:1px solid var(--line); background:var(--card); border-radius:10px; font-size:14px; font-weight:600; color:var(--muted); cursor:pointer; }
-  .tab.active{ background:var(--accent); border-color:var(--accent); color:#fff; }
+  .tabs{ display:flex; gap:4px; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:4px; margin-bottom:14px; }
+  .tab{ flex:1; height:36px; border:none; background:transparent; border-radius:7px; font-size:14px; font-weight:600; color:var(--muted); cursor:pointer; }
+  .tab.active{ background:var(--accent); color:#fff; }
 
-  .aibtn{ width:100%; height:42px; border:1px dashed var(--accent); background:var(--accent-bg); color:var(--accent); border-radius:11px; font-size:14px; font-weight:600; cursor:pointer; margin-bottom:12px; }
+  .aibtn{ width:100%; display:flex; align-items:center; justify-content:center; gap:8px; height:44px; border:1px dashed var(--accent); background:var(--accent-bg); color:var(--accent); border-radius:12px; font-size:14px; font-weight:600; cursor:pointer; margin-bottom:12px; }
   .aibox{ background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:12px; }
   .aibox textarea{ width:100%; border:1px solid var(--line2); border-radius:9px; padding:10px; font:inherit; resize:vertical; }
   .airow{ display:flex; align-items:center; gap:10px; margin-top:8px; }
@@ -123,24 +144,27 @@ function todosApp(){
   .aimsg{ font-size:13px; color:#b91c1c; }
   .aihint{ font-size:12px; color:var(--hint); margin-top:8px; }
 
+  /* ── 내 할 일: 메모 카드 ── */
   .memo{ background:var(--card); border:1px solid var(--line); border-radius:12px; margin-bottom:10px; overflow:hidden; }
-  .mhead{ display:flex; align-items:center; gap:4px; padding:6px 8px; }
+  .mhead{ display:flex; align-items:center; gap:4px; padding:8px 8px 6px; }
   .chevbtn{ width:34px; height:34px; border:none; background:transparent; cursor:pointer; display:flex; align-items:center; justify-content:center; flex:none; }
-  .chev{ display:inline-block; transition:transform .15s; color:var(--hint); font-size:13px; }
+  .chev{ display:inline-block; transition:transform .15s; color:var(--hint); font-size:12px; }
   .chev.open{ transform:rotate(90deg); }
   .mtitle{ flex:1; border:none; background:transparent; font:inherit; font-size:15px; font-weight:600; color:var(--text); padding:6px 2px; min-width:0; }
   .mtitle:focus{ outline:none; }
-  .mtitle.ro{ padding:6px 2px; }
   .prog{ flex:none; font-size:12px; color:var(--muted); background:#f3f4f6; border-radius:8px; padding:3px 9px; }
   .ai-tag{ flex:none; font-size:11px; color:var(--accent); background:var(--accent-bg); border-radius:7px; padding:2px 7px; margin-left:4px; }
   .overdue{ flex:none; font-size:11px; color:#b45309; background:#fef3c7; border-radius:7px; padding:2px 7px; margin-left:4px; white-space:nowrap; }
+  .bar{ height:5px; border-radius:999px; background:#eef0f3; margin:0 14px 8px 42px; overflow:hidden; }
+  .barfill{ height:100%; background:var(--accent); border-radius:999px; transition:width .2s; }
 
-  .mbody{ padding:2px 12px 12px 42px; }
+  .mbody{ padding:0 12px 12px 42px; }
   .item{ display:flex; align-items:center; gap:10px; padding:3px 0; }
   .cbx{ width:20px; height:20px; flex:none; accent-color:var(--accent); cursor:pointer; }
   .itxt{ flex:1; border:none; background:transparent; font:inherit; font-size:14px; color:var(--text); padding:5px 2px; min-width:0; }
   .itxt:focus{ outline:none; }
-  .itxt.done, .itxt-ro.done{ color:var(--hint); text-decoration:line-through; }
+  .itxt.done{ color:var(--hint); text-decoration:line-through; }
+  .atag{ flex:none; font-size:10px; font-weight:700; color:#4338CA; background:#EEF2FF; padding:2px 7px; border-radius:8px; white-space:nowrap; }
   .memofoot{ margin-top:6px; }
   .delmemo{ border:none; background:transparent; color:var(--hint); font-size:12px; cursor:pointer; padding:4px 2px; }
 
@@ -149,22 +173,41 @@ function todosApp(){
   .newmemo input{ flex:1; border:none; background:transparent; font:inherit; font-size:14px; padding:4px 0; min-width:0; }
   .newmemo input:focus{ outline:none; }
 
-  .person{ margin-bottom:18px; }
-  .phead{ display:flex; align-items:baseline; gap:8px; padding:0 4px 6px; border-bottom:1px solid var(--line); margin-bottom:8px; }
-  .pname{ font-size:15px; font-weight:700; }
-  .pdept{ font-size:12px; color:var(--hint); }
-  .psum{ margin-left:auto; font-size:12px; color:var(--muted); }
-  .empty{ font-size:13px; color:var(--hint); padding:4px 6px 8px; }
-
-  .cbx-ro{ width:18px; height:18px; flex:none; border:1.5px solid var(--line2); border-radius:5px; }
-  .cbx-ro.on{ background:#16a34a; border-color:#16a34a; position:relative; }
-  .cbx-ro.on::after{ content:"✓"; color:#fff; font-size:12px; position:absolute; left:2px; top:-1px; }
-  .itxt-ro{ flex:1; font-size:14px; padding:5px 2px; }
-  .item.ro{ cursor:default; }
+  /* ── 팀/전체 보기: 출퇴근 기록부 카드식 ── */
+  .pcard{ background:var(--card); border:1px solid #e2e6ee; border-radius:10px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.04); margin-bottom:10px; }
+  .pcard-head{ display:flex; align-items:center; gap:7px; padding:9px 12px; background:var(--accent-bg); border-bottom:1.5px solid var(--accent-line); }
+  .pname{ font-size:14px; font-weight:700; color:#1e293b; }
+  .pdept{ font-size:11px; color:#8b95a5; }
+  .spacer{ flex:1; }
+  .pprog{ font-size:11px; font-weight:700; color:#475569; background:#fff; border:1px solid var(--accent-line); padding:2px 8px; border-radius:8px; white-space:nowrap; }
+  .pprog.done{ color:#16a34a; background:#f0fdf4; border-color:#bbf7d0; }
+  .assignbtn{ display:flex; align-items:center; gap:4px; font-size:11px; font-weight:600; color:#fff; background:var(--accent); border:none; border-radius:8px; padding:5px 10px; cursor:pointer; white-space:nowrap; }
+  .pbody{ padding:7px 12px 9px; }
+  .roitem{ display:flex; align-items:center; gap:10px; padding:5px 0; border-bottom:1px solid #f3f4f6; }
+  .roitem:last-child{ border-bottom:none; }
+  .cbx-ro{ width:18px; height:18px; flex:none; border:1.5px solid var(--line2); border-radius:5px; position:relative; }
+  .cbx-ro.on{ background:#16a34a; border-color:#16a34a; }
+  .cbx-ro.on::after{ content:"✓"; color:#fff; font-size:12px; position:absolute; left:2px; top:-2px; }
+  .rotext{ flex:1; font-size:14px; color:#1f2937; }
+  .rotext.done{ color:var(--hint); text-decoration:line-through; }
+  .pempty{ font-size:13px; color:var(--hint); padding:4px 2px; }
 
   .gate, .loading{ text-align:center; color:var(--muted); padding:60px 20px; }
   .gate a{ color:var(--accent); font-weight:600; text-decoration:none; }
-  .hint{ font-size:12px; color:var(--hint); text-align:center; margin-top:14px; }
+  .hint{ font-size:12px; color:var(--hint); text-align:center; margin-top:14px; line-height:1.6; }
+
+  /* ── 업무 전달 모달 ── */
+  .modal-ov{ position:fixed; inset:0; background:rgba(17,24,39,.45); display:flex; align-items:flex-end; justify-content:center; z-index:50; padding:0; }
+  .modal{ background:#fff; width:100%; max-width:520px; border-radius:16px 16px 0 0; padding:16px 16px 20px; }
+  @media(min-width:560px){ .modal-ov{ align-items:center; } .modal{ border-radius:16px; } }
+  .modal-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .modal-head b{ font-size:16px; }
+  .modal-x{ border:none; background:transparent; font-size:20px; color:var(--muted); cursor:pointer; }
+  .modal textarea{ width:100%; border:1px solid var(--line2); border-radius:10px; padding:11px; font:inherit; font-size:15px; resize:vertical; min-height:80px; }
+  .modal-sub{ font-size:12px; color:var(--hint); margin:8px 0 0; }
+  .modal-err{ font-size:13px; color:#b91c1c; margin-top:8px; min-height:18px; }
+  .modal-foot{ display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
+  .btn{ height:40px; padding:0 16px; border:1px solid var(--line2); background:#fff; border-radius:10px; font-size:14px; font-weight:600; color:var(--text); cursor:pointer; }
 </style>
 </head>
 <body x-data="todosApp()" x-init="init()">
@@ -175,7 +218,6 @@ function todosApp(){
       <span class="me" x-show="!gate && viewer.name" x-text="viewer.name+'님'"></span>
     </div>
 
-    <!-- 로그인 필요 -->
     <div class="gate" x-show="gate" x-cloak>
       로그인이 필요합니다.<br><br>
       <a href="/">ERP로 이동해서 로그인하기 →</a>
@@ -183,7 +225,6 @@ function todosApp(){
 
     <template x-if="!gate">
       <div>
-        <!-- 날짜 이동 -->
         <div class="datenav">
           <button class="dbtn" @click="shiftDate(-1)" aria-label="이전 날">‹</button>
           <span class="dlabel" x-text="fmtDate(curDate)"></span>
@@ -191,7 +232,6 @@ function todosApp(){
           <button class="today" @click="goToday()">오늘</button>
         </div>
 
-        <!-- 직급별 탭 -->
         <div class="tabs" x-show="viewer.canSeeTeam" x-cloak>
           <button class="tab" :class="tab==='mine'?'active':''" @click="switchTab('mine')">내 할일</button>
           <button class="tab" :class="tab==='team'?'active':''" @click="switchTab('team')" x-text="viewer.isAdmin ? '전체 보기' : '팀 보기'"></button>
@@ -201,18 +241,15 @@ function todosApp(){
 
         <!-- ───────── 내 할일 ───────── -->
         <div x-show="!loading && tab==='mine'" x-cloak>
-          <!-- AI 정리 -->
-          <button class="aibtn" @click="aiOpen=!aiOpen">＋ 카톡·메모 붙여넣고 AI로 정리</button>
+          <button class="aibtn" @click="aiOpen=!aiOpen"><i class="ti ti-clipboard-text" style="font-size:18px;" aria-hidden="true"></i> 카톡·메모 붙여넣고 AI로 정리</button>
           <div class="aibox" x-show="aiOpen" x-collapse>
             <textarea x-model="aiText" rows="5" placeholder="카톡이나 메모 내용을 그대로 붙여넣으세요. AI가 할 일만 묶어서 정리해 드려요."></textarea>
             <div class="airow">
               <button class="primary" @click="runAI()" :disabled="aiBusy" x-text="aiBusy ? '정리 중…' : 'AI로 정리'"></button>
               <span class="aimsg" x-text="aiMsg"></span>
             </div>
-            <div class="aihint">예) 포스코 H빔 5본 픽업, 도면 받기 / 두산 견적서 회신 … → 현장별로 묶여 추가됩니다.</div>
           </div>
 
-          <!-- 메모 목록 -->
           <template x-for="m in memos" :key="m.id">
             <div class="memo">
               <div class="mhead">
@@ -220,8 +257,10 @@ function todosApp(){
                 <input class="mtitle" x-model="m.title" @input="renameMemo(m)" @focus="expanded[m.id]=true" @keydown.enter="$event.target.blur()" placeholder="메모 제목">
                 <span class="overdue" x-show="carried(m)" x-text="carriedLabel(m)"></span>
                 <span class="ai-tag" x-show="m.source==='ai'">AI</span>
+                <span class="ai-tag" style="color:#4338CA;background:#EEF2FF;" x-show="m.source==='assigned'">전달받음</span>
                 <span class="prog" x-text="progress(m)"></span>
               </div>
+              <div class="bar" x-show="isExpanded(m.id) && countItems(m).length"><div class="barfill" :style="'width:'+pct(m)+'%'"></div></div>
               <div class="mbody" x-show="isExpanded(m.id)" x-collapse>
                 <template x-for="(it, idx) in m.items" :key="it.id">
                   <div class="item">
@@ -230,6 +269,7 @@ function todosApp(){
                       @input="onItemInput(m)" @keydown.enter.prevent="onItemEnter(m, idx)"
                       @keydown.backspace="onItemBackspace(m, idx, $event)" @blur="onItemBlur(m, idx)"
                       placeholder="할 일 적고 엔터…">
+                    <span class="atag" x-show="it.source==='assigned'" x-text="assignedTag(it)"></span>
                   </div>
                 </template>
                 <div class="memofoot">
@@ -239,52 +279,61 @@ function todosApp(){
             </div>
           </template>
 
-          <!-- 새 메모 -->
           <div class="newmemo">
             <span class="plus">＋</span>
             <input x-model="newTitle" @keydown.enter="addMemo()" placeholder="새 메모 제목 적고 엔터… (예: 포스코 자재)">
           </div>
-          <p class="hint">메모를 누르면 안에 할 일을 적을 수 있어요. 엔터로 줄 추가, 체크로 지우기.<br>안 끝낸 메모는 다음 날 오늘로 자동으로 따라옵니다 (<span style="color:#b45309;">지난 6/20</span> 표시).</p>
+          <p class="hint">메모를 누르면 안에 할 일을 적을 수 있어요. 엔터로 줄 추가, 체크로 지우기.<br>안 끝낸 메모는 다음 날 오늘로 자동으로 따라옵니다.</p>
         </div>
 
-        <!-- ───────── 팀 / 전체 보기 (읽기 전용) ───────── -->
+        <!-- ───────── 팀 / 전체 보기 (출퇴근 기록부 카드식) ───────── -->
         <div x-show="!loading && tab==='team'" x-cloak>
           <template x-for="p in people" :key="p.userId">
-            <div class="person">
-              <div class="phead">
+            <div class="pcard">
+              <div class="pcard-head">
                 <span class="pname" x-text="p.name"></span>
                 <span class="pdept" x-text="p.deptName"></span>
-                <span class="psum" x-text="personSummary(p.userId)"></span>
+                <span class="spacer"></span>
+                <span class="pprog" :class="personTotal(p.userId)>0 && personDone(p.userId)===personTotal(p.userId) ? 'done' : ''"
+                      x-text="personDone(p.userId)+' / '+personTotal(p.userId)+(personTotal(p.userId)>0 && personDone(p.userId)===personTotal(p.userId)?' 완료':'')"></span>
+                <button class="assignbtn" @click="openAssign(p)"><i class="ti ti-send" style="font-size:13px;" aria-hidden="true"></i> 업무 전달</button>
               </div>
-              <template x-if="personMemos(p.userId).length===0">
-                <div class="empty">아직 등록된 할 일이 없어요.</div>
-              </template>
-              <template x-for="m in personMemos(p.userId)" :key="m.id">
-                <div class="memo">
-                  <button class="mhead" @click="toggle(m.id)" style="width:100%;border:none;background:transparent;cursor:pointer;text-align:left;">
-                    <span class="chevbtn" style="pointer-events:none;"><span class="chev" :class="isExpanded(m.id)?'open':''">▶</span></span>
-                    <span class="mtitle ro" x-text="m.title"></span>
-                    <span class="overdue" x-show="carried(m)" x-text="carriedLabel(m)"></span>
-                    <span class="ai-tag" x-show="m.source==='ai'">AI</span>
-                    <span class="prog" x-text="progress(m)"></span>
-                  </button>
-                  <div class="mbody" x-show="isExpanded(m.id)" x-collapse>
-                    <template x-for="it in countItems(m)" :key="it.id">
-                      <div class="item ro">
-                        <span class="cbx-ro" :class="it.done?'on':''"></span>
-                        <span class="itxt-ro" :class="it.done?'done':''" x-text="it.text"></span>
-                      </div>
-                    </template>
+              <div class="pbody">
+                <template x-if="personTotal(p.userId)===0">
+                  <div class="pempty">아직 등록된 할 일이 없어요.</div>
+                </template>
+                <template x-for="(it,ii) in personItems(p.userId)" :key="p.userId+'_'+ii">
+                  <div class="roitem">
+                    <span class="cbx-ro" :class="it.done?'on':''"></span>
+                    <span class="rotext" :class="it.done?'done':''" x-text="it.text"></span>
+                    <span class="atag" x-show="it.source==='assigned'" x-text="assignedTag(it)"></span>
                   </div>
-                </div>
-              </template>
+                </template>
+              </div>
             </div>
           </template>
           <p class="hint" x-show="people.length===0">표시할 사람이 없어요.</p>
+          <p class="hint" x-show="people.length>0">사람마다 <b>업무 전달</b>을 누르면 그 직원 '내 할 일'에 전달돼요. 완료 체크는 본인이 합니다.</p>
         </div>
       </div>
     </template>
+  </div>
 
+  <!-- 업무 전달 모달 -->
+  <div class="modal-ov" x-show="assign.open" x-cloak @click.self="closeAssign()">
+    <div class="modal">
+      <div class="modal-head">
+        <b x-text="(assign.targetName||'')+'님에게 업무 전달'"></b>
+        <button class="modal-x" @click="closeAssign()" aria-label="닫기">✕</button>
+      </div>
+      <textarea id="assignText" x-model="assign.text" placeholder="전달할 업무를 한 줄로 적으세요. 예: 포스코 H빔 5본 픽업" @keydown.enter.meta="submitAssign()"></textarea>
+      <p class="modal-sub" x-text="fmtDate(curDate)+' 날짜로 전달됩니다.'"></p>
+      <div class="modal-err" x-text="assign.err"></div>
+      <div class="modal-foot">
+        <button class="btn" @click="closeAssign()">취소</button>
+        <button class="primary" @click="submitAssign()" :disabled="assign.busy" x-text="assign.busy ? '전달 중…' : '전달'"></button>
+      </div>
+    </div>
   </div>
 </body>
 </html>

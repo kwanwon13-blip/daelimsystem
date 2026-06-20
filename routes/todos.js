@@ -23,14 +23,24 @@ function newId(p) { return (p || 'memo') + '_' + Date.now() + '_' + Math.random(
 function clean(s, n) { return String(s == null ? '' : s).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '').trim().slice(0, n); }
 function isDate(s) { return /^\d{4}-\d{2}-\d{2}$/.test(s || ''); }
 
-// 항목 정규화 — id 유지(없으면 발급), 빈 줄은 버림
+// 항목 정규화 — id 유지(없으면 발급), 빈 줄은 버림.
+//   detail(세부내역) + 전달 기록(source/assignedBy*/assignedAt) 보존, 완료 시 completedAt 기록.
 function normItems(arr) {
   if (!Array.isArray(arr)) return [];
-  return arr.slice(0, 200).map(it => ({
-    id: clean(it && it.id, 40) || newId('item'),
-    text: clean(it && it.text, 300),
-    done: !!(it && it.done)
-  })).filter(it => it.text);
+  return arr.slice(0, 200).map(it => {
+    const o = {
+      id: clean(it && it.id, 40) || newId('item'),
+      text: clean(it && it.text, 300),
+      done: !!(it && it.done)
+    };
+    const detail = clean(it && it.detail, 2000); if (detail) o.detail = detail;
+    if (it && it.source) o.source = clean(it.source, 20);
+    if (it && it.assignedById) o.assignedById = clean(it.assignedById, 60);
+    if (it && it.assignedByName) o.assignedByName = clean(it.assignedByName, 60);
+    if (it && it.assignedAt) o.assignedAt = clean(it.assignedAt, 40);
+    if (o.done) o.completedAt = clean(it && it.completedAt, 40) || nowISO();  // 완료 기록(있으면 유지)
+    return o;
+  }).filter(it => it.text);
 }
 
 // 보기 권한 컨텍스트 (서버에서 직급 판정)
@@ -195,6 +205,52 @@ router.post('/ingest', requireAuth, async (req, res) => {
     });
     db['할일'].save(data);
     res.json({ ok: true, memos: created.map(m => shape(m, u)) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── 업무 전달(지시): 팀장=부서원 / 관리자=전사 직원에게 할 일 보내기 ──
+//   대상 직원의 '전달받은 업무' 메모(그 날짜)에 항목 추가. 누가·언제 전달했는지 기록.
+router.post('/assign', requireAuth, (req, res) => {
+  try {
+    const u = req.user;
+    const v = viewerCtx(u);
+    if (!v.isAdmin && !v.isLeader) return res.status(403).json({ error: '업무를 전달할 권한이 없어요' });
+    const b = req.body || {};
+    const targetUserId = clean(b.targetUserId, 60);
+    const text = clean(b.text, 300);
+    const detail = clean(b.detail, 2000);
+    const date = isDate(b.date) ? b.date : todayKST();
+    if (!targetUserId || !text) return res.status(400).json({ error: '대상과 업무 내용을 입력하세요' });
+
+    // 대상 직원 조회 + 권한(같은 회사 / 관리자=전사, 팀장=우리 부서) 확인 — 클라이언트 신뢰 안 함
+    const org = db.loadUsers();
+    const target = (org.users || []).find(x => x.userId === targetUserId && x.status === 'approved');
+    if (!target) return res.status(404).json({ error: '대상 직원을 찾을 수 없어요' });
+    const sameCompany = (target.companyId || 'dalim-sm') === v.companyId;
+    const allowed = v.isAdmin ? sameCompany : (v.isLeader && sameCompany && target.department === v.ledDeptId);
+    if (!allowed) return res.status(403).json({ error: '이 직원에게는 전달할 수 없어요' });
+
+    // 대상의 '전달받은 업무' 메모(그 날짜) 찾거나 생성
+    const data = load();
+    let memo = data.memos.find(m => m.ownerId === target.userId && (m.date || '') === date && m.source === 'assigned' && m.title === '전달받은 업무');
+    if (!memo) {
+      memo = {
+        id: newId('memo'), ownerId: target.userId, ownerName: target.name || '', date, title: '전달받은 업무',
+        items: [], deptId: target.department || '', companyId: target.companyId || 'dalim-sm', source: 'assigned',
+        createdAt: nowISO(), updatedAt: nowISO()
+      };
+      data.memos.push(memo);
+    }
+    if (!Array.isArray(memo.items)) memo.items = [];
+    const item = {
+      id: newId('item'), text, done: false,
+      source: 'assigned', assignedById: u.userId, assignedByName: u.name || '', assignedAt: nowISO(), completedAt: ''
+    };
+    if (detail) item.detail = detail;
+    memo.items.push(item);
+    memo.updatedAt = nowISO();
+    db['할일'].save(data);
+    res.json({ ok: true, memo: shape(memo, u), item });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
