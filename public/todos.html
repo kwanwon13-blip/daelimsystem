@@ -1,230 +1,285 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>할일 — 대림에스엠</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>할 일</title>
+<script>
+// Alpine 컴포넌트 (Alpine core보다 먼저 전역에 정의)
+function todayStr(){ return new Date(Date.now() + 9*3600*1000).toISOString().slice(0,10); }
+function todosApp(){
+  return {
+    loading: true, gate: false,
+    viewer: { mode:'mine', isAdmin:false, canSeeTeam:false, name:'', userId:'' },
+    tab: 'mine', curDate: todayStr(),
+    memos: [], people: [], expanded: {}, saveTimers: {},
+    newTitle: '', aiOpen: false, aiText: '', aiBusy: false, aiMsg: '',
+    base: '/api/workspace/todos',
+
+    async init(){ await this.reload(); },
+
+    fmtDate(s){ const d=new Date(s+'T00:00:00Z'); const wd=['일','월','화','수','목','금','토'][d.getUTCDay()];
+      return (d.getUTCMonth()+1)+'월 '+d.getUTCDate()+'일 ('+wd+')'; },
+
+    async reload(){
+      this.loading = true;
+      const q = this.tab==='team' ? ('?view=team&date='+this.curDate) : ('?date='+this.curDate);
+      let r;
+      try { r = await fetch(this.base+q, { credentials:'same-origin' }); }
+      catch(e){ this.gate=true; this.loading=false; return; }
+      if (r.status===401){ this.gate=true; this.loading=false; return; }
+      this.gate=false;
+      let j={}; try{ j = await r.json(); }catch(e){}
+      this.viewer = j.viewer || this.viewer;
+      this.memos = j.memos || [];
+      this.people = j.people || [];
+      this.loading = false;
+    },
+
+    switchTab(t){ if(this.tab===t) return; this.tab=t; this.expanded={}; this.reload(); },
+    shiftDate(n){ const d=new Date(this.curDate+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+n); this.curDate=d.toISOString().slice(0,10); this.expanded={}; this.reload(); },
+    goToday(){ this.curDate=todayStr(); this.expanded={}; this.reload(); },
+
+    isExpanded(id){ return !!this.expanded[id]; },
+    toggle(id){ this.expanded[id]=!this.expanded[id]; if(this.expanded[id]){ const m=this.memos.find(x=>x.id===id); if(m && m.mine) this.ensureBlank(m); } },
+
+    countItems(m){ return (m.items||[]).filter(i=>(i.text||'').trim()); },
+    progress(m){ const it=this.countItems(m); return it.filter(i=>i.done).length+' / '+it.length; },
+    personMemos(uid){ return this.memos.filter(m=>m.ownerId===uid); },
+    personSummary(uid){ let t=0,d=0; this.personMemos(uid).forEach(m=>{ const it=this.countItems(m); t+=it.length; d+=it.filter(i=>i.done).length; }); return d+' / '+t; },
+
+    localId(p){ return (p||'item')+'_'+Date.now()+'_'+Math.random().toString(36).slice(2,6); },
+    ensureBlank(m){ if(!m.items) m.items=[]; if(!m.items.some(i=>!(i.text||'').trim())) m.items.push({ id:this.localId('item'), text:'', done:false }); },
+
+    async addMemo(){ const t=(this.newTitle||'').trim(); if(!t) return; this.newTitle='';
+      try{
+        const r=await fetch(this.base,{ method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body:JSON.stringify({ title:t, date:this.curDate }) });
+        const j=await r.json();
+        if(j.ok && j.memo){ this.memos.push(j.memo); this.expanded[j.memo.id]=true; this.ensureBlank(j.memo); this.$nextTick(()=>this.focusFirstItem(j.memo.id)); }
+      }catch(e){}
+    },
+
+    onItemEnter(m, idx){ const cur=m.items[idx]; if(!cur || !(cur.text||'').trim()) return;
+      const it={ id:this.localId('item'), text:'', done:false }; m.items.splice(idx+1,0,it);
+      this.$nextTick(()=>this.focusItem(m.id,it.id)); this.queueSave(m); },
+    onItemBackspace(m, idx, ev){ const cur=m.items[idx];
+      if(cur && (cur.text||'')==='' && m.items.length>1){ ev.preventDefault(); const prev=m.items[Math.max(0,idx-1)]; m.items.splice(idx,1); if(prev) this.$nextTick(()=>this.focusItem(m.id,prev.id,true)); this.queueSave(m); } },
+    onItemBlur(m, idx){ const cur=m.items[idx]; if(cur && (cur.text||'').trim()==='' && m.items.length>1) m.items.splice(idx,1); this.queueSave(m); },
+    onItemInput(m){ this.queueSave(m); },
+    toggleItem(m){ this.queueSave(m); },
+    renameMemo(m){ this.queueSave(m); },
+
+    queueSave(m){ clearTimeout(this.saveTimers[m.id]); this.saveTimers[m.id]=setTimeout(()=>this.saveMemo(m), 500); },
+    async saveMemo(m){ try{ await fetch(this.base+'/'+m.id,{ method:'PUT', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body:JSON.stringify({ title:m.title, items:(m.items||[]).filter(i=>(i.text||'').trim()) }) }); }catch(e){} },
+    async delMemo(m){ if(!confirm('이 메모를 삭제할까요?\n'+(m.title||''))) return; try{ await fetch(this.base+'/'+m.id,{ method:'DELETE', credentials:'same-origin' }); this.memos=this.memos.filter(x=>x.id!==m.id); }catch(e){} },
+
+    focusItem(memoId, itemId, toEnd){ const el=document.getElementById('it-'+memoId+'-'+itemId); if(el){ el.focus(); if(toEnd){ const v=el.value; try{ el.setSelectionRange(v.length,v.length); }catch(e){} } } },
+    focusFirstItem(memoId){ const m=this.memos.find(x=>x.id===memoId); if(m && m.items && m.items[0]) this.focusItem(memoId, m.items[0].id); },
+
+    async runAI(){ const t=(this.aiText||'').trim(); if(!t) return; this.aiBusy=true; this.aiMsg='';
+      try{
+        const r=await fetch(this.base+'/ingest',{ method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body:JSON.stringify({ text:t, date:this.curDate }) });
+        const j=await r.json();
+        if(j.ok && j.memos){ j.memos.forEach(mm=>{ this.memos.push(mm); this.expanded[mm.id]=true; }); this.aiText=''; this.aiOpen=false; }
+        else { this.aiMsg = j.error || '정리하지 못했어요.'; }
+      }catch(e){ this.aiMsg='오류가 났어요. 다시 시도해주세요.'; }
+      this.aiBusy=false;
+    },
+  };
+}
+</script>
+<script src="https://unpkg.com/@alpinejs/collapse@3.x.x/dist/cdn.min.js" defer></script>
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 <style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family:-apple-system,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif; background:#eef1f6; color:#111827; font-size:15px; }
-  .wrap { max-width:720px; margin:0 auto; min-height:100vh; background:#fff; }
-  .header { background:#2563eb; color:#fff; padding:14px 18px; position:sticky; top:0; z-index:10; }
-  .header h1 { font-size:20px; font-weight:600; }
-  .datebar { display:flex; align-items:center; justify-content:center; gap:14px; padding:5px 0 2px; }
-  .datebar button { border:none; background:rgba(255,255,255,.2); color:#fff; width:30px; height:30px; border-radius:8px; font-size:16px; cursor:pointer; }
-  .datebar .d { font-size:15px; font-weight:600; min-width:160px; text-align:center; }
-  .datebar .today { font-size:11px; opacity:.85; cursor:pointer; text-decoration:underline; }
-  .tabs { display:flex; border-bottom:1px solid #eef1f6; }
-  .tabs button { flex:1; border:none; background:none; padding:13px; font-size:15px; font-weight:600; color:#9ca3af; cursor:pointer; border-bottom:3px solid transparent; }
-  .tabs button.on { color:#2563eb; border-bottom-color:#2563eb; }
-  .body { padding:8px 16px 80px; }
+  :root{ --bg:#f4f5f7; --card:#fff; --line:#e5e7eb; --line2:#d1d5db; --text:#111827; --muted:#6b7280; --hint:#9ca3af; --accent:#2563eb; --accent-bg:#eff4ff; }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; }
+  body{ background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","맑은 고딕",sans-serif; font-size:15px; line-height:1.5; }
+  [x-cloak]{ display:none !important; }
+  .wrap{ max-width:680px; margin:0 auto; padding:14px 14px 80px; }
 
-  /* 메모 체크리스트 */
-  .row { display:flex; align-items:center; gap:11px; padding:9px 4px; border-bottom:1px solid #f4f5f8; }
-  .chk { width:23px; height:23px; flex:none; border:2px solid #cbd5e1; border-radius:6px; cursor:pointer; display:flex; align-items:center; justify-content:center; color:#fff; font-size:14px; line-height:1; }
-  .chk.on { background:#16a34a; border-color:#16a34a; }
-  .row input.t { flex:1; border:none; outline:none; font-size:15px; color:#111827; background:none; padding:4px 0; }
-  .row.done input.t { text-decoration:line-through; color:#9ca3af; }
-  .row .del { border:none; background:none; color:#e5e7eb; cursor:pointer; font-size:18px; padding:0 4px; }
-  .row:hover .del { color:#cbd5e1; }
-  .row .del:hover { color:#ef4444; }
-  .newrow { display:flex; align-items:center; gap:11px; padding:11px 4px; }
-  .newrow .plus { width:23px; height:23px; flex:none; color:#9ca3af; display:flex; align-items:center; justify-content:center; font-size:20px; }
-  .newrow input { flex:1; border:none; outline:none; font-size:15px; padding:4px 0; }
-  .newrow input::placeholder { color:#b6bcc7; }
+  .topbar{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .title{ font-size:20px; font-weight:700; }
+  .me{ font-size:13px; color:var(--muted); }
 
-  /* AI 정리 */
-  .ai-toggle { margin:6px 0 10px; background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; border-radius:11px; padding:11px 14px; font-size:14px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:7px; }
-  .ai-box { display:none; margin:0 0 12px; padding:12px; background:#fff7ed; border:1px solid #fed7aa; border-radius:11px; }
-  .ai-box.open { display:block; }
-  .ai-box textarea { width:100%; min-height:70px; border:1px solid #fed7aa; border-radius:8px; padding:9px; font-size:14px; font-family:inherit; resize:vertical; }
-  .ai-box .go { margin-top:8px; width:100%; background:#ea580c; color:#fff; border:none; border-radius:9px; padding:11px; font-size:15px; font-weight:600; cursor:pointer; }
-  .ai-box .go:disabled { opacity:.6; }
+  .datenav{ display:flex; align-items:center; gap:6px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:6px; margin-bottom:12px; }
+  .dbtn{ width:38px; height:38px; border:none; background:transparent; border-radius:9px; font-size:18px; color:var(--text); cursor:pointer; }
+  .dbtn:active{ background:#f0f1f3; }
+  .dlabel{ flex:1; text-align:center; font-size:15px; font-weight:600; }
+  .today{ height:34px; padding:0 12px; border:1px solid var(--line2); background:#fff; border-radius:9px; font-size:13px; color:var(--muted); cursor:pointer; }
 
-  /* 팀 보기 */
-  .person { border:1px solid #eef1f6; border-radius:12px; margin-bottom:12px; overflow:hidden; }
-  .person-h { display:flex; justify-content:space-between; align-items:center; padding:11px 14px; background:#f8fafc; cursor:pointer; }
-  .person-h .nm { font-size:15px; font-weight:600; }
-  .person-h .dp { font-size:12px; color:#9ca3af; font-weight:400; margin-left:6px; }
-  .person-h .cnt { font-size:12px; font-weight:600; }
-  .person-body { padding:4px 14px 10px; }
-  .titem { display:flex; align-items:center; gap:9px; padding:6px 0; font-size:14px; }
-  .titem .b { width:18px; height:18px; flex:none; border:1.5px solid #cbd5e1; border-radius:5px; display:flex; align-items:center; justify-content:center; color:#fff; font-size:12px; }
-  .titem .b.on { background:#16a34a; border-color:#16a34a; }
-  .titem.done span { text-decoration:line-through; color:#9ca3af; }
-  .none { color:#cbd5e1; font-size:13px; padding:6px 0; }
+  .tabs{ display:flex; gap:8px; margin-bottom:12px; }
+  .tab{ flex:1; height:38px; border:1px solid var(--line); background:var(--card); border-radius:10px; font-size:14px; font-weight:600; color:var(--muted); cursor:pointer; }
+  .tab.active{ background:var(--accent); border-color:var(--accent); color:#fff; }
 
-  .empty { text-align:center; color:#9ca3af; padding:40px 20px; font-size:14px; }
-  .gate { text-align:center; padding:60px 24px; } .gate a { color:#2563eb; }
-  .hidden { display:none; }
+  .aibtn{ width:100%; height:42px; border:1px dashed var(--accent); background:var(--accent-bg); color:var(--accent); border-radius:11px; font-size:14px; font-weight:600; cursor:pointer; margin-bottom:12px; }
+  .aibox{ background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:12px; }
+  .aibox textarea{ width:100%; border:1px solid var(--line2); border-radius:9px; padding:10px; font:inherit; resize:vertical; }
+  .airow{ display:flex; align-items:center; gap:10px; margin-top:8px; }
+  .primary{ height:38px; padding:0 16px; border:none; background:var(--accent); color:#fff; border-radius:9px; font-size:14px; font-weight:600; cursor:pointer; }
+  .primary:disabled{ opacity:.6; }
+  .aimsg{ font-size:13px; color:#b91c1c; }
+  .aihint{ font-size:12px; color:var(--hint); margin-top:8px; }
+
+  .memo{ background:var(--card); border:1px solid var(--line); border-radius:12px; margin-bottom:10px; overflow:hidden; }
+  .mhead{ display:flex; align-items:center; gap:4px; padding:6px 8px; }
+  .chevbtn{ width:34px; height:34px; border:none; background:transparent; cursor:pointer; display:flex; align-items:center; justify-content:center; flex:none; }
+  .chev{ display:inline-block; transition:transform .15s; color:var(--hint); font-size:13px; }
+  .chev.open{ transform:rotate(90deg); }
+  .mtitle{ flex:1; border:none; background:transparent; font:inherit; font-size:15px; font-weight:600; color:var(--text); padding:6px 2px; min-width:0; }
+  .mtitle:focus{ outline:none; }
+  .mtitle.ro{ padding:6px 2px; }
+  .prog{ flex:none; font-size:12px; color:var(--muted); background:#f3f4f6; border-radius:8px; padding:3px 9px; }
+  .ai-tag{ flex:none; font-size:11px; color:var(--accent); background:var(--accent-bg); border-radius:7px; padding:2px 7px; margin-left:4px; }
+
+  .mbody{ padding:2px 12px 12px 42px; }
+  .item{ display:flex; align-items:center; gap:10px; padding:3px 0; }
+  .cbx{ width:20px; height:20px; flex:none; accent-color:var(--accent); cursor:pointer; }
+  .itxt{ flex:1; border:none; background:transparent; font:inherit; font-size:14px; color:var(--text); padding:5px 2px; min-width:0; }
+  .itxt:focus{ outline:none; }
+  .itxt.done, .itxt-ro.done{ color:var(--hint); text-decoration:line-through; }
+  .memofoot{ margin-top:6px; }
+  .delmemo{ border:none; background:transparent; color:var(--hint); font-size:12px; cursor:pointer; padding:4px 2px; }
+
+  .newmemo{ display:flex; align-items:center; gap:8px; background:var(--card); border:1px dashed var(--line2); border-radius:12px; padding:10px 14px; margin-top:4px; }
+  .newmemo .plus{ color:var(--hint); font-size:18px; flex:none; }
+  .newmemo input{ flex:1; border:none; background:transparent; font:inherit; font-size:14px; padding:4px 0; min-width:0; }
+  .newmemo input:focus{ outline:none; }
+
+  .person{ margin-bottom:18px; }
+  .phead{ display:flex; align-items:baseline; gap:8px; padding:0 4px 6px; border-bottom:1px solid var(--line); margin-bottom:8px; }
+  .pname{ font-size:15px; font-weight:700; }
+  .pdept{ font-size:12px; color:var(--hint); }
+  .psum{ margin-left:auto; font-size:12px; color:var(--muted); }
+  .empty{ font-size:13px; color:var(--hint); padding:4px 6px 8px; }
+
+  .cbx-ro{ width:18px; height:18px; flex:none; border:1.5px solid var(--line2); border-radius:5px; }
+  .cbx-ro.on{ background:#16a34a; border-color:#16a34a; position:relative; }
+  .cbx-ro.on::after{ content:"✓"; color:#fff; font-size:12px; position:absolute; left:2px; top:-1px; }
+  .itxt-ro{ flex:1; font-size:14px; padding:5px 2px; }
+  .item.ro{ cursor:default; }
+
+  .gate, .loading{ text-align:center; color:var(--muted); padding:60px 20px; }
+  .gate a{ color:var(--accent); font-weight:600; text-decoration:none; }
+  .hint{ font-size:12px; color:var(--hint); text-align:center; margin-top:14px; }
 </style>
 </head>
-<body>
-<div class="wrap">
-  <div class="header">
-    <h1>할일</h1>
-    <div class="datebar">
-      <button id="prev">‹</button>
-      <div><div class="d" id="dlabel">—</div><div class="today" id="todayBtn">오늘로</div></div>
-      <button id="next">›</button>
-    </div>
-  </div>
+<body x-data="todosApp()" x-init="init()">
+  <div class="wrap">
 
-  <div id="gate" class="gate hidden">
-    <p>로그인이 필요해요.</p><p style="margin-top:10px;"><a href="/">ERP 로그인하러 가기 →</a></p>
-  </div>
-
-  <div id="main" class="hidden">
-    <div class="tabs hidden" id="tabs">
-      <button data-tab="mine" class="on">내 할일</button>
-      <button data-tab="team" id="teamTab">팀 보기</button>
+    <div class="topbar">
+      <span class="title">할 일</span>
+      <span class="me" x-show="!gate && viewer.name" x-text="viewer.name+'님'"></span>
     </div>
-    <div class="body">
-      <!-- 내 할일 -->
-      <div id="mineView">
-        <div class="ai-toggle" id="aiToggle"><span>📋</span> 카톡·메모 붙여넣고 AI로 정리</div>
-        <div class="ai-box" id="aiBox">
-          <textarea id="aiText" placeholder="카톡으로 받은 내용이나 메모를 그대로 붙여넣으세요. AI가 할 일만 뽑아 아래에 넣어드려요."></textarea>
-          <button class="go" id="aiGo">✦ AI로 정리해서 할일에 추가</button>
+
+    <!-- 로그인 필요 -->
+    <div class="gate" x-show="gate" x-cloak>
+      로그인이 필요합니다.<br><br>
+      <a href="/">ERP로 이동해서 로그인하기 →</a>
+    </div>
+
+    <template x-if="!gate">
+      <div>
+        <!-- 날짜 이동 -->
+        <div class="datenav">
+          <button class="dbtn" @click="shiftDate(-1)" aria-label="이전 날">‹</button>
+          <span class="dlabel" x-text="fmtDate(curDate)"></span>
+          <button class="dbtn" @click="shiftDate(1)" aria-label="다음 날">›</button>
+          <button class="today" @click="goToday()">오늘</button>
         </div>
-        <div id="mineList"></div>
-        <div class="newrow">
-          <span class="plus">+</span>
-          <input id="newInput" placeholder="할 일을 적고 엔터를 누르세요" autocomplete="off">
+
+        <!-- 직급별 탭 -->
+        <div class="tabs" x-show="viewer.canSeeTeam" x-cloak>
+          <button class="tab" :class="tab==='mine'?'active':''" @click="switchTab('mine')">내 할일</button>
+          <button class="tab" :class="tab==='team'?'active':''" @click="switchTab('team')" x-text="viewer.isAdmin ? '전체 보기' : '팀 보기'"></button>
+        </div>
+
+        <div class="loading" x-show="loading" x-cloak>불러오는 중…</div>
+
+        <!-- ───────── 내 할일 ───────── -->
+        <div x-show="!loading && tab==='mine'" x-cloak>
+          <!-- AI 정리 -->
+          <button class="aibtn" @click="aiOpen=!aiOpen">＋ 카톡·메모 붙여넣고 AI로 정리</button>
+          <div class="aibox" x-show="aiOpen" x-collapse>
+            <textarea x-model="aiText" rows="5" placeholder="카톡이나 메모 내용을 그대로 붙여넣으세요. AI가 할 일만 묶어서 정리해 드려요."></textarea>
+            <div class="airow">
+              <button class="primary" @click="runAI()" :disabled="aiBusy" x-text="aiBusy ? '정리 중…' : 'AI로 정리'"></button>
+              <span class="aimsg" x-text="aiMsg"></span>
+            </div>
+            <div class="aihint">예) 포스코 H빔 5본 픽업, 도면 받기 / 두산 견적서 회신 … → 현장별로 묶여 추가됩니다.</div>
+          </div>
+
+          <!-- 메모 목록 -->
+          <template x-for="m in memos" :key="m.id">
+            <div class="memo">
+              <div class="mhead">
+                <button class="chevbtn" @click="toggle(m.id)" :aria-label="isExpanded(m.id)?'접기':'펼치기'"><span class="chev" :class="isExpanded(m.id)?'open':''">▶</span></button>
+                <input class="mtitle" x-model="m.title" @input="renameMemo(m)" @focus="expanded[m.id]=true" @keydown.enter="$event.target.blur()" placeholder="메모 제목">
+                <span class="ai-tag" x-show="m.source==='ai'">AI</span>
+                <span class="prog" x-text="progress(m)"></span>
+              </div>
+              <div class="mbody" x-show="isExpanded(m.id)" x-collapse>
+                <template x-for="(it, idx) in m.items" :key="it.id">
+                  <div class="item">
+                    <input type="checkbox" class="cbx" x-model="it.done" @change="toggleItem(m)">
+                    <input class="itxt" :class="it.done?'done':''" :id="'it-'+m.id+'-'+it.id" x-model="it.text"
+                      @input="onItemInput(m)" @keydown.enter.prevent="onItemEnter(m, idx)"
+                      @keydown.backspace="onItemBackspace(m, idx, $event)" @blur="onItemBlur(m, idx)"
+                      placeholder="할 일 적고 엔터…">
+                  </div>
+                </template>
+                <div class="memofoot">
+                  <button class="delmemo" @click="delMemo(m)">메모 삭제</button>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- 새 메모 -->
+          <div class="newmemo">
+            <span class="plus">＋</span>
+            <input x-model="newTitle" @keydown.enter="addMemo()" placeholder="새 메모 제목 적고 엔터… (예: 포스코 자재)">
+          </div>
+          <p class="hint">메모를 누르면 안에 할 일을 적을 수 있어요. 엔터로 줄 추가, 체크로 지우기.</p>
+        </div>
+
+        <!-- ───────── 팀 / 전체 보기 (읽기 전용) ───────── -->
+        <div x-show="!loading && tab==='team'" x-cloak>
+          <template x-for="p in people" :key="p.userId">
+            <div class="person">
+              <div class="phead">
+                <span class="pname" x-text="p.name"></span>
+                <span class="pdept" x-text="p.deptName"></span>
+                <span class="psum" x-text="personSummary(p.userId)"></span>
+              </div>
+              <template x-if="personMemos(p.userId).length===0">
+                <div class="empty">아직 등록된 할 일이 없어요.</div>
+              </template>
+              <template x-for="m in personMemos(p.userId)" :key="m.id">
+                <div class="memo">
+                  <button class="mhead" @click="toggle(m.id)" style="width:100%;border:none;background:transparent;cursor:pointer;text-align:left;">
+                    <span class="chevbtn" style="pointer-events:none;"><span class="chev" :class="isExpanded(m.id)?'open':''">▶</span></span>
+                    <span class="mtitle ro" x-text="m.title"></span>
+                    <span class="ai-tag" x-show="m.source==='ai'">AI</span>
+                    <span class="prog" x-text="progress(m)"></span>
+                  </button>
+                  <div class="mbody" x-show="isExpanded(m.id)" x-collapse>
+                    <template x-for="it in countItems(m)" :key="it.id">
+                      <div class="item ro">
+                        <span class="cbx-ro" :class="it.done?'on':''"></span>
+                        <span class="itxt-ro" :class="it.done?'done':''" x-text="it.text"></span>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+          <p class="hint" x-show="people.length===0">표시할 사람이 없어요.</p>
         </div>
       </div>
-      <!-- 팀 보기 -->
-      <div id="teamView" class="hidden"></div>
-    </div>
+    </template>
+
   </div>
-</div>
-
-<script>
-  const $ = (s) => document.querySelector(s);
-  const api = (p, o) => fetch('/api/workspace/todos' + p, Object.assign({ credentials: 'include', headers: { 'Content-Type': 'application/json' } }, o || {}));
-  let viewer = { mode: 'mine', canSeeTeam: false, userId: '' };
-  let tab = 'mine';
-  let curDate = todayKST();
-  let mine = [];
-
-  function todayKST() { return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10); }
-  function shiftDate(n) { const d = new Date(curDate + 'T00:00:00'); d.setDate(d.getDate() + n); curDate = d.toISOString().slice(0, 10); }
-  function fmt(ds) { const d = new Date(ds + 'T00:00:00'); const w = ['일','월','화','수','목','금','토'][d.getDay()]; return (d.getMonth()+1)+'월 '+d.getDate()+'일 ('+w+')' + (ds===todayKST()?' · 오늘':''); }
-  function esc(s) { return String(s==null?'':s).replace(/[&<>"]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
-
-  async function init() {
-    let r;
-    try { r = await api('?date=' + curDate); } catch (e) { $('#gate').classList.remove('hidden'); return; }
-    if (r.status === 401) { $('#gate').classList.remove('hidden'); return; }
-    const j = await r.json();
-    viewer = j.viewer || viewer;
-    mine = j.todos || [];
-    $('#main').classList.remove('hidden');
-    if (viewer.canSeeTeam) { $('#tabs').classList.remove('hidden'); $('#teamTab').textContent = viewer.isAdmin ? '전체 보기' : '팀 보기'; }
-    bind();
-    $('#dlabel').textContent = fmt(curDate);
-    renderMine();
-  }
-
-  function bind() {
-    $('#prev').onclick = () => { shiftDate(-1); reload(); };
-    $('#next').onclick = () => { shiftDate(1); reload(); };
-    $('#todayBtn').onclick = () => { curDate = todayKST(); reload(); };
-    document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
-    $('#newInput').addEventListener('keydown', e => { if (e.key === 'Enter') addNew(); });
-    $('#aiToggle').onclick = () => $('#aiBox').classList.toggle('open');
-    $('#aiGo').onclick = ingest;
-  }
-
-  function switchTab(t) {
-    tab = t;
-    document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
-    $('#mineView').classList.toggle('hidden', t !== 'mine');
-    $('#teamView').classList.toggle('hidden', t !== 'team');
-    reload();
-  }
-  async function reload() { $('#dlabel').textContent = fmt(curDate); if (tab === 'team') loadTeam(); else loadMine(); }
-
-  async function loadMine() {
-    try { const j = await (await api('?date=' + curDate)).json(); mine = j.todos || []; } catch (e) { mine = []; }
-    renderMine();
-  }
-  function renderMine() {
-    if (!mine.length) { $('#mineList').innerHTML = ''; return; }
-    $('#mineList').innerHTML = mine.map(t =>
-      '<div class="row' + (t.done ? ' done' : '') + '" data-id="' + t.id + '">'
-      + '<div class="chk' + (t.done ? ' on' : '') + '" data-tg="' + t.id + '">' + (t.done ? '✓' : '') + '</div>'
-      + '<input class="t" data-ed="' + t.id + '" value="' + esc(t.text) + '">'
-      + '<button class="del" data-del="' + t.id + '">×</button></div>'
-    ).join('');
-    $('#mineList').querySelectorAll('[data-tg]').forEach(el => el.onclick = () => toggle(el.dataset.tg));
-    $('#mineList').querySelectorAll('[data-del]').forEach(el => el.onclick = () => del(el.dataset.del));
-    $('#mineList').querySelectorAll('[data-ed]').forEach(el => {
-      el.addEventListener('blur', () => saveEdit(el.dataset.ed, el.value));
-      el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); el.blur(); $('#newInput').focus(); } });
-    });
-  }
-
-  async function addNew() {
-    const v = $('#newInput').value.trim();
-    if (!v) return;
-    $('#newInput').value = '';
-    try {
-      const j = await (await api('', { method: 'POST', body: JSON.stringify({ text: v, date: curDate }) })).json();
-      if (j.todo) { mine.push(j.todo); renderMine(); }
-    } catch (e) {}
-    $('#newInput').focus();
-  }
-  function toggle(id) {
-    const t = mine.find(x => x.id === id); if (!t) return;
-    t.done = !t.done; renderMine();
-    api('/' + id, { method: 'PUT', body: JSON.stringify({ done: t.done }) }).catch(() => {});
-  }
-  function saveEdit(id, val) {
-    const t = mine.find(x => x.id === id); if (!t) return;
-    const nv = val.trim();
-    if (nv === t.text) return;
-    if (!nv) { del(id, true); return; }
-    t.text = nv;
-    api('/' + id, { method: 'PUT', body: JSON.stringify({ text: nv }) }).catch(() => {});
-  }
-  async function del(id, silent) {
-    if (!silent && !confirm('삭제할까요?')) return;
-    try { await api('/' + id, { method: 'DELETE' }); } catch (e) {}
-    mine = mine.filter(x => x.id !== id); renderMine();
-  }
-  async function ingest() {
-    const v = $('#aiText').value.trim();
-    if (!v) return;
-    $('#aiGo').disabled = true; $('#aiGo').textContent = 'AI가 정리하는 중…';
-    try {
-      const j = await (await api('/ingest', { method: 'POST', body: JSON.stringify({ text: v, date: curDate }) })).json();
-      if (j.ok && j.todos) { mine = mine.concat(j.todos); $('#aiText').value = ''; $('#aiBox').classList.remove('open'); renderMine(); }
-      else alert(j.error || 'AI 정리 실패');
-    } catch (e) { alert('AI 정리 실패'); }
-    $('#aiGo').disabled = false; $('#aiGo').textContent = '✦ AI로 정리해서 할일에 추가';
-  }
-
-  async function loadTeam() {
-    let data = { people: [], todos: [] };
-    try { data = await (await api('?view=team&date=' + curDate)).json(); } catch (e) {}
-    const people = data.people || [];
-    const byOwner = {};
-    (data.todos || []).forEach(t => { (byOwner[t.ownerId] = byOwner[t.ownerId] || []).push(t); });
-    // 명단에 없지만 할일 있는 사람도 포함
-    (data.todos || []).forEach(t => { if (!people.find(p => p.userId === t.ownerId)) people.push({ userId: t.ownerId, name: t.ownerName || '?', deptName: '' }); });
-    if (!people.length) { $('#teamView').innerHTML = '<div class="empty">표시할 직원이 없어요.</div>'; return; }
-    $('#teamView').innerHTML = people.map(p => {
-      const ts = byOwner[p.userId] || [];
-      const done = ts.filter(t => t.done).length;
-      const items = ts.length ? ts.map(t => '<div class="titem' + (t.done ? ' done' : '') + '"><span class="b' + (t.done ? ' on' : '') + '">' + (t.done ? '✓' : '') + '</span><span>' + esc(t.text) + '</span></div>').join('') : '<div class="none">아직 작성한 할 일이 없어요</div>';
-      return '<div class="person"><div class="person-h"><div><span class="nm">' + esc(p.name) + '</span>' + (p.deptName ? '<span class="dp">· ' + esc(p.deptName) + '</span>' : '') + '</div>'
-        + '<span class="cnt" style="color:' + (ts.length && done === ts.length ? '#15803d' : '#6b7280') + '">' + (ts.length ? done + '/' + ts.length : '—') + '</span></div>'
-        + '<div class="person-body">' + items + '</div></div>';
-    }).join('');
-  }
-
-  init();
-</script>
 </body>
 </html>

@@ -1,12 +1,14 @@
 /**
- * routes/todos.js — 할일(TODO) : 메모식 체크리스트 + 직급별 보기 + AI 정리
+ * routes/todos.js — 할일(TODO) : 메모식(2단) — 메모(제목) 안에 할 일 항목 + 직급별 보기 + AI 정리
  * 워크스페이스 라우터 밑에 마운트: /api/workspace/todos (server.js 무수정)
  *
+ * 구조: 하루치 = 여러 '메모'(묶음). 메모 = { title, items:[{id,text,done}] }.
+ *   - 메모를 누르면 안에 할 일들이 □ 박스로 펼쳐짐(엔터로 줄 추가, 체크로 취소선).
  * 보기 모델(직급 자동, 서버 판정 — 클라이언트 신뢰 안 함):
  *   - 직원      : 내 것만
  *   - 부서장    : 우리 부서원 전체 (조직관리의 부서 leaderId === 내 내부 user.id)
  *   - 대표/관리자: 회사 전체 (role==='admin')
- * 작성/수정/완료체크는 본인 것만(관리자 제외). 회사(companyId)로 에스엠/컴퍼니 분리.
+ * 작성/수정/삭제는 본인 메모만(관리자 제외). 회사(companyId)로 에스엠/컴퍼니 분리.
  */
 const express = require('express');
 const router = express.Router();
@@ -15,8 +17,21 @@ const { requireAuth } = require('../middleware/auth');
 const claudeClient = require('../lib/claude-client');
 
 function todayKST() { return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10); }
-function load() { const d = db['할일'].load(); if (!Array.isArray(d.todos)) d.todos = []; return d; }
-function newId() { return 'todo_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6); }
+function nowISO() { return new Date().toISOString(); }
+function load() { const d = db['할일'].load(); if (!Array.isArray(d.memos)) d.memos = []; return d; }
+function newId(p) { return (p || 'memo') + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6); }
+function clean(s, n) { return String(s == null ? '' : s).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '').trim().slice(0, n); }
+function isDate(s) { return /^\d{4}-\d{2}-\d{2}$/.test(s || ''); }
+
+// 항목 정규화 — id 유지(없으면 발급), 빈 줄은 버림
+function normItems(arr) {
+  if (!Array.isArray(arr)) return [];
+  return arr.slice(0, 200).map(it => ({
+    id: clean(it && it.id, 40) || newId('item'),
+    text: clean(it && it.text, 300),
+    done: !!(it && it.done)
+  })).filter(it => it.text);
+}
 
 // 보기 권한 컨텍스트 (서버에서 직급 판정)
 function viewerCtx(u) {
@@ -34,7 +49,7 @@ function viewerCtx(u) {
   return { isAdmin, isLeader, ledDeptId, companyId };
 }
 
-// 범위 내 직원 명단(부서장=부서원, 관리자=전사) — 빈 리스트인 사람도 보이게
+// 범위 내 직원 명단(부서장=부서원, 관리자=전사) — 빈 사람도 보이게
 function peopleInScope(v) {
   try {
     const org = db.loadUsers();
@@ -45,110 +60,127 @@ function peopleInScope(v) {
   } catch (e) { return []; }
 }
 
+// 메모 → 클라이언트 안전 형태(내 것 여부 표시)
+function shape(m, u) {
+  return {
+    id: m.id, ownerId: m.ownerId, ownerName: m.ownerName || '', date: m.date || '',
+    title: m.title || '', items: Array.isArray(m.items) ? m.items : [],
+    source: m.source || 'manual', updatedAt: m.updatedAt || '', mine: m.ownerId === u.userId
+  };
+}
+
 // ── 목록 ── ?date=YYYY-MM-DD(기본 오늘) · ?view=team(부서장/관리자, 사람별)
 router.get('/', requireAuth, (req, res) => {
   try {
     const u = req.user;
     const v = viewerCtx(u);
-    const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : todayKST();
+    const date = isDate(req.query.date) ? req.query.date : todayKST();
     const wantTeam = req.query.view === 'team' && (v.isAdmin || v.isLeader);
-    let todos = load().todos.filter(t => (t.companyId || 'dalim-sm') === v.companyId && (t.date || '') === date);
+    let memos = load().memos.filter(m => (m.companyId || 'dalim-sm') === v.companyId && (m.date || '') === date);
 
     if (wantTeam) {
-      if (!v.isAdmin) todos = todos.filter(t => (t.deptId || '') === v.ledDeptId);
-      todos.sort((a, b) => (a.ownerName || '').localeCompare(b.ownerName || '', 'ko') || (a.createdAt || '').localeCompare(b.createdAt || ''));
-      return res.json({ ok: true, viewer: { mode: v.isAdmin ? 'admin' : 'leader', isAdmin: v.isAdmin, canSeeTeam: true, name: u.name || '', userId: u.userId }, people: peopleInScope(v), todos });
+      if (!v.isAdmin) memos = memos.filter(m => (m.deptId || '') === v.ledDeptId);
+      memos.sort((a, b) => (a.ownerName || '').localeCompare(b.ownerName || '', 'ko') || (a.createdAt || '').localeCompare(b.createdAt || ''));
+      return res.json({ ok: true, viewer: { mode: v.isAdmin ? 'admin' : 'leader', isAdmin: v.isAdmin, canSeeTeam: true, name: u.name || '', userId: u.userId }, people: peopleInScope(v), memos: memos.map(m => shape(m, u)) });
     }
-    todos = todos.filter(t => t.ownerId === u.userId);
-    todos.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
-    res.json({ ok: true, viewer: { mode: 'mine', isAdmin: v.isAdmin, canSeeTeam: v.isAdmin || v.isLeader, name: u.name || '', userId: u.userId }, todos });
+    memos = memos.filter(m => m.ownerId === u.userId).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+    res.json({ ok: true, viewer: { mode: 'mine', isAdmin: v.isAdmin, canSeeTeam: v.isAdmin || v.isLeader, name: u.name || '', userId: u.userId }, memos: memos.map(m => shape(m, u)) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── 추가(한 줄) ── owner/dept/company 서버강제
+// ── 메모 추가 ── owner/dept/company 서버강제
 router.post('/', requireAuth, (req, res) => {
   try {
     const u = req.user;
-    const text = String((req.body && req.body.text) || '').trim().replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '').slice(0, 300);
-    if (!text) return res.status(400).json({ error: '내용을 입력하세요' });
-    const date = /^\d{4}-\d{2}-\d{2}$/.test((req.body && req.body.date) || '') ? req.body.date : todayKST();
+    const title = clean(req.body && req.body.title, 200);
+    if (!title) return res.status(400).json({ error: '메모 제목을 입력하세요' });
+    const date = isDate(req.body && req.body.date) ? req.body.date : todayKST();
     const data = load();
-    const t = {
-      id: newId(), ownerId: u.userId, ownerName: u.name || '', date, text, done: false,
-      deptId: u.department || '', companyId: u.companyId || 'dalim-sm',
-      source: ['kakao', 'ai'].includes(req.body && req.body.source) ? req.body.source : 'manual',
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+    const m = {
+      id: newId('memo'), ownerId: u.userId, ownerName: u.name || '', date, title,
+      items: normItems(req.body && req.body.items),
+      deptId: u.department || '', companyId: u.companyId || 'dalim-sm', source: 'manual',
+      createdAt: nowISO(), updatedAt: nowISO()
     };
-    data.todos.push(t);
+    data.memos.push(m);
     db['할일'].save(data);
-    res.json({ ok: true, todo: t });
+    res.json({ ok: true, memo: shape(m, u) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── AI 정리: 붙여넣은 메모/카톡 → 할 일 항목들로 ──
-const TODO_EXTRACT_PROMPT = `당신은 할일 정리 도우미입니다. 사용자가 붙여넣은 메모/카톡 내용에서 '해야 할 일'만 뽑아 짧은 항목으로 정리하세요.
-출력은 반드시 순수 JSON만(설명/머릿말/\`\`\`코드블록\`\`\` 절대 금지): {"todos":[{"text":"할 일 한 줄"}, ...]}
-- 각 text는 한 줄로 간결하게(필요하면 무엇을/누가/언제 포함).
-- 내용에 있는 것만. 없는 일 창작 금지. 할 일이 안 보이면 {"todos":[]}.`;
-function extractTodos(content) {
+// ── 메모 수정(제목/항목 통째 저장) ── 본인 또는 admin ──
+router.put('/:id', requireAuth, (req, res) => {
+  try {
+    const u = req.user;
+    const data = load();
+    const m = data.memos.find(x => x.id === req.params.id);
+    if (!m) return res.status(404).json({ error: '메모 없음' });
+    if (m.ownerId !== u.userId && u.role !== 'admin') return res.status(403).json({ error: '본인 메모만 수정할 수 있어요' });
+    const b = req.body || {};
+    if (b.title !== undefined) m.title = clean(b.title, 200);
+    if (b.items !== undefined) m.items = normItems(b.items);
+    m.updatedAt = nowISO();
+    db['할일'].save(data);
+    res.json({ ok: true, memo: shape(m, u) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── 메모 삭제 ── 본인 또는 admin ──
+router.delete('/:id', requireAuth, (req, res) => {
+  try {
+    const u = req.user;
+    const data = load();
+    const m = data.memos.find(x => x.id === req.params.id);
+    if (!m) return res.status(404).json({ error: '메모 없음' });
+    if (m.ownerId !== u.userId && u.role !== 'admin') return res.status(403).json({ error: '본인 메모만 삭제할 수 있어요' });
+    data.memos = data.memos.filter(x => x.id !== req.params.id);
+    db['할일'].save(data);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── AI 정리: 붙여넣은 메모/카톡 → 메모(묶음) + 할 일 항목들로 ──
+const TODO_EXTRACT_PROMPT = `당신은 할일 정리 도우미입니다. 사용자가 붙여넣은 메모/카톡 내용에서 '해야 할 일'을 주제·현장·업체별로 묶어 정리하세요.
+출력은 반드시 순수 JSON만(설명/머릿말/\`\`\`코드블록\`\`\` 절대 금지): {"memos":[{"title":"묶음 제목","items":["할 일 한 줄", ...]}, ...]}
+- title은 현장/업체/주제 등 묶음 이름(짧게). 마땅치 않으면 "할 일".
+- items는 각 한 줄로 간결하게(필요하면 무엇을/누가/언제 포함). 내용에 있는 것만, 없는 일 창작 금지.
+- 할 일이 안 보이면 {"memos":[]}.`;
+function extractMemos(content) {
   let s = String(content || '');
   const md = s.match(/```(?:json)?\s*([\s\S]*?)```/); if (md) s = md[1].trim();
   const a = s.indexOf('{'), b = s.lastIndexOf('}');
   if (a >= 0 && b > a) s = s.slice(a, b + 1);
   let p; try { p = JSON.parse(s); } catch (e) { return []; }
-  if (!p || !Array.isArray(p.todos)) return [];
-  return p.todos.map(x => String((x && x.text) || '').trim()).filter(Boolean).slice(0, 30);
+  if (!p || !Array.isArray(p.memos)) return [];
+  return p.memos.map(mm => ({
+    title: clean(mm && mm.title, 200) || '할 일',
+    items: Array.isArray(mm && mm.items) ? mm.items.map(t => clean(t, 300)).filter(Boolean).slice(0, 30) : []
+  })).filter(mm => mm.items.length).slice(0, 12);
 }
 router.post('/ingest', requireAuth, async (req, res) => {
   try {
     const u = req.user;
-    const text = String((req.body && req.body.text) || '').trim().slice(0, 3000);
+    const text = clean(req.body && req.body.text, 4000);
     if (!text) return res.status(400).json({ error: '내용을 입력하세요' });
-    const date = /^\d{4}-\d{2}-\d{2}$/.test((req.body && req.body.date) || '') ? req.body.date : todayKST();
-    let items = [];
+    const date = isDate(req.body && req.body.date) ? req.body.date : todayKST();
+    let groups = [];
     try {
-      const out = await claudeClient.callClaude({ system: TODO_EXTRACT_PROMPT, user: text, maxTokens: 1024 });
-      items = extractTodos(out);
-    } catch (e) { items = []; }
-    if (!items.length) return res.json({ ok: false, error: '정리할 할 일을 못 찾았어요. 직접 적어주세요.' });
+      const out = await claudeClient.callClaude({ system: TODO_EXTRACT_PROMPT, user: text, maxTokens: 1500 });
+      groups = extractMemos(out);
+    } catch (e) { groups = []; }
+    if (!groups.length) return res.json({ ok: false, error: '정리할 할 일을 못 찾았어요. 직접 적어주세요.' });
     const data = load();
-    const created = items.map(txt => {
-      const t = { id: newId(), ownerId: u.userId, ownerName: u.name || '', date, text: txt.slice(0, 300), done: false, deptId: u.department || '', companyId: u.companyId || 'dalim-sm', source: 'ai', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-      data.todos.push(t); return t;
+    const created = groups.map(g => {
+      const m = {
+        id: newId('memo'), ownerId: u.userId, ownerName: u.name || '', date, title: g.title,
+        items: g.items.map(t => ({ id: newId('item'), text: t, done: false })),
+        deptId: u.department || '', companyId: u.companyId || 'dalim-sm', source: 'ai',
+        createdAt: nowISO(), updatedAt: nowISO()
+      };
+      data.memos.push(m); return m;
     });
     db['할일'].save(data);
-    res.json({ ok: true, todos: created });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// ── 수정(완료 토글/내용) ── 본인 또는 admin ──
-router.put('/:id', requireAuth, (req, res) => {
-  try {
-    const u = req.user;
-    const data = load();
-    const t = data.todos.find(x => x.id === req.params.id);
-    if (!t) return res.status(404).json({ error: '항목 없음' });
-    if (t.ownerId !== u.userId && u.role !== 'admin') return res.status(403).json({ error: '본인 할 일만 수정할 수 있어요' });
-    const b = req.body || {};
-    if (b.done !== undefined) t.done = !!b.done;
-    if (b.text !== undefined) t.text = String(b.text).trim().slice(0, 300);
-    t.updatedAt = new Date().toISOString();
-    db['할일'].save(data);
-    res.json({ ok: true, todo: t });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// ── 삭제 ── 본인 또는 admin ──
-router.delete('/:id', requireAuth, (req, res) => {
-  try {
-    const u = req.user;
-    const data = load();
-    const t = data.todos.find(x => x.id === req.params.id);
-    if (!t) return res.status(404).json({ error: '항목 없음' });
-    if (t.ownerId !== u.userId && u.role !== 'admin') return res.status(403).json({ error: '본인 할 일만 삭제할 수 있어요' });
-    data.todos = data.todos.filter(x => x.id !== req.params.id);
-    db['할일'].save(data);
-    res.json({ ok: true });
+    res.json({ ok: true, memos: created.map(m => shape(m, u)) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

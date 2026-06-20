@@ -125,8 +125,9 @@ const jsonStores = {
   '일정관리': {
     events: []
   },
-  '할일': {                // 개인/공유 TODO (routes/todos.js) — scope: personal/dept/company
-    todos: []
+  '할일': {                // 메모식 TODO (routes/todos.js) — 하루치 = 여러 메모(묶음), 메모 안에 할 일 항목
+    memos: [],
+    todos: []              // (구버전 평면 TODO 흔적 — 미사용)
   },
   '푸시구독': {            // 웹푸시(서비스워커 Web Push) 구독 — userId별 기기 endpoint
     subscriptions: []
