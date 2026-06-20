@@ -4101,6 +4101,36 @@ function workflowApp() {
       }
       return out;
     },
+    // 입력한 현장명을 가진 (회사·현장) 목록 — 여러 회사에 같은 현장이 있을 때 바로 고르게(예: '부평')
+    companiesForProject(query, limit = 12) {
+      const q = this.normalizeOptionName(query);
+      if (!q || q.length < 2) return [];
+      const byCo = this.designWorkflowOptions.projectsByCompany || {};
+      const companies = this.designWorkflowOptions.companies || [];
+      const hidden = new Set((this.hiddenDesignFolders || []).map(h => this.normalizeOptionName(h)));
+      const out = [];
+      for (const coKey of Object.keys(byCo)) {
+        if (!coKey || hidden.has(coKey)) continue;
+        const co = companies.find(c => this.normalizeOptionName(c.name) === coKey || this.normalizeOptionName(c.folderName) === coKey);
+        const coName = co ? co.name : coKey;
+        for (const p of (byCo[coKey] || [])) {
+          const pname = (p && (p.name || p.folderName)) || p;
+          const pk = this.normalizeOptionName(pname);
+          if (pk && pk.includes(q)) {
+            out.push({ companyName: coName, projectName: pname });
+            if (out.length >= limit) return out;
+          }
+        }
+      }
+      return out;
+    },
+    // 위 목록을 '서로 다른 회사 2곳 이상'일 때만 반환(진짜 모호할 때만 픽커 노출)
+    projectAmbiguousCompanies(query) {
+      const m = this.companiesForProject(query);
+      if (new Set(m.map(x => x.companyName)).size < 2) return [];
+      return m;
+    },
+
     // 업로드 파일명이 작업(회사/현장)과 전혀 안 맞으면 경고용 — 파일명에 회사/현장 의미토큰이 하나도 없으면 불일치 의심
     uploadFolderMismatch(files, companyName, projectName) {
       const stop = new Set(['발주', '공장', '시안', '작업', '발주공장', '양면', '단면', '파일', '대지', '사본', 'pdf', 'jpg', 'jpeg', 'png', 'ai', 'psd']);

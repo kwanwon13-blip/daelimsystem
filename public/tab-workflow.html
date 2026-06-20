@@ -2010,6 +2010,16 @@
                 </button>
               </template>
             </div>
+            <!-- 같은 현장명이 여러 회사에 있을 때 — 정확한 회사를 바로 고르게(클릭하면 회사+현장 동시 설정) -->
+            <div class="wf-project-picks" x-show="projectAmbiguousCompanies(form.projectName).length" style="border-color:#fbbf24;background:#fffbeb;">
+              <div style="font-size:11px;color:#92400e;font-weight:800;padding:4px 6px 2px;">⚠ '<span x-text="form.projectName"></span>' 현장이 여러 회사에 있어요 — 회사를 골라주세요</div>
+              <template x-for="m in projectAmbiguousCompanies(form.projectName)" :key="'xco-'+m.companyName+'-'+m.projectName">
+                <button type="button" tabindex="-1" class="wf-project-pick" @click="form.companyName = m.companyName; form.projectName = m.projectName; syncAutoJobTitle(true)">
+                  <strong x-text="m.companyName"></strong>
+                  <small x-text="'· ' + m.projectName"></small>
+                </button>
+              </template>
+            </div>
           </div>
           <div class="wf-field">
             <label>희망 완료일</label>
