@@ -69,21 +69,35 @@ function shape(m, u) {
   };
 }
 
+// 안 끝낸(미완료) 항목이 있는 메모인지 — 자동 이월 판단용
+function hasUndone(m) { return Array.isArray(m.items) && m.items.some(i => i && i.text && !i.done); }
+
 // ── 목록 ── ?date=YYYY-MM-DD(기본 오늘) · ?view=team(부서장/관리자, 사람별)
+//   오늘 보기  : 그날 메모 + 이전에 '안 끝낸' 메모(자동 이월). 다 체크하면 원래 날짜에만 남음.
+//   과거 날짜 : 그날 만든 메모만(기록).
 router.get('/', requireAuth, (req, res) => {
   try {
     const u = req.user;
     const v = viewerCtx(u);
     const date = isDate(req.query.date) ? req.query.date : todayKST();
+    const isToday = date === todayKST();
     const wantTeam = req.query.view === 'team' && (v.isAdmin || v.isLeader);
-    let memos = load().memos.filter(m => (m.companyId || 'dalim-sm') === v.companyId && (m.date || '') === date);
+    let memos = load().memos.filter(m => {
+      if ((m.companyId || 'dalim-sm') !== v.companyId) return false;
+      const md = m.date || '';
+      if (md === date) return true;                                  // 그날 메모
+      if (isToday && md && md < date && hasUndone(m)) return true;   // 이전에 안 끝낸 메모 → 오늘로 이월
+      return false;
+    });
+    // 이월된(오래된) 메모가 위로 오도록 날짜 오름차순 → 같은 날은 작성순
+    const byDate = (a, b) => (a.date || '').localeCompare(b.date || '') || (a.createdAt || '').localeCompare(b.createdAt || '');
 
     if (wantTeam) {
       if (!v.isAdmin) memos = memos.filter(m => (m.deptId || '') === v.ledDeptId);
-      memos.sort((a, b) => (a.ownerName || '').localeCompare(b.ownerName || '', 'ko') || (a.createdAt || '').localeCompare(b.createdAt || ''));
+      memos.sort((a, b) => (a.ownerName || '').localeCompare(b.ownerName || '', 'ko') || byDate(a, b));
       return res.json({ ok: true, viewer: { mode: v.isAdmin ? 'admin' : 'leader', isAdmin: v.isAdmin, canSeeTeam: true, name: u.name || '', userId: u.userId }, people: peopleInScope(v), memos: memos.map(m => shape(m, u)) });
     }
-    memos = memos.filter(m => m.ownerId === u.userId).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+    memos = memos.filter(m => m.ownerId === u.userId).sort(byDate);
     res.json({ ok: true, viewer: { mode: 'mine', isAdmin: v.isAdmin, canSeeTeam: v.isAdmin || v.isLeader, name: u.name || '', userId: u.userId }, memos: memos.map(m => shape(m, u)) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

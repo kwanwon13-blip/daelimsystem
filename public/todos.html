@@ -47,6 +47,8 @@ function todosApp(){
     progress(m){ const it=this.countItems(m); return it.filter(i=>i.done).length+' / '+it.length; },
     personMemos(uid){ return this.memos.filter(m=>m.ownerId===uid); },
     personSummary(uid){ let t=0,d=0; this.personMemos(uid).forEach(m=>{ const it=this.countItems(m); t+=it.length; d+=it.filter(i=>i.done).length; }); return d+' / '+t; },
+    carried(m){ return !!(m.date && m.date < this.curDate); },
+    carriedLabel(m){ if(!(m.date && m.date < this.curDate)) return ''; const d=new Date(m.date+'T00:00:00Z'); return '지난 '+(d.getUTCMonth()+1)+'/'+d.getUTCDate(); },
 
     localId(p){ return (p||'item')+'_'+Date.now()+'_'+Math.random().toString(36).slice(2,6); },
     ensureBlank(m){ if(!m.items) m.items=[]; if(!m.items.some(i=>!(i.text||'').trim())) m.items.push({ id:this.localId('item'), text:'', done:false }); },
@@ -131,6 +133,7 @@ function todosApp(){
   .mtitle.ro{ padding:6px 2px; }
   .prog{ flex:none; font-size:12px; color:var(--muted); background:#f3f4f6; border-radius:8px; padding:3px 9px; }
   .ai-tag{ flex:none; font-size:11px; color:var(--accent); background:var(--accent-bg); border-radius:7px; padding:2px 7px; margin-left:4px; }
+  .overdue{ flex:none; font-size:11px; color:#b45309; background:#fef3c7; border-radius:7px; padding:2px 7px; margin-left:4px; white-space:nowrap; }
 
   .mbody{ padding:2px 12px 12px 42px; }
   .item{ display:flex; align-items:center; gap:10px; padding:3px 0; }
@@ -215,6 +218,7 @@ function todosApp(){
               <div class="mhead">
                 <button class="chevbtn" @click="toggle(m.id)" :aria-label="isExpanded(m.id)?'접기':'펼치기'"><span class="chev" :class="isExpanded(m.id)?'open':''">▶</span></button>
                 <input class="mtitle" x-model="m.title" @input="renameMemo(m)" @focus="expanded[m.id]=true" @keydown.enter="$event.target.blur()" placeholder="메모 제목">
+                <span class="overdue" x-show="carried(m)" x-text="carriedLabel(m)"></span>
                 <span class="ai-tag" x-show="m.source==='ai'">AI</span>
                 <span class="prog" x-text="progress(m)"></span>
               </div>
@@ -240,7 +244,7 @@ function todosApp(){
             <span class="plus">＋</span>
             <input x-model="newTitle" @keydown.enter="addMemo()" placeholder="새 메모 제목 적고 엔터… (예: 포스코 자재)">
           </div>
-          <p class="hint">메모를 누르면 안에 할 일을 적을 수 있어요. 엔터로 줄 추가, 체크로 지우기.</p>
+          <p class="hint">메모를 누르면 안에 할 일을 적을 수 있어요. 엔터로 줄 추가, 체크로 지우기.<br>안 끝낸 메모는 다음 날 오늘로 자동으로 따라옵니다 (<span style="color:#b45309;">지난 6/20</span> 표시).</p>
         </div>
 
         <!-- ───────── 팀 / 전체 보기 (읽기 전용) ───────── -->
@@ -260,6 +264,7 @@ function todosApp(){
                   <button class="mhead" @click="toggle(m.id)" style="width:100%;border:none;background:transparent;cursor:pointer;text-align:left;">
                     <span class="chevbtn" style="pointer-events:none;"><span class="chev" :class="isExpanded(m.id)?'open':''">▶</span></span>
                     <span class="mtitle ro" x-text="m.title"></span>
+                    <span class="overdue" x-show="carried(m)" x-text="carriedLabel(m)"></span>
                     <span class="ai-tag" x-show="m.source==='ai'">AI</span>
                     <span class="prog" x-text="progress(m)"></span>
                   </button>
