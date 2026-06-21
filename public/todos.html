@@ -14,8 +14,13 @@ function todosApp(){
     tab: 'mine', curDate: todayStr(),
     memos: [], people: [], expanded: {}, saveTimers: {},
     newTitle: '', aiOpen: false, aiText: '', aiBusy: false, aiMsg: '',
+    aiFiles: [], aiUploading: false,
     assign: { open:false, targetUserId:'', targetName:'', text:'', busy:false, err:'' },
+    detail: { open:false, memoId:'', itemId:'', text:'', attachments:[], busy:false, aiBusy:false, err:'', uploading:false },
+    attMeta: {},
     base: '/api/workspace/todos',
+
+    clean(s, max){ return String(s==null?'':s).replace(/\s+$/,'').slice(0, max||2000); },
 
     async init(){ await this.reload(); },
 
@@ -86,11 +91,34 @@ function todosApp(){
     focusItem(memoId, itemId, toEnd){ const el=document.getElementById('it-'+memoId+'-'+itemId); if(el){ el.focus(); if(toEnd){ const v=el.value; try{ el.setSelectionRange(v.length,v.length); }catch(e){} } } },
     focusFirstItem(memoId){ const m=this.memos.find(x=>x.id===memoId); if(m && m.items && m.items[0]) this.focusItem(memoId, m.items[0].id); },
 
-    async runAI(){ const t=(this.aiText||'').trim(); if(!t) return; this.aiBusy=true; this.aiMsg='';
+    // ── AI 정리: 파일 첨부 ──
+    onAiFilesPicked(ev){ const fs=Array.from((ev.target&&ev.target.files)||[]); if(!fs.length) return;
+      const room=Math.max(0, 5-this.aiFiles.length);
+      this.aiFiles=this.aiFiles.concat(fs.slice(0,room));
+      if(ev.target) ev.target.value=''; },
+    removeAiFile(i){ this.aiFiles.splice(i,1); },
+    fileKind(f){ const n=((f&&f.name)||'').toLowerCase(); const t=((f&&f.type)||'').toLowerCase();
+      if(t.startsWith('image/')||/\.(jpe?g|png|gif|webp|bmp)$/.test(n)) return 'image';
+      if(/\.(xlsx|xlsm|xls|csv)$/.test(n)) return 'excel';
+      if(t==='application/pdf'||/\.pdf$/.test(n)) return 'pdf';
+      return 'text'; },
+    fileIcon(kind){ return kind==='image'?'🖼️':kind==='excel'?'📊':kind==='pdf'?'📄':'📝'; },
+
+    async runAI(){ const t=(this.aiText||'').trim(); const hasFiles=this.aiFiles.length>0;
+      if(!t && !hasFiles) return; this.aiBusy=true; this.aiMsg='';
       try{
-        const r=await fetch(this.base+'/ingest',{ method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body:JSON.stringify({ text:t, date:this.curDate }) });
+        let r;
+        if(hasFiles){
+          const fd=new FormData();
+          if(t) fd.append('text', t);
+          fd.append('date', this.curDate);
+          this.aiFiles.forEach(f=>fd.append('files', f));
+          r=await fetch(this.base+'/ingest',{ method:'POST', credentials:'same-origin', body:fd });
+        } else {
+          r=await fetch(this.base+'/ingest',{ method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body:JSON.stringify({ text:t, date:this.curDate }) });
+        }
         const j=await r.json();
-        if(j.ok && j.memos){ j.memos.forEach(mm=>{ this.memos.push(mm); this.expanded[mm.id]=true; }); this.aiText=''; this.aiOpen=false; }
+        if(j.ok && j.memos){ j.memos.forEach(mm=>{ this.memos.push(mm); this.expanded[mm.id]=true; }); this.aiText=''; this.aiFiles=[]; this.aiOpen=false; }
         else { this.aiMsg = j.error || '정리하지 못했어요.'; }
       }catch(e){ this.aiMsg='오류가 났어요. 다시 시도해주세요.'; }
       this.aiBusy=false;
@@ -107,6 +135,62 @@ function todosApp(){
         else { this.assign.err=j.error||'전달하지 못했어요.'; }
       }catch(e){ this.assign.err='오류가 났어요. 다시 시도해주세요.'; }
       this.assign.busy=false;
+    },
+
+    // ── 세부내역(detail) + 사진/파일 첨부 ──
+    itemDetailBadge(it){ return !!(it && (it.detail||'').trim()); },
+    itemAttachCount(it){ return (it && Array.isArray(it.attachmentIds)) ? it.attachmentIds.length : 0; },
+    attRawUrl(id){ return this.base+'/attachments/'+id+'/raw'; },
+    attInfo(id){ return this.attMeta[id] || null; },
+    attIsImage(id){ const a=this.attMeta[id]; return !!(a && a.kind==='image'); },
+    attLabel(id){ const a=this.attMeta[id]; return a ? (a.original_name||('첨부 '+id)) : ('첨부 '+id); },
+
+    findMemo(id){ return this.memos.find(x=>x.id===id); },
+    findItem(m, itemId){ return m && Array.isArray(m.items) ? m.items.find(i=>i.id===itemId) : null; },
+
+    async loadAttMeta(ids){ const need=(ids||[]).filter(id=>!this.attMeta[id]); if(!need.length) return;
+      try{
+        const r=await fetch(this.base+'/attachments/meta?ids='+encodeURIComponent(need.join(',')), { credentials:'same-origin' });
+        if(!r.ok) return; const j=await r.json();
+        if(j && j.ok && Array.isArray(j.attachments)){ j.attachments.forEach(a=>{ if(a && a.id!=null) this.attMeta[a.id]=a; }); }
+      }catch(e){}
+    },
+
+    openDetail(m, it){
+      this.detail={ open:true, memoId:m.id, itemId:it.id, text:(it.detail||''), attachments:(Array.isArray(it.attachmentIds)?it.attachmentIds.slice():[]), busy:false, aiBusy:false, err:'', uploading:false };
+      this.loadAttMeta(this.detail.attachments);
+    },
+    closeDetail(){ this.detail.open=false; },
+
+    async addDetailFiles(ev){ const fs=Array.from((ev.target&&ev.target.files)||[]); if(ev.target) ev.target.value=''; if(!fs.length) return;
+      this.detail.uploading=true; this.detail.err='';
+      for(const f of fs){
+        if(this.detail.attachments.length>=12){ this.detail.err='첨부는 최대 12개까지예요.'; break; }
+        try{
+          const fd=new FormData(); fd.append('file', f);
+          const r=await fetch(this.base+'/attachments',{ method:'POST', credentials:'same-origin', body:fd });
+          const j=await r.json();
+          if(r.ok && j.ok && j.attachment){ this.attMeta[j.attachment.id]=j.attachment; this.detail.attachments.push(j.attachment.id); }
+          else { this.detail.err=j.error||'업로드하지 못했어요.'; }
+        }catch(e){ this.detail.err='업로드 중 오류가 났어요.'; }
+      }
+      this.detail.uploading=false;
+    },
+    removeDetailAttachment(id){ this.detail.attachments=this.detail.attachments.filter(x=>x!==id); },
+
+    async writeDetailAI(){ const m=this.findMemo(this.detail.memoId); if(!m) return; this.detail.aiBusy=true; this.detail.err='';
+      try{
+        const r=await fetch(this.base+'/'+this.detail.memoId+'/items/'+this.detail.itemId+'/detail-ai',{ method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body:JSON.stringify({ extra:this.clean(this.detail.text,1000) }) });
+        const j=await r.json();
+        if(r.ok && j.ok && typeof j.detail==='string'){ this.detail.text=j.detail; }
+        else { this.detail.err=j.error||'세부내역을 작성하지 못했어요.'; }
+      }catch(e){ this.detail.err='오류가 났어요. 다시 시도해주세요.'; }
+      this.detail.aiBusy=false;
+    },
+
+    saveDetail(){ const m=this.findMemo(this.detail.memoId); if(m){ const it=this.findItem(m, this.detail.itemId);
+      if(it){ it.detail=this.clean(this.detail.text,2000); it.attachmentIds=this.detail.attachments.slice(); this.queueSave(m); } }
+      this.detail.open=false;
     },
   };
 }
@@ -208,6 +292,34 @@ function todosApp(){
   .modal-err{ font-size:13px; color:#b91c1c; margin-top:8px; min-height:18px; }
   .modal-foot{ display:flex; gap:8px; justify-content:flex-end; margin-top:12px; }
   .btn{ height:40px; padding:0 16px; border:1px solid var(--line2); background:#fff; border-radius:10px; font-size:14px; font-weight:600; color:var(--text); cursor:pointer; }
+
+  /* ── 파일 첨부 (AI 정리 + 세부내역 공용) ── */
+  .filerow{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:8px; }
+  .filebtn{ display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 12px; border:1px solid var(--accent-line); background:var(--accent-bg); color:var(--accent); border-radius:9px; font-size:13px; font-weight:600; cursor:pointer; }
+  .filebtn.busy{ opacity:.6; pointer-events:none; }
+  .filehint{ font-size:12px; color:var(--hint); }
+  .chips{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .chip{ display:inline-flex; align-items:center; gap:5px; max-width:100%; background:#f3f4f6; border:1px solid var(--line); border-radius:8px; padding:4px 6px 4px 9px; font-size:12px; color:var(--text); }
+  .chip-name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:160px; }
+  .chip-x{ border:none; background:transparent; color:var(--hint); cursor:pointer; font-size:12px; padding:0 2px; }
+
+  /* ── 아이템 세부내역 버튼 ── */
+  .detailbtn{ flex:none; display:inline-flex; align-items:center; gap:2px; border:none; background:transparent; cursor:pointer; font-size:13px; color:var(--muted); padding:3px 4px; border-radius:7px; position:relative; }
+  .detailbtn:active{ background:#f0f1f3; }
+  .detailbtn .dot{ width:6px; height:6px; border-radius:50%; background:var(--accent); display:inline-block; }
+  .detailbtn .clip{ font-size:11px; color:var(--accent); }
+
+  /* ── 세부내역 첨부 영역 ── */
+  .d-attach{ margin-top:10px; }
+  .d-attach-grid{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
+  .d-att{ position:relative; }
+  .d-att-link{ display:block; text-decoration:none; color:var(--text); }
+  .d-att-thumb{ width:72px; height:72px; object-fit:cover; border-radius:9px; border:1px solid var(--line); display:block; background:#f3f4f6; }
+  .d-att-file{ display:inline-flex; align-items:center; gap:6px; max-width:180px; height:36px; padding:0 10px; background:#f3f4f6; border:1px solid var(--line); border-radius:9px; font-size:12px; }
+  .d-att-name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .d-att-x{ position:absolute; top:-6px; right:-6px; width:20px; height:20px; border-radius:50%; border:none; background:#111827; color:#fff; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; line-height:1; }
+  .ai-mini{ display:inline-flex; align-items:center; gap:5px; height:34px; padding:0 12px; border:1px solid var(--accent); background:#fff; color:var(--accent); border-radius:9px; font-size:13px; font-weight:600; cursor:pointer; }
+  .ai-mini:disabled{ opacity:.6; }
 </style>
 </head>
 <body x-data="todosApp()" x-init="init()">
@@ -243,7 +355,19 @@ function todosApp(){
         <div x-show="!loading && tab==='mine'" x-cloak>
           <button class="aibtn" @click="aiOpen=!aiOpen"><i class="ti ti-clipboard-text" style="font-size:18px;" aria-hidden="true"></i> 카톡·메모 붙여넣고 AI로 정리</button>
           <div class="aibox" x-show="aiOpen" x-collapse>
-            <textarea x-model="aiText" rows="5" placeholder="카톡이나 메모 내용을 그대로 붙여넣으세요. AI가 할 일만 묶어서 정리해 드려요."></textarea>
+            <textarea x-model="aiText" rows="5" placeholder="카톡이나 메모 내용을 그대로 붙여넣으세요. 사진·엑셀·PDF·텍스트 파일도 첨부하면 AI가 읽어서 할 일로 정리해 드려요."></textarea>
+            <div class="filerow">
+              <label class="filebtn">
+                <i class="ti ti-paperclip" style="font-size:15px;" aria-hidden="true"></i> 파일 첨부
+                <input type="file" x-ref="aiFiles" multiple accept="image/*,.xlsx,.xls,.csv,.pdf,.txt,.md,.json,.log" @change="onAiFilesPicked($event)" style="display:none">
+              </label>
+              <span class="filehint">사진·엑셀·PDF·텍스트 · 최대 5개</span>
+            </div>
+            <div class="chips" x-show="aiFiles.length">
+              <template x-for="(f, i) in aiFiles" :key="i">
+                <span class="chip"><span x-text="fileIcon(fileKind(f))"></span> <span class="chip-name" x-text="f.name"></span><button class="chip-x" @click="removeAiFile(i)" aria-label="제거">✕</button></span>
+              </template>
+            </div>
             <div class="airow">
               <button class="primary" @click="runAI()" :disabled="aiBusy" x-text="aiBusy ? '정리 중…' : 'AI로 정리'"></button>
               <span class="aimsg" x-text="aiMsg"></span>
@@ -270,6 +394,9 @@ function todosApp(){
                       @keydown.backspace="onItemBackspace(m, idx, $event)" @blur="onItemBlur(m, idx)"
                       placeholder="할 일 적고 엔터…">
                     <span class="atag" x-show="it.source==='assigned'" x-text="assignedTag(it)"></span>
+                    <button class="detailbtn" x-show="(it.text||'').trim()" @click="openDetail(m, it)" aria-label="세부내역">
+                      <span x-show="itemDetailBadge(it)" class="dot"></span>📝<span class="clip" x-show="itemAttachCount(it)>0" x-text="'📎'+itemAttachCount(it)"></span>
+                    </button>
                   </div>
                 </template>
                 <div class="memofoot">
@@ -332,6 +459,52 @@ function todosApp(){
       <div class="modal-foot">
         <button class="btn" @click="closeAssign()">취소</button>
         <button class="primary" @click="submitAssign()" :disabled="assign.busy" x-text="assign.busy ? '전달 중…' : '전달'"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 세부내역 모달 -->
+  <div class="modal-ov" x-show="detail.open" x-cloak @click.self="closeDetail()">
+    <div class="modal">
+      <div class="modal-head">
+        <b>세부내역</b>
+        <button class="modal-x" @click="closeDetail()" aria-label="닫기">✕</button>
+      </div>
+      <textarea x-model="detail.text" placeholder="이 할 일의 세부내역을 적으세요. (준비물·연락처·수량·기한 등)"></textarea>
+
+      <div class="d-attach">
+        <div class="d-attach-grid" x-show="detail.attachments.length">
+          <template x-for="id in detail.attachments" :key="id">
+            <div class="d-att">
+              <a class="d-att-link" :href="attRawUrl(id)" target="_blank" rel="noopener" :title="attLabel(id)">
+                <template x-if="attIsImage(id)">
+                  <img class="d-att-thumb" :src="attRawUrl(id)" alt="">
+                </template>
+                <template x-if="!attIsImage(id)">
+                  <span class="d-att-file"><span x-text="fileIcon(attInfo(id)?attInfo(id).kind:'text')"></span><span class="d-att-name" x-text="attLabel(id)"></span></span>
+                </template>
+              </a>
+              <button class="d-att-x" @click="removeDetailAttachment(id)" aria-label="첨부 제거">✕</button>
+            </div>
+          </template>
+        </div>
+        <div class="filerow">
+          <label class="filebtn" :class="detail.uploading?'busy':''">
+            <i class="ti ti-camera-plus" style="font-size:15px;" aria-hidden="true"></i>
+            <span x-text="detail.uploading ? '올리는 중…' : '사진·파일 추가'"></span>
+            <input type="file" multiple accept="image/*,.xlsx,.xls,.csv,.pdf,.txt,.md,.json,.log" @change="addDetailFiles($event)" :disabled="detail.uploading" style="display:none">
+          </label>
+          <button class="ai-mini" @click="writeDetailAI()" :disabled="detail.aiBusy">
+            <i class="ti ti-sparkles" style="font-size:14px;" aria-hidden="true"></i>
+            <span x-text="detail.aiBusy ? '작성 중…' : 'AI로 상세 작성'"></span>
+          </button>
+        </div>
+      </div>
+
+      <div class="modal-err" x-text="detail.err"></div>
+      <div class="modal-foot">
+        <button class="btn" @click="closeDetail()">취소</button>
+        <button class="primary" @click="saveDetail()">저장</button>
       </div>
     </div>
   </div>

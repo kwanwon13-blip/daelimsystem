@@ -12,9 +12,55 @@
  */
 const express = require('express');
 const router = express.Router();
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
 const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const claudeClient = require('../lib/claude-client');
+const ai = require('../db-ai');                       // 첨부 저장/조회(ai_attachments) 재사용
+const fileExtract = require('../lib/file-extract');   // 파일 추출/종류감지/OCR
+
+// multer optional-require (미설치 시 첨부 라우트는 503 graceful)
+let multer = null;
+try { multer = require('multer'); } catch (_) { multer = null; }
+
+// 업로드 화이트리스트 — 이미지/엑셀/PDF/텍스트만
+const ATTACH_KINDS = ['image', 'excel', 'pdf', 'text'];
+function isAllowedFile(mime, originalName) {
+  const ext = path.extname(originalName || '').toLowerCase();
+  return ATTACH_KINDS.includes(fileExtract.detectKind(mime, ext));
+}
+
+// multer 디스크 저장 (ai-history.js 패턴) — destination=ai.UPLOAD_DIR, 서버생성 stored_name
+const _attStorage = multer ? multer.diskStorage({
+  destination: (req, file, cb) => cb(null, ai.UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').slice(0, 10);
+    const base = crypto.randomBytes(8).toString('hex');
+    cb(null, `${Date.now()}_${base}${ext}`);
+  }
+}) : null;
+function _fileFilter(req, file, cb) {
+  if (isAllowedFile(file.mimetype, file.originalname)) return cb(null, true);
+  cb(new Error('지원하지 않는 파일 형식입니다 (이미지·엑셀·PDF·텍스트만)'));
+}
+const uploadSingle = (multer && _attStorage)
+  ? multer({ storage: _attStorage, limits: { fileSize: 10 * 1024 * 1024 }, fileFilter: _fileFilter })
+  : null;
+const uploadMany = (multer && _attStorage)
+  ? multer({ storage: _attStorage, limits: { fileSize: 10 * 1024 * 1024 }, fileFilter: _fileFilter })
+  : null;
+
+// 업로드된 파일 → kind별 텍스트 추출(있으면). 이미지는 OCR 안 함(여기선 빈 문자열, 호출부에서 처리).
+async function extractByKind(kind, filePath, originalName) {
+  try {
+    if (kind === 'excel') return await fileExtract.extractExcel(filePath, originalName);
+    if (kind === 'pdf') return await fileExtract.extractPdf(filePath);
+    if (kind === 'text') return fileExtract.extractText(filePath);
+  } catch (e) { return ''; }
+  return '';
+}
 
 function todayKST() { return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10); }
 function nowISO() { return new Date().toISOString(); }
@@ -39,6 +85,10 @@ function normItems(arr) {
     if (it && it.assignedByName) o.assignedByName = clean(it.assignedByName, 60);
     if (it && it.assignedAt) o.assignedAt = clean(it.assignedAt, 40);
     if (o.done) o.completedAt = clean(it && it.completedAt, 40) || nowISO();  // 완료 기록(있으면 유지)
+    if (it && Array.isArray(it.attachmentIds)) {
+      const ids = it.attachmentIds.map(n => parseInt(n, 10)).filter(n => Number.isInteger(n) && n > 0).slice(0, 12);
+      if (ids.length) o.attachmentIds = ids;
+    }
     return o;
   }).filter(it => it.text);
 }
@@ -81,6 +131,48 @@ function shape(m, u) {
 
 // 안 끝낸(미완료) 항목이 있는 메모인지 — 자동 이월 판단용
 function hasUndone(m) { return Array.isArray(m.items) && m.items.some(i => i && i.text && !i.done); }
+
+// 메모가 GET / 가시규칙으로 사용자(u, 컨텍스트 v)에게 보이는가
+//   = 내 것(ownerId===userId) || 팀장이고 같은부서(deptId===ledDeptId) || admin. 회사(companyId) 일치 전제.
+function memoVisibleTo(m, u, v) {
+  if (!m) return false;
+  if ((m.companyId || 'dalim-sm') !== v.companyId) return false;
+  if (m.ownerId === u.userId) return true;
+  if (v.isAdmin) return true;
+  if (v.isLeader && (m.deptId || '') === v.ledDeptId) return true;
+  return false;
+}
+
+// ── 첨부 가시성(서버 판정만 신뢰, 클라 주장 무시) ──
+//   허용 = 업로더 본인 OR admin OR '이 첨부 id 를 가리키는 todo 아이템을 가진 메모를 v 범위에서 볼 수 있음'.
+//   첨부엔 companyId 가 없으므로, 연결된 todo 메모의 companyId 로 회사분리.
+function canViewAttachment(a, u, v) {
+  if (!a) return false;
+  if (String(a.owner_id) === String(u.userId)) return true;   // 업로더 본인
+  if (v.isAdmin) return true;                                  // admin
+  try {
+    const id = a.id;
+    const memos = load().memos;
+    for (const m of memos) {
+      if (!memoVisibleTo(m, u, v)) continue;
+      const items = Array.isArray(m.items) ? m.items : [];
+      if (items.some(it => it && Array.isArray(it.attachmentIds) && it.attachmentIds.map(Number).includes(Number(id)))) {
+        return true;
+      }
+    }
+  } catch (e) {}
+  return false;
+}
+
+// 첨부 원본 파일 경로 — traversal 방어(stored_name 은 서버생성이나 방어적으로 basename + UPLOAD_DIR 하위 확인)
+function attachmentFilePath(a) {
+  if (!a || !a.stored_name) return null;
+  const base = path.basename(String(a.stored_name));
+  const fp = path.join(ai.UPLOAD_DIR, base);
+  const resolved = path.resolve(fp);
+  if (!resolved.startsWith(path.resolve(ai.UPLOAD_DIR))) return null;
+  return resolved;
+}
 
 // ── 목록 ── ?date=YYYY-MM-DD(기본 오늘) · ?view=team(부서장/관리자, 사람별)
 //   오늘 보기  : 그날 메모 + 이전에 '안 끝낸' 메모(자동 이월). 다 체크하면 원래 날짜에만 남음.
@@ -181,15 +273,66 @@ function extractMemos(content) {
     items: Array.isArray(mm && mm.items) ? mm.items.map(t => clean(t, 300)).filter(Boolean).slice(0, 30) : []
   })).filter(mm => mm.items.length).slice(0, 12);
 }
-router.post('/ingest', requireAuth, async (req, res) => {
+// 세부내역 AI 작성 프롬프트(고정 상수 — 사용자/파일내용으로 덮어쓰기 불가)
+const DETAIL_WRITE_PROMPT = `당신은 업무 세부내역 작성 도우미입니다. 주어진 할 일 한 줄과 참고자료를 바탕으로, 실행에 필요한 구체적 세부내역(준비물·연락처·수량·기한·체크포인트 등)을 5줄 이내 한국어 평문으로 적으세요. 근거 없는 내용 창작 금지, 마크다운/머릿말 금지, 본문만 출력.`;
+
+// ── /ingest 멀티파트(파일 동봉) 분기용 미들웨어 ──
+//   Content-Type 이 multipart 일 때만 multer 동작(JSON 모드 무영향). 미설치 시 503.
+function ingestUpload(req, res, next) {
+  const ct = String(req.headers['content-type'] || '');
+  if (!/multipart\/form-data/i.test(ct)) return next();   // JSON 모드 → 그대로 통과
+  if (!uploadMany) return res.status(503).json({ error: '파일 첨부 기능을 사용할 수 없습니다 (서버에 multer 미설치).' });
+  uploadMany.array('files', 5)(req, res, (err) => {
+    if (err) {
+      let msg = err.message;
+      if (/지원하지 않는/.test(err.message)) msg = '지원하지 않는 파일이 포함됐어요 (이미지·엑셀·PDF·텍스트만)';
+      else if (err.code === 'LIMIT_FILE_SIZE') msg = '파일이 너무 커요 (최대 10MB)';
+      else if (err.code === 'LIMIT_UNEXPECTED_FILE') msg = '파일은 최대 5개까지예요';
+      return res.status(400).json({ error: msg });
+    }
+    next();
+  });
+}
+
+router.post('/ingest', requireAuth, ingestUpload, async (req, res) => {
+  const tmpFiles = [];     // 추출 후 정리할 임시파일 경로
   try {
     const u = req.user;
     const text = clean(req.body && req.body.text, 4000);
-    if (!text) return res.status(400).json({ error: '내용을 입력하세요' });
+    const files = Array.isArray(req.files) ? req.files : [];
+    files.forEach(f => { if (f && f.path) tmpFiles.push(f.path); });
+    if (!text && !files.length) return res.status(400).json({ error: '내용을 입력하거나 파일을 첨부하세요' });
     const date = isDate(req.body && req.body.date) ? req.body.date : todayKST();
+
+    // 파일 → 라벨링된 텍스트 블록(신뢰불가 데이터로 격리)
+    const blocks = [];
+    for (const f of files) {
+      const originalName = fileExtract.fixKoreanFilename(f.originalname || '');
+      const ext = path.extname(originalName).toLowerCase();
+      const kind = fileExtract.detectKind(f.mimetype, ext);
+      let extracted = '';
+      try {
+        if (kind === 'image') {
+          extracted = await fileExtract.ocrImageToText(path.resolve(f.path), 'multilingual');
+        } else {
+          extracted = await extractByKind(kind, f.path, originalName);
+        }
+      } catch (e) { extracted = ''; }
+      // 읽기 실패 텍스트는 AI 입력 오염 방지 위해 '원본 확인 필요' 로 치환
+      if (fileExtract.isReadFailureExcerpt(extracted)) extracted = '(원본 확인 필요 — 자동 추출 실패)';
+      const body = String(extracted || '').slice(0, 50000);     // 파일블록 ≤50K자
+      blocks.push(`[첨부: ${originalName} (${kind})]\n${body}`);
+    }
+
+    let combinedInput = '';
+    if (text) combinedInput += text;
+    if (blocks.length) combinedInput += (combinedInput ? '\n\n' : '') + blocks.join('\n\n');
+    combinedInput = combinedInput.slice(0, 12000);              // 전체 ≤12000자 cap
+    if (!combinedInput.trim()) return res.json({ ok: false, error: '정리할 할 일을 못 찾았어요. 직접 적어주세요.' });
+
     let groups = [];
     try {
-      const out = await claudeClient.callClaude({ system: TODO_EXTRACT_PROMPT, user: text, maxTokens: 1500 });
+      const out = await claudeClient.callClaude({ system: TODO_EXTRACT_PROMPT, user: combinedInput, maxTokens: 1500 });
       groups = extractMemos(out);
     } catch (e) { groups = []; }
     if (!groups.length) return res.json({ ok: false, error: '정리할 할 일을 못 찾았어요. 직접 적어주세요.' });
@@ -205,6 +348,136 @@ router.post('/ingest', requireAuth, async (req, res) => {
     });
     db['할일'].save(data);
     res.json({ ok: true, memos: created.map(m => shape(m, u)) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  } finally {
+    // ingest 업로드는 추출만 하고 영구저장 안 함 → 임시파일 60초 후 정리(ai-ocr 패턴)
+    if (tmpFiles.length) {
+      setTimeout(() => { tmpFiles.forEach(p => { try { fs.unlinkSync(p); } catch (_) {} }); }, 60 * 1000);
+    }
+  }
+});
+
+// ──────────────────────────────────────────────────────────
+// 첨부 업로드 / 서빙 / 메타 / 세부내역 AI 작성
+// ──────────────────────────────────────────────────────────
+
+// ── 단일 파일 업로드 → ai_attachments(owner_id=업로더) ──
+router.post('/attachments', requireAuth, (req, res) => {
+  if (!ai.ready) return res.status(503).json({ error: '첨부 기능은 SQLite 설치가 필요합니다 (better-sqlite3).' });
+  if (!uploadSingle) return res.status(503).json({ error: '첨부 기능은 SQLite 설치가 필요합니다 (better-sqlite3).' });
+  uploadSingle.single('file')(req, res, async (err) => {
+    if (err) {
+      let msg = err.message;
+      if (/지원하지 않는/.test(err.message)) msg = '지원하지 않는 파일 형식이에요 (이미지·엑셀·PDF·텍스트만)';
+      else if (err.code === 'LIMIT_FILE_SIZE') msg = '파일이 너무 커요 (최대 10MB)';
+      return res.status(400).json({ error: msg });
+    }
+    if (!req.file) return res.status(400).json({ error: '파일이 필요합니다' });
+    const tmpPath = req.file.path;
+    try {
+      const u = req.user;
+      const originalName = fileExtract.fixKoreanFilename(req.file.originalname || '');
+      const ext = path.extname(originalName).toLowerCase();
+      const kind = fileExtract.detectKind(req.file.mimetype, ext);
+      // 엑셀/PDF/텍스트는 업로드 시점에 추출, 이미지는 excerpt 없음(detail-ai/ingest에서 비전으로 따로 읽음)
+      let textExcerpt = '';
+      if (kind !== 'image') textExcerpt = await extractByKind(kind, tmpPath, originalName);
+      const saved = ai.attachments.create({
+        ownerId: u.userId,                      // 서버강제 — 클라 지정 불가
+        originalName,
+        storedName: path.basename(req.file.path),
+        mime: req.file.mimetype || '',
+        size: req.file.size || 0,
+        kind,
+        textExcerpt
+      });
+      res.json({ ok: true, attachment: fileExtract.attachmentForClient(saved) });
+    } catch (e) {
+      try { fs.unlinkSync(tmpPath); } catch (_) {}
+      res.status(500).json({ error: e.message });
+    }
+  });
+});
+
+// ── 첨부 원본 서빙(이미지 미리보기/파일 다운로드) — IDOR 차단 게이트 ──
+router.get('/attachments/:id/raw', requireAuth, (req, res) => {
+  try {
+    if (!ai.ready) return res.status(503).json({ error: '첨부 기능은 SQLite 설치가 필요합니다 (better-sqlite3).' });
+    const u = req.user;
+    const v = viewerCtx(u);
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id) || id <= 0) return res.status(404).json({ error: '첨부 없음' });
+    const a = ai.attachments.get(id);
+    if (!a) return res.status(404).json({ error: '첨부 없음' });
+    if (!canViewAttachment(a, u, v)) return res.status(403).json({ error: '권한이 없어요' });
+    const fp = attachmentFilePath(a);
+    if (!fp || !fs.existsSync(fp)) return res.status(404).json({ error: '파일 없음' });
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Type', a.mime || 'application/octet-stream');
+    if (String(a.kind || '') === 'image') {
+      res.setHeader('Content-Disposition', 'inline');
+    } else {
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(a.original_name || 'file')}"`);
+    }
+    fs.createReadStream(fp).pipe(res);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── 여러 첨부 메타 조회(파일명/kind/크기/상태) — 세부내역 칩 렌더용 ──
+router.get('/attachments/meta', requireAuth, (req, res) => {
+  try {
+    if (!ai.ready) return res.json({ ok: true, attachments: [] });
+    const u = req.user;
+    const v = viewerCtx(u);
+    const raw = String(req.query.ids || '');
+    const ids = raw.split(',').map(s => parseInt(s, 10)).filter(n => Number.isInteger(n) && n > 0).slice(0, 60);
+    const out = [];
+    for (const id of ids) {
+      const a = ai.attachments.get(id);
+      if (!a) continue;
+      if (!canViewAttachment(a, u, v)) continue;         // 통과 못한 id 는 조용히 드롭
+      out.push(fileExtract.attachmentForClient(a));
+    }
+    res.json({ ok: true, attachments: out });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── 세부내역 AI 대신 작성 ── 본인 메모 또는 admin ──
+router.post('/:id/items/:itemId/detail-ai', requireAuth, async (req, res) => {
+  try {
+    const u = req.user;
+    const data = load();
+    const m = data.memos.find(x => x.id === req.params.id);
+    if (!m) return res.status(404).json({ error: '메모 없음' });
+    if (m.ownerId !== u.userId && u.role !== 'admin') return res.status(403).json({ error: '본인 메모만 가능해요' });
+    const items = Array.isArray(m.items) ? m.items : [];
+    const it = items.find(x => x && x.id === req.params.itemId);
+    if (!it) return res.status(404).json({ error: '항목 없음' });
+    const extra = clean(req.body && req.body.extra, 1000);
+
+    // 아이템 첨부의 참고텍스트 수집(ownerId=메모.ownerId 로 스코프 — IDOR 방지)
+    let refBlocks = [];
+    let imageCount = 0;
+    if (ai.ready && Array.isArray(it.attachmentIds) && it.attachmentIds.length) {
+      const rows = ai.attachments.hydrate(it.attachmentIds.map(Number), m.ownerId);
+      for (const a of rows) {
+        if (String(a.kind || '') === 'image') { imageCount++; continue; }   // 이미지는 메타만(구현단순화)
+        const ex = String(a.text_excerpt || '');
+        if (ex && !fileExtract.isReadFailureExcerpt(ex)) {
+          refBlocks.push(`[첨부: ${a.original_name} (${a.kind})]\n${ex}`);
+        }
+      }
+    }
+    if (imageCount > 0) refBlocks.push(`[이미지 첨부 ${imageCount}장]`);
+    let refText = refBlocks.join('\n\n').slice(0, 6000);    // 참고 ≤6000자
+
+    const user = `할 일: ${it.text || ''}\n참고(첨부):\n${refText || '(없음)'}\n사용자 메모: ${extra || '(없음)'}`;
+    let out = '';
+    try {
+      out = await claudeClient.callClaude({ system: DETAIL_WRITE_PROMPT, user, maxTokens: 600 });
+    } catch (e) { out = ''; }
+    res.json({ ok: true, detail: clean(out, 2000) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
