@@ -11,6 +11,7 @@ const db = require('../db');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const designWorkflowStorage = require('./lib/design-workflow-storage');
 const designIndexer = require('./lib/design-indexer');
+const designGuess = require('./lib/design-guess');
 
 // 썸네일 캐시 폴더
 const THUMB_DIR = path.join(__dirname, '..', 'data', 'thumbs');
@@ -393,6 +394,16 @@ function invalidateDesignWorkflowOptions() {
   designWorkflowOptionsCache = { key: '', value: null, cachedAt: 0 };
 }
 
+// ── 추천(guess) 프로파일: 폴더별 파일명 어휘. 인덱스 상태 키로 캐시(업로드마다 재계산 금지 — 1회만 빌드) ──
+let _guessProfilesCache = { key: '', value: null };
+function getGuessProfiles() {
+  const key = `${designIndex.length}|${designIndexStatus.lastBuilt || ''}`;
+  if (_guessProfilesCache.value && _guessProfilesCache.key === key) return _guessProfilesCache.value;
+  const value = designGuess.buildProfiles(designIndex, designWorkflowOptions());
+  _guessProfilesCache = { key, value };
+  return value;
+}
+
 let designIndex = [];
 let designIndexStatus = { built: false, building: false, count: 0, lastBuilt: null, error: null, lastMode: null, lastFullBuilt: null, durationMs: 0, dirsScanned: 0, dirsReused: 0, fromDisk: false };
 let designWorkflowOptionsCache = { key: '', value: null, cachedAt: 0 };
@@ -742,6 +753,24 @@ router.get('/design/workflow-options', requireAuth, (req, res) => {
     totals: options.totals,
     status: designIndexStatus,
   });
+});
+
+// 파일명들 → top-N (회사·현장) 추천 — 폴더별 파일명 어휘 프로파일(TF-IDF). 회사 누락돼도 위치로 역추적.
+router.post('/design/guess-target', requireAuth, (req, res) => {
+  try {
+    const filenames = (Array.isArray(req.body && req.body.filenames) ? req.body.filenames : [])
+      .map(n => String(n || '')).filter(Boolean).slice(0, 12);
+    if (!filenames.length) return res.json({ ok: true, candidates: [] });
+    const companyKey = req.body.company ? designWorkflowStorage.normalizeKey(req.body.company) : '';
+    const topN = Math.min(8, Math.max(1, Number(req.body.topN) || 3));
+    const profiles = getGuessProfiles();
+    // 회사 지정 시 그 회사로 한정(정확↑). 결과 없으면 전사 폴백(회사 누락/오타 대응).
+    let candidates = designGuess.guess(profiles, filenames, { companyKey, topN });
+    if (!candidates.length && companyKey) candidates = designGuess.guess(profiles, filenames, { companyKey: '', topN });
+    res.json({ ok: true, candidates, profiledFolders: profiles.N });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 
 // 검색·자동완성에서 숨길 폴더(회사) 목록 — 직접 관리(추가/복원). 복원 가능하므로 로그인 사용자 허용.
