@@ -46,6 +46,7 @@ function workflowApp() {
     pushState: 'unknown', // 웹푸시 구독상태: unknown/unsupported/off/on/denied (탭 닫혀도 OS 알림)
     sseOn: false,         // SSE(변화 즉시 통지) 연결 여부 — 붙어 있으면 폴링은 백스톱만
     pushOnboard: { show: false, mode: '' }, // 알림 켜기 안내 팝업: enable(여기서 켜기)/gotoerp(erp서 켜기)/denied
+    projectSnap: { from: '', to: '' },      // 부분 현장명을 정식 현장명으로 맞췄을 때 표시+되돌리기용
     boardFocus: '', // '' = 모든 칸 동일 / stageId = 그 칸만 크게(나머지는 시안 레일)
     boardView: 'board', // 'board' 진행 3칸 / 'week' 주간일정 / 'ledger' 통합 내역표 (상단 탭)
     ledgerRows: [],
@@ -4131,13 +4132,28 @@ function workflowApp() {
       if (new Set(m.map(x => x.companyName)).size < 2) return [];
       return m;
     },
-    // 회사 비었는데 현장명이 '한 회사에만' 있으면 그 회사 자동 채움(직원이 회사 안 적고 현장만 적는 경우)
+    // 회사 비었는데 현장명이 '한 회사에만' 있으면 그 회사 자동 채움 + 부분명을 정식 현장명으로 스냅
     autoFillCompanyFromProject() {
       try {
         if (String(this.form.companyName || '').trim()) return;          // 이미 회사 있으면 패스
-        const cos = [...new Set(this.companiesForProject(this.form.projectName).map(m => m.companyName))];
-        if (cos.length === 1) { this.form.companyName = cos[0]; this.syncAutoJobTitle(true); }
+        const ms = this.companiesForProject(this.form.projectName);
+        const cos = [...new Set(ms.map(m => m.companyName))];
+        if (cos.length !== 1) return;                                    // 회사가 정확히 1곳일 때만
+        this.form.companyName = cos[0];
+        // 부분명('부평')을 정식 현장명('0619 부평')으로 스냅 — 안 그러면 서버가 새 '부평' 폴더를 따로 만든다.
+        // 단 같은 회사에 매칭 현장이 여러 개면(부평DC/부평2차) 임의 선택 금지 → 회사내 프로젝트 픽커로 고르게 둔다.
+        const typedKey = this.normalizeOptionName(this.form.projectName);
+        const exact = ms.find(m => this.normalizeOptionName(m.projectName) === typedKey);
+        const snap = exact ? exact.projectName : (ms.length === 1 ? ms[0].projectName : '');
+        if (snap && this.normalizeOptionName(snap) !== typedKey) {
+          this.projectSnap = { from: this.form.projectName, to: snap };
+          this.form.projectName = snap;
+        }
+        this.syncAutoJobTitle(true);
       } catch (_) {}
+    },
+    undoProjectSnap() {
+      if (this.projectSnap.from) { this.form.projectName = this.projectSnap.from; this.projectSnap = { from: '', to: '' }; this.syncAutoJobTitle(true); }
     },
 
     // 업로드 파일명이 작업(회사/현장)과 전혀 안 맞으면 경고용 — 파일명에 회사/현장 의미토큰이 하나도 없으면 불일치 의심
