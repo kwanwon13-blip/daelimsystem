@@ -47,6 +47,8 @@ function workflowApp() {
     sseOn: false,         // SSE(변화 즉시 통지) 연결 여부 — 붙어 있으면 폴링은 백스톱만
     pushOnboard: { show: false, mode: '' }, // 알림 켜기 안내 팝업: enable(여기서 켜기)/gotoerp(erp서 켜기)/denied
     projectSnap: { from: '', to: '' },      // 부분 현장명을 정식 현장명으로 맞췄을 때 표시+되돌리기용
+    guessCands: [],                          // 파일명 추천 후보(서버 /design/guess-target, top-N) — 1클릭 채움
+    guessLoading: false,
     boardFocus: '', // '' = 모든 칸 동일 / stageId = 그 칸만 크게(나머지는 시안 레일)
     boardView: 'board', // 'board' 진행 3칸 / 'week' 주간일정 / 'ledger' 통합 내역표 (상단 탭)
     ledgerRows: [],
@@ -2758,6 +2760,7 @@ function workflowApp() {
         }
       }
       this.applyFileGuessToNewForm(this.newFiles);
+      this.runGuessForNewForm();   // 파일명 어휘 프로파일로 top-N 추천 칩
       this.syncAutoJobTitle();
     },
 
@@ -2781,6 +2784,7 @@ function workflowApp() {
       this.newFiles = [];
       this.newUploadDragOver = false;
       this.autoTitleValue = '';
+      this.guessCands = [];
     },
 
     findContact(name) {
@@ -4154,6 +4158,31 @@ function workflowApp() {
     },
     undoProjectSnap() {
       if (this.projectSnap.from) { this.form.projectName = this.projectSnap.from; this.projectSnap = { from: '', to: '' }; this.syncAutoJobTitle(true); }
+    },
+    // 파일명으로 (회사·현장) top-N 추천 받기 — 폴더별 파일명 어휘 프로파일(서버). 회사 비어 있어도 위치로 추적.
+    async runGuessForNewForm() {
+      try {
+        const names = (this.newFiles || []).map(f => f.name || f.originalName || '').filter(Boolean);
+        if (!names.length) { this.guessCands = []; return; }
+        this.guessLoading = true;
+        const r = await fetch('/api/design/guess-target', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filenames: names.slice(0, 12), company: this.form.companyName || '', topN: 4 }),
+        });
+        const d = await r.json().catch(() => ({}));
+        // 이미 채워진 (회사+현장)과 같은 후보는 제외(중복 제안 방지)
+        const cur = this.normalizeOptionName(this.form.companyName) + '|' + this.normalizeOptionName(this.form.projectName);
+        this.guessCands = ((d && d.candidates) || []).filter(c => (this.normalizeOptionName(c.companyName) + '|' + this.normalizeOptionName(c.projectName)) !== cur);
+      } catch (_) { this.guessCands = []; }
+      finally { this.guessLoading = false; }
+    },
+    pickGuess(c) {
+      if (!c) return;
+      this.form.companyName = c.companyName || '';
+      this.form.projectName = c.projectName || '';
+      this.projectSnap = { from: '', to: '' };
+      this.guessCands = [];
+      this.syncAutoJobTitle(true);
     },
 
     // 업로드 파일명이 작업(회사/현장)과 전혀 안 맞으면 경고용 — 파일명에 회사/현장 의미토큰이 하나도 없으면 불일치 의심

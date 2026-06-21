@@ -1973,6 +1973,19 @@
       </div>
       <div class="wf-dialog-body">
         <div class="wf-modal-grid">
+          <!-- 파일명 추천: 폴더별 파일명 어휘로 (회사·현장) top-N — 1클릭 채움. 회사 비어도 위치로 추적 -->
+          <div class="wf-field" x-show="guessCands.length || guessLoading" style="background:#eef6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 10px;">
+            <label style="color:#1e40af;">📎 파일명 추천 — 클릭해서 채우기<span x-show="guessLoading" style="font-weight:400;color:#64748b;"> (찾는 중…)</span></label>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">
+              <template x-for="(c, ci) in guessCands" :key="'gc'+ci">
+                <button type="button" class="wf-btn" @click="pickGuess(c)" :style="ci===0 ? 'height:auto;padding:6px 10px;text-align:left;line-height:1.3;background:#dbeafe;border-color:#3b82f6;font-weight:800;' : 'height:auto;padding:6px 10px;text-align:left;line-height:1.3;'">
+                  <span style="font-weight:800;" x-text="c.companyName"></span><span style="color:#1e40af;"> · </span><span x-text="c.projectName"></span>
+                  <small style="color:#64748b;display:block;font-size:10px;" x-text="'파일 '+(c.files||0)+'개'+(ci===0?' · 가장 유력':'')"></small>
+                </button>
+              </template>
+            </div>
+            <div class="wf-muted" style="font-size:11px;margin-top:5px;">맞는 게 없으면 아래에서 직접 고르거나 <b>새 현장명을 입력</b>하면 그대로 새 현장으로 저장됩니다.</div>
+          </div>
           <div class="wf-field">
             <label>회사명</label>
             <input class="wf-input" x-ref="newJobCompany" x-model="form.companyName" @change="syncAutoJobTitle()" @keydown.enter.prevent="enterPickCompany('form')" @keydown.down.prevent="moveCompanyActive('form',1)" @keydown.up.prevent="moveCompanyActive('form',-1)" @input="companyActiveIndex.form=-1" autocomplete="off" placeholder="직접 입력 또는 선택">
