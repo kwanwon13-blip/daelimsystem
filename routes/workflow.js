@@ -2047,8 +2047,8 @@ function markPublicOrderActivity(data, job, order, kind, meta = {}) {
     ...meta,
     eventTargetUserId: job.createdBy || '',
     eventTargetUserName: job.createdByName || '',
-    eventTargetLabel: stageTargetLabels(job, ['design', 'delivery']).join(', '),
-    targetStageIds: ['design', 'delivery'],
+    // 거래처 열람/다운로드 통지 = 발주자 본인 + 그 업체 담당자(managerUsersForJob)만. 부서(경영관리팀/디자인팀) 전원 푸시 안 함 → targetStageIds 제거
+    eventTargetLabel: job.createdByName || '',
   });
   return true;
 }
@@ -2079,6 +2079,9 @@ function decoratePublicOrderFile(file, order = null) {
 function decorateOrder(data, job, order) {
   const files = orderFiles(data, order, job);
   const fileTotalSize = files.reduce((sum, file) => sum + Number(file.size || 0), 0);
+  // 메일 첨부는 '발주' 파일만 — 용량/한도 판정도 그 파일들 기준(작은 발주는 진짜 첨부로 가게)
+  const attachFiles = workflowSendList(files);
+  const attachTotalSize = attachFiles.reduce((sum, file) => sum + Number(file.size || 0), 0);
   const safeOrder = { ...(order || {}) };
   delete safeOrder.mailTo;
   delete safeOrder.mailCc;
@@ -2090,8 +2093,10 @@ function decorateOrder(data, job, order) {
     ...safeOrder,
     fileCount: files.length,
     fileTotalSize,
+    attachFileCount: attachFiles.length,
+    attachTotalSize,
     mailAttachLimit: MAX_WORKFLOW_MAIL_ATTACH_BYTES,
-    mailAttachmentTooLarge: fileTotalSize > MAX_WORKFLOW_MAIL_ATTACH_BYTES,
+    mailAttachmentTooLarge: attachTotalSize > MAX_WORKFLOW_MAIL_ATTACH_BYTES,
     fileNames: files.map(f => f.originalName || f.storedName || f.id),
     statusLabel: ORDER_STATUS_LABELS[order.status] || order.status || '초안',
     targetTypeLabel: order.targetType === 'external' ? '외주/업체' : '우리공장',
@@ -2142,18 +2147,38 @@ function buildWorkflowOrderMailHtml(job, order, files, message, publicUrl) {
   // 링크(publicUrl)는 호출부가 '대용량 첨부 폴백(attachFiles=false)'일 때만 넘겨준다 — 일반 첨부 메일엔 링크 없음.
   const memo = String(message || order.note || '').trim();
   const bodyHtml = memo ? escapeHtml(memo).replace(/\n/g, '<br>') : '';
+  // 대용량(첨부 한도 초과)이라 링크로 보낼 때: 네이버 대용량첨부처럼 '다운로드 박스'로 — 버튼 클릭 시 ZIP 즉시 다운로드.
+  let boxHtml = '';
+  if (publicUrl) {
+    const zipUrl = publicUrl.includes('/workflow/order/')
+      ? publicUrl.replace('/workflow/order/', '/api/workflow/public/orders/') + '/files.zip'
+      : publicUrl;
+    const fileCount = (files || []).length;
+    boxHtml = `
+      <div style="margin:18px 0 0;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;background:#f8fafc;max-width:460px;">
+        <div style="font-size:13px;font-weight:bold;color:#1e40af;margin-bottom:4px;">📎 발주 파일${fileCount ? ' (' + fileCount + '개)' : ''}</div>
+        <div style="font-size:12px;color:#64748b;margin-bottom:12px;">용량이 커서 첨부 대신 다운로드로 보냅니다. (발송 후 30일간 유효)</div>
+        <a href="${escapeHtml(zipUrl)}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-size:14px;font-weight:bold;padding:10px 20px;border-radius:8px;">발주 파일 다운로드</a>
+        <div style="font-size:11px;color:#94a3b8;margin-top:10px;">버튼이 안 되면: <a href="${escapeHtml(publicUrl)}" style="color:#2563eb;">${escapeHtml(publicUrl)}</a></div>
+      </div>`;
+  }
   return `<!doctype html><html><body style="margin:0;padding:0;font-family:'Malgun Gothic','맑은 고딕',Arial,sans-serif;color:#222;">
     <div style="font-size:14px;line-height:1.8;">
       ${bodyHtml ? `<p style="margin:0 0 16px;">${bodyHtml}</p>` : ''}
-      ${publicUrl ? `<p style="margin:0;">ERP 확인/다운로드: <a href="${escapeHtml(publicUrl)}">${escapeHtml(publicUrl)}</a></p>` : ''}
+      ${boxHtml}
     </div>
   </body></html>`;
 }
 
+// 공장으로 나가는 파일 = 파일명에 '발주' 든 것만(메일 첨부·공개 링크 동일하게 엄격). 수정용 원본·시안은 서버 보관만 — 사장님 정책(발주만).
+function workflowSendList(files) {
+  return (files || []).filter(f => String(f.originalName || f.storedName || '').includes('발주'));
+}
+
 function workflowOrderMailAttachments(files, attachFiles) {
   if (!attachFiles) return { attachments: [], totalBytes: 0, skipped: files.length };
-  // A) AI 파일은 파일명에 '발주'가 든 것만 첨부(=공장으로 보냄). 그 외 AI(수정용·폰트 안 깬 것)는 서버 저장만 — 사장님 정책(2026-06-16). 비AI(시안 이미지 등)는 그대로.
-  const sendList = files.filter(f => !isAiFile(f) || String(f.originalName || f.storedName || '').includes('발주'));
+  // 공장 첨부 = 파일명에 '발주' 든 것만(공개 링크와 동일). 수정용 원본·시안 제외.
+  const sendList = workflowSendList(files);
   const attachments = [];
   let totalBytes = 0;
   for (const file of sendList) {
@@ -2173,8 +2198,15 @@ function workflowOrderMailAttachments(files, attachFiles) {
   return { attachments, totalBytes, skipped: files.length - attachments.length };
 }
 
+const PUBLIC_ORDER_TTL_DAYS = 30; // 공개 발주 링크 만료(일) — 네이버 대용량첨부(30일)와 동일
+function isPublicOrderExpired(order) {
+  if (!order || !order.createdAt) return false;
+  const ms = Date.now() - new Date(order.createdAt).getTime();
+  return Number.isFinite(ms) && ms > PUBLIC_ORDER_TTL_DAYS * 24 * 60 * 60 * 1000;
+}
+
 function decoratePublicOrder(data, job, order) {
-  const files = orderFiles(data, order, job);
+  const files = workflowSendList(orderFiles(data, order, job)); // 공개 링크엔 '발주' 파일만 — 수정용 원본 노출 차단
   const decorated = decorateOrder(data, job, order);
   return {
     ok: true,
@@ -3366,6 +3398,7 @@ router.get('/public/files/:token/download', (req, res) => {
   if (orderToken) {
     const order = (data.orders || []).find(o => String(o.publicToken || '') === orderToken);
     if (order?.status === 'cancelled') return res.status(409).send('cancelled order');
+    if (order && isPublicOrderExpired(order)) return res.status(410).send('expired');
     const ids = new Set(normalizeFileIds(order?.fileIds || []));
     const job = order && ids.has(file.id) ? data.jobs.find(j => j.id === order.jobId) : null;
     if (order && job) {
@@ -3436,7 +3469,8 @@ router.get('/public/orders/:token/files.zip', async (req, res, next) => {
     const job = data.jobs.find(j => j.id === order.jobId);
     if (!job) return res.status(404).send('not found');
     if (order.status === 'cancelled') return res.status(409).send('cancelled order');
-    const files = orderFiles(data, order, job);
+    if (isPublicOrderExpired(order)) return res.status(410).send('expired');
+    const files = workflowSendList(orderFiles(data, order, job)); // 공개 ZIP도 '발주' 파일만
     const archive = await buildArchiveFromFiles(
       job,
       files,
@@ -3463,6 +3497,7 @@ router.get('/public/orders/:token', (req, res) => {
   if (!order) return res.status(404).json({ error: '전달건을 찾을 수 없습니다.' });
   const job = data.jobs.find(j => j.id === order.jobId);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  if (isPublicOrderExpired(order)) return res.status(410).json({ error: '이 발주 링크는 만료되었습니다(발송 후 30일 경과). 담당자에게 다시 보내달라고 요청해주세요.', expired: true });
   // 10분 내 재열람은 쓰로틀 → saveStore 생략(미인증 공개 GET의 전체 스토어 재기록 증폭 차단).
   if (markPublicOrderActivity(data, job, order, 'view')) saveStore(data);
   res.json(decoratePublicOrder(data, job, order));
@@ -3476,6 +3511,7 @@ router.post('/public/orders/:token/reply', (req, res) => {
   const job = data.jobs.find(j => j.id === order.jobId);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
   if (order.status === 'cancelled') return res.status(409).json({ error: '취소된 발주입니다.' });
+  if (isPublicOrderExpired(order)) return res.status(410).json({ error: '만료된 발주 링크입니다(발송 후 30일 경과).' });
 
   const response = normalizeOrderResponse(req.body || {});
   const files = orderFiles(data, order, job);
@@ -3508,8 +3544,8 @@ router.post('/public/orders/:token/reply', (req, res) => {
     fileResponseSummary,
     eventTargetUserId: job.createdBy || '',
     eventTargetUserName: job.createdByName || '',
-    eventTargetLabel: stageTargetLabels(job, ['design', 'delivery']).join(', '),
-    targetStageIds: ['design', 'delivery'],
+    // 거래처 회신 통지 = 발주자 본인 + 그 업체 담당자(managerUsersForJob)만. 부서(경영관리팀/디자인팀) 전원 푸시 안 함 → targetStageIds 제거
+    eventTargetLabel: job.createdByName || '',
   });
   saveStore(data);
   res.json(decoratePublicOrder(data, job, order));

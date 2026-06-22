@@ -1748,7 +1748,7 @@
     </aside>
   </div>
 
-  <div class="wf-modal" x-show="orderMailModal.open" x-cloak x-transition @click.self="closeOrderMail()" @keydown.window.escape="closeOrderMail()">
+  <div class="wf-modal" x-show="orderMailModal.open" x-cloak x-transition @mousedown="modalBackdropDown = ($event.target === $event.currentTarget)" @click.self="modalBackdropDown && closeOrderMail()" @keydown.window.escape="closeOrderMail()">
     <div class="wf-dialog">
       <div class="wf-dialog-head">
         <div class="wf-dialog-title">
@@ -1783,7 +1783,7 @@
     </div>
   </div>
 
-  <div class="wf-modal" x-show="projectPanelOpen" x-cloak x-transition @click.self="closeProjectPanel()" @keydown.window.escape="closeProjectPanel()">
+  <div class="wf-modal" x-show="projectPanelOpen" x-cloak x-transition @mousedown="modalBackdropDown = ($event.target === $event.currentTarget)" @click.self="modalBackdropDown && closeProjectPanel()" @keydown.window.escape="closeProjectPanel()">
     <div class="wf-dialog wide">
       <div class="wf-dialog-head">
         <div class="wf-dialog-title">
@@ -1871,6 +1871,10 @@
               <input class="wf-input" type="number" x-model.number="storageRuleForm.priority">
             </div>
           </div>
+          <label class="wf-creator" style="cursor:pointer;margin:2px 0 6px;display:flex;gap:7px;align-items:flex-start;">
+            <input type="checkbox" x-model="storageRuleForm.noProject" style="margin-top:2px;">
+            <span style="font-size:12px;line-height:1.4;">이 회사는 <b>프로젝트(현장) 안 씀</b> — 체크 해제 시 프로젝트 사용(기본). 체크하면 <b>회사\연도</b> 폴더에 바로 저장하고, 받은 폴더를 프로젝트로 인식하지 않음 (디자인포트 등)</span>
+          </label>
           <textarea class="wf-textarea" x-model="storageRuleForm.note" placeholder="메모"></textarea>
           <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;">
             <span class="wf-muted" x-text="'예상 경로: ' + (storageRuleForm.companyFolder || '회사폴더') + ' / ' + (storageRuleForm.yearFolderTemplate || '{year} 시안작업').replaceAll('{year}', projectForm.year || new Date().getFullYear()) + ' / ' + (storageRuleForm.projectFolderTemplate || '{project}').replaceAll('{project}', projectForm.projectName || '프로젝트명')"></span>
@@ -1984,7 +1988,7 @@
     </div>
   </div>
 
-  <div class="wf-modal" x-show="newOpen" x-cloak x-transition @click.self="closeNewJobModal()" @keydown.window.escape="closeNewJobModal()">
+  <div class="wf-modal" x-show="newOpen" x-cloak x-transition @mousedown="modalBackdropDown = ($event.target === $event.currentTarget)" @click.self="modalBackdropDown && closeNewJobModal()" @keydown.window.escape="closeNewJobModal()">
     <div class="wf-dialog wide">
       <div class="wf-dialog-head">
         <div class="wf-dialog-title">
@@ -2022,7 +2026,7 @@
               </div>
             </div>
           </div>
-          <div class="wf-field">
+          <div class="wf-field" x-show="!companyNoProject(form.companyName)">
             <label>프로젝트/현장</label>
             <input class="wf-input" x-model="form.projectName" @change="syncAutoJobTitle(); autoFillCompanyFromProject()" @keydown.enter.prevent="enterPickProject('form')" autocomplete="off" placeholder="프로젝트명">
             <div x-show="projectSnap.to && form.projectName === projectSnap.to" style="font-size:11px;color:#16a34a;font-weight:700;padding:3px 2px;">

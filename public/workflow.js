@@ -42,6 +42,7 @@ function workflowApp() {
     boardUnordered: false, // true면 미발주(발주 전) 시안만 — 평소엔 보드에서 숨김
     mgrCfg: { open: false, loading: false, saving: false, rules: [], fallback: '우정은', unassigned: [] }, // 업체별 경영관리 담당자(관리자 전용 설정)
     companyActiveIndex: { form: -1, upload: -1, detail: -1 }, // 회사검색 드롭다운 키보드 하이라이트 인덱스
+    modalBackdropDown: false, // 모달은 '배경에서 시작한' 클릭으로만 닫힘 — 입력칸 드래그하다 밖에서 놓아도 안 닫히게
     toasts: [], // 인앱 알림(우하단) — OS 알림이 막힌 HTTP에서도 작동. 자동으로 안 사라지고 [확인]해야 닫힘
     pushState: 'unknown', // 웹푸시 구독상태: unknown/unsupported/off/on/denied (탭 닫혀도 OS 알림)
     sseOn: false,         // SSE(변화 즉시 통지) 연결 여부 — 붙어 있으면 폴링은 백스톱만
@@ -104,6 +105,7 @@ function workflowApp() {
       priority: 0,
       active: true,
       note: '',
+      noProject: false,
     },
     autoTitleValue: '',
     projectQuery: '',
@@ -208,6 +210,19 @@ function workflowApp() {
           if (app?.refreshWorkflowDepartments) Promise.resolve(app.refreshWorkflowDepartments());
         });
         window.__workflowDepartmentsChangedListenerInstalled = true;
+      }
+      // F2 = +시안 빠른 열기 (전역 단축키)
+      if (!window.__workflowF2ListenerInstalled) {
+        window.addEventListener('keydown', e => {
+          if (e.key !== 'F2' || e.repeat || e.altKey || e.ctrlKey || e.metaKey) return;
+          const root = document.querySelector('[x-data="workflowApp()"]');
+          if (!root || !window.Alpine) return;
+          const app = window.Alpine.$data(root);
+          if (!app || app.newOpen) return; // 이미 열려 있으면 무시(폼 초기화 방지)
+          e.preventDefault();
+          try { app.openNewJobModal(); } catch (_) {}
+        });
+        window.__workflowF2ListenerInstalled = true;
       }
       try {
         const _dw = localStorage.getItem('wfDetailW');
@@ -2009,6 +2024,7 @@ function workflowApp() {
         priority: 0,
         active: true,
         note: '',
+        noProject: !!companyOption?.noProject,
       };
     },
 
@@ -2023,7 +2039,14 @@ function workflowApp() {
         priority: Number(rule?.priority || 0),
         active: rule?.active !== false,
         note: rule?.note || '',
+        noProject: rule?.noProject === true,
       };
+    },
+
+    // 이 회사가 '프로젝트(현장) 안 씀'(noProject)인지 — +시안 프로젝트칸 숨김/추천 제외용. 로드된 회사옵션의 noProject 사용.
+    companyNoProject(name) {
+      if (!String(name || '').trim()) return false;
+      try { return !!(this.workflowCompanyOption(name)?.noProject); } catch (_) { return false; }
     },
 
     storageRuleAliases(rule) {
@@ -2059,6 +2082,7 @@ function workflowApp() {
         priority: Number(form.priority || 0),
         active: form.active !== false,
         note: String(form.note || '').trim(),
+        noProject: form.noProject === true,
       };
       if (!payload.companyName) return alert('회사명을 입력하세요.');
       if (!payload.companyFolder) return alert('실제 회사 폴더명을 입력하세요.');
@@ -3175,17 +3199,17 @@ function workflowApp() {
     },
 
     orderMailAttachmentTooLarge(order) {
-      const total = Number(order?.fileTotalSize || 0);
+      const total = Number(order?.attachTotalSize != null ? order.attachTotalSize : (order?.fileTotalSize || 0)); // '발주' 첨부분 기준
       const limit = Number(order?.mailAttachLimit || (24 * 1024 * 1024));
       return total > 0 && limit > 0 && total > limit;
     },
 
     orderMailAttachmentText(order) {
       if (!order) return '';
-      const total = Number(order.fileTotalSize || 0);
+      const total = Number(order.attachTotalSize != null ? order.attachTotalSize : (order.fileTotalSize || 0));
       const limit = Number(order.mailAttachLimit || (24 * 1024 * 1024));
-      const count = Number(order.fileCount || 0);
-      const prefix = `자동저장 원본 ${count}개 · 총 ${this.fileSizeLabel(total)}`;
+      const count = Number(order.attachFileCount != null ? order.attachFileCount : (order.fileCount || 0));
+      const prefix = `발주 파일 ${count}개 · 총 ${this.fileSizeLabel(total)}`;
       if (this.orderMailAttachmentTooLarge(order)) {
         return `${prefix} · 첨부 한도 ${this.fileSizeLabel(limit)} 초과`;
       }
@@ -3714,9 +3738,12 @@ function workflowApp() {
       }
       // 특이사항 필수 — 평소와 다른 점이 없으면 [없음] 버튼(또는 '없음' 입력)
       if (!String(this.form.handoffNote || '').trim()) {
-        return alert('특이사항을 적어주세요.\n평소와 다른 점이 없으면 [없음] 버튼을 누르면 됩니다.');
+        // 막지 말고 '없음으로 등록하고 진행' 선택지를 준다 — 서버가 '없음'을 빈값으로 정규화
+        if (!confirm("특이사항이 비어 있습니다.\n\n평소와 다른 점이 없으면 [확인]을 눌러 '없음'으로 등록하고 진행합니다.\n특이사항을 적으려면 [취소]를 누르세요.")) return;
+        this.form.handoffNote = '없음';
       }
       this.autoFillCompanyFromProject(); // 현장명이 한 회사에만 있으면 회사 자동 채움(회사 안 적고 현장만 적는 경우)
+      if (this.companyNoProject(this.form.companyName)) this.form.projectName = ''; // 프로젝트 안 쓰는 회사는 현장명 비움(회사\\연도 저장)
       if (!String(this.form.companyName || '').trim()) {
         // 현장명(프로젝트)은 선택 — 비우면 회사\연도 폴더에 저장(업체만 있는 곳 대응). 회사명만 필수.
         return alert('회사를 선택해주세요.\n\n현장명만으로는 어느 회사 폴더에 저장할지 알 수 없습니다.\n(현장명을 입력하면 바로 아래에서 회사를 고를 수 있어요)');

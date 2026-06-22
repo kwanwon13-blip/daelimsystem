@@ -64,6 +64,9 @@ function normalizeRule(row = {}) {
     priority: Number(row.priority || 0),
     active: row.active === undefined ? true : !!Number(row.active),
     note: cleanText(row.note, 500),
+    noProject: (row.noProject === undefined && row.no_project === undefined)
+      ? false
+      : !!Number(row.noProject !== undefined ? row.noProject : row.no_project),
   };
 }
 
@@ -90,6 +93,7 @@ function normalizeRuleInput(input = {}, existing = null) {
   rule.projectFolderMode = ['under-year'].includes(rule.projectFolderMode) ? rule.projectFolderMode : 'under-year';
   rule.priority = Number.isFinite(rule.priority) ? Math.trunc(rule.priority) : 0;
   rule.active = rule.active !== false;
+  rule.noProject = rule.noProject === true; // 기본 false(=프로젝트 사용). 체크 시에만 true
   if (!rule.companyName) throw new Error('companyName required');
   if (!rule.companyFolder) throw new Error('companyFolder required');
   if (!rule.yearFolderTemplate) throw new Error('yearFolderTemplate required');
@@ -114,19 +118,22 @@ function ensureRuleDb(db) {
       priority INTEGER DEFAULT 0,
       active INTEGER DEFAULT 1,
       note TEXT DEFAULT '',
+      no_project INTEGER DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  // 기존 DB엔 컬럼이 없으므로 추가(이미 있으면 throw→무시). 없으면 SELECT no_project가 깨져 JSON 폴백으로 갈라짐.
+  try { db.exec("ALTER TABLE workflow_storage_rules ADD COLUMN no_project INTEGER DEFAULT 0"); } catch (_) {}
   const insert = db.prepare(`
     INSERT OR IGNORE INTO workflow_storage_rules (
       id, company_name, company_folder, company_aliases,
       year_folder_template, project_folder_template, project_folder_mode,
-      priority, active, note
+      priority, active, note, no_project
     ) VALUES (
       @id, @companyName, @companyFolder, @companyAliases,
       @yearFolderTemplate, @projectFolderTemplate, @projectFolderMode,
-      @priority, @active, @note
+      @priority, @active, @note, @noProject
     )
   `);
   for (const rule of DEFAULT_RULES) {
@@ -134,6 +141,7 @@ function ensureRuleDb(db) {
       ...rule,
       companyAliases: JSON.stringify(rule.companyAliases || []),
       active: rule.active ? 1 : 0,
+      noProject: rule.noProject ? 1 : 0,
     });
   }
 }
@@ -155,7 +163,8 @@ function loadRulesFromDb() {
         project_folder_mode,
         priority,
         active,
-        note
+        note,
+        no_project
       FROM workflow_storage_rules
       WHERE active = 1
       ORDER BY priority DESC, company_name ASC
@@ -183,7 +192,8 @@ function listRulesFromDb({ includeInactive = false } = {}) {
         project_folder_mode,
         priority,
         active,
-        note
+        note,
+        no_project
       FROM workflow_storage_rules
       ${where}
       ORDER BY active DESC, priority DESC, company_name ASC
@@ -211,7 +221,8 @@ function saveRuleToDb(input = {}) {
           project_folder_mode,
           priority,
           active,
-          note
+          note,
+          no_project
         FROM workflow_storage_rules
         WHERE id = ?
       `).get(input.id)
@@ -221,11 +232,11 @@ function saveRuleToDb(input = {}) {
       INSERT INTO workflow_storage_rules (
         id, company_name, company_folder, company_aliases,
         year_folder_template, project_folder_template, project_folder_mode,
-        priority, active, note, updated_at
+        priority, active, note, no_project, updated_at
       ) VALUES (
         @id, @companyName, @companyFolder, @companyAliases,
         @yearFolderTemplate, @projectFolderTemplate, @projectFolderMode,
-        @priority, @active, @note, CURRENT_TIMESTAMP
+        @priority, @active, @note, @noProject, CURRENT_TIMESTAMP
       )
       ON CONFLICT(id) DO UPDATE SET
         company_name = excluded.company_name,
@@ -237,11 +248,13 @@ function saveRuleToDb(input = {}) {
         priority = excluded.priority,
         active = excluded.active,
         note = excluded.note,
+        no_project = excluded.no_project,
         updated_at = CURRENT_TIMESTAMP
     `).run({
       ...rule,
       companyAliases: JSON.stringify(rule.companyAliases || []),
       active: rule.active ? 1 : 0,
+      noProject: rule.noProject ? 1 : 0,
     });
     invalidateCache();
     return rule;

@@ -338,10 +338,24 @@ function buildWorkflowOptions({ designIndex = [], designRoot = '', skipDirs = nu
   if (includeIndex) addIndexOptions(companyStats, projectStats, designIndex, skipDirs);
   addStorageRuleOptions(companyStats);
 
+  // noProject 회사(디자인포트 등)는 디스크 폴더가 '프로젝트'로 인식되지 않게 — projectCount 0 + 아래 루프에서 projects 비움.
+  const noProjectKeys = new Set();
+  try {
+    for (const rule of (loadRules() || [])) {
+      if (!rule || !rule.noProject) continue;
+      for (const n of [rule.companyName, rule.companyFolder, ...(rule.companyAliases || [])]) {
+        const k = normalizeKey(n);
+        if (k) noProjectKeys.add(k);
+      }
+    }
+  } catch (_) {}
+
   const companies = Array.from(companyStats.values())
     .map(company => {
-      const projects = projectStats.get(normalizeKey(company.name)) || new Map();
-      return { ...company, projectCount: projects.size };
+      const k = normalizeKey(company.name);
+      const isNoProject = noProjectKeys.has(k) || (!!company.folderName && noProjectKeys.has(normalizeKey(company.folderName)));
+      const projects = projectStats.get(k) || new Map();
+      return { ...company, projectCount: isNoProject ? 0 : projects.size, noProject: isNoProject };
     })
     .sort((a, b) => b.count - a.count || b.projectCount - a.projectCount || a.name.localeCompare(b.name, 'ko'))
     .slice(0, companyLimit);
@@ -350,7 +364,7 @@ function buildWorkflowOptions({ designIndex = [], designRoot = '', skipDirs = nu
   const projectLookup = {};
   for (const company of companies) {
     const key = normalizeKey(company.name);
-    const projects = Array.from((projectStats.get(key) || new Map()).values())
+    const projects = company.noProject ? [] : Array.from((projectStats.get(key) || new Map()).values())
       .sort((a, b) => {
         const ay = String(a.yearFolder || '').startsWith(currentYear) ? 0 : (a.yearFolder ? 1 : 2);
         const by = String(b.yearFolder || '').startsWith(currentYear) ? 0 : (b.yearFolder ? 1 : 2);
@@ -466,6 +480,7 @@ function resolveWorkflowStorage({ designRoot = '', designIndex = [], skipDirs = 
   const options = buildWorkflowOptions({ designIndex, designRoot: root, skipDirs, includeIndex: false });
   const existingCompany = findCompanyForStorage(options, companyRaw);
   const storageRule = findStorageRule(companyRaw);
+  const noProject = !!(storageRule && storageRule.noProject); // 이 회사는 현장(프로젝트) 안 씀 → 회사\연도 까지만 저장(디자인포트 등)
   const companyFolderName = storageRule?.companyFolder || (useHintCompany ? hintCompanyFolder : '') || existingCompany?.folderName || safePathPart(companyRaw, 'company');
   const companyDir = path.resolve(root, companyFolderName);
   if (!create && !dryRun && !fs.existsSync(companyDir)) return null;
@@ -485,7 +500,7 @@ function resolveWorkflowStorage({ designRoot = '', designIndex = [], skipDirs = 
     : existingYearFolderName;
   let projectFolderName = '';
   let dir;
-  if (hasProject) {
+  if (hasProject && !noProject) {
     const ruleProjectFolderName = storageRule
       ? renderStorageTemplate(storageRule.projectFolderTemplate || '{project}', { year: storageYear, company: companyRaw, project: projectRaw })
       : '';
