@@ -1281,19 +1281,19 @@
                   <div class="wf-stage-block" :class="isStageOverdue(stage.id) ? 'overdue' : ''">
                     <div class="wf-stage-row">
                       <div class="wf-stage-name" x-text="stage.label"></div>
-                      <select class="wf-select" x-model="detail.job.stageChecks[stage.id].status">
+                      <select class="wf-select" x-model="detail.job.stageChecks[stage.id].status" :disabled="!(detail.job.viewerActableStages||[]).includes(stage.id)">
                         <option value="pending">대기</option>
                         <option value="ready">진행</option>
                         <option value="done">완료</option>
                         <option value="blocked">막힘</option>
                       </select>
-                      <input class="wf-input" type="date" x-model="detail.job.stageChecks[stage.id].dueDate">
+                      <input class="wf-input" type="date" x-model="detail.job.stageChecks[stage.id].dueDate" :disabled="!(detail.job.viewerActableStages||[]).includes(stage.id)">
                       <span class="wf-chip overdue" x-show="isStageOverdue(stage.id)">지연</span>
-                      <button class="wf-btn" @click="saveStage(stage.id)" x-text="'체크 ' + checklistDoneCount(stage.id) + '/' + stageChecklist(stage.id).length"></button>
+                      <button class="wf-btn" @click="saveStage(stage.id)" x-show="(detail.job.viewerActableStages||[]).includes(stage.id)" x-text="'체크 ' + checklistDoneCount(stage.id) + '/' + stageChecklist(stage.id).length"></button>
                     </div>
                     <div class="wf-checklist">
                       <template x-for="item in stageChecklist(stage.id)" :key="item.id">
-                        <button class="wf-checkitem" :class="item.done ? 'done' : ''" @click="toggleChecklist(stage.id, item)">
+                        <button class="wf-checkitem" :class="item.done ? 'done' : ''" @click="toggleChecklist(stage.id, item)" :disabled="!(detail.job.viewerActableStages||[]).includes(stage.id)">
                           <span class="material-symbols-outlined" style="font-size:14px;" x-text="item.done ? 'check_circle' : 'radio_button_unchecked'"></span>
                           <span x-text="item.label"></span>
                         </button>

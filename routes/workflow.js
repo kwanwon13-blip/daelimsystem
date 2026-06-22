@@ -2573,12 +2573,12 @@ function isStageDeptLeader(req, stageId) {
 function canActOnStage(job, req, stageId) {
   if (isWorkflowAdmin(req)) return true;
   if (!job) return false;
-  if (isJobCreator(job, req)) return true;
+  // 단계 작업(체크리스트 등)은 그 단계 담당부서만 — 발주자(isJobCreator) 우회 제거. 발주자 본인 작업(취소/재오픈/현장명/발주)은 viewerCanManage/Reopen 별도 게이트.
   return !!(stageId && canDeptActOnStage(req, stageId));
 }
 // 현재 진행 단계 담당(되돌리기 등)
 function canActOnCurrentStage(job, req) {
-  if (isWorkflowAdmin(req) || isJobCreator(job, req)) return true;
+  if (isWorkflowAdmin(req)) return true; // 현재 단계 작업(되돌리기·체크 등)은 담당부서만 — 발주자 우회 제거. 재오픈/복구는 별도 게이트(creator 허용) 유지.
   const curId = inferCurrentStage(job?.stageChecks || {}, job?.currentStage || 'design');
   return canDeptActOnStage(req, curId);
 }
@@ -2678,6 +2678,7 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
     viewerCanCurrentStage: canActOnCurrentStage(job, reqLikePL),
     // 완료/납품준비 버튼용 — 현재 단계 '담당 부서(+admin)'만(발주자 isJobCreator 제외). 공장 권한 없는 발주자가 완료 못 보게.
     viewerCanCurrentStageDept: vuPL.role === 'admin' || canDeptActOnStage({ user: vuPL }, inferCurrentStage(job?.stageChecks || {}, job?.currentStage || 'design')),
+    viewerActableStages: STAGES.filter(s => vuPL.role === 'admin' || canDeptActOnStage({ user: vuPL }, s.id)).map(s => s.id), // 단계작업(체크리스트 status/체크/일정) 편집 가능 단계 — 상세 단계섹션 게이트(발주자 우회 방지)
     viewerCanFactory: vuPL.role === 'admin' || canDeptActOnStage({ user: vuPL }, 'factory'),
     viewerCanAssignTeam: vuPL.role === 'admin' || isStageDeptLeader({ user: vuPL }, 'factory'),
     viewerCanReopen: vuPL.role === 'admin' || canDeptActOnStage({ user: vuPL }, 'delivery') || (!!vuPL.userId && String(vuPL.userId).toLowerCase() === String(job.createdBy || '').toLowerCase()),
