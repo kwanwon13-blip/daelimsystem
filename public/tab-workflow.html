@@ -924,14 +924,14 @@
                         <span class="wf-rc-date" x-show="!job.viewerCanFactory || job.priority==='urgent'" :title="job.priority==='urgent' ? '긴급건 — 컴퍼니에서 일정 수정 불가(요청일 준수)' : '완료가능일(공장 확정)'" x-text="cardFactoryDateValue(job) || '미정'"></span>
                         <span style="flex:1"></span>
                         <button type="button" class="wf-rc-btn ok" @click.stop="cardSetFactoryDate(job.id, cardFactoryDateValue(job))" x-show="cardDateDirty(job) && job.viewerCanFactory && job.priority!=='urgent'" title="이 날짜로 확정">수락</button>
-                        <button type="button" class="wf-rc-btn" @click.stop="cardHandoff(job.id, stage.id)" x-show="!cardDateDirty(job) && job.status!=='done' && job.status!=='cancelled' && job.viewerCanCurrentStage">완료</button>
+                        <button type="button" class="wf-rc-btn" @click.stop="cardHandoff(job.id, stage.id)" x-show="!cardDateDirty(job) && job.status!=='done' && job.status!=='cancelled' && job.viewerCanCurrentStageDept">완료</button>
                       </div>
                     </template>
                     <template x-if="stage.id==='delivery'">
                       <div class="wf-rc-line">
                         <span class="wf-rc-date" x-show="job.factoryAvailableDate" x-text="job.factoryAvailableDate" title="완료가능일"></span>
                         <span style="flex:1"></span>
-                        <button type="button" class="wf-rc-btn" @click.stop="cardHandoff(job.id, stage.id)" x-show="job.status!=='done' && job.status!=='cancelled' && job.viewerCanCurrentStage">납품준비</button>
+                        <button type="button" class="wf-rc-btn" @click.stop="cardHandoff(job.id, stage.id)" x-show="job.status!=='done' && job.status!=='cancelled' && job.viewerCanCurrentStageDept">납품준비</button>
                       </div>
                     </template>
                   </div>

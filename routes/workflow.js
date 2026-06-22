@@ -2584,7 +2584,8 @@ function canActOnCurrentStage(job, req) {
 }
 // 넘기기: 현재 단계(밀기) 또는 다음 단계(가져오기·당기기) 담당이면 허용 — '공장이 가져감' 동선
 function canHandoffJob(job, req, currentStageId, nextStageId) {
-  if (isWorkflowAdmin(req) || isJobCreator(job, req)) return true;
+  // 단계 완료/넘기기는 그 단계 담당부서(+admin)만 — 발주자(isJobCreator)라도 부서 권한 없으면 불가(공장권한 없는 발주자 완료 차단). 발주자 본인 작업관리(취소/재오픈/현장명)는 별도 게이트라 영향 없음.
+  if (isWorkflowAdmin(req)) return true;
   if (currentStageId && canDeptActOnStage(req, currentStageId)) return true;
   if (nextStageId && canDeptActOnStage(req, nextStageId)) return true;
   return false;
@@ -2675,6 +2676,8 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
     // 뷰어 권한 플래그 — 프론트가 버튼 노출을 서버 권한과 일치시켜 403 클릭을 방지
     viewerCanHandoff: canHandoffJob(job, reqLikePL, curStageIdPL, nextStageIdPL),
     viewerCanCurrentStage: canActOnCurrentStage(job, reqLikePL),
+    // 완료/납품준비 버튼용 — 현재 단계 '담당 부서(+admin)'만(발주자 isJobCreator 제외). 공장 권한 없는 발주자가 완료 못 보게.
+    viewerCanCurrentStageDept: vuPL.role === 'admin' || canDeptActOnStage({ user: vuPL }, inferCurrentStage(job?.stageChecks || {}, job?.currentStage || 'design')),
     viewerCanFactory: vuPL.role === 'admin' || canDeptActOnStage({ user: vuPL }, 'factory'),
     viewerCanAssignTeam: vuPL.role === 'admin' || isStageDeptLeader({ user: vuPL }, 'factory'),
     viewerCanReopen: vuPL.role === 'admin' || canDeptActOnStage({ user: vuPL }, 'delivery') || (!!vuPL.userId && String(vuPL.userId).toLowerCase() === String(job.createdBy || '').toLowerCase()),
