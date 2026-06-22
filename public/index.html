@@ -46,7 +46,7 @@
   <script src="/statements.js"></script>
   <script src="/esm-purchase.js"></script>
   <script src="/company-purchase.js"></script>
-  <script src="/workflow.js?v=20260619j"></script><!-- v= 캐시버스트: workflow.js 배포 때마다 올릴 것 (옛 JS 캐시로 새 버튼이 죽는 사고 방지) -->
+  <script src="/workflow.js?v=20260619k"></script><!-- v= 캐시버스트: workflow.js 배포 때마다 올릴 것 (옛 JS 캐시로 새 버튼이 죽는 사고 방지) -->
   <!-- Chart.js (홈 대시보드 그래프) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <!-- SheetJS — AI 챗에서 엑셀 인라인 미리보기 -->
@@ -8570,8 +8570,16 @@ function app() {
             };
             this.rememberWorkflowPopupItems(popupItems);
             if ('Notification' in window && Notification.permission === 'granted') {
-              const n = new Notification('워크플로우 확인 필요', {
-                body: msg,
+              // 맨 위 실제 항목으로 구체적 알림(회사·현장·내용) — 카운트 요약(msg)은 폴백
+              const top = displayPopupItems[0];
+              const isUrgent = !!(urgentFiles || (top && top.level === 'urgent'));
+              const extra = count > 1 ? ` 외 ${count - 1}건` : '';
+              const notiTitle = top
+                ? ('🔔 ' + (isUrgent ? '[긴급] ' : '') + (top.label ? top.label + ' · ' : '') + (top.title || '')).slice(0, 90)
+                : '워크플로우 확인 필요';
+              const notiBody = (top ? (((top.meta || '') + extra).trim() || msg) : msg).slice(0, 160);
+              const n = new Notification(notiTitle, {
+                body: notiBody,
                 icon: '/favicon.ico'
               });
               n.onclick = () => {

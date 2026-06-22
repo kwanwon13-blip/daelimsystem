@@ -173,6 +173,7 @@ function workflowApp() {
       summary: '',
       handoffNote: '', // 특이사항 — 등록 시 필수(없으면 [없음] 버튼으로 '없음')
       productionRoute: 'internal', // 제작방식: internal(대림컴퍼니) / external(외주 타사 — 공장 건너뛰고 경영관리로)
+      storageHint: null, // 추천(pickGuess)이 가리킨 기존 폴더(★포함) — 저장 시 글자 재해석 없이 그대로 사용
     },
     newMail: { send: true, to: '', subject: '', message: '', company: '' }, // +시안 등록 시 첨부발송(내부=대림컴퍼니 / 외주=타사)
     mailNotice: '',
@@ -607,6 +608,8 @@ function workflowApp() {
       try {
         // 인앱 토스트는 HTTP에서도 떠야 하므로 OS 권한과 무관하게 동작. OS 알림(데스크탑)은 HTTPS+권한일 때만 보너스로.
         if (!this._notifiedEventIds) this._notifiedEventIds = new Set();
+        // 새로고침/재접속해도 미확인 토스트는 다시 뜨게 — localStorage에서 1회 복원(로그인 계정 기준). [확인] 눌러야 영구 삭제.
+        if (!this._toastsRestored && this.currentUser) { this._restoreToasts(); this._toastsRestored = true; }
         const items = this.unreadEventItems() || [];
         if (!this._notifyBaselined) {
           // 첫 시점의 기존 미확인은 띄우지 않고 기준선만 — 새로 도착한 것만 알림(열자마자 쏟아짐 방지)
@@ -644,11 +647,29 @@ function workflowApp() {
         title: (this.workflowEventFocusLabel(item) || '알림') + ' · ' + (([item.companyName, item.projectName].filter(Boolean).join(' ')) || item.jobTitle || ''),
         body: String(item.message || '').slice(0, 200),
         actorName: item.actorName || '',
+        urgent: !!(item.urgent || item.urgentFileCount || item.kind === 'urgent' || item.priority === 'urgent' || item.priority === 'high'),
       });
       if (this.toasts.length > 20) this.toasts = this.toasts.slice(0, 20); // 확인 안 한 게 쌓여도 메모리 보호(최신 20개)
+      this._persistToasts();
     },
     dismissToast(id) {
       this.toasts = this.toasts.filter(t => t.id !== id);
+      this._persistToasts();
+    },
+    // 미확인 토스트 영구 보존(localStorage, 로그인 계정 기준) — 새로고침/재접속해도 [확인] 전까지 유지
+    toastsKey() { return 'wf:toasts:' + (this.currentUser?.userId || 'anon'); },
+    _persistToasts() { try { if (!this.currentUser) return; localStorage.setItem(this.toastsKey(), JSON.stringify((this.toasts || []).slice(0, 20))); } catch (_) {} },
+    _restoreToasts() {
+      try {
+        if (!this.currentUser) return;
+        if (!this._notifiedEventIds) this._notifiedEventIds = new Set();
+        const arr = JSON.parse(localStorage.getItem(this.toastsKey()) || '[]');
+        if (!Array.isArray(arr)) return;
+        const have = new Set((this.toasts || []).map(t => t && t.id));
+        const restored = arr.filter(t => t && t.id && !have.has(t.id)); // 이미 떠 있는 새 토스트는 덮어쓰지 않게 병합
+        this.toasts = [...(this.toasts || []), ...restored].slice(0, 20);
+        for (const t of restored) this._notifiedEventIds.add(t.id); // 복원분은 '이미 띄움'으로 — 새 이벤트 중복 푸시 방지
+      } catch (_) {}
     },
     openToast(t) {
       if (t && t.jobId) { try { this.openWorkflowTarget(t.jobId, t.itemId || ''); } catch (_) { try { this.selectJob(t.jobId); } catch (__) {} } }
@@ -3581,6 +3602,7 @@ function workflowApp() {
     // 아직 수락(확정) 전이거나, 사용자가 날짜를 바꿔 다시 수락이 필요한 상태 → [수락] 노출
     cardDateDirty(job) {
       if (!job) return false;
+      if (job.priority === 'urgent') return false; // 긴급=요청일 고정(공장 일정수정 불가) → 항상 확정, 수락 없이 바로 완료
       if (!job.factoryAvailableDate) return true; // 한 번도 수락 안 함
       const p = this.factoryDatePending[job.id];
       return p !== undefined && p !== null && p !== job.factoryAvailableDate;
@@ -3835,6 +3857,7 @@ function workflowApp() {
         summary: '',
         handoffNote: '',
         productionRoute: 'internal',
+        storageHint: null,
       };
       this.newMail = { send: true, to: '', subject: '', message: '', company: '' };
     },
@@ -4180,6 +4203,10 @@ function workflowApp() {
       if (!c) return;
       this.form.companyName = c.companyName || '';
       this.form.projectName = c.projectName || '';
+      // 추천이 가리킨 '실제 폴더'(★포함)를 저장힌트로 — 저장이 글자로 재계산하지 않고 이 폴더 그대로 사용
+      this.form.storageHint = (c.companyFolder || c.projectFolder)
+        ? { companyFolder: c.companyFolder || '', projectFolder: c.projectFolder || '' }
+        : null;
       this.projectSnap = { from: '', to: '' };
       this.guessCands = [];
       this.syncAutoJobTitle(true);

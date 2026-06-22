@@ -448,7 +448,7 @@ function projectFolderForYear(yearDir, projectName, preferredFolderName) {
   return found || preferredFolderName;
 }
 
-function resolveWorkflowStorage({ designRoot = '', designIndex = [], skipDirs = null, companyName = '', projectName = '', year = '', create = true, dryRun = false } = {}) {
+function resolveWorkflowStorage({ designRoot = '', designIndex = [], skipDirs = null, companyName = '', projectName = '', year = '', create = true, dryRun = false, storageHint = null } = {}) {
   const root = path.resolve(designRoot || 'D:\\');
   const companyRaw = cleanCompanyDisplayName(companyName);
   const projectRaw = cleanProjectDisplayName(projectName);
@@ -456,10 +456,17 @@ function resolveWorkflowStorage({ designRoot = '', designIndex = [], skipDirs = 
   // 현장명(프로젝트)이 없는 업체(예: 삼성라코스)는 회사\연도 까지만 정리 — 현장명 하위폴더 없이 연도 폴더에 바로 저장.
   const hasProject = !!projectRaw;
 
+  // 추천(저장힌트)이 가리킨 '기존' 폴더(★포함)를 그대로 사용 — 단, 회사/현장이 힌트와 같을 때만(사용자가 바꿨으면 무시).
+  // 글자 기반 재해석(퍼지매칭·마크없는 새폴더 생성)을 우회해 '추천=저장'을 일치시킨다. (★ 보존: cleanHierarchyPart는 마크 안 지움)
+  const hintCompanyFolder = storageHint && storageHint.companyFolder ? cleanHierarchyPart(storageHint.companyFolder) : '';
+  const hintProjectFolder = storageHint && storageHint.projectFolder ? cleanHierarchyPart(storageHint.projectFolder) : '';
+  const useHintCompany = !!hintCompanyFolder && normalizeKey(hintCompanyFolder) === normalizeKey(companyRaw);
+  const useHintProject = hasProject && !!hintProjectFolder && normalizeKey(hintProjectFolder) === normalizeKey(projectRaw);
+
   const options = buildWorkflowOptions({ designIndex, designRoot: root, skipDirs, includeIndex: false });
   const existingCompany = findCompanyForStorage(options, companyRaw);
   const storageRule = findStorageRule(companyRaw);
-  const companyFolderName = storageRule?.companyFolder || existingCompany?.folderName || safePathPart(companyRaw, 'company');
+  const companyFolderName = storageRule?.companyFolder || (useHintCompany ? hintCompanyFolder : '') || existingCompany?.folderName || safePathPart(companyRaw, 'company');
   const companyDir = path.resolve(root, companyFolderName);
   if (!create && !dryRun && !fs.existsSync(companyDir)) return null;
   const storageYear = safeYear(year);
@@ -482,7 +489,7 @@ function resolveWorkflowStorage({ designRoot = '', designIndex = [], skipDirs = 
     const ruleProjectFolderName = storageRule
       ? renderStorageTemplate(storageRule.projectFolderTemplate || '{project}', { year: storageYear, company: companyRaw, project: projectRaw })
       : '';
-    projectFolderName = projectFolderForYear(
+    projectFolderName = (useHintProject ? hintProjectFolder : '') || projectFolderForYear(
       path.resolve(companyDir, yearFolderName),
       projectRaw,
       ruleProjectFolderName || existingProject?.folderName || safePathPart(projectRaw, 'project'),

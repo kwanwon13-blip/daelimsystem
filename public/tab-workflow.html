@@ -236,6 +236,12 @@
   .wf-toast-open:hover{background:#b45309;}
   .wf-toast-ok{height:28px;padding:0 13px;border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:7px;font-size:12px;font-weight:800;cursor:pointer;}
   .wf-toast-ok:hover{background:#f1f5f9;}
+  /* 긴급 토스트 = 빨강 강조(가시성) */
+  .wf-toast.urgent{background:#fef2f2;border-color:#fca5a5;border-left-color:#ef4444;box-shadow:0 8px 24px rgba(180,0,0,.22);}
+  .wf-toast.urgent .wf-toast-title{color:#b91c1c;}
+  .wf-toast.urgent .wf-toast-open{background:#dc2626;border-color:#dc2626;}
+  .wf-toast.urgent .wf-toast-open:hover{background:#b91c1c;}
+  .wf-toast-badge{display:inline-block;background:#dc2626;color:#fff;font-size:10px;font-weight:900;padding:1px 6px;border-radius:5px;margin-right:5px;vertical-align:middle;}
   /* ===== 과거내역 = 컴퍼니매입 2분할(좌 날짜·코드표 / 우 코드클릭→시안) 구조 차용 · 워크플로우 톤 ===== */
   .wf-view-archive{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px;padding:8px 2px 2px;}
   .wf-arc-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:0 0 auto;}
@@ -580,6 +586,22 @@
   .wf-input:disabled{background:#f1f5f9;color:#64748b;cursor:not-allowed;}
   .wf-required{margin-left:4px;color:#dc2626;font-size:10px;font-weight:900;}
   .wf-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  /* +시안 2단: 왼쪽=입력(회사/현장/완료일/긴급), 오른쪽=추천 패널(겹치지 않게 분리·sticky) */
+  .wf-new-split{display:grid;grid-template-columns:minmax(0,1fr) 190px;gap:12px;align-items:start;}
+  .wf-new-split-left{display:flex;flex-direction:column;gap:10px;min-width:0;}
+  .wf-new-split-reco{position:sticky;top:2px;align-self:start;min-width:0;}
+  .wf-reco-title{font-size:11px;font-weight:800;color:#1e40af;margin-bottom:4px;padding-left:1px;}
+  .wf-reco-rows{display:flex;flex-direction:column;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;background:#fff;}
+  .wf-reco-row{display:block;width:100%;border:0;border-bottom:1px solid #f1f5f9;background:#fff;padding:5px 9px;text-align:left;cursor:pointer;line-height:1.35;word-break:break-all;}
+  .wf-reco-row:last-child{border-bottom:0;}
+  .wf-reco-row:hover{background:#eff6ff;}
+  .wf-reco-row.top{background:#f5f9ff;}
+  .wf-reco-co{font-size:12px;font-weight:800;color:#1d4ed8;}
+  .wf-reco-sep{font-size:11.5px;color:#cbd5e1;}
+  .wf-reco-pj{font-size:11.5px;color:#64748b;}
+  .wf-reco-foot{font-size:10px;color:#94a3b8;line-height:1.4;margin-top:5px;padding-left:1px;}
+  .wf-reco-empty{font-size:10.5px;color:#94a3b8;line-height:1.5;padding:8px 2px;}
+  @media (max-width:680px){ .wf-new-split{grid-template-columns:1fr;} .wf-new-split-reco{position:static;} }
   .wf-event{padding:8px;border-left:3px solid #cbd5e1;background:#f8fafc;border-radius:4px;font-size:12px;color:#334155;line-height:1.45;}
   .wf-event.unread{border-left-color:#2563eb;background:#eff6ff;}
   .wf-event.active{border-left-color:#f59e0b;background:#fffbeb;box-shadow:0 0 0 1px #fde68a inset;}
@@ -1972,20 +1994,8 @@
         <button class="wf-btn ghost" style="height:28px;" @click="closeNewJobModal()">닫기</button>
       </div>
       <div class="wf-dialog-body">
-        <div class="wf-modal-grid">
-          <!-- 파일명 추천: 폴더별 파일명 어휘로 (회사·현장) top-N — 1클릭 채움. 회사 비어도 위치로 추적 -->
-          <div class="wf-field" x-show="guessCands.length || guessLoading" style="background:#eef6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 10px;">
-            <label style="color:#1e40af;">📎 파일명 추천 — 클릭해서 채우기<span x-show="guessLoading" style="font-weight:400;color:#64748b;"> (찾는 중…)</span></label>
-            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">
-              <template x-for="(c, ci) in guessCands" :key="'gc'+ci">
-                <button type="button" @click="pickGuess(c)" :style="ci===0 ? 'text-align:left;padding:7px 11px;border-radius:8px;cursor:pointer;background:#eff6ff;border:1.5px solid #3b82f6;' : 'text-align:left;padding:7px 11px;border-radius:8px;cursor:pointer;background:#fff;border:0.5px solid #cbd5e1;'">
-                  <div style="font-size:14px;line-height:1.3;"><span style="color:#1d4ed8;font-weight:700;" x-text="c.companyName"></span><span style="color:#94a3b8;"> · </span><span style="font-weight:700;color:#111827;" x-text="c.projectName"></span></div>
-                  <div style="font-size:11px;color:#64748b;margin-top:1px;" x-text="'파일 '+(c.files||0)+'개'+(ci===0?' · 가장 유력':'')"></div>
-                </button>
-              </template>
-            </div>
-            <div class="wf-muted" style="font-size:11px;margin-top:5px;">맞는 게 없으면 아래에서 직접 고르거나 <b>새 현장명을 입력</b>하면 그대로 새 현장으로 저장됩니다.</div>
-          </div>
+        <div class="wf-new-split">
+          <div class="wf-new-split-left">
           <div class="wf-field">
             <label>회사명</label>
             <input class="wf-input" x-ref="newJobCompany" x-model="form.companyName" @change="syncAutoJobTitle()" @keydown.enter.prevent="enterPickCompany('form')" @keydown.down.prevent="moveCompanyActive('form',1)" @keydown.up.prevent="moveCompanyActive('form',-1)" @input="companyActiveIndex.form=-1" autocomplete="off" placeholder="직접 입력 또는 선택">
@@ -2049,7 +2059,30 @@
               <span>긴급 요청</span>
             </label>
           </div>
-        </div>
+          </div><!-- /wf-new-split-left -->
+          <aside class="wf-new-split-reco">
+            <div class="wf-reco-title">📎 자동 추천 — 클릭해 채우기</div>
+            <template x-if="guessLoading"><div class="wf-reco-empty">파일명 분석 중…</div></template>
+            <template x-if="!guessLoading && guessCands.length">
+              <div>
+                <div class="wf-reco-rows">
+                  <template x-for="(c, ci) in guessCands" :key="'gc'+ci">
+                    <button type="button" class="wf-reco-row" :class="ci===0?'top':''" @click="pickGuess(c)" :title="c.companyName + ' - ' + c.projectName + ' (파일 ' + (c.files||0) + '개)'">
+                      <span class="wf-reco-co" x-text="c.companyName"></span><span class="wf-reco-sep"> - </span><span class="wf-reco-pj" x-text="c.projectName"></span>
+                    </button>
+                  </template>
+                </div>
+                <div class="wf-reco-foot">맞는 게 없으면 왼쪽에서 직접 고르거나 새 현장명 입력</div>
+              </div>
+            </template>
+            <template x-if="!guessLoading && !guessCands.length">
+              <div class="wf-reco-empty">
+                <template x-if="!newFiles.length"><span>파일을 올리면 회사·현장을 추천해드려요</span></template>
+                <template x-if="newFiles.length"><span>맞는 추천이 없어요. 왼쪽에서 직접 고르거나 새 현장명 입력</span></template>
+              </div>
+            </template>
+          </aside>
+        </div><!-- /wf-new-split -->
         <div class="wf-field">
           <label>시안 파일 <span class="wf-required">필수</span></label>
           <label class="wf-dropzone wf-modal-dropzone" :class="[newUploadDragOver ? 'drag' : '', uploadProgress.active ? 'busy' : '']"
@@ -2170,9 +2203,9 @@
 <!-- 인앱 알림 토스트(우하단) — OS 알림이 막힌 HTTP에서도 작동. 자동으로 안 사라지고 [보기]/[확인] 눌러야 닫힘 -->
 <div class="wf-toast-wrap" x-show="toasts.length" x-cloak>
   <template x-for="t in toasts" :key="'wftoast-'+t.id">
-    <div class="wf-toast">
+    <div class="wf-toast" :class="t.urgent ? 'urgent' : ''">
       <div class="wf-toast-body" role="button" tabindex="0" @click="openToast(t)" title="클릭하면 해당 작업 열기">
-        <div class="wf-toast-title" x-text="t.title"></div>
+        <div class="wf-toast-title"><span class="wf-toast-badge" x-show="t.urgent">긴급</span><span x-text="t.title"></span></div>
         <div class="wf-toast-msg" x-text="t.body"></div>
         <div class="wf-toast-actor" x-show="t.actorName" x-text="'— ' + t.actorName"></div>
       </div>

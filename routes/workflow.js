@@ -672,6 +672,7 @@ function applyWorkflowDesignStorage(job, create = false) {
     job.projectName,
     safeYear(String(job.dueDate || '').slice(0, 4)),
     create,
+    { storageHint: job.storageHint || null }, // 추천이 가리킨 기존 폴더 그대로(회사/현장이 힌트와 같을 때만)
   );
   if (!storageInfo) return { changed: false, info: null };
 
@@ -743,6 +744,7 @@ function executeProjectRename(data, req, anchorJob, newNameRaw) {
   const targetJobs = data.jobs.filter(j => String(j.companyName || '') === company && String(j.projectName || '') === oldName);
   for (const j of targetJobs) {
     j.projectName = newName;
+    delete j.storageHint; // 현장명 변경 → 옛 추천 폴더힌트 무효화(되돌림 개명 시 stale 힌트 재활성 방지 — 검증 비평)
     if (newDir) {
       const beforePath = String(j.storagePath || '');
       const afterPath = renameLib.replacePathPrefix(beforePath, oldDir, newDir);
@@ -1347,10 +1349,24 @@ function stageIndex(stageId) {
   return idx >= 0 ? idx : 0;
 }
 
+// 저장힌트 = 추천(design-guess)이 가리킨 '실제 폴더명'(★포함). 저장 시 글자 재해석을 우회해 '추천=저장' 일치.
+function sanitizeStorageHint(h) {
+  if (!h || typeof h !== 'object') return null;
+  // 경로 구분자(\ / : 등) 제거 — 방어 심화(소비측 cleanHierarchyPart+normalizeKey+isPathInside 외 1차 차단). 정상 폴더명(★ 등)은 영향 없음.
+  const strip = v => safeText(v, 160).replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim();
+  const companyFolder = strip(h.companyFolder).slice(0, 120);
+  const projectFolder = strip(h.projectFolder);
+  if (!companyFolder && !projectFolder) return null;
+  const out = {};
+  if (companyFolder) out.companyFolder = companyFolder;
+  if (projectFolder) out.projectFolder = projectFolder;
+  return out;
+}
+
 function normalizeJobPayload(body, existing = null) {
   const stageChecks = newStageChecks(existing?.stageChecks || {});
   const status = ['active', 'hold', 'done', 'cancelled'].includes(body.status) ? body.status : (existing?.status || 'active');
-  return {
+  const out = {
     title: safeText(body.title, 160),
     companyName: safeText(body.companyName, 120),
     projectName: safeText(body.projectName, 160),
@@ -1365,6 +1381,9 @@ function normalizeJobPayload(body, existing = null) {
     summary: safeText(body.summary, 3000),
     stageChecks,
   };
+  const hint = sanitizeStorageHint(body.storageHint) || (existing && existing.storageHint) || null;
+  if (hint) out.storageHint = hint;
+  return out;
 }
 
 function normalizeProjectStatus(value, fallback = 'active') {
@@ -2985,7 +3004,7 @@ function repairLegacyWorkflowFileStorage(data, options = {}) {
       const storageYear = safeYear(file.storageYear || safeDate(file.designDueDate).slice(0, 4) || job.storageYear || String(job.dueDate || '').slice(0, 4));
       const cacheKey = `${companyName}\n${projectName}\n${storageYear}`;
       if (!storageInfoCache.has(cacheKey)) {
-        storageInfoCache.set(cacheKey, resolveWorkflowDesignStorage(companyName, projectName, storageYear, true, { dryRun }));
+        storageInfoCache.set(cacheKey, resolveWorkflowDesignStorage(companyName, projectName, storageYear, true, { dryRun, storageHint: job.storageHint || null }));
       }
       storageInfo = storageInfoCache.get(cacheKey);
     } catch (_) {
@@ -4888,7 +4907,7 @@ router.post('/jobs/:id/files', workflowUploadFiles, (req, res) => {
   let actualStorageCompanyPart = storageCompanyPart;
   let actualStorageProjectPart = storageProjectPart;
   try {
-    actualStorageInfo = resolveWorkflowDesignStorage(storageCompanyName, storageProjectName, storageYear, true);
+    actualStorageInfo = resolveWorkflowDesignStorage(storageCompanyName, storageProjectName, storageYear, true, { storageHint: job.storageHint || null });
     if (!actualStorageInfo) {
       for (const file of req.files || []) {
         try { fs.unlinkSync(path.join(FILE_DIR, file.filename)); } catch (_) {}

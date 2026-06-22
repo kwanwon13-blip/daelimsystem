@@ -26,23 +26,53 @@ function tokenize(s) {
 
 const DESIGN_EXT = new Set(['jpg', 'jpeg', 'png', 'ai', 'pdf', 'psd']);
 
-// item.parts(폴더경로 세그먼트) → 유효 (회사,현장) 폴더키. validProjByComp = Map(compKey -> Map(projKey -> {companyName, projectName}))
-function folderOf(parts, validProjByComp) {
+// 연도 폴더명에서 연도(4자리) 추출 — 못 읽으면 null(보수적: 그 폴더는 제외하지 않음)
+function yearOfPart(part) {
+  const s = String(part || '');
+  let m = s.match(/20(\d{2})/);                 // "2026 시안작업", "2025"
+  if (m) return 2000 + parseInt(m[1], 10);
+  m = s.match(/(?:^|[^\d])(\d{2})\s*년/);        // "26년"
+  if (m) return 2000 + parseInt(m[1], 10);
+  m = s.match(/^(\d{2})(?!\d)/);                 // 앞 2자리 "26 시안작업"
+  if (m) { const y = parseInt(m[1], 10); if (y >= 15 && y <= 60) return 2000 + y; }
+  return null;
+}
+
+// 같은 (회사키) 다른 표기(★유무 등) 중 대표 폴더 선택용 — ★ 정식 폴더 + 더 구체적(긴) 이름 선호(낮을수록 우선)
+function folderRank(name) {
+  const s = String(name || '').replace(/^\s+/, '');
+  let r = 0;
+  if (/^[★☆●○■□]/u.test(s)) r -= 100;
+  r -= s.length * 0.01;
+  return r;
+}
+
+// item.parts(폴더경로 세그먼트) → 유효 (회사,현장) 폴더키 + 실제 폴더명(★포함). minYear 미만(옛) 연도 폴더는 제외.
+// validProjByComp = Map(compKey -> Map(projKey -> {companyName, projectName}))
+function folderOf(parts, validProjByComp, minYear) {
   if (!Array.isArray(parts) || parts.length < 2) return null;
   const ck = normalizeKey(parts[0]);
   if (!validProjByComp.has(ck)) return null;
   let i = 1;
-  if (parts[i] !== undefined && isYearHierarchyPart(parts[i])) i++;
+  if (parts[i] !== undefined && isYearHierarchyPart(parts[i])) {
+    if (minYear) {
+      const y = yearOfPart(parts[i]);
+      if (y && y < minYear) return null; // 옛 연도(예: 2025↓) 현장은 추천에서 제외 — 연도 못 읽으면 보존
+    }
+    i++;
+  }
   if (parts[i] === undefined) return null;
   const pk = normalizeKey(parts[i]);
   const valid = validProjByComp.get(ck);
   if (!valid.has(pk)) return null;
   const meta = valid.get(pk);
-  return { ck, pk, fk: ck + '|' + pk, companyName: meta.companyName, projectName: meta.projectName };
+  // companyFolder/projectFolder = 디스크의 실제 폴더명(★ 등 마크 그대로) → 저장힌트로 전달돼 '추천=저장' 일치
+  return { ck, pk, fk: ck + '|' + pk, companyName: meta.companyName, projectName: meta.projectName, companyFolder: parts[0], projectFolder: parts[i] };
 }
 
 // designIndex(flat 파일아이템 배열) + workflowOptions(companies/projectsByCompany) → 프로파일
-function buildProfiles(designIndex, workflowOptions) {
+function buildProfiles(designIndex, workflowOptions, opts = {}) {
+  const minYear = opts.minYear || 0;   // 이 연도 미만(옛) 폴더 제외 — 추천을 올해 현장으로 한정
   const validProjByComp = new Map();   // compKey(normalizeKey) -> Map(projKey -> {companyName, projectName})
   const pbc = workflowOptions.projectsByCompany || {};
   const plookup = workflowOptions.projectLookup || {};
@@ -66,10 +96,11 @@ function buildProfiles(designIndex, workflowOptions) {
   for (const item of (designIndex || [])) {
     const ext = String(item.ext || '').replace(/^\./, '').toLowerCase() || String(item.fileType || '').toLowerCase();
     if (!DESIGN_EXT.has(ext)) continue;
-    const f = folderOf(item.parts, validProjByComp);
+    const f = folderOf(item.parts, validProjByComp, minYear);
     if (!f) continue;
     let info = folders.get(f.fk);
-    if (!info) { info = { ck: f.ck, pk: f.pk, companyName: f.companyName, projectName: f.projectName, tok: new Map(), files: 0 }; folders.set(f.fk, info); }
+    if (!info) { info = { ck: f.ck, pk: f.pk, companyName: f.companyName, projectName: f.projectName, companyFolder: f.companyFolder, projectFolder: f.projectFolder, tok: new Map(), files: 0 }; folders.set(f.fk, info); }
+    else { if (folderRank(f.companyFolder) < folderRank(info.companyFolder)) info.companyFolder = f.companyFolder; if (folderRank(f.projectFolder) < folderRank(info.projectFolder)) info.projectFolder = f.projectFolder; }
     info.files++;
     for (const t of tokenize(item.name || '')) info.tok.set(t, (info.tok.get(t) || 0) + 1);
   }
@@ -109,7 +140,7 @@ function guess(profiles, filenames, opts = {}) {
   const top = ranked[0] ? ranked[0][1] : 0;
   return ranked.map(([fk, s]) => {
     const f = folders.get(fk);
-    return { companyName: f.companyName, projectName: f.projectName, files: f.files, score: Math.round(s * 100) / 100, confidence: top ? Math.round((s / top) * 100) / 100 : 0 };
+    return { companyName: f.companyName, projectName: f.projectName, companyFolder: f.companyFolder || '', projectFolder: f.projectFolder || '', files: f.files, score: Math.round(s * 100) / 100, confidence: top ? Math.round((s / top) * 100) / 100 : 0 };
   });
 }
 

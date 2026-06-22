@@ -397,9 +397,10 @@ function invalidateDesignWorkflowOptions() {
 // ── 추천(guess) 프로파일: 폴더별 파일명 어휘. 인덱스 상태 키로 캐시(업로드마다 재계산 금지 — 1회만 빌드) ──
 let _guessProfilesCache = { key: '', value: null };
 function getGuessProfiles() {
-  const key = `${designIndex.length}|${designIndexStatus.lastBuilt || ''}`;
+  const minYear = new Date().getFullYear(); // 추천은 올해 폴더만 — 옛(2025↓) 현장 제외(쓸데없는 옛 내역 차단)
+  const key = `${designIndex.length}|${designIndexStatus.lastBuilt || ''}|${minYear}`;
   if (_guessProfilesCache.value && _guessProfilesCache.key === key) return _guessProfilesCache.value;
-  const value = designGuess.buildProfiles(designIndex, designWorkflowOptions());
+  const value = designGuess.buildProfiles(designIndex, designWorkflowOptions(), { minYear });
   _guessProfilesCache = { key, value };
   return value;
 }
