@@ -36,6 +36,17 @@ function looseKeyIncludes(a, b) {
   return a.includes(b) || b.includes(a);
 }
 
+// 같은 회사(같은 normalizeKey)에 폴더가 여러 개일 때(★★★포스코이앤씨 vs 포스코이앤씨) 정식본 선택용.
+// 점수가 낮을수록 우선: 선두 마크(★☆●○■□) 있는 폴더 우선, 동률이면 더 완전(긴) 이름 우선.
+// → 중복이 이미 있어도 readdir 순서와 무관하게 항상 ★폴더가 canonical 로 뽑혀 저장이 ★로 수렴(비결정성 제거).
+function companyFolderRank(folderName) {
+  const s = String(folderName || '').replace(/^\s+/, '');
+  let r = 0;
+  if (/^[★☆●○■□]/u.test(s)) r -= 100;
+  r -= cleanHierarchyPart(folderName).length * 0.01;
+  return r;
+}
+
 function safePathPart(value, fallback = 'item') {
   const cleaned = String(value || '')
     .replace(/[\\/:*?"<>|\r\n\t]+/g, '_')
@@ -180,7 +191,11 @@ function ensureCompany(stats, company, count = 0) {
   }
   const stat = stats.get(key);
   stat.count += Number(count || 0);
-  if (!stat.folderName && company.folderName) stat.folderName = cleanHierarchyPart(company.folderName);
+  // 정식본(★) 우선: 더 좋은 표기의 폴더가 들어오면 교체(first-wins 비결정성 제거 → ★폴더로 수렴)
+  if (company.folderName) {
+    const cand = cleanHierarchyPart(company.folderName);
+    if (cand && (!stat.folderName || companyFolderRank(cand) < companyFolderRank(stat.folderName))) stat.folderName = cand;
+  }
   if (aliases.length) {
     const seen = new Set((stat.companyAliases || []).map(normalizeKey).filter(Boolean));
     for (const alias of aliases) {
