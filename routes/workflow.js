@@ -621,9 +621,23 @@ function envPublicWorkflowBaseUrl() {
   );
 }
 
+// ── 설정.json 읽기 캐시(1.5s TTL) — canDeptActOnStage가 카드당 다회 호출하던 설정.json 디스크 재읽기 해소(원본 감사 직원체감 1순위). ──
+// 읽기 전용 핫패스만 사용. 설정 저장은 saveSettings()로 감싸 즉시 무효화(권한 즉시 반영, 최대 1.5s 지연). 어댑터 모드 플래그는 무캐시(롤백 즉시성).
+let _settingsCache = null;
+let _settingsCacheAt = 0;
+function loadCachedSettings() {
+  const now = Date.now();
+  if (_settingsCache && (now - _settingsCacheAt) < 1500) return _settingsCache;
+  _settingsCache = db['설정'].load() || {};
+  _settingsCacheAt = now;
+  return _settingsCache;
+}
+function invalidateSettingsCache() { _settingsCache = null; _settingsCacheAt = 0; }
+function saveSettings(s) { db['설정'].save(s); invalidateSettingsCache(); }
+
 function storedPublicWorkflowBaseUrl() {
   try {
-    const settings = db['설정'].load();
+    const settings = loadCachedSettings();
     return normalizePublicBaseUrl(
       settings.workflow?.publicBaseUrl
         || settings.general?.workflowPublicBaseUrl
@@ -637,7 +651,7 @@ function storedPublicWorkflowBaseUrl() {
 
 function loadWorkflowSettings() {
   try {
-    const settings = db['설정'].load() || {};
+    const settings = loadCachedSettings();
     return {
       root: settings,
       workflow: settings.workflow && typeof settings.workflow === 'object' ? settings.workflow : {},
@@ -667,7 +681,7 @@ function saveWorkflowStageDepartmentMap(stageDepartmentMap = {}) {
     if (value) next[stage.id] = value;
   }
   settings.workflow.stageDepartmentMap = next;
-  db['설정'].save(settings);
+  saveSettings(settings);
   return next;
 }
 
@@ -1314,7 +1328,7 @@ function saveCompanyManagerConfig(rules, fallback) {
   const settings = db['설정'].load() || {};
   if (!settings.workflow || typeof settings.workflow !== 'object') settings.workflow = {};
   settings.workflow.companyManagers = { rules: sanitizeManagerRules(rules), fallback: (safeText(fallback, 80).trim() || DEFAULT_COMPANY_MANAGER_FALLBACK) };
-  db['설정'].save(settings);
+  saveSettings(settings);
   _companyMgrCache = null; // 저장 시 캐시 무효화
   return settings.workflow.companyManagers;
 }
@@ -3739,7 +3753,7 @@ router.post('/settings/public-link', requireAdmin, (req, res) => {
   const settings = db['설정'].load();
   if (!settings.workflow || typeof settings.workflow !== 'object') settings.workflow = {};
   settings.workflow.publicBaseUrl = url;
-  db['설정'].save(settings);
+  saveSettings(settings);
   res.json({
     ok: true,
     ...publicWorkflowLinkState(),
@@ -3791,7 +3805,7 @@ router.put('/settings/events-store', requireAdmin, (req, res) => {
       read: read || (['json', 'sqlite'].includes(cur.read) ? cur.read : 'json'),
     };
     settings.workflow.eventsStore = next;
-    db['설정'].save(settings);
+    saveSettings(settings);
     return res.json({ ok: true, modes: next });
   } catch (e) {
     return res.status(500).json({ error: '저장 실패: ' + (e.message || e) });
@@ -3820,7 +3834,7 @@ router.put('/settings/workflow-store', requireAdmin, (req, res) => {
       read: read || (['json', 'sqlite'].includes(cur.read) ? cur.read : 'json'),
     };
     settings.workflow.workflowStore = next;
-    db['설정'].save(settings);
+    saveSettings(settings);
     return res.json({ ok: true, modes: next });
   } catch (e) {
     return res.status(500).json({ error: '저장 실패: ' + (e.message || e) });
