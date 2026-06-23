@@ -3937,6 +3937,18 @@ router.get('/jobs', (req, res) => {
     jobs = jobs.filter(j => urgentOpenFileCount(data, j) > 0);
   } else if (scope === 'risk') {
     jobs = jobs.filter(j => isOverdueJob(j) || overdueStageCount(j) > 0 || blockedStageCount(j) > 0 || changeRequestCount(data, j) > 0 || missingFileCount(data, j, decorateOptions.fileExistsCache) > 0);
+  } else if (scope === 'overdue') {
+    // 상단 '일정 지연' 칩 클릭 — summary.overdue 와 동일 기준(작업 마감 지남 OR 단계 마감 지남)
+    jobs = jobs.filter(j => isOverdueJob(j) || overdueStageCount(j) > 0);
+  } else if (scope === 'blocked') {
+    // '막힘 체크' 칩 — 막힌 단계가 있는 작업만(risk 는 다른 위험도 섞여 부정확)
+    jobs = jobs.filter(j => blockedStageCount(j) > 0);
+  } else if (scope === 'changes') {
+    // '수정요청' 칩 — 수정요청 걸린 작업만
+    jobs = jobs.filter(j => changeRequestCount(data, j) > 0);
+  } else if (scope === 'lateschedule') {
+    // '가능일 지연' 칩 — 공장 가능일 협의가 지연된 작업만(risk 필터엔 빠져 있던 항목)
+    jobs = jobs.filter(j => lateScheduleCount(data, j) > 0);
   }
   jobs.sort((a, b) => {
     if (status === 'done') {

@@ -601,6 +601,11 @@
   .wf-reco-pj{font-size:11.5px;color:#64748b;}
   .wf-reco-foot{font-size:10px;color:#94a3b8;line-height:1.4;margin-top:5px;padding-left:1px;}
   .wf-reco-empty{font-size:10.5px;color:#94a3b8;line-height:1.5;padding:8px 2px;}
+  .wf-reco-amb{margin-top:8px;}
+  .wf-reco-amb .wf-reco-rows{border-color:#fcd34d;}
+  .wf-reco-amb .wf-reco-row{background:#fffbeb;}
+  .wf-reco-amb .wf-reco-row:hover{background:#fef3c7;}
+  .wf-reco-sub{font-size:10.5px;font-weight:800;color:#92400e;line-height:1.35;margin-bottom:4px;padding-left:1px;}
   @media (max-width:680px){ .wf-new-split{grid-template-columns:1fr;} .wf-new-split-reco{position:static;} }
   .wf-event{padding:8px;border-left:3px solid #cbd5e1;background:#f8fafc;border-radius:4px;font-size:12px;color:#334155;line-height:1.45;}
   .wf-event.unread{border-left-color:#2563eb;background:#eff6ff;}
@@ -736,42 +741,42 @@
           <strong x-text="summary.cancelled || 0"></strong>
           <span>취소 보관</span>
         </button>
-        <div class="wf-metric action" x-show="summary.myActions > 0">
+        <button type="button" class="wf-metric clickable action" x-show="summary.myActions > 0" @click="setWorkflowListFilter('active', 'mine')" title="내가 담당인 작업만">
           <strong x-text="summary.myActions || 0"></strong>
           <span>내 담당</span>
-        </div>
-        <div class="wf-metric warn" x-show="summary.overdue > 0">
+        </button>
+        <button type="button" class="wf-metric clickable warn" x-show="summary.overdue > 0" @click="setWorkflowListFilter('active', 'overdue')" title="마감이 지난 작업만">
           <strong x-text="summary.overdue || 0"></strong>
           <span>일정 지연</span>
-        </div>
-        <div class="wf-metric warn" x-show="summary.blocked > 0">
+        </button>
+        <button type="button" class="wf-metric clickable warn" x-show="summary.blocked > 0" @click="setWorkflowListFilter('active', 'blocked')" title="막힌 단계가 있는 작업만">
           <strong x-text="summary.blocked || 0"></strong>
           <span>막힘 체크</span>
-        </div>
-        <div class="wf-metric warn" x-show="summary.changeRequests > 0">
+        </button>
+        <button type="button" class="wf-metric clickable warn" x-show="summary.changeRequests > 0" @click="setWorkflowListFilter('active', 'changes')" title="수정요청 걸린 작업만">
           <strong x-text="summary.changeRequests || 0"></strong>
           <span>수정요청</span>
-        </div>
-        <div class="wf-metric warn" x-show="summary.lateSchedules > 0">
+        </button>
+        <button type="button" class="wf-metric clickable warn" x-show="summary.lateSchedules > 0" @click="setWorkflowListFilter('active', 'lateschedule')" title="가능일 협의가 지연된 작업만">
           <strong x-text="summary.lateSchedules || 0"></strong>
           <span>가능일 지연</span>
-        </div>
+        </button>
         <button type="button" class="wf-metric clickable warn" x-show="summary.urgentFiles > 0" @click="setWorkflowListFilter('active', 'urgent')">
           <strong x-text="summary.urgentFiles || 0"></strong>
           <span>긴급</span>
         </button>
-        <div class="wf-metric action" x-show="summary.readyToComplete > 0">
+        <button type="button" class="wf-metric clickable action" x-show="summary.readyToComplete > 0" @click="setWorkflowListFilter('active', 'all')" title="진행 중인 작업 전체 보기">
           <strong x-text="summary.readyToComplete || 0"></strong>
           <span>완료 가능</span>
-        </div>
-        <div class="wf-metric action" x-show="(summary.unreadTotal || summary.unreadFiles || summary.unreadEvents || 0) > 0">
+        </button>
+        <button type="button" class="wf-metric clickable action" x-show="(summary.unreadTotal || summary.unreadFiles || summary.unreadEvents || 0) > 0" @click="setWorkflowListFilter('active', 'unread')" title="아직 확인 안 한 작업만">
           <strong x-text="summary.unreadTotal || ((summary.unreadFiles || 0) + (summary.unreadEvents || 0))"></strong>
           <span>확인 필요</span>
-        </div>
-        <div class="wf-metric" x-show="summary.scheduleCount > 0" :class="summary.scheduleOverdue ? 'warn' : 'action'">
+        </button>
+        <button type="button" class="wf-metric clickable" x-show="summary.scheduleCount > 0" :class="summary.scheduleOverdue ? 'warn' : 'action'" @click="scrollToSchedule()" title="이번주 일정 목록으로 이동">
           <strong x-text="summary.scheduleCount || 0"></strong>
           <span>이번주 일정</span>
-        </div>
+        </button>
         <button type="button" class="wf-metric clickable action" x-show="jobListLimited" x-cloak @click="showAllWorkflowJobs()" title="느린 PC 보호를 위해 기본 화면은 일부만 표시합니다.">
           <strong x-text="workflowLimitText()"></strong>
           <span>전체 보기</span>
@@ -785,7 +790,7 @@
       <!-- 상단 처리/긴급·지연 칩 요약 제거(불필요 — 사용자 요청) -->
 
 
-      <div class="wf-inbox" x-show="scheduleItems().length">
+      <div class="wf-inbox" x-ref="scheduleInbox" x-show="scheduleItems().length">
         <template x-for="item in scheduleItems()" :key="item.id">
           <div class="wf-inbox-item">
             <button style="text-align:left;min-width:0;background:none;border:none;padding:0;cursor:pointer;" @click="openScheduleItem(item)">
@@ -2041,16 +2046,7 @@
                 </button>
               </template>
             </div>
-            <!-- 같은 현장명이 여러 회사에 있을 때 — 정확한 회사를 바로 고르게(클릭하면 회사+현장 동시 설정) -->
-            <div class="wf-project-picks" x-show="projectAmbiguousCompanies(form.projectName).length" style="border-color:#fbbf24;background:#fffbeb;">
-              <div style="font-size:11px;color:#92400e;font-weight:800;padding:4px 6px 2px;">⚠ '<span x-text="form.projectName"></span>' 현장이 여러 회사에 있어요 — 회사를 골라주세요</div>
-              <template x-for="m in projectAmbiguousCompanies(form.projectName)" :key="'xco-'+m.companyName+'-'+m.projectName">
-                <button type="button" tabindex="-1" class="wf-project-pick" @click="form.companyName = m.companyName; form.projectName = m.projectName; syncAutoJobTitle(true)">
-                  <strong x-text="m.companyName"></strong>
-                  <small x-text="'· ' + m.projectName"></small>
-                </button>
-              </template>
-            </div>
+            <!-- '여러 회사에 같은 현장' 모호성 픽커는 오른쪽 자동추천 패널로 이동(아래 wf-new-split-reco) -->
           </div>
           <div class="wf-field">
             <label>희망 완료일</label>
@@ -2079,7 +2075,20 @@
                 <div class="wf-reco-foot">맞는 게 없으면 왼쪽에서 직접 고르거나 새 현장명 입력</div>
               </div>
             </template>
-            <template x-if="!guessLoading && !guessCands.length">
+            <!-- 같은 현장명이 여러 회사에 있을 때 — 회사 선택(왼쪽 노란박스에서 오른쪽 추천패널로 통합) -->
+            <template x-if="projectAmbiguousCompanies(form.projectName).length">
+              <div class="wf-reco-amb">
+                <div class="wf-reco-sub">⚠ '<span x-text="form.projectName"></span>' 현장이 여러 회사에 있어요 — 회사 선택</div>
+                <div class="wf-reco-rows">
+                  <template x-for="m in projectAmbiguousCompanies(form.projectName)" :key="'xco-'+m.companyName+'-'+m.projectName">
+                    <button type="button" class="wf-reco-row" @click="pickAmbiguousCompany(m)" :title="m.companyName + ' · ' + m.projectName">
+                      <span class="wf-reco-co" x-text="m.companyName"></span><span class="wf-reco-sep"> · </span><span class="wf-reco-pj" x-text="m.projectName"></span>
+                    </button>
+                  </template>
+                </div>
+              </div>
+            </template>
+            <template x-if="!guessLoading && !guessCands.length && !projectAmbiguousCompanies(form.projectName).length">
               <div class="wf-reco-empty">
                 <template x-if="!newFiles.length"><span>파일을 올리면 회사·현장을 추천해드려요</span></template>
                 <template x-if="newFiles.length"><span>맞는 추천이 없어요. 왼쪽에서 직접 고르거나 새 현장명 입력</span></template>

@@ -864,6 +864,11 @@ function workflowApp() {
       await this.loadJobs();
     },
 
+    // 상단 '이번주 일정' 칩 클릭 — 아래 일정함으로 부드럽게 스크롤
+    scrollToSchedule() {
+      try { this.$refs.scheduleInbox?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+    },
+
     async loadJobs() {
       this.loading = true;
       const qs = new URLSearchParams();
@@ -4165,15 +4170,24 @@ function workflowApp() {
       const companies = this.designWorkflowOptions.companies || [];
       const hidden = new Set((this.hiddenDesignFolders || []).map(h => this.normalizeOptionName(h)));
       const out = [];
+      // projectsByCompany 는 같은 회사를 '이름 키'와 '폴더명 키(★ 포함)' 2개로 중복 등록한다(서버 design-workflow-storage.js).
+      // 그대로 돌면 ★★★포스코이앤씨 / 포스코이앤씨 가 '서로 다른 회사 2곳'처럼 보여 가짜 모호성·없는 폴더 추천이 생긴다.
+      // → coKey 를 정규화해 정식 회사 1곳으로 귀속하고, (회사·현장) 정규화 키로 중복 행을 제거한다.
+      const seen = new Set();
       for (const coKey of Object.keys(byCo)) {
-        if (!coKey || hidden.has(coKey)) continue;
-        const co = companies.find(c => this.normalizeOptionName(c.name) === coKey || this.normalizeOptionName(c.folderName) === coKey);
-        const coName = co ? co.name : coKey;
+        const coNorm = this.normalizeOptionName(coKey);
+        if (!coNorm || hidden.has(coNorm)) continue;
+        const co = companies.find(c => this.normalizeOptionName(c.name) === coNorm || this.normalizeOptionName(c.folderName) === coNorm);
+        const coName = co ? co.name : coKey;                 // 정식 표기(보통 ★ 없는 회사명)로 통일
+        const coFolder = co ? (co.folderName || co.name) : coKey; // 실제 저장 폴더(★ 포함) — 픽 시 저장힌트로
         for (const p of (byCo[coKey] || [])) {
           const pname = (p && (p.name || p.folderName)) || p;
           const pk = this.normalizeOptionName(pname);
           if (pk && pk.includes(q)) {
-            out.push({ companyName: coName, projectName: pname });
+            const dedup = this.normalizeOptionName(coName) + '|' + pk;
+            if (seen.has(dedup)) continue;
+            seen.add(dedup);
+            out.push({ companyName: coName, companyFolder: coFolder, projectName: pname, projectFolder: (p && p.folderName) || pname });
             if (out.length >= limit) return out;
           }
         }
@@ -4185,6 +4199,17 @@ function workflowApp() {
       const m = this.companiesForProject(query);
       if (new Set(m.map(x => x.companyName)).size < 2) return [];
       return m;
+    },
+    // 모호성 픽커(오른쪽 추천패널)에서 회사 선택 — 회사·현장 + 실제 폴더(★ 포함) 저장힌트까지 세팅(없는 폴더 새로 안 만들게)
+    pickAmbiguousCompany(m) {
+      if (!m) return;
+      this.form.companyName = m.companyName || '';
+      this.form.projectName = m.projectName || '';
+      this.form.storageHint = (m.companyFolder || m.projectFolder)
+        ? { companyFolder: m.companyFolder || '', projectFolder: m.projectFolder || '' }
+        : null;
+      this.projectSnap = { from: '', to: '' };
+      this.syncAutoJobTitle(true);
     },
     // 회사 비었는데 현장명이 '한 회사에만' 있으면 그 회사 자동 채움 + 부분명을 정식 현장명으로 스냅
     autoFillCompanyFromProject() {
