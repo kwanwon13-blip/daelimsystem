@@ -16,6 +16,7 @@ const { createFileLocator } = require('./lib/workflow-file-locator');
 const stageRules = require('./lib/workflow-stage-rules');
 const renameLib = require('./lib/workflow-rename');
 const wfEvents = require('./lib/workflow-events-store'); // 이력(events) SQLite 섀도 이관 어댑터 — 플래그=json이면 no-op
+const wfStore = require('./lib/workflow-store'); // 작업·파일·발주·현장 SQLite 섀도 어댑터 — 플래그=json이면 no-op
 let sharp;
 try { sharp = require('sharp'); } catch (_) {}
 const { sendSmtpMail, normalizeEmailList } = mailRoute;
@@ -325,6 +326,9 @@ function loadStore() {
     const _fileEvents = data.events;
     data.events = wfEvents.hydrate(data, _fileEvents);
     wfEvents.maybeReconcile(_fileEvents); // read=sqlite일 때만 throttle — JSON에만 있는 이력 SQL에 자동 수렴
+    // 스토어(작업·파일·발주·현장) 섀도: read=sqlite면 SQL서 4배열 교체(소비코드 무수정). maybeReconcile는 hydrate '전'(파일배열 기준).
+    wfStore.maybeReconcile(data);
+    wfStore.hydrate(data);
     let storeChanged = ensurePublicTokens(data);
     storeChanged = migrateLegacyManagementStage(data) || storeChanged;
     if (storeChanged) saveStore(data);
@@ -348,6 +352,7 @@ function saveStore(data) {
   }
   fs.renameSync(tmp, STORE_PATH);
   wfEvents.flush(data); // JSON 확정 '후' SQL 미러(best-effort, 플래그=json이면 no-op)
+  wfStore.flush(data); // 작업·파일·발주·현장 SQL 미러(전체배열 upsert+orphan삭제, best-effort, json모드 no-op)
 }
 
 function nowIso() {
@@ -3786,6 +3791,35 @@ router.put('/settings/events-store', requireAdmin, (req, res) => {
       read: read || (['json', 'sqlite'].includes(cur.read) ? cur.read : 'json'),
     };
     settings.workflow.eventsStore = next;
+    db['설정'].save(settings);
+    return res.json({ ok: true, modes: next });
+  } catch (e) {
+    return res.status(500).json({ error: '저장 실패: ' + (e.message || e) });
+  }
+});
+
+// ── 워크플로 스토어(작업·파일·발주·현장) 저장 백엔드 모드 — 섀도 이관 단계 제어(admin만). 설정.json 무캐시라 즉시 반영·즉시 롤백. ──
+router.get('/settings/workflow-store', requireAuth, (req, res) => {
+  res.json({ ok: true, modes: wfStore.readModesFromDisk(), sqlAvailable: !!wfStore.sqlStore(), counts: wfStore.counts() });
+});
+router.put('/settings/workflow-store', requireAdmin, (req, res) => {
+  const writeIn = String((req.body && req.body.write) || '').trim();
+  const readIn = String((req.body && req.body.read) || '').trim();
+  const write = ['json', 'dual', 'sqlite'].includes(writeIn) ? writeIn : null;
+  const read = ['json', 'sqlite'].includes(readIn) ? readIn : null;
+  if (!write && !read) return res.status(400).json({ error: 'write(json|dual|sqlite) 또는 read(json|sqlite)를 지정하세요.' });
+  if ((read === 'sqlite' || write !== 'json') && !wfStore.sqlStore()) {
+    return res.status(400).json({ error: 'SQLite(better-sqlite3)가 없어 sqlite/dual 모드로 전환할 수 없습니다.' });
+  }
+  try {
+    const settings = db['설정'].load() || {};
+    if (!settings.workflow || typeof settings.workflow !== 'object') settings.workflow = {};
+    const cur = (settings.workflow.workflowStore && typeof settings.workflow.workflowStore === 'object') ? settings.workflow.workflowStore : {};
+    const next = {
+      write: write || (['json', 'dual', 'sqlite'].includes(cur.write) ? cur.write : 'json'),
+      read: read || (['json', 'sqlite'].includes(cur.read) ? cur.read : 'json'),
+    };
+    settings.workflow.workflowStore = next;
     db['설정'].save(settings);
     return res.json({ ok: true, modes: next });
   } catch (e) {

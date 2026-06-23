@@ -158,6 +158,21 @@ try {
   `);
 } catch(e) { console.warn('workflow_events 테이블 생성 오류:', e.message); }
 
+// ── 워크플로 스토어(작업/파일/발주/현장) 테이블 — 섀도 이관. 각 항목 = id + jobId(검색용) + blob(전체 JSON). ──
+// 전체배열 upsert + orphan삭제로 in-place 산재변경·삭제를 1번에 반영. try-catch로 서버 부팅 보호.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workflow_jobs (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, jobId TEXT, blob TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS idx_wfjobs_job ON workflow_jobs(jobId);
+    CREATE TABLE IF NOT EXISTS workflow_files (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, jobId TEXT, blob TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS idx_wffiles_job ON workflow_files(jobId);
+    CREATE TABLE IF NOT EXISTS workflow_orders (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, jobId TEXT, blob TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS idx_wforders_job ON workflow_orders(jobId);
+    CREATE TABLE IF NOT EXISTS workflow_projects (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, jobId TEXT, blob TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS idx_wfprojects_job ON workflow_projects(jobId);
+  `);
+} catch(e) { console.warn('workflow_store 테이블 생성 오류:', e.message); }
+
 // ── 헬퍼 ─────────────────────────────────────────────
 
 function generateId(prefix = 'id') {
@@ -573,6 +588,40 @@ const events = {
   },
 };
 
+// ── 워크플로 스토어 blob CRUD (jobs/files/orders/projects 공통 팩토리) ───
+// 소비코드는 배열 객체를 그대로 받으므로 blob(전체 JSON)으로 보관·복원. 손상 blob은 {} 폴백(유실 아님, reconcile이 JSON서 재수렴).
+function makeBlobStore(table) {
+  function parseRow(row) { if (!row) return row; try { const o = JSON.parse(row.blob); return (o && typeof o === 'object') ? o : {}; } catch { return {}; } }
+  const upsertStmt = `INSERT INTO ${table} (id, jobId, blob) VALUES (@id, @jobId, @blob) ON CONFLICT(id) DO UPDATE SET jobId=@jobId, blob=@blob`;
+  return {
+    getAll() { return db.prepare(`SELECT blob FROM ${table} ORDER BY seq ASC`).all().map(parseRow); },
+    getByJob(jobId) { return db.prepare(`SELECT blob FROM ${table} WHERE jobId = ? ORDER BY seq ASC`).all(String(jobId || '')).map(parseRow); },
+    upsert(id, jobId, obj) {
+      if (!id) return false;
+      db.prepare(upsertStmt).run({ id: String(id), jobId: String(jobId || ''), blob: JSON.stringify(obj) });
+      return true;
+    },
+    // rows: [{id, jobId, obj}] — 전체배열 upsert + 현재 id집합에 없는 SQL row 삭제(orphan). in-place 변경·삭제를 1번에 동기화.
+    syncAll(rows) {
+      const list = Array.isArray(rows) ? rows.filter(r => r && r.id) : [];
+      const self = this;
+      db.transaction(() => {
+        for (const r of list) self.upsert(r.id, r.jobId, r.obj);
+        const ids = list.map(r => String(r.id));
+        // json_each로 orphan 삭제(파라미터 1개 → IN 999개 한계 회피, 배열 어떤 크기도 안전)
+        db.prepare(`DELETE FROM ${table} WHERE id NOT IN (SELECT value FROM json_each(?))`).run(JSON.stringify(ids));
+      })();
+      return list.length;
+    },
+    count() { return db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n; },
+    allIds() { return new Set(db.prepare(`SELECT id FROM ${table}`).all().map(r => r.id)); },
+  };
+}
+const jobs = makeBlobStore('workflow_jobs');
+const files = makeBlobStore('workflow_files');
+const orders = makeBlobStore('workflow_orders');
+const projects = makeBlobStore('workflow_projects');
+
 // ── 닫기 (서버 종료 시) ─────────────────────────────
 
 function close() {
@@ -588,5 +637,9 @@ module.exports = {
   vendorPrices,
   quotes,
   events,
+  jobs,
+  files,
+  orders,
+  projects,
   close
 };
