@@ -2211,7 +2211,7 @@ router.get('/leave/compare', requireAuth, (req, res) => {
 
       let annual;
       if (yr === 0) {
-        const cap = effResign ? Math.min(endDate, pEnd) : pEnd;
+        const cap = effResign ? new Date(Math.min(endDate.getTime(), pEnd.getTime())) : pEnd;
         const ms = Math.max(0,
           (cap.getFullYear() - pStart.getFullYear()) * 12 + (cap.getMonth() - pStart.getMonth())
         );
