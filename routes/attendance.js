@@ -2161,7 +2161,10 @@ router.get('/leave/compare', requireAuth, (req, res) => {
     if (!emp.hireDate) return res.status(400).json({ error: '입사일 없음' });
 
     const hire = new Date(emp.hireDate);
-    const endDate = emp.resignDate ? new Date(emp.resignDate) : new Date();
+    // 퇴사 예정일을 입력(?resignDate=)으로 주면 미퇴사자도 그 날짜 기준 시뮬레이션. 없으면 저장된 퇴사일, 그것도 없으면 오늘.
+    const projResign = /^\d{4}-\d{2}-\d{2}$/.test(req.query.resignDate || '') ? req.query.resignDate : null;
+    const effResign = projResign || emp.resignDate || null;
+    const endDate = effResign ? new Date(effResign) : new Date();
     const hireYear = hire.getFullYear();
     const endYear = endDate.getFullYear();
     const leaveRecords = data.leaveRecords || [];
@@ -2208,7 +2211,7 @@ router.get('/leave/compare', requireAuth, (req, res) => {
 
       let annual;
       if (yr === 0) {
-        const cap = emp.resignDate ? Math.min(endDate, pEnd) : pEnd;
+        const cap = effResign ? Math.min(endDate, pEnd) : pEnd;
         const ms = Math.max(0,
           (cap.getFullYear() - pStart.getFullYear()) * 12 + (cap.getMonth() - pStart.getMonth())
         );
@@ -2233,6 +2236,7 @@ router.get('/leave/compare', requireAuth, (req, res) => {
 
     res.json({
       name: emp.name, hireDate: emp.hireDate, resignDate: emp.resignDate || null,
+      projectedResignDate: projResign,
       fiscal, anniversary
     });
   } catch (e) { res.status(500).json({ error: e.message }); }

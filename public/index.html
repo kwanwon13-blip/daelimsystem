@@ -4782,6 +4782,11 @@
               </template>
             </select>
           </div>
+          <div>
+            <label class="label-base">퇴사 예정일</label>
+            <input type="date" x-model="attendance.leaveCompare.resignDate" class="input-base" style="width:130px;font-size:11px;padding:4px 8px;">
+            <div style="font-size:8px;color:#9ca3af;margin-top:1px;">비우면 오늘 기준</div>
+          </div>
           <button @click="loadLeaveCompare()" :disabled="!attendance.leaveCompare.empName || attendance.leaveCompare.loading"
             class="btn-primary" style="height:28px;padding:0 14px;font-size:11px;background:#4f46e5;margin-top:16px;">
             <span x-show="!attendance.leaveCompare.loading">비교 분석</span>
@@ -4836,6 +4841,15 @@
               </div>
             </div>
           </div>
+
+          <!-- 퇴사 예정일 기준 남은 연차 (많은 쪽 = 법상 유리) -->
+          <template x-if="attendance.leaveCompare.data.projectedResignDate">
+            <div style="margin-bottom:12px;padding:10px 14px;background:linear-gradient(135deg,#ecfdf5,#d1fae5);border:1px solid #6ee7b7;border-radius:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <span style="font-size:12px;font-weight:700;color:#065f46;" x-text="attendance.leaveCompare.data.projectedResignDate+' 퇴사 시 남은 연차'"></span>
+              <span style="font-size:22px;font-weight:800;color:#047857;" x-text="Math.max(attendance.leaveCompare.data.fiscal.reduce((s,r)=>s+r.remaining,0), attendance.leaveCompare.data.anniversary.reduce((s,r)=>s+r.remaining,0))+'일'"></span>
+              <span style="font-size:10px;color:#6b7280;" x-text="'(회계년도 '+attendance.leaveCompare.data.fiscal.reduce((s,r)=>s+r.remaining,0)+'일 / 입사일기준 '+attendance.leaveCompare.data.anniversary.reduce((s,r)=>s+r.remaining,0)+'일 중 많은 쪽 — 법상 유리)'"></span>
+            </div>
+          </template>
 
           <!-- 2열 비교 테이블 -->
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
@@ -7661,7 +7675,7 @@ function app() {
       adjustmentAddModal: { open: false, employeeName: '', year: new Date().getFullYear(), type: '추가', days: 0, reason: '' },
       leaveAddModal: { open: false, employeeName: '', leaveType: '연차', date: '', startDate: '', endDate: '', hoverDate: '', calYear: new Date().getFullYear(), calMonth: new Date().getMonth(), days: 1, reason: '' },
       leaveDetailModal: { open: false, emp: null, records: [] },
-      leaveCompare: { empName: '', loading: false, data: null, error: '' },
+      leaveCompare: { empName: '', resignDate: '', loading: false, data: null, error: '' },
       // ── 직원 순서/부서 관리 ──
       orderMode: false,
       departments: [],
@@ -11378,7 +11392,9 @@ function app() {
       this.attendance.leaveCompare.error = '';
       this.attendance.leaveCompare.data = null;
       try {
-        const r = await fetch(`/api/leave/compare?name=${encodeURIComponent(empName)}`);
+        const rd = this.attendance.leaveCompare.resignDate;
+        const rdq = (rd && /^\d{4}-\d{2}-\d{2}$/.test(rd)) ? `&resignDate=${rd}` : '';
+        const r = await fetch(`/api/leave/compare?name=${encodeURIComponent(empName)}${rdq}`);
         if (!r.ok) {
           const e = await r.json();
           throw new Error(e.error || '오류');
