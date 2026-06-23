@@ -1820,6 +1820,7 @@ function workflowApp() {
       const seen = new Set();
       const term = this.normalizeOptionName(query);
       const includeCompleted = !!term;
+      const hidden = new Set((this.hiddenDesignFolders || []).map(h => this.normalizeOptionName(h))); // 숨긴 현장(공사중 등) 제외 — 회사 자동완성과 동일 방식
       return this.workflowProjectOptionsForCompany(companyName, includeCompleted)
         .map(project => ({
           id: String(project?.id || '').trim(),
@@ -1834,6 +1835,7 @@ function workflowApp() {
         .filter(project => {
           const key = this.normalizeOptionName(project.name);
           if (!key || seen.has(key)) return false;
+          if (hidden.has(key)) return false; // 숨긴 현장 제외
           if (!includeCompleted && project.status === 'done') return false;
           if (term && this.optionMatchScore(project.name, term) >= 99) return false;
           seen.add(key);

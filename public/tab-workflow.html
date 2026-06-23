@@ -545,7 +545,7 @@
   .wf-company-pick.is-active{background:#eff6ff;}
   .wf-company-pickrow.is-active{background:#eff6ff;}
   .wf-company-pickrow.is-active .wf-company-pick{background:#eff6ff;}
-  .wf-company-pickrow .wf-company-pick{border-bottom:0;flex:1;min-width:0;}
+  .wf-company-pickrow .wf-company-pick, .wf-company-pickrow .wf-project-pick{border-bottom:0;flex:1;min-width:0;}
   .wf-company-hide{flex:0 0 auto;border:0;border-left:1px solid #f1f5f9;background:#fff;color:#94a3b8;padding:0 10px;font-size:14px;line-height:1;cursor:pointer;}
   .wf-company-hide:hover{background:#fef2f2;}
   .wf-hidden-mgr{margin-top:6px;}
@@ -2040,10 +2040,13 @@
             </div>
             <div class="wf-project-picks" x-show="!workflowProjectExact(form.companyName, form.projectName) && workflowCompanyHasProjects(form.companyName) && workflowProjectSuggestions(form.companyName, 999, form.projectName).length">
               <template x-for="project in workflowProjectSuggestions(form.companyName, 999, form.projectName)" :key="'new-project-'+project.name">
-                <button type="button" tabindex="-1" class="wf-project-pick" @click="form.projectName = project.name; syncAutoJobTitle(true)">
-                  <span x-text="project.name"></span>
-                  <small x-show="projectBadge(project)" x-text="projectBadge(project)"></small>
-                </button>
+                <div class="wf-company-pickrow">
+                  <button type="button" tabindex="-1" class="wf-project-pick" @click="form.projectName = project.name; syncAutoJobTitle(true)">
+                    <span x-text="project.name"></span>
+                    <small x-show="projectBadge(project)" x-text="projectBadge(project)"></small>
+                  </button>
+                  <button type="button" tabindex="-1" class="wf-company-hide" @click.stop="hideDesignFolder(project.folderName || project.name)" title="이 현장을 검색·자동완성에서 숨기기">🙈</button>
+                </div>
               </template>
             </div>
             <!-- '여러 회사에 같은 현장' 모호성 픽커는 오른쪽 자동추천 패널로 이동(아래 wf-new-split-reco) -->
