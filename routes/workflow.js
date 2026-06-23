@@ -15,6 +15,7 @@ const workflowStorageRules = require('./lib/workflow-storage-rules');
 const { createFileLocator } = require('./lib/workflow-file-locator');
 const stageRules = require('./lib/workflow-stage-rules');
 const renameLib = require('./lib/workflow-rename');
+const wfEvents = require('./lib/workflow-events-store'); // 이력(events) SQLite 섀도 이관 어댑터 — 플래그=json이면 no-op
 let sharp;
 try { sharp = require('sharp'); } catch (_) {}
 const { sendSmtpMail, normalizeEmailList } = mailRoute;
@@ -320,6 +321,10 @@ function loadStore() {
     if (!Array.isArray(data.files)) data.files = [];
     if (!Array.isArray(data.orders)) data.orders = [];
     if (!Array.isArray(data.projects)) data.projects = [];
+    // 이력(events) 섀도 이관: read=sqlite면 SQL에서 events를 채움(소비코드 무수정). 기본 json이면 파일배열 그대로(무변화).
+    const _fileEvents = data.events;
+    data.events = wfEvents.hydrate(data, _fileEvents);
+    wfEvents.maybeReconcile(_fileEvents); // read=sqlite일 때만 throttle — JSON에만 있는 이력 SQL에 자동 수렴
     let storeChanged = ensurePublicTokens(data);
     storeChanged = migrateLegacyManagementStage(data) || storeChanged;
     if (storeChanged) saveStore(data);
@@ -342,6 +347,7 @@ function saveStore(data) {
     try { fs.copyFileSync(STORE_PATH, STORE_PATH + '.bak'); } catch (_) {}
   }
   fs.renameSync(tmp, STORE_PATH);
+  wfEvents.flush(data); // JSON 확정 '후' SQL 미러(best-effort, 플래그=json이면 no-op)
 }
 
 function nowIso() {
@@ -1647,6 +1653,7 @@ function addEvent(data, req, jobId, type, message, meta = {}) {
     createdAt: nowIso(),
   };
   data.events.push(event);
+  wfEvents.trackNew(data, event); // 이력 섀도: 새 이력 추적(saveStore flush 때 SQL append, json모드면 no-op)
   notifyWorkflowEventTargets(data, req, event);
   return event;
 }
@@ -3757,6 +3764,35 @@ router.post('/settings/storage-rules', requireAdmin, (req, res) => {
   }
 });
 
+// ── 이력(events) 저장 백엔드 모드 — 섀도 이관 단계 제어(admin만). 설정.json 무캐시라 다음 요청부터 즉시 반영(재시작 불필요). ──
+router.get('/settings/events-store', requireAuth, (req, res) => {
+  res.json({ ok: true, modes: wfEvents.readModesFromDisk(), sqlAvailable: !!wfEvents.sqlEvents() });
+});
+router.put('/settings/events-store', requireAdmin, (req, res) => {
+  const writeIn = String((req.body && req.body.write) || '').trim();
+  const readIn = String((req.body && req.body.read) || '').trim();
+  const write = ['json', 'dual', 'sqlite'].includes(writeIn) ? writeIn : null;
+  const read = ['json', 'sqlite'].includes(readIn) ? readIn : null;
+  if (!write && !read) return res.status(400).json({ error: 'write(json|dual|sqlite) 또는 read(json|sqlite)를 지정하세요.' });
+  if ((read === 'sqlite' || write !== 'json') && !wfEvents.sqlEvents()) {
+    return res.status(400).json({ error: 'SQLite(better-sqlite3)가 없어 sqlite/dual 모드로 전환할 수 없습니다.' });
+  }
+  try {
+    const settings = db['설정'].load() || {};
+    if (!settings.workflow || typeof settings.workflow !== 'object') settings.workflow = {};
+    const cur = (settings.workflow.eventsStore && typeof settings.workflow.eventsStore === 'object') ? settings.workflow.eventsStore : {};
+    const next = {
+      write: write || (['json', 'dual', 'sqlite'].includes(cur.write) ? cur.write : 'json'),
+      read: read || (['json', 'sqlite'].includes(cur.read) ? cur.read : 'json'),
+    };
+    settings.workflow.eventsStore = next;
+    db['설정'].save(settings);
+    return res.json({ ok: true, modes: next });
+  } catch (e) {
+    return res.status(500).json({ error: '저장 실패: ' + (e.message || e) });
+  }
+});
+
 router.put('/settings/storage-rules/:id', requireAdmin, (req, res) => {
   try {
     const rule = workflowStorageRules.saveRule({ ...(req.body || {}), id: req.params.id });
@@ -4204,6 +4240,7 @@ router.post('/jobs/:id/abort-empty', (req, res) => {
   data.jobs.splice(idx, 1);
   if (Array.isArray(data.events)) {
     data.events = data.events.filter(event => event.jobId !== job.id);
+    wfEvents.trackDeleteJob(data, job.id); // 이력 섀도: SQL에서도 이 작업 이력 삭제 예약
   }
   saveStore(data);
   res.json({ ok: true, projectRemoved });
@@ -4659,6 +4696,7 @@ router.post('/jobs/:id/events/:eventId/read', (req, res) => {
   // 읽음 처리도 관리자·생성자·이 발주의 어느 단계든 담당 부서만. 무관한 직원의 상태 변경 차단.
   if (job && !(isWorkflowAdmin(req) || isJobCreator(job, req) || STAGES.some(s => canDeptActOnStage(req, s.id)))) return res.status(403).json({ error: WF_NO_PERM });
   if (markEventReadBy(event, req)) {
+    wfEvents.trackReadBy(data, event.id); // 이력 섀도: readBy 변경 추적(dirty-id, json모드면 no-op)
     addEvent(data, req, event.jobId, 'event_read', `${event.message || '기록'} 확인`, { eventId: event.id });
     saveStore(data);
   }
@@ -4683,6 +4721,7 @@ router.post('/jobs/:id/items/:itemId/read', (req, res) => {
   const event = data.events.find(e => e.jobId === job.id && e.id === itemId);
   if (event) {
     if (markEventReadBy(event, req)) {
+      wfEvents.trackReadBy(data, event.id); // 이력 섀도: readBy 변경 추적(dirty-id, json모드면 no-op)
       addEvent(data, req, event.jobId, 'event_read', `${event.message || '기록'} 확인`, { eventId: event.id });
       saveStore(data);
     }

@@ -134,6 +134,30 @@ try {
   }
 } catch(e) { console.warn('quote_items meta 마이그레이션 오류:', e.message); }
 
+// ── 워크플로 이력(events) 테이블 — 섀도 이관 대상(routes/workflow.js의 단일 events 배열) ──
+// 멱등 CREATE. try-catch로 감싸 어떤 경우에도 서버 부팅을 막지 않음(실패 시 events는 JSON으로 계속 동작).
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workflow_events (
+      seq            INTEGER PRIMARY KEY AUTOINCREMENT,
+      id             TEXT NOT NULL UNIQUE,
+      jobId          TEXT NOT NULL,
+      type           TEXT,
+      message        TEXT,
+      meta           TEXT NOT NULL DEFAULT '{}',
+      targetUserId   TEXT DEFAULT '',
+      targetUserName TEXT DEFAULT '',
+      targetLabel    TEXT DEFAULT '',
+      readBy         TEXT NOT NULL DEFAULT '[]',
+      actorId        TEXT DEFAULT '',
+      actorName      TEXT DEFAULT '',
+      createdAt      TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_workflow_events_job ON workflow_events(jobId);
+    CREATE INDEX IF NOT EXISTS idx_workflow_events_created ON workflow_events(createdAt);
+  `);
+} catch(e) { console.warn('workflow_events 테이블 생성 오류:', e.message); }
+
 // ── 헬퍼 ─────────────────────────────────────────────
 
 function generateId(prefix = 'id') {
@@ -490,6 +514,65 @@ const quotes = {
   }
 };
 
+// ── Workflow events (워크플로 이력) — 섀도 이관 ───────
+// routes/workflow.js의 addEvent가 만드는 event 객체와 1:1. meta=객체, readBy=[{userId,name,at}] 배열(원본 그대로 보존).
+// 공유 parseJsonFields는 폴백이 일괄 []라 meta(객체)에 부적합 → 전용 파서로 meta는 {}, readBy는 [] 폴백.
+function parseEventRow(row) {
+  if (!row) return row;
+  const out = { ...row };
+  try { out.meta = typeof out.meta === 'string' ? JSON.parse(out.meta) : (out.meta || {}); } catch { out.meta = {}; }
+  if (!out.meta || typeof out.meta !== 'object' || Array.isArray(out.meta)) out.meta = {};
+  try { out.readBy = typeof out.readBy === 'string' ? JSON.parse(out.readBy) : out.readBy; } catch { out.readBy = []; }
+  if (!Array.isArray(out.readBy)) out.readBy = [];
+  delete out.seq; // 내부 정렬키 — 원본 event 형태 유지 위해 응답에서 제외
+  return out;
+}
+function evtParams(evt) {
+  return {
+    id: String(evt.id || ''), jobId: String(evt.jobId || ''),
+    type: evt.type || '', message: evt.message || '',
+    meta: JSON.stringify(evt.meta || {}),
+    targetUserId: evt.targetUserId || '', targetUserName: evt.targetUserName || '', targetLabel: evt.targetLabel || '',
+    readBy: JSON.stringify(Array.isArray(evt.readBy) ? evt.readBy : []),
+    actorId: evt.actorId || '', actorName: evt.actorName || '',
+    createdAt: evt.createdAt || '',
+  };
+}
+const events = {
+  getAll() {
+    return db.prepare('SELECT * FROM workflow_events ORDER BY seq ASC').all().map(parseEventRow);
+  },
+  getByJob(jobId) {
+    return db.prepare('SELECT * FROM workflow_events WHERE jobId = ? ORDER BY seq ASC').all(String(jobId || '')).map(parseEventRow);
+  },
+  append(evt) {
+    if (!evt || !evt.id || !evt.jobId) return false;
+    db.prepare(`INSERT OR IGNORE INTO workflow_events
+      (id, jobId, type, message, meta, targetUserId, targetUserName, targetLabel, readBy, actorId, actorName, createdAt)
+      VALUES (@id, @jobId, @type, @message, @meta, @targetUserId, @targetUserName, @targetLabel, @readBy, @actorId, @actorName, @createdAt)`).run(evtParams(evt));
+    return true;
+  },
+  appendMany(list) {
+    const arr = Array.isArray(list) ? list : [];
+    db.transaction((items) => { for (const e of items) events.append(e); })(arr);
+    return arr.length;
+  },
+  updateReadBy(id, readByArr) {
+    db.prepare('UPDATE workflow_events SET readBy=@readBy WHERE id=@id')
+      .run({ id: String(id || ''), readBy: JSON.stringify(Array.isArray(readByArr) ? readByArr : []) });
+    return true;
+  },
+  deleteByJob(jobId) {
+    return db.prepare('DELETE FROM workflow_events WHERE jobId = ?').run(String(jobId || ''));
+  },
+  count() {
+    return db.prepare('SELECT COUNT(*) AS n FROM workflow_events').get().n;
+  },
+  allIds() {
+    return new Set(db.prepare('SELECT id FROM workflow_events').all().map(r => r.id));
+  },
+};
+
 // ── 닫기 (서버 종료 시) ─────────────────────────────
 
 function close() {
@@ -504,5 +587,6 @@ module.exports = {
   vendors,
   vendorPrices,
   quotes,
+  events,
   close
 };
