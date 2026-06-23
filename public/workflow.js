@@ -888,7 +888,7 @@ function workflowApp() {
         this.jobListTotal = Number.isFinite(total) ? total : jobs.length;
         this.jobListLimited = !!d.limited;
         this.rebuildJobsByStage();
-        this.loadArchive();
+        // 과거내역(완료 보관)은 진행 보드 로드마다 안 받음 — 필요할 때만(되돌리기 등) 온디맨드. 진행 보드 열기·폴링이 가벼워짐(완료건 누적 재처리 제거).
         if (this.selectedId && !this.jobs.find(j => j.id === this.selectedId)) this.selectedId = '';
         if (!this.selectedId) this.detail = null;
         if (this.selectedId) await this.refreshDetail(false);
@@ -3722,7 +3722,8 @@ function workflowApp() {
 
     // 실수로 다음 단계로 넘긴 작업을 이전 단계로 되돌림 (과거내역=완료면 배송 단계로 복구)
     async cardStepBack(jobId) {
-      const job = (this.jobs || []).find(j => j.id === jobId) || (this.archiveJobs || []).find(j => j.id === jobId);
+      let job = (this.jobs || []).find(j => j.id === jobId) || (this.archiveJobs || []).find(j => j.id === jobId);
+      if (!job) { await this.loadArchive(); job = (this.archiveJobs || []).find(j => j.id === jobId); } // 완료작업이면 그때만 과거내역 로드(온디맨드)
       const who = (job && (job.projectName || job.companyName || job.title)) || '작업';
       if (!confirm(`${who}\n\n이전 단계로 되돌릴까요?\n(실수로 넘겼을 때 — 한 단계 뒤로)`)) return;
       this.saving = true;
