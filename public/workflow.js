@@ -3386,7 +3386,7 @@ function workflowApp() {
           return;
         }
         this.applyOrderResponse(d);
-        if (d.recipientSavedToVendor) await this.loadOrderTargets(true);
+        if (d.recipientSavedToVendor || d.recipientSavedToContact) await this.loadOrderTargets(true);
         await this.loadJobs();
         modal.sending = false;
         this.closeOrderMail();

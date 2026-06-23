@@ -134,6 +134,61 @@ function rememberWorkflowVendorEmail(order, email) {
   }
 }
 
+// 발주 메일을 보낸 '받는 주소'를 연락처(거래처=매입처)에 자동 등록 — 다음 발주 때 주소록에 뜨고, 연락처 탭에서 바로 수정 가능.
+// 사장님 결정(2026-06-23): 연락처에 통합 + 보낼 때 자동등록(연락처에서 수정 가능). 이미 같은 이메일의 연락처가 있으면 건드리지 않음(중복/덮어쓰기 방지).
+function rememberWorkflowOrderContact(order, email, actorId = '') {
+  try {
+    const nextEmail = normalizeEmailList(email || '')[0] || '';
+    if (!nextEmail) return false;
+    const emailKey = nextEmail.toLowerCase();
+    const data = db.loadContacts();
+    const contacts = data.contacts || (data.contacts = []);
+    // 이미 등록된 이메일이면 스킵 — 직원이 연락처에서 고쳐둔 이름/회사도 그대로 보존
+    if (contacts.some(c => normalizeEmailList(c.email || '').some(e => e.toLowerCase() === emailKey))) return false;
+    const companyName = safeText(order?.targetName || order?.recipientName || '', 120).trim();
+    const personName = safeText(order?.recipientName || '', 80).trim();
+    const companies = data.contactCompanies || (data.contactCompanies = []);
+    let company = companyName
+      ? companies.find(c => String(c.name || '').trim().toLowerCase() === companyName.toLowerCase())
+      : null;
+    if (!company && companyName) {
+      company = {
+        id: 'comp_' + Date.now() + '_' + crypto.randomBytes(3).toString('hex'),
+        name: companyName,
+        note: '',
+        kind: 'vendor', // 매입처(발주처)
+        address: '',
+        createdAt: nowIso(),
+        source: 'workflow-order',
+      };
+      companies.push(company);
+    }
+    contacts.push({
+      id: 'c_' + Date.now() + '_' + crypto.randomBytes(3).toString('hex'),
+      projectId: '',
+      siteId: '',
+      name: personName || companyName || nextEmail,
+      company: companyName,
+      companyId: company ? company.id : '',
+      position: '',
+      dept: '',
+      phone: '',
+      mobile: '',
+      email: nextEmail,
+      note: '발주 메일에서 자동 등록',
+      customFields: {},
+      createdAt: nowIso(),
+      createdBy: actorId || 'workflow-order',
+      source: 'workflow-order',
+    });
+    db.saveContacts(data);
+    return true;
+  } catch (e) {
+    console.warn('[workflow-mail] order contact remember failed:', e.message);
+    return false;
+  }
+}
+
 function contactTargetsForWorkflow() {
   try {
     const data = db.loadContacts();
@@ -4851,6 +4906,7 @@ router.post('/jobs/:id/orders/:orderId/email', async (req, res) => {
     freshOrder.recipientCc = ccList.join(', ');
     freshOrder.mailSubject = subject;
     const recipientSavedToVendor = rememberWorkflowVendorEmail(freshOrder, toList[0]);
+    const recipientSavedToContact = rememberWorkflowOrderContact(freshOrder, toList[0], req.user?.userId || '');
     if (!Array.isArray(freshOrder.mailHistory)) freshOrder.mailHistory = [];
     freshOrder.mailHistory.push({
       to: toList,
@@ -4863,6 +4919,7 @@ router.post('/jobs/:id/orders/:orderId/email', async (req, res) => {
       attachedCount: mailFiles.attachments.length,
       publicUrl,
       recipientSavedToVendor,
+      recipientSavedToContact,
     });
     if (['draft', 'requested'].includes(freshOrder.status || 'draft')) freshOrder.status = 'sent';
     freshOrder.updatedAt = sentAt;
@@ -4889,7 +4946,8 @@ router.post('/jobs/:id/orders/:orderId/email', async (req, res) => {
       orderSummary: buildOrderSummary(fresh, freshJob),
       job: decorateJob(fresh, freshJob, req.user),
       recipientSavedToVendor,
-      message: `${toList.join(', ')}로 발송 완료${recipientSavedToVendor ? ' · 업체 메일 저장' : ''}`,
+      recipientSavedToContact,
+      message: `${toList.join(', ')}로 발송 완료${recipientSavedToContact ? ' · 연락처에 자동 저장' : (recipientSavedToVendor ? ' · 업체 메일 저장' : '')}`,
     });
   } catch (e) {
     console.error('[workflow-mail] send failed:', e);
