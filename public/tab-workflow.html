@@ -620,6 +620,27 @@
   .wf-dl-int{background:#eef2ff;color:#3730a3;border-color:#c7d2fe;}
   .wf-empty{height:100%;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:13px;}
   @media (max-width:1200px){.wf-shell{grid-template-columns:1fr;height:auto}.wf-resizer{display:none}.wf-detail{min-height:620px}.wf-columns{height:560px}.wf-summary{grid-template-columns:repeat(2,1fr)}.wf-new{grid-template-columns:1fr 1fr}.wf-new .wf-btn.primary{width:100%;justify-content:center;}}
+  /* 반응형 하드닝(ultracode 감사) — 데스크톱(>=1200 grid분기) 불변, 좁은폭만 보강 */
+  @media (max-width:900px){
+    .wf-col{min-width:200px}
+    .wf-col.focus{min-width:240px}
+    .wf-week-grid{grid-template-columns:repeat(7,minmax(110px,1fr))}
+  }
+  @media (max-width:760px){
+    .wf-columns{flex-direction:column;overflow-x:hidden;overflow-y:auto;height:auto;max-height:none}
+    .wf-col{flex:0 0 auto;min-width:0;width:100%;border-right:none;border-bottom:1px solid #dfe4ed}
+    .wf-col:last-child{border-bottom:none}
+    .wf-col.focus,.wf-col.mini{flex:0 0 auto;min-width:0;width:100%;background:#fff}
+    .wf-keybox-row,.wf-grid-2,.wf-handoff,.wf-collab-compact,.wf-modal-grid{grid-template-columns:1fr}
+    .wf-stage-row{grid-template-columns:1fr 1fr;row-gap:6px}
+    .wf-replace-compare{flex-wrap:wrap;row-gap:4px}
+    .wf-rc-line{flex-wrap:wrap;row-gap:4px}
+    .wf-btn,.wf-metric{min-height:38px}
+  }
+  @media (max-width:600px){
+    .wf-arc-split{grid-template-columns:1fr;grid-auto-rows:auto}
+    .wf-week-grid{grid-template-columns:repeat(7,minmax(96px,1fr))}
+  }
 </style>
 
 <div class="fade-in" x-data="workflowApp()" x-init="init()">
@@ -1435,7 +1456,7 @@
                         <span class="material-symbols-outlined" style="font-size:16px;color:#2563eb;">arrow_forward</span>
                         <span style="font-size:11px;font-weight:800;color:#1d4ed8;">교체됨</span>
                         <span class="wf-muted" style="font-size:11px;" x-show="file.replacesOriginalName" x-text="'이전: ' + file.replacesOriginalName"></span>
-                        <span class="wf-muted" style="font-size:11px;" x-show="file.prevVersion && file.prevVersion.thumbUrl" @click.stop="openFilePreview(file.prevVersion, [file.prevVersion, file])" role="button" title="이전·현재 비교 크게 보기" style="cursor:pointer;text-decoration:underline;">비교 보기</span>
+                        <span class="wf-muted" style="font-size:11px;cursor:pointer;text-decoration:underline;" x-show="file.prevVersion && file.prevVersion.thumbUrl" @click.stop="openFilePreview(file.prevVersion, [file.prevVersion, file])" role="button" title="이전·현재 비교 크게 보기">비교 보기</span>
                       </div>
                       <template x-if="!(file.isImage && file.exists!==false)">
                         <div class="wf-feed-filebar" :class="file.exists===false ? 'missing' : ''" :title="file.originalName || ''">

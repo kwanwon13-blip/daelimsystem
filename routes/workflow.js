@@ -2765,7 +2765,7 @@ function workflowItemsByJob(items = []) {
 }
 
 function decorateJob(data, job, viewerUser = null, options = {}) {
-  const files = options.filesByJob ? (options.filesByJob.get(job.id) || []) : data.files.filter(f => f.jobId === job.id);
+  const files = (options.filesByJob ? (options.filesByJob.get(job.id) || []) : data.files.filter(f => f.jobId === job.id)).filter(f => !f.supersededBy);
   const events = options.eventsByJob ? (options.eventsByJob.get(job.id) || []) : data.events.filter(e => e.jobId === job.id);
   const orders = options.ordersByJob ? (options.ordersByJob.get(job.id) || []) : (data.orders || []).filter(o => o.jobId === job.id);
   const fileExistsCache = options.fileExistsCache || data.fileExistsCache || null;
@@ -3291,6 +3291,7 @@ function jobArchiveFiles(data, job, filters = {}) {
   const { stageId = '', kind = '', images = false } = filters;
   return data.files
     .filter(f => f.jobId === job.id)
+    .filter(f => !f.supersededBy)
     .filter(f => !stageId || f.stageId === stageId)
     .filter(f => !kind || (f.kind || 'attachment') === kind)
     .filter(f => !images || isImageFile(f))
@@ -4173,6 +4174,19 @@ router.get('/jobs/:id', (req, res) => {
   // 기본 목록에선 교체로 밀려난(supersededBy) 옛 파일을 빼고, supersededFiles 로 분리해 '이전 버전 보기'에서만 노출
   const files = decoratedAll.filter(f => !f.supersededBy);
   const supersededFiles = decoratedAll.filter(f => !!f.supersededBy);
+  // 다운로드 기록(SQLite) — 작업당 1쿼리로 집계해 각 파일에 부착(상세 /jobs/:id 도 부착해야 배지가 뜸).
+  try {
+    if (db.sql && db.sql.downloads) {
+      const dl = db.sql.downloads.statsByJob(job.id);
+      for (const f of files) {
+        const s = dl[f.id];
+        f.downloadCount = s ? s.count : 0;
+        f.downloadLastAt = s ? s.lastAt : '';
+        f.downloadLastBy = s ? s.lastBy : '';
+        f.downloadLastVia = s ? s.lastVia : '';
+      }
+    }
+  } catch (_) {}
   const payload = {
     ok: true,
     job: decorateJob(data, job, req.user),

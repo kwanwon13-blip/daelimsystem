@@ -259,8 +259,8 @@ function workflowApp() {
         if (['date', 'person'].includes(p.boardSort)) this.boardSort = p.boardSort;
         if (['', 'welding', 'output'].includes(p.boardTeam)) this.boardTeam = p.boardTeam;
         if (['created', 'available', 'due'].includes(p.factorySort)) this.factorySort = p.factorySort;
-        if (['active', 'hold', 'done', 'cancelled', 'all'].includes(p.statusFilter)) this.statusFilter = p.statusFilter;
-        if (['all', 'mine', 'unread', 'urgent', 'risk'].includes(p.scopeFilter)) this.scopeFilter = p.scopeFilter;
+        if (['active', 'done', 'cancelled', 'all'].includes(p.statusFilter)) this.statusFilter = p.statusFilter;
+        if (['all', 'mine', 'unread', 'urgent', 'risk', 'overdue', 'blocked', 'changes', 'lateschedule'].includes(p.scopeFilter)) this.scopeFilter = p.scopeFilter;
         if (typeof p.boardUnordered === 'boolean') this.boardUnordered = p.boardUnordered;
       } catch (_) {}
     },
