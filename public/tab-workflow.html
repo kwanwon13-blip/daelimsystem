@@ -113,7 +113,7 @@
   .wf-detail-close:hover{background:#fef2f2;border-color:#fca5a5;color:#dc2626;}
   .wf-detail-close .material-symbols-outlined{font-size:16px;}
   .wf-card{border:1px solid #d8dee9;border-radius:8px;background:#fff;padding:8px 9px;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.04);transition:border-color .16s ease,box-shadow .16s ease,padding .16s ease;}
-  .wf-card.active{border-color:#2563eb;box-shadow:0 0 0 2px rgba(37,99,235,.12);padding:10px;}
+  .wf-card.active{border-color:#2563eb;outline:3px solid #2563eb;outline-offset:1px;box-shadow:0 8px 20px rgba(37,99,235,.22);padding:10px;}
   .wf-card.cancelled{border-color:#fecaca;background:#fff7f7;}
   /* 보드 카드 상태 = 카드 전체 배경색 (한눈에 진행/지연/완료) */
   .wf-card.st-active{background:#eff6ff;border-color:#bfdbfe;}
@@ -1150,6 +1150,7 @@
               <span class="wf-chip" :class="detail.job.status === 'done' ? 'done' : (detail.job.status === 'hold' || detail.job.status === 'cancelled' ? 'blocked' : 'ready')" x-text="statuses[detail.job.status] || detail.job.status || '진행'"></span>
               <span class="wf-chip" x-show="jobOrderedAt(detail.job)" style="background:#eff6ff;color:#1d4ed8;font-weight:800;" title="실제 발주 시각 — 공장으로 넘어가거나(가져오기) 외주로 발송된 시점"><span class="material-symbols-outlined" style="font-size:13px;vertical-align:-2px;">schedule_send</span> 발주 <span x-text="jobOrderedAt(detail.job)"></span></span>
               <span class="wf-chip" :class="detail.job.canComplete ? 'ready' : 'not_ready'" x-text="completionBlockerShortText(detail.job)"></span>
+              <span class="wf-chip" x-show="detail.job.createdByName" style="background:#eef2ff;color:#4338ca;font-weight:800;" title="이 발주를 올린 사람(발주자)"><span class="material-symbols-outlined" style="font-size:13px;vertical-align:-2px;">person</span> 발주자 <span x-text="detail.job.createdByName"></span></span>
               <button type="button" class="wf-btn ghost" @click="printDeliverySheet(detail.job)" x-show="detail.job.currentStage==='delivery' || detail.job.status==='done'" title="납품 지시서 인쇄(종이로 출력해 납품팀에 전달)">🖨 인쇄</button>
               <button type="button" class="wf-btn ghost" @click="cardStepBack(detail.job.id)" x-show="detail.job.viewerCanCurrentStage && detail.job.status!=='done' && detail.job.status!=='cancelled' && detail.job.currentStage!=='design'" :disabled="saving" title="이전 단계로 되돌리기 — 실수로 받았을 때 이전 팀으로 돌려보냅니다"><span class="material-symbols-outlined" style="font-size:14px;">undo</span>되돌리기</button>
             </div>
