@@ -616,6 +616,8 @@
   .wf-event.unread{border-left-color:#2563eb;background:#eff6ff;}
   .wf-event.active{border-left-color:#f59e0b;background:#fffbeb;box-shadow:0 0 0 1px #fde68a inset;}
   .wf-muted{color:#6b7280;font-size:11px;}
+  .wf-dl-ext{background:#fff7ed;color:#9a3412;border-color:#fed7aa;}
+  .wf-dl-int{background:#eef2ff;color:#3730a3;border-color:#c7d2fe;}
   .wf-empty{height:100%;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:13px;}
   @media (max-width:1200px){.wf-shell{grid-template-columns:1fr;height:auto}.wf-resizer{display:none}.wf-detail{min-height:620px}.wf-columns{height:560px}.wf-summary{grid-template-columns:repeat(2,1fr)}.wf-new{grid-template-columns:1fr 1fr}.wf-new .wf-btn.primary{width:100%;justify-content:center;}}
 </style>
@@ -1367,6 +1369,8 @@
                     <span class="wf-btn">파일 선택</span>
                     <input type="file" multiple style="display:none;" @change="uploadFiles($event)">
                   </label>
+                  <!-- 시안 '교체'용 숨김 입력(타일의 교체 버튼이 트리거) — 1개만 선택 -->
+                  <input type="file" x-ref="replaceFileInput" style="display:none;" @change="onReplaceFilePicked($event)">
                   <div class="wf-upload-progress" x-show="uploadProgress.active" x-cloak>
                     <div class="wf-upload-progress-row">
                       <span x-text="uploadProgress.text || '파일 업로드 중'"></span>
@@ -1388,6 +1392,30 @@
                 </div>
                 <!-- 기본뷰: 시안 세로 피드 — 이미지가 패널 폭으로 크게, 아래로 내리며 봄. 클릭=확대(시안검색식). AI/누락 파일은 슬림 바. -->
                 <div class="wf-feed" x-show="!detailMoreOpen && detailTiles().length" x-cloak>
+                  <!-- 이전 버전(교체로 밀려난 옛 시안) — 평소 숨김, 토글로 펼침 -->
+                  <div class="wf-feed-prev-toggle" x-show="supersededFiles().length" style="margin:2px 0 8px;">
+                    <button type="button" class="wf-btn ghost" style="height:26px;font-size:11px;" @click="showSuperseded = !showSuperseded" x-text="(showSuperseded ? '이전 버전 숨기기' : ('이전 버전 ' + supersededFiles().length + '개 보기'))"></button>
+                  </div>
+                  <div class="wf-feed-superseded" x-show="showSuperseded && supersededFiles().length" x-cloak style="opacity:.72;border-left:3px solid #cbd5e1;padding-left:8px;margin-bottom:10px;">
+                    <template x-for="file in supersededFiles()" :key="'old-'+file.id">
+                      <div class="wf-feed-item">
+                        <template x-if="file.isImage && file.exists!==false">
+                          <div class="wf-feed-imgbox" role="button" tabindex="0" @click="openFilePreview(file, supersededFiles())" :title="(file.originalName || '시안') + ' — 교체된 이전 버전'">
+                            <img :src="filePreviewUrl(file) || fileThumbUrl(file)" loading="lazy" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, fileThumbUrl(file))">
+                            <span class="wf-proof-badge" style="background:#64748b;">이전 v<span x-text="file.version"></span></span>
+                            <a class="wf-tile-dl" :href="smartFileUrl(file)" @click.stop title="이 이전 파일 받기"><span class="material-symbols-outlined" style="font-size:14px;">download</span></a>
+                          </div>
+                        </template>
+                        <template x-if="!(file.isImage && file.exists!==false)">
+                          <div class="wf-feed-filebar" :title="file.originalName || ''">
+                            <span class="wf-feed-ext" x-text="fileTypeLabel(file)"></span>
+                            <span class="wf-feed-name" x-text="(file.originalName || '파일') + ' (이전 v' + file.version + ')'"></span>
+                            <a class="wf-rc-icon" x-show="file.exists!==false" :href="smartFileUrl(file)" @click.stop title="이 이전 파일 받기"><span class="material-symbols-outlined">download</span></a>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
                   <template x-for="file in detailTiles()" :key="'tile-'+file.id">
                     <div class="wf-feed-item">
                       <template x-if="file.isImage && file.exists!==false">
@@ -1396,8 +1424,19 @@
                           <span class="wf-feed-zoom"><span class="material-symbols-outlined">zoom_in</span></span>
                           <a class="wf-tile-dl" :href="smartFileUrl(file)" @click.stop title="이 파일 받기"><span class="material-symbols-outlined" style="font-size:14px;">download</span></a>
                           <button type="button" class="wf-tile-dl" x-show="detail.job.viewerCanManage" @click.stop="deleteWorkflowFile(file)" :disabled="saving" title="이 파일 삭제 — 실수로 올렸을 때(작성자·관리자, 원본은 보존)" style="top:8px;left:8px;right:auto;bottom:auto;color:#dc2626;"><span class="material-symbols-outlined" style="font-size:14px;">delete</span></button>
+                          <button type="button" class="wf-tile-dl" x-show="detail.job.viewerCanManage && canUploadToCurrentJob()" @click.stop="replaceDesignFile(file)" :disabled="saving" title="이 시안을 새 파일로 교체(파일명 달라도 연결) — 이전 버전은 보존" style="top:8px;left:42px;right:auto;bottom:auto;color:#2563eb;"><span class="material-symbols-outlined" style="font-size:14px;">swap_horiz</span></button>
                         </div>
                       </template>
+                      <!-- 교체된 시안: 이전 → 현재 미니 비교(이전 썸네일 + 교체자·시각) -->
+                      <div class="wf-replace-compare" x-show="file.prevVersion" x-cloak style="display:flex;align-items:center;gap:8px;margin-top:6px;padding:6px 8px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;">
+                        <template x-if="file.prevVersion && file.prevVersion.thumbUrl">
+                          <img :src="file.prevVersion.thumbUrl" loading="lazy" @error="handleWorkflowImageError($event, file.prevVersion.previewUrl)" style="width:40px;height:40px;object-fit:cover;border-radius:5px;border:1px solid #cbd5e1;opacity:.85;" :title="'이전: ' + (file.prevVersion.originalName || '')">
+                        </template>
+                        <span class="material-symbols-outlined" style="font-size:16px;color:#2563eb;">arrow_forward</span>
+                        <span style="font-size:11px;font-weight:800;color:#1d4ed8;">교체됨</span>
+                        <span class="wf-muted" style="font-size:11px;" x-show="file.replacesOriginalName" x-text="'이전: ' + file.replacesOriginalName"></span>
+                        <span class="wf-muted" style="font-size:11px;" x-show="file.prevVersion && file.prevVersion.thumbUrl" @click.stop="openFilePreview(file.prevVersion, [file.prevVersion, file])" role="button" title="이전·현재 비교 크게 보기" style="cursor:pointer;text-decoration:underline;">비교 보기</span>
+                      </div>
                       <template x-if="!(file.isImage && file.exists!==false)">
                         <div class="wf-feed-filebar" :class="file.exists===false ? 'missing' : ''" :title="file.originalName || ''">
                           <span class="wf-feed-ext" x-text="file.exists===false ? '⚠' : fileTypeLabel(file)"></span>
@@ -1451,6 +1490,27 @@
                           <span class="wf-chip unread" x-show="file.hasTarget && !file.targetRead">수신대기</span>
                           <span class="wf-chip ready" x-show="file.hasTarget && file.targetRead">수신확인</span>
                           <span class="wf-chip" :class="file.reviewStatus || 'pending'" x-show="canReviewFile(file) && detailMoreOpen" x-text="fileReviewLabel(file.reviewStatus)"></span>
+                        </div>
+                        <div class="wf-dl" x-show="(file.downloadCount||0) > 0" style="display:flex;flex-direction:column;gap:4px;margin:2px 0;">
+                          <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
+                            <span class="wf-chip" :class="file.downloadLastVia==='public' ? 'wf-dl-ext' : 'wf-dl-int'" style="height:18px;" x-text="file.downloadLastVia==='public' ? '외부 공장' : '내부 직원'"></span>
+                            <span class="wf-muted" style="font-weight:800;">받음 <span x-text="file.downloadCount"></span>회</span>
+                            <span class="wf-muted" x-show="file.downloadLastBy">· 마지막 <b x-text="file.downloadLastBy"></b> <span x-text="wfShortDate(file.downloadLastAt)"></span></span>
+                            <button type="button" class="wf-btn" style="height:20px;padding:0 7px;font-size:10.5px;" @click="loadFileDownloads(file)" x-text="file._dlOpen ? '기록 숨기기' : '기록 보기'"></button>
+                          </div>
+                          <div class="wf-dl-log" x-show="file._dlOpen" x-cloak style="display:flex;flex-direction:column;gap:3px;padding:5px 7px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
+                            <template x-if="!(file._dlLog && file._dlLog.length)">
+                              <span class="wf-muted" x-text="file._dlLoading ? '불러오는 중…' : '받은 기록 없음'"></span>
+                            </template>
+                            <template x-for="(dl, di) in (file._dlLog || [])" :key="di">
+                              <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;font-size:11px;">
+                                <span class="wf-chip" :class="dl.via==='public' ? 'wf-dl-ext' : 'wf-dl-int'" style="height:17px;" x-text="dl.via==='public' ? '외부 공장' : '내부 직원'"></span>
+                                <b x-text="dl.byName || (dl.via==='public' ? '외부(공장)' : '직원')"></b>
+                                <span class="wf-muted" x-text="wfDlTime(dl.at)"></span>
+                                <span class="wf-muted" x-show="dl.note" x-text="'· ' + dl.note"></span>
+                              </div>
+                            </template>
+                          </div>
                         </div>
                         <div class="wf-file-actions">
                           <a class="wf-btn" x-show="file.exists !== false" :href="smartFileUrl(file)" title="접속 위치에 맞는 파일을 받습니다">파일 받기</a>
@@ -1517,6 +1577,27 @@
                         <div class="wf-file-summary">
                           <div><strong>희망</strong> <span x-text="file.designDueDate || '미정'"></span></div>
                           <div><strong x-text="stageLabel('factory', '공장')"></strong> <span x-text="file.factoryAvailableDate || '확인 전'"></span></div>
+                        </div>
+                        <div class="wf-dl" x-show="(file.downloadCount||0) > 0" style="display:flex;flex-direction:column;gap:4px;margin:2px 0;">
+                          <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
+                            <span class="wf-chip" :class="file.downloadLastVia==='public' ? 'wf-dl-ext' : 'wf-dl-int'" style="height:18px;" x-text="file.downloadLastVia==='public' ? '외부 공장' : '내부 직원'"></span>
+                            <span class="wf-muted" style="font-weight:800;">받음 <span x-text="file.downloadCount"></span>회</span>
+                            <span class="wf-muted" x-show="file.downloadLastBy">· 마지막 <b x-text="file.downloadLastBy"></b> <span x-text="wfShortDate(file.downloadLastAt)"></span></span>
+                            <button type="button" class="wf-btn" style="height:20px;padding:0 7px;font-size:10.5px;" @click="loadFileDownloads(file)" x-text="file._dlOpen ? '기록 숨기기' : '기록 보기'"></button>
+                          </div>
+                          <div class="wf-dl-log" x-show="file._dlOpen" x-cloak style="display:flex;flex-direction:column;gap:3px;padding:5px 7px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
+                            <template x-if="!(file._dlLog && file._dlLog.length)">
+                              <span class="wf-muted" x-text="file._dlLoading ? '불러오는 중…' : '받은 기록 없음'"></span>
+                            </template>
+                            <template x-for="(dl, di) in (file._dlLog || [])" :key="di">
+                              <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;font-size:11px;">
+                                <span class="wf-chip" :class="dl.via==='public' ? 'wf-dl-ext' : 'wf-dl-int'" style="height:17px;" x-text="dl.via==='public' ? '외부 공장' : '내부 직원'"></span>
+                                <b x-text="dl.byName || (dl.via==='public' ? '외부(공장)' : '직원')"></b>
+                                <span class="wf-muted" x-text="wfDlTime(dl.at)"></span>
+                                <span class="wf-muted" x-show="dl.note" x-text="'· ' + dl.note"></span>
+                              </div>
+                            </template>
+                          </div>
                         </div>
                         <div class="wf-file-actions">
                           <span class="wf-chip urgent" x-show="file.urgent">긴급</span>

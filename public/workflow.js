@@ -129,7 +129,8 @@ function workflowApp() {
     uploadDesignDueDate: '',
     uploadUrgent: false,
     uploadDragOver: false,
-    uploadOpen: false,
+    uploadOpen: false,    replaceTargetFile: null, // 시안 '교체' 대상(이 파일을 새 파일로 명시 교체)
+    showSuperseded: false,    // '이전 버전 보기' 토글 — 교체로 밀려난 옛 시안 표시
     uploadProgress: { active: false, percent: 0, text: '' },
     fileStageFilter: 'all',
     fileKindFilter: 'all',
@@ -1244,6 +1245,8 @@ function workflowApp() {
       if (this.wfDateTo && (!due || due > this.wfDateTo)) return false;
       // 외주(타 회사) 건은 보드에서 제외 — 헷갈림 방지(외주는 종이 시안으로 전달)
       if (job.productionRoute === 'external') return false;
+      // 완료/취소된 작업은 진행칸에서 제외 — 단, [완료 보관]/[취소 보관] 칩을 명시 선택했을 때만 그 칸에 노출. 진행·보류·전체 볼 땐 숨김(취소선 카드·같은작업 중복칸 방지)
+      if (!['done', 'cancelled'].includes(this.statusFilter) && ['done', 'cancelled'].includes(job.status)) return false;
       // 미발주(발주 전) — 평소엔 숨기고, [미발주] 버튼 켤 때만 미발주만 표시
       if (this.boardUnordered) { if (!job.unordered) return false; }
       else if (job.unordered) return false;
@@ -4371,6 +4374,7 @@ function workflowApp() {
       fd.append('targetUserName', '');
       fd.append('targetLabel', options.targetLabel || '');
       fd.append('targetLabelEncoded', encodeField(options.targetLabel || ''));
+      if (options.replacesFileId) fd.append('replacesFileId', options.replacesFileId); // 시안 교체 — 옛 파일 명시 연결
       const totalSize = this.fileListTotalSize(list);
       this.uploadProgress = { active: true, percent: 0, text: `${this.fileBatchLabel(list)} 업로드 준비 중` };
       try {
@@ -4416,6 +4420,56 @@ function workflowApp() {
       ev.preventDefault();
       this.uploadDragOver = false;
       await this.uploadFiles(ev);
+    },
+    // 시안 '교체' — 이 파일을 골라둔 뒤 파일 선택창을 연다(파일명 달라도 연결). 권한은 viewerCanManage(작성자·관리자)로 버튼 노출 통제.
+    replaceDesignFile(file) {
+      if (!file || !this.detail) return;
+      if (!this.canUploadToCurrentJob()) { alert('완료/취소된 작업에는 파일을 추가할 수 없습니다.'); return; }
+      this.replaceTargetFile = file;
+      const input = this.$refs.replaceFileInput;
+      if (input) { input.value = ''; input.click(); }
+    },
+
+    // 교체용 파일이 선택되면 — 기존 업로드 경로(uploadFilesForJob)를 그대로 타되 replacesFileId 만 얹는다. 1개만 사용.
+    async onReplaceFilePicked(ev) {
+      const picked = ev?.target?.files;
+      const target = this.replaceTargetFile;
+      if (!target || !picked || !picked.length) { if (ev?.target) ev.target.value = ''; this.replaceTargetFile = null; return; }
+      const file = picked[0];
+      try {
+        if (!this.canUploadToCurrentJob()) { alert('완료/취소된 작업에는 파일을 추가할 수 없습니다.'); return; }
+        // 저장 위치는 교체 대상이 속한 작업의 회사/현장 그대로(업로드와 동일 규칙). 파일명 불일치 경고는 교체 의도이므로 생략.
+        const storageCompanyName = String(this.uploadCompanyName || this.detail.job.companyName || '').trim();
+        const storageProjectName = String(this.uploadProjectName || this.detail.job.projectName || this.detail.job.title || '').trim();
+        if (!storageCompanyName) { alert('회사명을 먼저 선택해주세요.'); return; }
+        const storageYear = this.uploadStorageYear();
+        const ready = await this.confirmWorkflowStorageReady(storageCompanyName, storageProjectName, storageYear, '시안 교체');
+        if (!ready) return;
+        await this.uploadFilesForJob(this.detail.job.id, [file], {
+          companyName: storageCompanyName,
+          projectName: storageProjectName,
+          designDueDate: target.designDueDate || this.uploadDesignDueDate || '',
+          urgent: !!target.urgent,
+          note: this.uploadNote || '',
+          storageYear,
+          kind: target.kind || 'proof',
+          stageId: target.stageId || 'design',
+          targetLabel: target.targetLabel || this.uploadTargetLabel(),
+          replacesFileId: target.id,
+        });
+        await this.loadDesignWorkflowOptions(true);
+        await this.loadJobs();
+        await this.refreshDetail(false);
+      } catch (e) {
+        alert('시안 교체 실패: ' + (e?.message || e || '알 수 없는 오류'));
+      } finally {
+        this.replaceTargetFile = null;
+        if (ev?.target) ev.target.value = '';
+      }
+    },
+
+    supersededFiles() {
+      return (this.detail && Array.isArray(this.detail.supersededFiles)) ? this.detail.supersededFiles : [];
     },
 
     async saveFileSchedule(file) {
@@ -4811,6 +4865,33 @@ function workflowApp() {
     toggleFileCollab(file) {
       if (!file) return;
       this.expandedFileId = this.expandedFileId === file.id ? '' : file.id;
+    },
+
+    // 시안 다운로드 기록 토글 — 클릭 시 1회만 온디맨드 fetch 후 file._dlLog 캐시(목록 잦은 호출 방지).
+    // refreshDetail로 detail.files가 새 객체로 교체되면 _dlLog가 사라져 다음 오픈 때 최신 기록을 다시 받음.
+    async loadFileDownloads(file) {
+      if (!this.detail || !file) return;
+      file._dlOpen = !file._dlOpen;
+      if (!file._dlOpen) return;
+      if (Array.isArray(file._dlLog)) return;
+      file._dlLoading = true;
+      try {
+        const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/files/' + encodeURIComponent(file.id) + '/downloads');
+        const d = await r.json();
+        file._dlLog = (r.ok && d.ok && Array.isArray(d.downloads)) ? d.downloads : [];
+      } catch (_) {
+        file._dlLog = [];
+      } finally {
+        file._dlLoading = false;
+      }
+    },
+
+    // 다운로드 시각: ISO(UTC 저장) → 브라우저 로컬(한국=KST) M/D HH:mm
+    wfDlTime(at) {
+      const t = new Date(at || '');
+      if (isNaN(t.getTime())) return '';
+      const p = n => String(n).padStart(2, '0');
+      return `${t.getMonth() + 1}/${t.getDate()} ${p(t.getHours())}:${p(t.getMinutes())}`;
     },
 
     closeFilePreview() {

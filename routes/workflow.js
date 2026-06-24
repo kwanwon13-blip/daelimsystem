@@ -1921,6 +1921,35 @@ function factoryConfirmationError(blockers = []) {
   return `공장이 시안을 확인하고 가능일/일정 상태를 남겨야 다음 진행이 가능합니다.${detail ? ' (' + detail + ')' : ''}`;
 }
 
+// 같은 작업 파일 배열(데코된)에 직전 버전(교체 전) 썸네일·원본명을 부착 — 전/후 비교용. id 맵 1패스(파일별 추가 쿼리 없음).
+function attachPrevVersionInfo(decoratedFiles) {
+  const list = Array.isArray(decoratedFiles) ? decoratedFiles : [];
+  if (!list.length) return list;
+  const byId = new Map(list.map(f => [f.id, f]));
+  for (const f of list) {
+    if (f.replacesFileId) {
+      const prev = byId.get(f.replacesFileId);
+      if (prev) {
+        f.prevVersion = {
+          id: prev.id,
+          originalName: prev.originalName || f.replacesOriginalName || '',
+          thumbUrl: prev.thumbUrl || '',
+          previewUrl: prev.previewUrl || '',
+          isImage: !!prev.isImage,
+          exists: prev.exists !== false,
+          version: prev.version || null,
+          uploadedByName: prev.uploadedByName || '',
+          createdAt: prev.createdAt || '',
+        };
+      } else if (f.replacesOriginalName) {
+        // 직전 파일이 (예: 다시 교체돼) 맵에 없을 때 — 이름만이라도
+        f.prevVersion = { id: f.replacesFileId, originalName: f.replacesOriginalName, thumbUrl: '', previewUrl: '', isImage: false, exists: false, version: null, uploadedByName: '', createdAt: '' };
+      }
+    }
+  }
+  return list;
+}
+
 function decorateWorkflowFile(file, viewerUser, job = null) {
   const exists = workflowFileExists(file);
   const image = isImageFile(file);
@@ -4138,13 +4167,17 @@ router.get('/jobs/:id', (req, res) => {
   const data = loadStore();
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
-  const files = data.files
-    .filter(f => f.jobId === job.id)
-    .map(f => decorateWorkflowFile(f, req.user, job));
+  const jobFilesRaw = data.files.filter(f => f.jobId === job.id);
+  const decoratedAll = jobFilesRaw.map(f => decorateWorkflowFile(f, req.user, job));
+  attachPrevVersionInfo(decoratedAll); // 직전 버전 썸네일/원본명 부착(1패스 맵 — 파일별 쿼리 없음)
+  // 기본 목록에선 교체로 밀려난(supersededBy) 옛 파일을 빼고, supersededFiles 로 분리해 '이전 버전 보기'에서만 노출
+  const files = decoratedAll.filter(f => !f.supersededBy);
+  const supersededFiles = decoratedAll.filter(f => !!f.supersededBy);
   const payload = {
     ok: true,
     job: decorateJob(data, job, req.user),
     files,
+    supersededFiles,
     orders: (data.orders || []).filter(o => o.jobId === job.id).map(o => decorateOrder(data, job, o)),
     orderSummary: buildOrderSummary(data, job),
     deliverySummary: buildDeliverySummary(files, req.user, job),
@@ -4798,9 +4831,12 @@ router.get('/jobs/:id/files', (req, res) => {
   const data = loadStore();
   const job = data.jobs.find(j => j.id === req.params.id);
   if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
-  const files = data.files
+  const decoratedAll = data.files
     .filter(f => f.jobId === job.id)
     .map(f => decorateWorkflowFile(f, req.user, job));
+  attachPrevVersionInfo(decoratedAll); // 직전 버전 썸네일/원본명 부착(1패스 맵)
+  const supersededFiles = decoratedAll.filter(f => !!f.supersededBy);
+  const files = decoratedAll.filter(f => !f.supersededBy);
   // 다운로드 기록(SQLite) — 작업당 1쿼리로 집계해 각 파일에 부착(파일별 쿼리 금지 = 성능 보호).
   try {
     if (db.sql && db.sql.downloads) {
@@ -4817,6 +4853,7 @@ router.get('/jobs/:id/files', (req, res) => {
   res.json({
     ok: true,
     files,
+    supersededFiles,
     deliverySummary: buildDeliverySummary(files, req.user, job),
   });
 });
@@ -5098,7 +5135,25 @@ router.post('/jobs/:id/files', workflowUploadFiles, (req, res) => {
     return res.status(403).json({ error: WF_NO_PERM });
   }
   const stageId = STAGES.some(s => s.id === req.body.stageId) ? req.body.stageId : job.currentStage;
-  const kind = ['proof', 'attachment', 'drawing', 'photo'].includes(req.body.kind) ? req.body.kind : 'attachment';
+  const kind = ['proof', 'attachment', 'drawing', 'photo'].includes(req.body.kind) ? req.body.kind : 'attachment';  // 시안 '교체': 같은 작업의 기존 파일 1건을 명시 교체(파일명 달라도 연결). 옛 파일은 supersededBy 로 표시해 이력 보존(삭제 X).
+  // replacesFileId 가 와도 권한 게이트(위에서 isWorkflowAdmin/isJobCreator/canDeptActOnStage 통과)·저장경로 로직은 그대로 — 교체는 업로드의 메타만 추가.
+  const replacesFileId = safeText(req.body.replacesFileId, 120);
+  let replacedTargetFile = null;
+  if (replacesFileId) {
+    replacedTargetFile = (data.files || []).find(f => f.jobId === job.id && f.id === replacesFileId) || null;
+    if (!replacedTargetFile) {
+      for (const file of req.files || []) {
+        try { fs.unlinkSync(path.join(FILE_DIR, file.filename)); } catch (_) {}
+      }
+      return res.status(400).json({ error: '교체할 원본 시안을 찾을 수 없습니다.' });
+    }
+    if (replacedTargetFile.supersededBy) {
+      for (const file of req.files || []) {
+        try { fs.unlinkSync(path.join(FILE_DIR, file.filename)); } catch (_) {}
+      }
+      return res.status(400).json({ error: '이미 교체된(이전) 시안은 다시 교체할 수 없습니다. 최신 시안을 교체해주세요.' });
+    }
+  }
   const stageAssignee = safeText(job.stageChecks?.[stageId]?.assignee, 80);
   const targetUserId = safeText(req.body.targetUserId, 80);
   const targetUserName = safeText(req.body.targetUserName, 80);
@@ -5238,6 +5293,21 @@ router.post('/jobs/:id/files', workflowUploadFiles, (req, res) => {
   }
   if (uploaded.length) {
     job.updatedAt = nowIso();
+    // 교체 연결: 새 시안(첫 업로드본) ↔ 옛 시안. 옛 파일은 목록에서 빠지되 디스크/이력 보존(전/후 비교용).
+    if (replacedTargetFile && uploaded[0]) {
+      const newFile = uploaded[0];
+      newFile.replacesFileId = replacedTargetFile.id;
+      newFile.replacesOriginalName = replacedTargetFile.originalName || '';
+      replacedTargetFile.supersededBy = newFile.id;
+      replacedTargetFile.supersededAt = nowIso();
+      replacedTargetFile.supersededByName = userName(req);
+      // 옛 파일이 발주에 선택돼 있었다면 새 파일로 자동 승계(전달 누락 방지)
+      for (const o of (data.orders || [])) {
+        if (Array.isArray(o.fileIds) && o.fileIds.includes(replacedTargetFile.id)) {
+          o.fileIds = uniqueTexts(o.fileIds.map(fid => fid === replacedTargetFile.id ? newFile.id : fid));
+        }
+      }
+    }
     if (actualStorageInfo) {
       upsertWorkflowProject(data, {
         companyName: storageCompanyName,
