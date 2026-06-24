@@ -173,6 +173,24 @@ try {
   `);
 } catch(e) { console.warn('workflow_store 테이블 생성 오류:', e.message); }
 
+// ── 시안/파일 다운로드 기록(append-only 로그) — 새 저장데이터는 SQLite 전용(JSON 미사용). ──
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workflow_file_downloads (
+      seq      INTEGER PRIMARY KEY AUTOINCREMENT,
+      fileId   TEXT NOT NULL,
+      jobId    TEXT DEFAULT '',
+      at       TEXT NOT NULL,
+      byUserId TEXT DEFAULT '',
+      byName   TEXT DEFAULT '',
+      via      TEXT DEFAULT 'internal',
+      note     TEXT DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_wf_downloads_file ON workflow_file_downloads(fileId);
+    CREATE INDEX IF NOT EXISTS idx_wf_downloads_job ON workflow_file_downloads(jobId);
+  `);
+} catch(e) { console.warn('workflow_file_downloads 테이블 생성 오류:', e.message); }
+
 // ── 헬퍼 ─────────────────────────────────────────────
 
 function generateId(prefix = 'id') {
@@ -624,6 +642,39 @@ const projects = makeBlobStore('workflow_projects');
 
 // ── 닫기 (서버 종료 시) ─────────────────────────────
 
+// 시안/파일 다운로드 기록 — append-only. 표시는 byFile/stats로 집계(외부=공장, 내부=직원).
+const downloads = {
+  log(row) {
+    return db.prepare(`INSERT INTO workflow_file_downloads (fileId, jobId, at, byUserId, byName, via, note)
+      VALUES (@fileId, @jobId, @at, @byUserId, @byName, @via, @note)`).run({
+      fileId: String((row && row.fileId) || ''),
+      jobId: String((row && row.jobId) || ''),
+      at: String((row && row.at) || ''),
+      byUserId: String((row && row.byUserId) || ''),
+      byName: String((row && row.byName) || ''),
+      via: String((row && row.via) || 'internal'),
+      note: String((row && row.note) || ''),
+    });
+  },
+  byFile(fileId) {
+    return db.prepare('SELECT fileId, jobId, at, byUserId, byName, via, note FROM workflow_file_downloads WHERE fileId = ? ORDER BY seq DESC').all(String(fileId || ''));
+  },
+  statsByFile(fileId) {
+    const c = db.prepare('SELECT COUNT(*) AS n FROM workflow_file_downloads WHERE fileId = ?').get(String(fileId || ''));
+    const last = db.prepare('SELECT at, byName, via FROM workflow_file_downloads WHERE fileId = ? ORDER BY seq DESC LIMIT 1').get(String(fileId || ''));
+    return { count: (c && c.n) || 0, lastAt: (last && last.at) || '', lastBy: (last && last.byName) || '', lastVia: (last && last.via) || '' };
+  },
+  statsByJob(jobId) {
+    const rows = db.prepare('SELECT fileId, at, byName, via FROM workflow_file_downloads WHERE jobId = ? ORDER BY seq DESC').all(String(jobId || ''));
+    const out = {};
+    for (const r of rows) {
+      if (!out[r.fileId]) out[r.fileId] = { count: 0, lastAt: r.at, lastBy: r.byName, lastVia: r.via };
+      out[r.fileId].count++;
+    }
+    return out;
+  },
+};
+
 function close() {
   db.close();
 }
@@ -641,5 +692,6 @@ module.exports = {
   files,
   orders,
   projects,
+  downloads,
   close
 };

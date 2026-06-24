@@ -3510,6 +3510,7 @@ router.get('/public/files/:token/download', (req, res) => {
     }
   }
   if (!sendWorkflowFile(res, file, false, true)) return res.status(404).send('not found');
+  try { if (db.sql && db.sql.downloads) db.sql.downloads.log({ fileId: file.id, jobId: file.jobId || '', at: new Date().toISOString(), byUserId: '', byName: '외부(공장)', via: 'public', note: orderToken ? '발주 링크' : '' }); } catch (_) {}
 });
 
 router.get('/public/files/:token/preview', (req, res) => {
@@ -4800,11 +4801,32 @@ router.get('/jobs/:id/files', (req, res) => {
   const files = data.files
     .filter(f => f.jobId === job.id)
     .map(f => decorateWorkflowFile(f, req.user, job));
+  // 다운로드 기록(SQLite) — 작업당 1쿼리로 집계해 각 파일에 부착(파일별 쿼리 금지 = 성능 보호).
+  try {
+    if (db.sql && db.sql.downloads) {
+      const dl = db.sql.downloads.statsByJob(job.id);
+      for (const f of files) {
+        const s = dl[f.id];
+        f.downloadCount = s ? s.count : 0;
+        f.downloadLastAt = s ? s.lastAt : '';
+        f.downloadLastBy = s ? s.lastBy : '';
+        f.downloadLastVia = s ? s.lastVia : '';
+      }
+    }
+  } catch (_) {}
   res.json({
     ok: true,
     files,
     deliverySummary: buildDeliverySummary(files, req.user, job),
   });
+});
+
+// 시안 1개의 다운로드 상세 목록(누가·언제·외부/내부) — 클릭 시 온디맨드.
+router.get('/jobs/:id/files/:fileId/downloads', (req, res) => {
+  if (!(db.sql && db.sql.downloads)) return res.json({ ok: true, downloads: [] });
+  try {
+    res.json({ ok: true, downloads: db.sql.downloads.byFile(req.params.fileId) });
+  } catch (e) { res.json({ ok: true, downloads: [] }); }
 });
 
 router.get('/jobs/:id/orders', (req, res) => {
@@ -5411,6 +5433,7 @@ router.get('/files/:fileId/download', (req, res) => {
   if (!file) return res.status(404).send('not found');
   // 강화된 sendWorkflowFile 경유 — nosniff + 스크립터블(SVG/HTML/XML) 강등 일괄 적용(저장형 XSS 차단).
   if (!sendWorkflowFile(res, file, false)) return res.status(404).send('not found');
+  try { if (db.sql && db.sql.downloads) db.sql.downloads.log({ fileId: file.id, jobId: file.jobId || '', at: new Date().toISOString(), byUserId: req.user?.userId || '', byName: req.user?.name || req.user?.userId || '직원', via: 'internal', note: '' }); } catch (_) {}
 });
 
 router.get('/files/:fileId/thumb', async (req, res, next) => {
