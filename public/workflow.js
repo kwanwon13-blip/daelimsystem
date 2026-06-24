@@ -864,6 +864,17 @@ function workflowApp() {
       await this.loadJobs();
     },
 
+    // 칩 활성 판별 — 지금 켜진 필터(상태+범위)와 일치하면 파랗게(어떤 필터 눌렀는지 한눈에).
+    isFilterOn(status = 'active', scope = 'all') {
+      return (this.statusFilter || 'active') === status && (this.scopeFilter || 'all') === (scope || 'all');
+    },
+    // '지금 보는 중' 표시용 라벨 — 상태 + 범위.
+    currentFilterLabel() {
+      const st = { active: '진행', hold: '보류', done: '완료 보관', cancelled: '취소 보관', all: '전체' }[this.statusFilter] || '진행';
+      const sc = { mine: '내 담당', urgent: '긴급', overdue: '일정 지연', blocked: '막힘', changes: '수정요청', lateschedule: '가능일 지연', risk: '지연/막힘', unread: '확인 필요' }[this.scopeFilter] || '';
+      return sc ? st + ' · ' + sc : st;
+    },
+
     // 상단 '이번주 일정' 칩 클릭 — 아래 일정함으로 부드럽게 스크롤
     scrollToSchedule() {
       try { this.$refs.scheduleInbox?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}

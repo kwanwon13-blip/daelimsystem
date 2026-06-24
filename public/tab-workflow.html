@@ -32,15 +32,20 @@
   .wf-btn.primary{background:#2563eb;color:#fff;border-color:#2563eb;}
   .wf-btn.ghost{background:#f8fafc;}
   .wf-btn:disabled{opacity:.5;cursor:not-allowed;}
-  .wf-summary{display:flex;align-items:center;gap:10px;min-height:34px;padding:6px 12px;border-bottom:1px solid #e5e9f1;background:#fff;overflow:auto;}
-  .wf-metric{appearance:none;border:0;border-right:1px solid #e5e9f1;padding:0 10px 0 0;background:transparent;min-width:max-content;display:inline-flex;align-items:center;gap:4px;text-align:left;}
-  .wf-metric.clickable{cursor:pointer;}
-  .wf-metric.clickable:hover strong{text-decoration:underline;}
-  .wf-metric:last-child{border-right:none;}
-  .wf-metric strong{display:inline;font-size:13px;line-height:1;color:#111827;}
-  .wf-metric span{display:inline;font-size:11px;color:#64748b;margin:0;}
-  .wf-metric.warn strong{color:#b91c1c;}
+  .wf-summary{display:flex;align-items:center;gap:7px;min-height:34px;padding:7px 12px;border-bottom:1px solid #e5e9f1;background:#fff;overflow:auto;flex-wrap:wrap;}
+  .wf-sum-lbl{font-size:11px;color:#94a3b8;font-weight:800;flex:0 0 auto;}
+  .wf-metric{appearance:none;border:1px solid #dbe3ef;border-radius:8px;padding:5px 11px;background:#fff;min-width:max-content;display:inline-flex;align-items:center;gap:6px;text-align:left;line-height:1;}
+  .wf-metric.clickable{cursor:pointer;transition:border-color .12s,background .12s;}
+  .wf-metric.clickable:hover{border-color:#94a3b8;}
+  .wf-metric strong{display:inline;font-size:12px;line-height:1;color:#111827;font-weight:800;}
+  .wf-metric span{display:inline;font-size:12px;color:#475569;margin:0;font-weight:700;}
+  .wf-metric.warn{background:#fff7ed;border-color:#fde0b8;}
+  .wf-metric.warn strong,.wf-metric.warn span{color:#b45309;}
   .wf-metric.action strong{color:#1d4ed8;}
+  .wf-metric.on{background:#2563eb;border-color:#2563eb;}
+  .wf-metric.on strong,.wf-metric.on span{color:#fff;}
+  .wf-now-filter{font-size:12px;color:#64748b;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;}
+  .wf-now-filter b{color:#1d4ed8;font-weight:800;}
   .wf-inbox{display:none!important;gap:8px;overflow:auto;padding:9px 12px;border-bottom:1px solid #e5e9f1;background:#f8fbff;}
   .wf-inbox-item{min-width:220px;max-width:320px;border:1px solid #bfdbfe;border-radius:8px;background:#fff;padding:8px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center;}
   .wf-inbox-title{font-size:12px;font-weight:800;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -669,20 +674,8 @@
       <div class="wf-filterbar">
         <div class="wf-e2e-filter">
           <input class="wf-e2e-inp" style="width:280px;max-width:44vw;" x-model="query" @input="rebuildJobsByStage()" placeholder="🔍 업체·현장·코드·제목 (띄어쓰기로 여러 단어)">
-          <select class="wf-e2e-inp" x-model="statusFilter" @change="loadJobs()">
-            <option value="active">진행</option>
-            <option value="hold">보류</option>
-            <option value="done">완료 보관함</option>
-            <option value="cancelled">취소 보관함</option>
-            <option value="all">전체</option>
-          </select>
-          <select class="wf-e2e-inp" x-model="scopeFilter" @change="loadJobs()">
-            <option value="all">전체</option>
-            <option value="mine">내 담당</option>
-            <option value="unread">확인 필요</option>
-            <option value="urgent">긴급</option>
-            <option value="risk">지연/막힘</option>
-          </select>
+          <span class="wf-now-filter">지금 보는 중 <b x-text="currentFilterLabel()"></b></span>
+          <button type="button" class="wf-e2e-reset" x-show="!isFilterOn('active','all')" @click="setWorkflowListFilter('active','all')" style="width:auto;padding:0 10px;font-weight:800;font-size:12px;color:#1d4ed8;border-color:#bfdbfe;" title="필터 풀고 진행 전체 보기">✕ 전체로</button>
           <button type="button" class="wf-e2e-reset" @click="boardUnordered=!boardUnordered; rebuildJobsByStage()" :style="boardUnordered ? 'width:auto;padding:0 11px;font-weight:800;background:#dc2626;color:#fff;border-color:#dc2626;' : 'width:auto;padding:0 11px;font-weight:800;'" :title="boardUnordered ? '미발주만 보는 중 — 클릭하면 전체로' : '미발주(아직 발주 안 한) 시안만 보기'">미발주</button>
           <button class="wf-e2e-reset" @click="wfFilterReset()" title="필터 초기화">↻</button>
         </div>
@@ -729,49 +722,47 @@
       </div>
 
       <div class="wf-summary">
-        <button type="button" class="wf-metric clickable" @click="setWorkflowListFilter('active')">
+        <span class="wf-sum-lbl">상태</span>
+        <button type="button" class="wf-metric clickable" :class="isFilterOn('active','all') ? 'on' : ''" @click="setWorkflowListFilter('active')">
           <strong x-text="summary.active || 0"></strong>
           <span>진행 작업</span>
         </button>
-        <button type="button" class="wf-metric clickable" x-show="summary.done > 0" @click="setWorkflowListFilter('done')">
+        <button type="button" class="wf-metric clickable" :class="isFilterOn('done','all') ? 'on' : ''" x-show="summary.done > 0" @click="setWorkflowListFilter('done')">
           <strong x-text="summary.done || 0"></strong>
           <span>완료 보관</span>
         </button>
-        <button type="button" class="wf-metric clickable warn" x-show="summary.cancelled > 0" @click="setWorkflowListFilter('cancelled')">
+        <button type="button" class="wf-metric clickable warn" :class="isFilterOn('cancelled','all') ? 'on' : ''" x-show="summary.cancelled > 0" @click="setWorkflowListFilter('cancelled')">
           <strong x-text="summary.cancelled || 0"></strong>
           <span>취소 보관</span>
         </button>
-        <button type="button" class="wf-metric clickable action" x-show="summary.myActions > 0" @click="setWorkflowListFilter('active', 'mine')" title="내가 담당인 작업만">
+        <span class="wf-sum-lbl" style="margin-left:5px;">빠른</span>
+        <button type="button" class="wf-metric clickable action" :class="isFilterOn('active','mine') ? 'on' : ''" x-show="summary.myActions > 0" @click="setWorkflowListFilter('active', 'mine')" title="내가 담당인 작업만">
           <strong x-text="summary.myActions || 0"></strong>
           <span>내 담당</span>
         </button>
-        <button type="button" class="wf-metric clickable warn" x-show="summary.overdue > 0" @click="setWorkflowListFilter('active', 'overdue')" title="마감이 지난 작업만">
+        <button type="button" class="wf-metric clickable warn" :class="isFilterOn('active','overdue') ? 'on' : ''" x-show="summary.overdue > 0" @click="setWorkflowListFilter('active', 'overdue')" title="마감이 지난 작업만">
           <strong x-text="summary.overdue || 0"></strong>
           <span>일정 지연</span>
         </button>
-        <button type="button" class="wf-metric clickable warn" x-show="summary.blocked > 0" @click="setWorkflowListFilter('active', 'blocked')" title="막힌 단계가 있는 작업만">
+        <button type="button" class="wf-metric clickable warn" :class="isFilterOn('active','blocked') ? 'on' : ''" x-show="summary.blocked > 0" @click="setWorkflowListFilter('active', 'blocked')" title="막힌 단계가 있는 작업만">
           <strong x-text="summary.blocked || 0"></strong>
           <span>막힘 체크</span>
         </button>
-        <button type="button" class="wf-metric clickable warn" x-show="summary.changeRequests > 0" @click="setWorkflowListFilter('active', 'changes')" title="수정요청 걸린 작업만">
+        <button type="button" class="wf-metric clickable warn" :class="isFilterOn('active','changes') ? 'on' : ''" x-show="summary.changeRequests > 0" @click="setWorkflowListFilter('active', 'changes')" title="수정요청 걸린 작업만">
           <strong x-text="summary.changeRequests || 0"></strong>
           <span>수정요청</span>
         </button>
-        <button type="button" class="wf-metric clickable warn" x-show="summary.lateSchedules > 0" @click="setWorkflowListFilter('active', 'lateschedule')" title="가능일 협의가 지연된 작업만">
+        <button type="button" class="wf-metric clickable warn" :class="isFilterOn('active','lateschedule') ? 'on' : ''" x-show="summary.lateSchedules > 0" @click="setWorkflowListFilter('active', 'lateschedule')" title="가능일 협의가 지연된 작업만">
           <strong x-text="summary.lateSchedules || 0"></strong>
           <span>가능일 지연</span>
         </button>
-        <button type="button" class="wf-metric clickable warn" x-show="summary.urgentFiles > 0" @click="setWorkflowListFilter('active', 'urgent')">
+        <button type="button" class="wf-metric clickable warn" :class="isFilterOn('active','urgent') ? 'on' : ''" x-show="summary.urgentFiles > 0" @click="setWorkflowListFilter('active', 'urgent')">
           <strong x-text="summary.urgentFiles || 0"></strong>
           <span>긴급</span>
         </button>
         <button type="button" class="wf-metric clickable action" x-show="summary.readyToComplete > 0" @click="setWorkflowListFilter('active', 'all')" title="진행 중인 작업 전체 보기">
           <strong x-text="summary.readyToComplete || 0"></strong>
           <span>완료 가능</span>
-        </button>
-        <button type="button" class="wf-metric clickable action" x-show="(summary.unreadTotal || summary.unreadFiles || summary.unreadEvents || 0) > 0" @click="setWorkflowListFilter('active', 'unread')" title="아직 확인 안 한 작업만">
-          <strong x-text="summary.unreadTotal || ((summary.unreadFiles || 0) + (summary.unreadEvents || 0))"></strong>
-          <span>확인 필요</span>
         </button>
         <button type="button" class="wf-metric clickable" x-show="summary.scheduleCount > 0" :class="summary.scheduleOverdue ? 'warn' : 'action'" @click="scrollToSchedule()" title="이번주 일정 목록으로 이동">
           <strong x-text="summary.scheduleCount || 0"></strong>
