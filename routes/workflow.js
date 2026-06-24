@@ -17,6 +17,7 @@ const stageRules = require('./lib/workflow-stage-rules');
 const renameLib = require('./lib/workflow-rename');
 const wfEvents = require('./lib/workflow-events-store'); // 이력(events) SQLite 섀도 이관 어댑터 — 플래그=json이면 no-op
 const wfStore = require('./lib/workflow-store'); // 작업·파일·발주·현장 SQLite 섀도 어댑터 — 플래그=json이면 no-op
+const { resolveWorkflowEventRecipients } = require('./lib/workflow-notify-recipients'); // 알림 수신자 정책(디자인=발주자·경영관리=회사담당자 1명만) 순수 분리
 let sharp;
 try { sharp = require('sharp'); } catch (_) {}
 const { sendSmtpMail, normalizeEmailList } = mailRoute;
@@ -1405,21 +1406,35 @@ function notifyWorkflowEventTargets(data, req, event) {
   const job = data.jobs.find(j => j.id === event.jobId);
   if (!job) return;
   const actorId = req.user?.userId || event.actorId || '';
-  const users = workflowTargetUsers(job, {
-    targetUserId: event.targetUserId,
-    targetUserName: event.targetUserName,
-    targetLabel: event.targetLabel,
-    targetStageIds: eventTargetStageIds(event),
-  }, actorId);
-  // 경영관리팀 업체별 담당자도 항상 수신(기존 디자인 담당자 알림에 더해)
-  const recipients = new Map();
-  for (const u of users) recipients.set(String(u.userId), u);
-  for (const u of managerUsersForJob(job, actorId)) recipients.set(String(u.userId), u);
-  if (!recipients.size) return;
+  const org = loadOrgSnapshot();
+  const targetLabel = safeText(event.targetLabel, 120);
+  const targetLabels = splitTargetLabels(targetLabel);
+  // 이 이벤트가 가리키는 단계(명시 stageId + 라벨에서 유추)
+  const stageIds = uniqueTexts([
+    ...eventTargetStageIds(event),
+    ...targetLabelStageIds(targetLabel, job),
+  ]);
+  // 수신자 정책(과다발송 차단): 디자인=발주자만 / 경영관리=회사담당자 1명만 / 공장=공장팀 / 명시지목=그 사람.
+  //  · design·delivery '부서 전원' 매칭 제거(경영관리팀 4명 전원 수신 버그). factory만 부서 유지.
+  //  · 회사 담당자는 회사별 1명, 단계 무관 항상 수신(회사별 추적). 식별·공장부서 매칭은 기존 로직 주입.
+  const recipients = resolveWorkflowEventRecipients({
+    users: org.users || [],
+    stageIds,
+    actorId,
+    creatorUserId: job.createdBy || '',
+    managerName: managerNameForCompany(job.companyName),
+    isExplicitTarget: (u) => {
+      if (event.targetUserId && lowerText(u.userId) === lowerText(event.targetUserId)) return true;
+      if (event.targetUserName && lowerText(u.name) === lowerText(event.targetUserName)) return true;
+      return targetLabels.some(label => textMatchesUserIdentity(label, u));
+    },
+    matchesFactoryDept: (u) => viewerMatchesStageTarget(job, 'factory', u),
+  });
+  if (!recipients.length) return;
   const title = safeText(job.title, 80) || '워크플로우';
   const message = safeText(event.message, 180);
   const link = `workflow:${event.jobId || ''}:${event.id || ''}`;
-  for (const user of recipients.values()) {
+  for (const user of recipients) {
     notify(user.userId, 'workflow', `[워크플로우] ${title}${message ? ' - ' + message : ''}`, link);
   }
 }
