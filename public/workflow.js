@@ -2989,6 +2989,37 @@ function workflowApp() {
       return this.filteredFiles().filter(file => !file.isImage || file.exists === false);
     },
 
+    // 같은 시안의 '발주본/원본' 변형을 한 키로 — 확장자·'발주(공장)' 접미사·공백 제거 후 비교.
+    designVariantKey(file) {
+      return String((file && (file.originalName || file.name)) || '')
+        .replace(/\.[a-z0-9]+$/i, '')
+        .replace(/[\s_]*발주\s*\(?\s*공장\s*\)?\s*/g, '')
+        .replace(/\s+/g, '')
+        .toLowerCase();
+    },
+    // 상세 피드에서 같은 그림(발주본+원본 .jpg 등)을 1장으로 접음 — 발주본을 대표로.
+    // 파일은 삭제/숨김 아님: 파일 관리 목록(visualFiles/sourceFiles)엔 전부 그대로 노출·다운로드 가능.
+    collapseImageVariants(files) {
+      const idxByKey = new Map();
+      const out = [];
+      for (const f of files) {
+        const isImg = f.isImage && f.exists !== false;
+        const key = isImg ? this.designVariantKey(f) : '';
+        if (!isImg || !key) { out.push(f); continue; }
+        if (!idxByKey.has(key)) {
+          idxByKey.set(key, out.length);
+          out.push({ ...f, _variants: [f] });
+        } else {
+          const i = idxByKey.get(key);
+          const rep = out[i];
+          rep._variants.push(f);
+          const repIsOrder = /발주/.test(rep.originalName || rep.name || '');
+          const fIsOrder = /발주/.test(f.originalName || f.name || '');
+          if (fIsOrder && !repIsOrder) out[i] = { ...f, _variants: rep._variants };
+        }
+      }
+      return out;
+    },
     // 상세 기본뷰 시안 타일 — 그림(미리보기) 먼저, AI/기타 파일 뒤. 파일명·칩 없이 타일만.
     // 상단 팀 필터(용접팀/출력팀)가 켜져 있으면 그 팀에 배정된 시안만 — 팀별 분업 뷰.
     detailTiles() {
@@ -2996,6 +3027,7 @@ function workflowApp() {
       if (this.boardTeam === 'welding' || this.boardTeam === 'output') {
         files = files.filter(f => f.team === this.boardTeam);
       }
+      files = this.collapseImageVariants(files); // 같은 그림(발주본·원본) 1장으로 — '사진 2개씩' 표시상 중복 제거(파일은 보존)
       return files.sort((a, b) =>
         (((b.isImage && b.exists !== false) ? 1 : 0) - ((a.isImage && a.exists !== false) ? 1 : 0))
         || String(b.createdAt || '').localeCompare(String(a.createdAt || '')));

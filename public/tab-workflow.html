@@ -1462,6 +1462,10 @@
                         </div>
                       </template>
                       <!-- 교체된 시안: 이전 → 현재 미니 비교(이전 썸네일 + 교체자·시각) -->
+                      <div x-show="file._variants && file._variants.length > 1" x-cloak style="display:flex;align-items:center;gap:6px;margin-top:5px;padding:4px 8px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:7px;font-size:11px;color:#475569;" :title="(file._variants||[]).map(v=>v.originalName||v.name).join('\n')">
+                        <span class="material-symbols-outlined" style="font-size:14px;color:#64748b;">layers</span>
+                        <span>같은 시안 <b x-text="file._variants.length"></b>벌(발주본·원본) — 파일 전체에서 모두 받기</span>
+                      </div>
                       <div class="wf-replace-compare" x-show="file.prevVersion" x-cloak style="display:flex;align-items:center;gap:8px;margin-top:6px;padding:6px 8px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;">
                         <template x-if="file.prevVersion && file.prevVersion.thumbUrl">
                           <img :src="file.prevVersion.thumbUrl" loading="lazy" @error="handleWorkflowImageError($event, file.prevVersion.previewUrl)" style="width:40px;height:40px;object-fit:cover;border-radius:5px;border:1px solid #cbd5e1;opacity:.85;" :title="'이전: ' + (file.prevVersion.originalName || '')">
