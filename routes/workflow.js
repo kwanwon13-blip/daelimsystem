@@ -12,6 +12,7 @@ const designModule = require('./design');
 const mailRoute = require('./mail');
 const { isPathInside } = require('./lib/design-workflow-storage');
 const workflowStorageRules = require('./lib/workflow-storage-rules');
+const workflowCompanyPrefs = require('./lib/workflow-company-prefs');
 const { createFileLocator } = require('./lib/workflow-file-locator');
 const stageRules = require('./lib/workflow-stage-rules');
 const renameLib = require('./lib/workflow-rename');
@@ -3824,6 +3825,27 @@ router.get('/settings/storage-rules', (req, res) => {
     ok: true,
     rules: workflowStorageRules.listRules({ includeInactive }),
   });
+});
+
+// 회사별 '프로젝트 없음' 기억 — 라코스 등 항상 프로젝트 없는 회사. 저장경로 로직과 분리(경량).
+router.get('/settings/company-no-project', (req, res) => {
+  try {
+    res.json({ ok: true, companies: workflowCompanyPrefs.listNoProjectCompanies() });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e && e.message || e) });
+  }
+});
+
+router.post('/settings/company-no-project', (req, res) => {
+  try {
+    const companyName = String((req.body && req.body.companyName) || '').trim();
+    if (!companyName) return res.status(400).json({ ok: false, error: 'companyName required' });
+    const value = !!(req.body && req.body.noProject);
+    const companies = workflowCompanyPrefs.setCompanyNoProject(companyName, value);
+    res.json({ ok: true, companies });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e && e.message || e) });
+  }
 });
 
 router.post('/settings/storage-rules', requireAdmin, (req, res) => {

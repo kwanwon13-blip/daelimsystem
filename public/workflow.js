@@ -82,6 +82,7 @@ function workflowApp() {
     contactsLoaded: false,
     contactsLoading: null,
     designWorkflowOptions: { companies: [], projectsByCompany: {}, projectLookup: {}, masterCompanies: [] },
+    noProjectCompanyKeys: [], // 회사별 '프로젝트 없음' 기억(라코스 등) — 정규화 키 배열. 회사 선택 시 체크박스 자동 반영
     hiddenDesignFolders: [],   // 검색·자동완성에서 숨긴 폴더(회사) — '숨기기' 버튼으로 직접 관리(복원 가능)
     showHiddenFolders: false,   // +시안 모달에서 숨긴 폴더 관리 패널 토글
     designWorkflowOptionsLoaded: false,
@@ -216,6 +217,10 @@ function workflowApp() {
         });
         window.__workflowDepartmentsChangedListenerInstalled = true;
       }
+
+      // 회사별 '프로젝트 없음' 기억 로드 + 회사 선택 시 체크박스 자동 반영(라코스 등)
+      this.loadCompanyNoProjectPrefs();
+      try { this.$watch('form.companyName', v => { this.form.noProject = this.companyNoProject(v); }); } catch (_) {}
       // F2 = +시안 빠른 열기 (전역 단축키)
       if (!window.__workflowF2ListenerInstalled) {
         window.addEventListener('keydown', e => {
@@ -2098,10 +2103,43 @@ function workflowApp() {
       };
     },
 
-    // 이 회사가 '프로젝트(현장) 안 씀'(noProject)인지 — +시안 프로젝트칸 숨김/추천 제외용. 로드된 회사옵션의 noProject 사용.
+    // 이 회사가 '프로젝트(현장) 안 씀'(noProject)인지 — +시안 프로젝트칸 자동체크/추천 제외용.
+    // 회사옵션(저장규칙 noProject) 또는 회사별 기억(noProjectCompanyKeys, 라코스 등) 중 하나라도면 true.
     companyNoProject(name) {
       if (!String(name || '').trim()) return false;
-      try { return !!(this.workflowCompanyOption(name)?.noProject); } catch (_) { return false; }
+      try {
+        if (this.workflowCompanyOption(name)?.noProject) return true;
+        const k = this.normalizeOptionName(name);
+        return !!(k && (this.noProjectCompanyKeys || []).includes(k));
+      } catch (_) { return false; }
+    },
+    // 회사별 '프로젝트 없음' 기억을 서버에 저장/해제(라코스 등) — 체크박스 토글 시 호출.
+    async toggleCompanyNoProject(checked) {
+      this.form.noProject = !!checked;
+      if (checked) { this.form.projectName = ''; this.projectSnap = { from: '', to: '' }; this.projectPickFocus = false; }
+      this.syncAutoJobTitle(true);
+      const company = String(this.form.companyName || '').trim();
+      if (!company) return; // 회사 미선택이면 이 작업에만 적용(회사별로 기억하지 않음)
+      const key = this.normalizeOptionName(company);
+      const set = new Set(this.noProjectCompanyKeys || []);
+      if (checked) set.add(key); else set.delete(key);
+      this.noProjectCompanyKeys = [...set];
+      try {
+        await fetch('/api/workflow/settings/company-no-project', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ companyName: company, noProject: !!checked }),
+        });
+      } catch (_) {}
+    },
+    // 회사별 '프로젝트 없음' 기억 목록 로드(앱 시작/폼 열 때).
+    async loadCompanyNoProjectPrefs() {
+      try {
+        const r = await fetch('/api/workflow/settings/company-no-project');
+        if (!r.ok) return;
+        const d = await r.json();
+        const names = Array.isArray(d.companies) ? d.companies : [];
+        this.noProjectCompanyKeys = names.map(n => this.normalizeOptionName(n)).filter(Boolean);
+      } catch (_) {}
     },
 
     storageRuleAliases(rule) {
@@ -3950,6 +3988,7 @@ function workflowApp() {
       this.loadContacts();
       this.loadDesignWorkflowOptions();
       this.loadOrderTargets().then(() => this.onProductionRouteChange());
+      this.loadCompanyNoProjectPrefs();
       this.syncAutoJobTitle();
       this.newOpen = true;
       setTimeout(() => {
@@ -4299,6 +4338,7 @@ function workflowApp() {
     pickGuess(c) {
       if (!c) return;
       this.form.companyName = c.companyName || '';
+      this.form.noProject = this.companyNoProject(this.form.companyName); // 추천 회사가 '프로젝트 없음' 기억이면 자동 반영
       this.form.projectName = this.form.noProject ? '' : (c.projectName || ''); // '프로젝트 없음'이면 추천 클릭해도 현장 안 채움
       // 추천이 가리킨 '실제 폴더'(★포함)를 저장힌트로 — 저장이 글자로 재계산하지 않고 이 폴더 그대로 사용
       // (단 '프로젝트 없음'이면 프로젝트 폴더 힌트는 버리고 회사 폴더만 사용)
