@@ -1,0 +1,247 @@
+<div class="space-y-3 fade-in">
+  <!-- 헤더 + 서브탭 전환 -->
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div style="padding:14px 22px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border-bottom:1px solid #bfdbfe;">
+      <h3 class="font-work text-[13px] font-bold text-gray-800 flex items-center gap-2 m-0">
+        <span class="material-symbols-outlined" style="font-size:16px;color:#2563eb;">local_shipping</span> 픽업 관리
+      </h3>
+    </div>
+    <div style="padding:10px 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <button class="btn-sm" :class="pickupView === 'register' ? 'btn-primary' : 'btn-ghost'" @click="pickupView = 'register'; loadPickupMine()">
+        <span class="material-symbols-outlined" style="font-size:14px;">edit_note</span> 등록
+      </button>
+      <button class="btn-sm" :class="pickupView === 'collect' ? 'btn-primary' : 'btn-ghost'" @click="pickupView = 'collect'; loadPickupRequests()">
+        <span class="material-symbols-outlined" style="font-size:14px;">checklist</span> 취합·체크
+      </button>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+        <label class="label-base m-0">픽업 날짜</label>
+        <input type="date" x-model="pickupDate" @change="pickupView === 'collect' ? loadPickupRequests() : loadPickupMine()" class="input-base" style="width:160px;">
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════ Ⓐ 등록 뷰 ════════ -->
+  <template x-if="pickupView === 'register'">
+    <div class="space-y-3">
+      <!-- 카톡 붙여넣기 -->
+      <div class="card" style="padding:0;overflow:hidden;">
+        <div style="padding:10px 14px;background:#fef9c3;border-bottom:1px solid #fde68a;">
+          <h3 class="font-work text-[12px] font-bold text-gray-800 flex items-center gap-2 m-0">
+            <span class="material-symbols-outlined" style="font-size:15px;color:#ca8a04;">content_paste</span> 카톡 붙여넣기 → 후보 자동 분리
+          </h3>
+        </div>
+        <div style="padding:12px 14px;" class="space-y-2">
+          <textarea x-model="pickupKakaoText" class="input-base" rows="4" style="resize:vertical;"
+            placeholder="#라코스&#10;현수막 600x900 3개&#10;배너 2장&#10;#세원계측기&#10;압력계 1"></textarea>
+          <div class="flex gap-2">
+            <button class="btn-secondary btn-sm" @click="parsePickupKakao()" :disabled="pickupParsing">
+              <span class="material-symbols-outlined" style="font-size:14px;">auto_fix_high</span>
+              <span x-text="pickupParsing ? '분석 중...' : '후보 만들기'"></span>
+            </button>
+            <button class="btn-ghost btn-sm" x-show="pickupKakaoCandidates.length" @click="pickupKakaoCandidates=[]">지우기</button>
+          </div>
+          <!-- 파싱 후보 카드들 -->
+          <template x-for="(cand, ci) in pickupKakaoCandidates" :key="'cand'+ci">
+            <div class="card" style="padding:10px 12px;border:1px solid #e5e7eb;">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="material-symbols-outlined" style="font-size:14px;color:#6b7280;">store</span>
+                <select x-model="cand.vendorId" class="input-base" style="width:200px;">
+                  <option value="">업체 선택 (추정: <span x-text="cand.vendorGuess"></span>)</option>
+                  <template x-for="v in activePickupVendors" :key="v.id">
+                    <option :value="v.id" x-text="v.name"></option>
+                  </template>
+                </select>
+                <span class="text-xs text-gray-500" x-text="'추정: ' + (cand.vendorGuess || '없음')"></span>
+                <button class="btn-ghost btn-sm" style="margin-left:auto;" @click="pickupKakaoCandidates.splice(ci,1)">제외</button>
+              </div>
+              <div style="margin-top:8px;" class="space-y-1">
+                <template x-for="(it, ii) in cand.items" :key="'ci'+ci+'it'+ii">
+                  <div class="flex gap-1 items-center">
+                    <input x-model="it.itemName" class="input-base" style="flex:2;" placeholder="품목">
+                    <input x-model="it.spec" class="input-base" style="flex:1;" placeholder="규격">
+                    <input x-model.number="it.qty" type="number" class="input-base" style="width:64px;" placeholder="수량">
+                    <input x-model="it.unit" class="input-base" style="width:56px;" placeholder="단위">
+                    <button class="btn-ghost btn-sm" @click="cand.items.splice(ii,1)">×</button>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+          <button class="btn-primary btn-sm" x-show="pickupKakaoCandidates.length" @click="savePickupCandidates()" :disabled="pickupSaving">
+            <span class="material-symbols-outlined" style="font-size:14px;">save</span>
+            <span x-text="pickupSaving ? '저장 중...' : '후보 일괄 저장 (' + pickupKakaoCandidates.filter(c=>c.vendorId).length + '건)'"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 정식 등록 폼 -->
+      <div class="card" style="padding:0;overflow:hidden;">
+        <div style="padding:10px 14px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border-bottom:1px solid #bfdbfe;">
+          <h3 class="font-work text-[12px] font-bold text-gray-800 flex items-center gap-2 m-0">
+            <span class="material-symbols-outlined" style="font-size:15px;color:#2563eb;">add_box</span> 픽업 요청 등록
+          </h3>
+        </div>
+        <div style="padding:12px 14px;" class="space-y-3">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="label-base">업체 <span style="color:#ef4444;">*</span></label>
+              <select x-model="pickupForm.vendorId" @change="onPickupVendorChange()" class="input-base">
+                <option value="">업체 선택</option>
+                <template x-for="v in activePickupVendors" :key="v.id">
+                  <option :value="v.id" x-text="v.name"></option>
+                </template>
+              </select>
+            </div>
+            <div>
+              <label class="label-base">픽업 날짜 <span style="color:#ef4444;">*</span></label>
+              <input type="date" x-model="pickupForm.pickupDate" class="input-base">
+            </div>
+            <div>
+              <label class="label-base">희망 시간대</label>
+              <input x-model="pickupForm.preferredTimeSlot" class="input-base" placeholder="오전 / 오후 / 15시 전 등">
+            </div>
+            <div>
+              <label class="label-base">우선순위</label>
+              <select x-model="pickupForm.priority" class="input-base">
+                <option value="normal">보통</option>
+                <option value="urgent">긴급</option>
+                <option value="todayMust">오늘 필수</option>
+              </select>
+            </div>
+          </div>
+          <!-- 업체 자동 미리보기 -->
+          <template x-if="pickupVendorPreview">
+            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;font-size:12px;color:#475569;" class="space-y-0.5">
+              <div x-show="pickupVendorPreview.address"><span class="material-symbols-outlined" style="font-size:13px;vertical-align:-2px;">place</span> <span x-text="pickupVendorPreview.address"></span></div>
+              <div x-show="pickupVendorPreview.phone || pickupVendorPreview.contactPhone"><span class="material-symbols-outlined" style="font-size:13px;vertical-align:-2px;">call</span> <span x-text="[pickupVendorPreview.contactPerson, pickupVendorPreview.contactPhone || pickupVendorPreview.phone].filter(Boolean).join(' ')"></span></div>
+              <div x-show="pickupVendorPreview.pickupMemo" style="color:#b45309;"><span class="material-symbols-outlined" style="font-size:13px;vertical-align:-2px;">sticky_note_2</span> <span x-text="pickupVendorPreview.pickupMemo"></span></div>
+            </div>
+          </template>
+          <!-- 품목 줄 -->
+          <div>
+            <label class="label-base">품목</label>
+            <div class="space-y-1">
+              <template x-for="(it, i) in pickupForm.items" :key="'fi'+i">
+                <div class="flex gap-1 items-center">
+                  <input x-model="it.itemName" class="input-base" style="flex:2;" placeholder="품목명">
+                  <input x-model="it.spec" class="input-base" style="flex:1;" placeholder="규격">
+                  <input x-model.number="it.qty" type="number" class="input-base" style="width:72px;" placeholder="수량">
+                  <input x-model="it.unit" class="input-base" style="width:60px;" placeholder="단위">
+                  <button class="btn-ghost btn-sm" @click="removePickupItemRow(i)" x-show="pickupForm.items.length > 1">×</button>
+                </div>
+              </template>
+            </div>
+            <button class="btn-ghost btn-sm" style="margin-top:4px;" @click="addPickupItemRow()">+ 품목 줄 추가</button>
+          </div>
+          <div>
+            <label class="label-base">메모</label>
+            <input x-model="pickupForm.memo" class="input-base" placeholder="바로 공장 / 시안 / 현장명 등">
+          </div>
+          <div class="flex gap-2">
+            <button class="btn-primary btn-sm" @click="submitPickupForm()" :disabled="pickupSaving">
+              <span class="material-symbols-outlined" style="font-size:14px;">save</span>
+              <span x-text="pickupSaving ? '저장 중...' : '요청 등록'"></span>
+            </button>
+            <button class="btn-ghost btn-sm" @click="resetPickupForm()">초기화</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 내가 오늘 올린 것 -->
+      <div class="card" style="padding:0;overflow:hidden;">
+        <div style="padding:10px 14px;background:#f9fafb;border-bottom:1px solid #e5e7eb;">
+          <h3 class="font-work text-[12px] font-bold text-gray-800 flex items-center gap-2 m-0">
+            <span class="material-symbols-outlined" style="font-size:15px;color:#6b7280;">history</span> 내가 등록한 요청 (<span x-text="pickupDate"></span>)
+          </h3>
+        </div>
+        <div style="padding:10px 14px;" class="space-y-2">
+          <div x-show="!pickupMine.length" class="text-xs text-gray-400">등록한 요청이 없습니다.</div>
+          <template x-for="req in pickupMine" :key="req.id">
+            <div class="card" style="padding:8px 10px;border:1px solid #e5e7eb;">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-semibold text-sm" x-text="req.vendorName"></span>
+                <span class="text-xs px-2 py-0.5 rounded-full" :style="pickupStatusStyle(req.status)" x-text="pickupStatusLabel(req.status)"></span>
+                <span class="text-xs text-gray-400" x-show="req.isLate" style="color:#dc2626;">🔴 추가요청</span>
+                <button class="btn-ghost btn-sm" style="margin-left:auto;" x-show="req.status==='requested'" @click="cancelPickupRequest(req.id)">취소</button>
+              </div>
+              <div class="text-xs text-gray-500" style="margin-top:3px;" x-text="(req.items||[]).map(it => it.itemName + (it.spec?(' '+it.spec):'') + (it.qty?(' '+it.qty+(it.unit||'')):'')).join(', ')"></div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- ════════ Ⓑ 취합·체크 뷰 ════════ -->
+  <template x-if="pickupView === 'collect'">
+    <div class="space-y-3">
+      <div class="card" style="padding:10px 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <span class="text-xs text-gray-500" x-text="pickupGroups.length + '개 업체 · 요청 ' + pickupRequests.length + '건'"></span>
+        <button class="btn-secondary btn-sm" style="margin-left:auto;" @click="copyPickupShareText()">
+          <span class="material-symbols-outlined" style="font-size:14px;">share</span> 카톡 공유텍스트 복사
+        </button>
+      </div>
+
+      <div x-show="!pickupGroups.length" class="card" style="padding:24px;text-align:center;color:#9ca3af;font-size:13px;">
+        해당 날짜에 픽업 요청이 없습니다.
+      </div>
+
+      <!-- 업체 카드 -->
+      <template x-for="g in pickupGroups" :key="g.vendorId">
+        <div class="card" style="padding:0;overflow:hidden;">
+          <!-- 카드 헤더 -->
+          <div style="padding:10px 14px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border-bottom:1px solid #bbf7d0;">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="material-symbols-outlined" style="font-size:16px;color:#16a34a;">store</span>
+              <span class="font-bold text-sm" x-text="g.vendorName || '미지정'"></span>
+              <span class="text-xs px-2 py-0.5 rounded-full" :style="pickupStatusStyle(pickupGroupRollup(g).status)" x-text="pickupGroupRollup(g).label"></span>
+              <span class="text-xs" x-show="pickupGroupHasLate(g)" style="color:#dc2626;font-weight:600;">🔴 추가요청</span>
+              <span class="text-xs" x-show="pickupGroupHasWorkflow(g)" style="color:#7c3aed;font-weight:600;">🎨 시안</span>
+            </div>
+            <div class="text-xs text-gray-500" style="margin-top:3px;" x-show="pickupGroupVendor(g)">
+              <span x-show="pickupGroupVendor(g).address" x-text="pickupGroupVendor(g).address"></span>
+              <span x-show="pickupGroupVendor(g).phone || pickupGroupVendor(g).contactPhone"> · <span x-text="pickupGroupVendor(g).contactPhone || pickupGroupVendor(g).phone"></span></span>
+            </div>
+            <div x-show="pickupGroupVendor(g) && (pickupGroupVendor(g).pickupMemo || pickupGroupVendor(g).parkingAccessMemo)" class="text-xs" style="margin-top:3px;color:#b45309;">
+              <span x-show="pickupGroupVendor(g).pickupMemo" x-text="'📦 ' + pickupGroupVendor(g).pickupMemo"></span>
+              <span x-show="pickupGroupVendor(g).parkingAccessMemo" x-text="' 🅿 ' + pickupGroupVendor(g).parkingAccessMemo"></span>
+            </div>
+            <!-- 길찾기 3버튼 -->
+            <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+              <button class="btn-ghost btn-sm" @click="openPickupMap(pickupGroupVendor(g), 'naver')">네이버</button>
+              <button class="btn-ghost btn-sm" @click="openPickupMap(pickupGroupVendor(g), 'kakao')">카카오</button>
+              <button class="btn-ghost btn-sm" @click="openPickupMap(pickupGroupVendor(g), 'tmap')">T맵</button>
+            </div>
+          </div>
+          <!-- 카드 본문: 요청별 품목 체크리스트 -->
+          <div style="padding:8px 14px;" class="space-y-2">
+            <template x-for="req in g.requests" :key="req.id">
+              <div>
+                <div class="text-xs text-gray-400" style="margin-bottom:2px;">
+                  <span x-text="req.registrarName || '등록자'"></span>
+                  <span x-show="req.memo"> · <span x-text="req.memo"></span></span>
+                  <a x-show="req.sourceType==='workflow' && req.sourceJobId" :href="'#workflow:' + encodeURIComponent(req.sourceJobId)" style="color:#7c3aed;margin-left:4px;">[워크플로 잡 보기]</a>
+                </div>
+                <template x-for="it in req.items" :key="it.id">
+                  <div class="flex items-center gap-2 flex-wrap" style="padding:4px 0;border-bottom:1px dashed #f1f5f9;">
+                    <span class="text-sm" style="flex:1;min-width:120px;" :style="it.status==='cancelled' ? 'text-decoration:line-through;color:#9ca3af;' : ''"
+                      x-text="it.itemName + (it.spec?(' '+it.spec):'') + (it.qty?(' '+it.qty+(it.unit||'')):'')"></span>
+                    <span class="text-xs px-2 py-0.5 rounded-full" :style="pickupItemStatusStyle(it.status)" x-text="pickupItemStatusLabel(it.status)"></span>
+                    <template x-if="canCheckPickup">
+                      <div class="flex gap-1 items-center">
+                        <input type="number" x-model.number="it._pickedQty" class="input-base" style="width:60px;" placeholder="실수거" :value="it.pickedQty ?? ''">
+                        <button class="btn-ghost btn-sm" title="수거완료" @click="setPickupItem(it, 'pickedUp', (it._pickedQty != null && it._pickedQty !== '') ? { pickedQty: it._pickedQty } : undefined)">✅</button>
+                        <button class="btn-ghost btn-sm" title="미수거" @click="setPickupItemNotPicked(it)">❌</button>
+                        <button class="btn-ghost btn-sm" title="취소" @click="setPickupItem(it, 'cancelled')">🚫</button>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+    </div>
+  </template>
+</div>
