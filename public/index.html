@@ -7678,6 +7678,14 @@ function app() {
     pickupVendorPreview: null,
     pickupKakaoText: '',
     pickupKakaoCandidates: [],
+    pickupShowManualForm: false,
+    get pickupCandidateCount() {
+      let n = 0;
+      for (const c of (this.pickupKakaoCandidates || [])) {
+        n += (c.items || []).filter(it => (it.itemName || '').trim()).length;
+      }
+      return n || (this.pickupKakaoCandidates || []).length;
+    },
     pickupMine: [],
     pickupRequests: [],
     pickupGroups: [],
@@ -7746,11 +7754,12 @@ function app() {
       } catch (e) { this.showToast('등록 실패: ' + e.message, 'error'); }
       finally { this.pickupSaving = false; }
     },
-    // 카톡 파싱
+    // 카톡 파싱 (입력 즉시 자동 — 디바운스는 마크업 @input)
     async parsePickupKakao() {
-      if (this.pickupParsing) return;
       const text = (this.pickupKakaoText || '').trim();
-      if (!text) { this.showToast('붙여넣을 텍스트가 없습니다', 'error'); return; }
+      // 입력 비면 후보 비우고 조용히 종료
+      if (!text) { this.pickupKakaoCandidates = []; return; }
+      if (this.pickupParsing) return;
       this.pickupParsing = true;
       try {
         const r = await fetch('/api/pickup/parse-kakao', {
@@ -7759,21 +7768,26 @@ function app() {
         });
         const d = await r.json();
         if (!r.ok) { this.showToast(d.error || '분석 실패', 'error'); return; }
-        // 업체명 추정 → vendorId 자동매칭 시도
+        // 업체명 추정값을 vendorName 으로 prefill, 등록업체와 같으면 vendorId 채움(배지용)
         this.pickupKakaoCandidates = (d.groups || []).map(g => {
           const guess = (g.vendorGuess || '').trim();
           const match = guess ? (this.vendors || []).find(v => (v.name || '').includes(guess) || guess.includes(v.name || '')) : null;
-          return { vendorGuess: guess, vendorId: match ? match.id : '', items: (g.items || []).map(it => ({ itemName: it.itemName || '', spec: it.spec || '', qty: it.qty || null, unit: it.unit || '' })) };
+          return {
+            vendorName: guess,
+            vendorId: match ? match.id : '',
+            items: (g.items || []).map(it => ({ itemName: it.itemName || '', spec: it.spec || '', qty: it.qty || null, unit: it.unit || '' })),
+          };
         });
-        if (!this.pickupKakaoCandidates.length) this.showToast('후보를 찾지 못했습니다', 'error');
       } catch (e) { this.showToast('분석 실패: ' + e.message, 'error'); }
       finally { this.pickupParsing = false; }
     },
-    // 카톡 후보 일괄 저장
+    // 카톡 후보 일괄 저장 (vendorId 없어도 이름만으로 저장)
     async savePickupCandidates() {
       if (this.pickupSaving) return;
-      const ready = this.pickupKakaoCandidates.filter(c => c.vendorId && (c.items || []).some(it => (it.itemName || '').trim()));
-      if (!ready.length) { this.showToast('업체가 지정된 후보가 없습니다', 'error'); return; }
+      const ready = this.pickupKakaoCandidates.filter(c =>
+        (c.vendorName || '').trim() && (c.items || []).some(it => (it.itemName || '').trim())
+      );
+      if (!ready.length) { this.showToast('업체명과 품목을 입력하세요', 'error'); return; }
       this.pickupSaving = true;
       let ok = 0;
       try {
@@ -7781,7 +7795,12 @@ function app() {
           const items = c.items.filter(it => (it.itemName || '').trim());
           const r = await fetch('/api/pickup/requests', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pickupDate: this.pickupDate, vendorId: c.vendorId, priority: 'normal', memo: '', sourceType: 'manual', items }),
+            body: JSON.stringify({
+              pickupDate: this.pickupDate,
+              vendorName: (c.vendorName || '').trim(),
+              vendorId: c.vendorId || null,
+              priority: 'normal', memo: '', sourceType: 'manual', items,
+            }),
           });
           if (r.ok) ok++;
         }

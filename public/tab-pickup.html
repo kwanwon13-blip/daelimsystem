@@ -23,38 +23,32 @@
   <!-- ════════ Ⓐ 등록 뷰 ════════ -->
   <template x-if="pickupView === 'register'">
     <div class="space-y-3">
-      <!-- 카톡 붙여넣기 -->
+      <!-- ★ 주인공: 카톡 붙여넣기 -->
       <div class="card" style="padding:0;overflow:hidden;">
         <div style="padding:10px 14px;background:#fef9c3;border-bottom:1px solid #fde68a;">
-          <h3 class="font-work text-[12px] font-bold text-gray-800 flex items-center gap-2 m-0">
-            <span class="material-symbols-outlined" style="font-size:15px;color:#ca8a04;">content_paste</span> 카톡 붙여넣기 → 후보 자동 분리
+          <h3 class="font-work text-[13px] font-bold text-gray-800 flex items-center gap-2 m-0">
+            <span class="material-symbols-outlined" style="font-size:16px;color:#ca8a04;">content_paste</span> 카톡에 쓴 그대로 붙여넣으세요
           </h3>
         </div>
-        <div style="padding:12px 14px;" class="space-y-2">
-          <textarea x-model="pickupKakaoText" class="input-base" rows="4" style="resize:vertical;"
-            placeholder="#라코스&#10;현수막 600x900 3개&#10;배너 2장&#10;#세원계측기&#10;압력계 1"></textarea>
-          <div class="flex gap-2">
-            <button class="btn-secondary btn-sm" @click="parsePickupKakao()" :disabled="pickupParsing">
-              <span class="material-symbols-outlined" style="font-size:14px;">auto_fix_high</span>
-              <span x-text="pickupParsing ? '분석 중...' : '후보 만들기'"></span>
-            </button>
-            <button class="btn-ghost btn-sm" x-show="pickupKakaoCandidates.length" @click="pickupKakaoCandidates=[]">지우기</button>
+        <div style="padding:14px;" class="space-y-3">
+          <textarea x-model="pickupKakaoText" @input.debounce.400ms="parsePickupKakao()" class="input-base" rows="7"
+            style="resize:vertical;font-size:14px;line-height:1.6;"
+            placeholder="카톡에 쓴 그대로 붙여넣으세요&#10;&#10;예)&#10;#라코스&#10;현수막 600x900 3개&#10;배너 2장&#10;#세원계측기&#10;압력계 1"></textarea>
+          <div class="flex items-center gap-2" x-show="pickupKakaoCandidates.length">
+            <span class="text-xs text-gray-400" x-show="pickupParsing">분석 중...</span>
+            <button class="btn-ghost btn-sm" style="margin-left:auto;" @click="pickupKakaoCandidates=[]; pickupKakaoText=''">지우기</button>
           </div>
-          <!-- 파싱 후보 카드들 -->
+
+          <!-- 미리보기: 업체별 카드 -->
           <template x-for="(cand, ci) in pickupKakaoCandidates" :key="'cand'+ci">
-            <div class="card" style="padding:10px 12px;border:1px solid #e5e7eb;">
+            <div class="card" style="padding:12px;border:1px solid #e5e7eb;">
               <div class="flex items-center gap-2 flex-wrap">
-                <span class="material-symbols-outlined" style="font-size:14px;color:#6b7280;">store</span>
-                <select x-model="cand.vendorId" class="input-base" style="width:200px;">
-                  <option value="">업체 선택 (추정: <span x-text="cand.vendorGuess"></span>)</option>
-                  <template x-for="v in activePickupVendors" :key="v.id">
-                    <option :value="v.id" x-text="v.name"></option>
-                  </template>
-                </select>
-                <span class="text-xs text-gray-500" x-text="'추정: ' + (cand.vendorGuess || '없음')"></span>
+                <span class="material-symbols-outlined" style="font-size:16px;color:#6b7280;">store</span>
+                <input type="text" x-model="cand.vendorName" class="input-base" style="flex:1;min-width:160px;font-weight:600;" placeholder="업체명">
+                <span x-show="cand.vendorId" class="text-xs px-2 py-0.5 rounded-full" style="background:#dcfce7;color:#15803d;">✓ 등록됨</span>
                 <button class="btn-ghost btn-sm" style="margin-left:auto;" @click="pickupKakaoCandidates.splice(ci,1)">제외</button>
               </div>
-              <div style="margin-top:8px;" class="space-y-1">
+              <div style="margin-top:10px;" class="space-y-1">
                 <template x-for="(it, ii) in cand.items" :key="'ci'+ci+'it'+ii">
                   <div class="flex gap-1 items-center">
                     <input x-model="it.itemName" class="input-base" style="flex:2;" placeholder="품목">
@@ -64,18 +58,30 @@
                     <button class="btn-ghost btn-sm" @click="cand.items.splice(ii,1)">×</button>
                   </div>
                 </template>
+                <button class="btn-ghost btn-sm" style="margin-top:2px;" @click="cand.items.push({ itemName:'', spec:'', qty:null, unit:'' })">+ 품목 줄 추가</button>
               </div>
             </div>
           </template>
-          <button class="btn-primary btn-sm" x-show="pickupKakaoCandidates.length" @click="savePickupCandidates()" :disabled="pickupSaving">
-            <span class="material-symbols-outlined" style="font-size:14px;">save</span>
-            <span x-text="pickupSaving ? '저장 중...' : '후보 일괄 저장 (' + pickupKakaoCandidates.filter(c=>c.vendorId).length + '건)'"></span>
+
+          <!-- ★ 저장 버튼 하나 -->
+          <button class="btn-primary" x-show="pickupKakaoCandidates.length" @click="savePickupCandidates()" :disabled="pickupSaving"
+            style="width:100%;font-size:15px;font-weight:700;padding:12px;">
+            <span class="material-symbols-outlined" style="font-size:18px;">save</span>
+            <span x-text="pickupSaving ? '저장 중...' : ('오늘 픽업 ' + pickupCandidateCount + '건 저장')"></span>
           </button>
         </div>
       </div>
 
-      <!-- 정식 등록 폼 -->
-      <div class="card" style="padding:0;overflow:hidden;">
+      <!-- 한 건만 직접 추가 (토글, 기본 숨김) -->
+      <div>
+        <button class="btn-ghost btn-sm" @click="pickupShowManualForm = !pickupShowManualForm">
+          <span class="material-symbols-outlined" style="font-size:14px;" x-text="pickupShowManualForm ? 'expand_less' : 'add'"></span>
+          <span x-text="pickupShowManualForm ? '직접 추가 닫기' : '+ 한 건만 직접 추가'"></span>
+        </button>
+      </div>
+
+      <!-- 정식 등록 폼 (기본 숨김) -->
+      <div class="card" x-show="pickupShowManualForm" x-cloak style="padding:0;overflow:hidden;">
         <div style="padding:10px 14px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border-bottom:1px solid #bfdbfe;">
           <h3 class="font-work text-[12px] font-bold text-gray-800 flex items-center gap-2 m-0">
             <span class="material-symbols-outlined" style="font-size:15px;color:#2563eb;">add_box</span> 픽업 요청 등록
