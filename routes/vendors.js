@@ -29,7 +29,11 @@ router.post('/', (req, res) => {
       const v = db.sql.vendors.create({
         name: req.body.name || '', bizNo: req.body.bizNo || '',
         ceo: req.body.ceo || '', phone: req.body.phone || '', email: req.body.email || '',
-        address: req.body.address || '', note: req.body.note || ''
+        address: req.body.address || '', note: req.body.note || '',
+        vendorType: req.body.vendorType || '기타', mapSearchKeyword: req.body.mapSearchKeyword || '',
+        contactPerson: req.body.contactPerson || '', contactPhone: req.body.contactPhone || '',
+        pickupMemo: req.body.pickupMemo || '', parkingAccessMemo: req.body.parkingAccessMemo || '',
+        isActive: req.body.isActive === undefined ? 1 : req.body.isActive
       });
       auditLog(getReqUser(req), '업체 추가', v.name);
       return res.json(v);
