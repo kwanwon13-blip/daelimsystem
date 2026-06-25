@@ -131,8 +131,8 @@ db.exec(`
     registrarId TEXT NOT NULL,
     registrarName TEXT DEFAULT '',
     pickupDate TEXT NOT NULL,
-    vendorId TEXT NOT NULL,
-    vendorName TEXT DEFAULT '',
+    vendorId TEXT,
+    vendorName TEXT NOT NULL DEFAULT '',
     preferredTimeSlot TEXT DEFAULT '',
     priority TEXT DEFAULT 'normal',
     status TEXT DEFAULT 'requested',
@@ -148,7 +148,7 @@ db.exec(`
     cancelledBy TEXT DEFAULT NULL,
     cancelReason TEXT DEFAULT '',
     courseId TEXT DEFAULT NULL,
-    FOREIGN KEY (vendorId) REFERENCES vendors(id) ON DELETE RESTRICT
+    FOREIGN KEY (vendorId) REFERENCES vendors(id) ON DELETE SET NULL
   );
 
   CREATE TABLE IF NOT EXISTS pickup_items (
@@ -216,6 +216,73 @@ try {
     if (!vcols.includes(col)) db.prepare(`ALTER TABLE vendors ADD COLUMN ${col} ${def}`).run();
   }
 } catch (e) { console.warn('vendors 픽업필드 마이그레이션 오류:', e.message); }
+
+// ── 기존 DB 마이그레이션: pickup_requests.vendorId 를 NULLABLE 로 (자유 업체명 등록 허용) ──
+// 기존 테이블이 vendorId NOT NULL + FK RESTRICT 로 만들어져 있으면 재구성한다.
+// SQLite는 컬럼 NOT NULL/FK 변경 ALTER 가 없으므로 테이블 재생성으로 처리.
+try {
+  const pcols = db.prepare("PRAGMA table_info(pickup_requests)").all();
+  const vidCol = pcols.find(c => c.name === 'vendorId');
+  if (vidCol && vidCol.notnull === 1) {
+    db.pragma('foreign_keys = OFF');
+    const rebuild = db.transaction(() => {
+      db.exec(`
+        CREATE TABLE pickup_requests_new (
+          id TEXT PRIMARY KEY,
+          registrarId TEXT NOT NULL,
+          registrarName TEXT DEFAULT '',
+          pickupDate TEXT NOT NULL,
+          vendorId TEXT,
+          vendorName TEXT NOT NULL DEFAULT '',
+          preferredTimeSlot TEXT DEFAULT '',
+          priority TEXT DEFAULT 'normal',
+          status TEXT DEFAULT 'requested',
+          sourceType TEXT DEFAULT 'manual',
+          sourceJobId TEXT DEFAULT NULL,
+          sourceRef TEXT DEFAULT NULL,
+          memo TEXT DEFAULT '',
+          isLate INTEGER DEFAULT 0,
+          requestedAt TEXT DEFAULT (datetime('now')),
+          courseConfirmedAt TEXT DEFAULT NULL,
+          updatedAt TEXT DEFAULT (datetime('now')),
+          cancelledAt TEXT DEFAULT NULL,
+          cancelledBy TEXT DEFAULT NULL,
+          cancelReason TEXT DEFAULT '',
+          courseId TEXT DEFAULT NULL,
+          FOREIGN KEY (vendorId) REFERENCES vendors(id) ON DELETE SET NULL
+        );
+      `);
+      db.exec(`
+        INSERT INTO pickup_requests_new (
+          id, registrarId, registrarName, pickupDate, vendorId, vendorName,
+          preferredTimeSlot, priority, status, sourceType, sourceJobId, sourceRef,
+          memo, isLate, requestedAt, courseConfirmedAt, updatedAt, cancelledAt,
+          cancelledBy, cancelReason, courseId
+        )
+        SELECT
+          id, registrarId, registrarName, pickupDate, vendorId, vendorName,
+          preferredTimeSlot, priority, status, sourceType, sourceJobId, sourceRef,
+          memo, isLate, requestedAt, courseConfirmedAt, updatedAt, cancelledAt,
+          cancelledBy, cancelReason, courseId
+        FROM pickup_requests;
+      `);
+      db.exec('DROP TABLE pickup_requests;');
+      db.exec('ALTER TABLE pickup_requests_new RENAME TO pickup_requests;');
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_pickup_req_date   ON pickup_requests(pickupDate);
+        CREATE INDEX IF NOT EXISTS idx_pickup_req_vendor ON pickup_requests(vendorId);
+        CREATE INDEX IF NOT EXISTS idx_pickup_req_status ON pickup_requests(status);
+        CREATE INDEX IF NOT EXISTS idx_pickup_req_source ON pickup_requests(sourceJobId);
+      `);
+    });
+    rebuild();
+    db.pragma('foreign_keys = ON');
+    console.log('pickup_requests.vendorId NULLABLE 마이그레이션 완료');
+  }
+} catch (e) {
+  try { db.pragma('foreign_keys = ON'); } catch (e2) {}
+  console.warn('pickup_requests vendorId 마이그레이션 오류:', e.message);
+}
 
 // ── 워크플로 이력(events) 테이블 — 섀도 이관 대상(routes/workflow.js의 단일 events 배열) ──
 // 멱등 CREATE. try-catch로 감싸 어떤 경우에도 서버 부팅을 막지 않음(실패 시 events는 JSON으로 계속 동작).
@@ -532,7 +599,7 @@ const pickupRequests = {
       `).run({
         id,
         registrarId: reqData.registrarId, registrarName: reqData.registrarName || '',
-        pickupDate: reqData.pickupDate, vendorId: reqData.vendorId, vendorName: reqData.vendorName || '',
+        pickupDate: reqData.pickupDate, vendorId: reqData.vendorId || null, vendorName: reqData.vendorName || '',
         preferredTimeSlot: reqData.preferredTimeSlot || '', priority: reqData.priority || 'normal',
         status: 'requested', sourceType: reqData.sourceType || 'manual',
         sourceJobId: reqData.sourceJobId || null, sourceRef: reqData.sourceRef || null,
