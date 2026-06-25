@@ -65,19 +65,35 @@ router.post('/requests', requirePerm('pickup_register'), express.json(), (req, r
     const P = pickup();
     if (!P) return res.status(503).json({ error: 'SQLite 필요' });
     const b = safeBody(req.body, []);
-    if (!b.pickupDate || !b.vendorId) return res.status(400).json({ error: 'pickupDate, vendorId 필수' });
-    const vendor = db.sql.vendors.getById(b.vendorId);
-    if (!vendor) return res.status(400).json({ error: '없는 업체' });
-    const isLate = L.computeIsLate(new Date(), cutoffTime(), b.pickupDate, todayStr());
+    // 자유 업체명(vendorName)만으로도 등록 허용 — 등록업체(vendorId)는 선택.
+    let vendorName = String(b.vendorName || '').trim();
+    let vendorId = b.vendorId || null;
+    if (vendorId) {
+      // vendorId 가 명시되면 등록업체 이름으로 보정
+      const vendor = db.sql.vendors.getById(vendorId);
+      if (!vendor) return res.status(400).json({ error: '없는 업체' });
+      vendorName = vendor.name;
+    } else if (vendorName) {
+      // vendorId 없이 이름만 들어오면 등록업체 중 이름 정규화 일치 시 자동 링크
+      const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, '');
+      const target = norm(vendorName);
+      try {
+        const match = (db.sql.vendors.getAll() || []).find(v => norm(v.name) === target);
+        if (match) { vendorId = match.id; vendorName = match.name; }
+      } catch (e) { /* 매칭 실패는 무시하고 이름만 저장 */ }
+    }
+    if (!vendorName) return res.status(400).json({ error: 'vendorName 필수' });
+    const pickupDate = b.pickupDate || todayStr();
+    const isLate = L.computeIsLate(new Date(), cutoffTime(), pickupDate, todayStr());
     const created = P.create({
       registrarId: getReqUser(req), registrarName: (req.user && req.user.name) || '',
-      pickupDate: b.pickupDate, vendorId: b.vendorId, vendorName: vendor.name,
+      pickupDate, vendorId, vendorName,
       preferredTimeSlot: b.preferredTimeSlot, priority: b.priority, memo: b.memo,
       sourceType: b.sourceType === 'workflow' ? 'workflow' : 'manual',
       sourceJobId: b.sourceJobId || null, isLate,
     }, Array.isArray(b.items) ? b.items : []);
-    auditLog(getReqUser(req), '픽업요청 등록', vendor.name + (isLate ? ' (추가요청)' : ''));
-    notifyDeliveryTeam(`${isLate ? '🔴추가요청 ' : ''}${vendor.name} 픽업요청 (${b.pickupDate})`);
+    auditLog(getReqUser(req), '픽업요청 등록', vendorName + (isLate ? ' (추가요청)' : ''));
+    notifyDeliveryTeam(`${isLate ? '🔴추가요청 ' : ''}${vendorName} 픽업요청 (${pickupDate})`);
     res.json(created);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
