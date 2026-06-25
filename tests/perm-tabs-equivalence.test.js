@@ -26,6 +26,9 @@ const ALL_MENUS = [
   { id: 'leave',           label: '연차 관리',               tabId: 'leave',          group: '인사',     company: 'both',    forcedNonAdmin: true, desc: '연차 신청·잔여일수 관리' },
   { id: 'options',         label: '옵션 관리',               tabId: 'options',        group: '단가·품목', company: 'both',   desc: '품목 옵션(후가공 등) 단가 관리' },
   { id: 'vendors',         label: '업체 관리',               tabId: 'vendors',        group: '단가·품목', company: 'both',   desc: '거래 업체 등록·관리' },
+  { id: 'pickup_view',     label: '픽업 조회',               tabId: 'pickup',         group: '단가·품목', company: 'both',   segmentGroup: 'pickup', desc: '픽업 요청 취합·체크 화면 열람' },
+  { id: 'pickup_register', label: '픽업 등록',               tabId: 'pickup',         group: '단가·품목', company: 'both',   segmentGroup: 'pickup', desc: '픽업 요청 등록·수정·취소' },
+  { id: 'pickup_check',    label: '픽업 체크',               tabId: 'pickup',         group: '단가·품목', company: 'both',   segmentGroup: 'pickup', desc: '픽업 라인 수거완료/미수거 체크' },
   { id: 'design',          label: '시안 검색',               tabId: 'design',         group: '공용',     company: 'both',    alwaysOn: true,  desc: '과거 시안을 이미지로 검색' },
   { id: 'photos',          label: '사진 라이브러리',         tabId: 'photos',         group: '공용',     company: 'both',    alwaysOn: true,  desc: '현장·제품 사진 보관함' },
   { id: 'esmPurchase',     label: '에스엠 매입',             tabId: 'esmPurchase',    group: '매입',     company: 'sm',      desc: '대림에스엠 매입명세서 OCR·등록' },
@@ -50,6 +53,8 @@ const ROLE_PRESETS = [
   { id: 'factory',    label: '공장',      icon: 'building-factory',  perms: ['companyPurchase', 'calendar'] },
   { id: 'accounting', label: '경리',      icon: 'calculator',       perms: ['pricing_view', 'stats', 'esmPurchase', 'companyPurchase', 'approval', 'leave'] },
   { id: 'manager',    label: '관리',      icon: 'shield-lock',      perms: ['admin', 'orgchart', 'notices', 'settings', 'attendance_all', 'approval', 'leave'] },
+  { id: 'mgmtTeam',   label: '경영관리팀', icon: 'clipboard-check',  perms: ['pickup_view', 'pickup_register'] },
+  { id: 'deliveryTeam', label: '납품팀',   icon: 'truck-delivery',   perms: ['pickup_view', 'pickup_check'] },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -68,6 +73,9 @@ const OLD_ALL_MENUS = [
   { id: 'leave', label: '연차 관리' },
   { id: 'options', label: '옵션 관리' },
   { id: 'vendors', label: '업체 관리' },
+  { id: 'pickup_view', label: '픽업 조회' },
+  { id: 'pickup_register', label: '픽업 등록' },
+  { id: 'pickup_check', label: '픽업 체크' },
   { id: 'design', label: '시안 검색' },
   { id: 'photos', label: '사진 라이브러리' },
   { id: 'esmPurchase', label: '에스엠 매입' },
@@ -92,7 +100,7 @@ function oldTabs(ctx) {
       { id: 'home', label: '홈' },
       { id: 'quote', label: '견적 작성' }, { id: 'history', label: '견적 목록' },
       { id: 'pricing', label: '품목 관리' }, { id: 'options', label: '옵션 관리' },
-      { id: 'vendors', label: '업체 관리' }, { id: 'admin', label: '사용자 관리' },
+      { id: 'vendors', label: '업체 관리' }, { id: 'pickup', label: '픽업 관리' }, { id: 'admin', label: '사용자 관리' },
       { id: 'attendance', label: '출퇴근 기록부' }, { id: 'leave', label: '연차 관리' },
       { id: 'approval', label: '결재' }, { id: 'orgchart', label: '조직도' },
       { id: 'salesLookup', label: '과거단가조회' },
@@ -116,11 +124,14 @@ function oldTabs(ctx) {
     : defaultMenus;
   const t = [];
   const hasPricing = allowed.includes('pricing_view') || allowed.includes('pricing_edit');
+  const hasPickup = allowed.includes('pickup_view');
   for (const menu of OLD_ALL_MENUS) {
     if (menu.id === 'pricing_view' || menu.id === 'pricing_edit') continue;
+    if (menu.id === 'pickup_view' || menu.id === 'pickup_register' || menu.id === 'pickup_check') continue;
     if (allowed.includes(menu.id)) t.push(menu);
   }
   if (hasPricing) t.splice(2, 0, { id: 'pricing', label: '품목 관리' });
+  if (hasPickup && !t.find(m => m.id === 'pickup')) t.push({ id: 'pickup', label: '픽업 관리' });
   if (!t.find(m => m.id === 'attendance_all')) {
     t.push({ id: 'attendance', label: '출퇴근 기록부' });
   } else {
@@ -171,6 +182,12 @@ function newTabs(ctx) {
     if (m.segmentGroup === 'pricing') {
       const hasPricing = perms.includes('pricing_view') || perms.includes('pricing_edit');
       if (hasPricing && !seenTab.has(m.tabId)) { seenTab.add(m.tabId); out.push({ id: m.tabId, label: labelOf(m) }); }
+      continue;
+    }
+    // segmentGroup(pickup) 은 pickup_view 보유 시에만 'pickup' 탭 노출 (register/check 는 capability 전용)
+    if (m.segmentGroup === 'pickup') {
+      const hasPickup = perms.includes('pickup_view');
+      if (hasPickup && !seenTab.has(m.tabId)) { seenTab.add(m.tabId); out.push({ id: m.tabId, label: labelOf(m) }); }
       continue;
     }
     // forcedNonAdmin: 비admin 은 권한 유무와 무관하게 해당 tabId 항상 노출 (capability 는 데이터 범위용)
