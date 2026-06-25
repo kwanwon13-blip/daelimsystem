@@ -10,6 +10,11 @@ const router = express.Router();
 // 결과 경로: /api/esm-purchase/*  ·  권한이 풀리면 server.js 로 옮기는 게 깔끔(이 줄 삭제 + server.js 1줄).
 router.use('/esm-purchase', require('./esm-purchase'));
 
+// ── [임시 마운트] 픽업관리 (routes/pickup.js) ──
+// 위 esm-purchase 와 동일 패턴 — server.js 가 가드레일로 잠겨, /api 에 연결된 이 파일을 경유해 마운트.
+// 결과 경로: /api/pickup/*  ·  가드레일이 풀리면 server.js 로 이전 가능(이 줄 삭제 + server.js 1줄).
+router.use('/pickup', require('./pickup'));
+
 const path = require('path');
 const fs = require('fs');
 const { execSync, spawn } = require('child_process');
