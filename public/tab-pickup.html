@@ -191,13 +191,74 @@
           <div x-show="!pickupMine.length" class="text-xs text-gray-400">등록한 요청이 없습니다.</div>
           <template x-for="req in pickupMine" :key="req.id">
             <div class="card" style="padding:8px 10px;border:1px solid #e5e7eb;">
-              <div class="flex items-center gap-2 flex-wrap">
-                <span class="font-semibold text-sm" x-text="req.vendorName"></span>
-                <span class="text-xs px-2 py-0.5 rounded-full" :style="pickupStatusStyle(req.status)" x-text="pickupStatusLabel(req.status)"></span>
-                <span class="text-xs text-gray-400" x-show="req.isLate" style="color:#dc2626;">🔴 추가요청</span>
-                <button class="btn-ghost btn-sm" style="margin-left:auto;" x-show="req.status==='requested'" @click="cancelPickupRequest(req.id)">취소</button>
+              <!-- 보기 모드 -->
+              <div x-show="pickupEditId !== req.id">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="font-semibold text-sm" x-text="req.vendorName"></span>
+                  <span class="text-xs px-2 py-0.5 rounded-full" :style="pickupStatusStyle(req.status)" x-text="pickupStatusLabel(req.status)"></span>
+                  <span class="text-xs text-gray-400" x-show="req.isLate" style="color:#dc2626;">🔴 추가요청</span>
+                  <div class="flex items-center gap-1" style="margin-left:auto;">
+                    <button class="btn-ghost btn-sm" @click="startEditPickup(req)" title="수정">
+                      <span class="material-symbols-outlined" style="font-size:14px;">edit</span> 수정
+                    </button>
+                    <button class="btn-ghost btn-sm" @click="deletePickupRequest(req.id)" title="삭제" style="color:#dc2626;">
+                      <span class="material-symbols-outlined" style="font-size:14px;">delete</span> 삭제
+                    </button>
+                  </div>
+                </div>
+                <div class="text-xs text-gray-500" style="margin-top:3px;" x-text="(req.items||[]).map(it => it.itemName + (it.spec?(' '+it.spec):'') + (it.qty?(' '+it.qty+(it.unit||'')):'')).join(', ')"></div>
               </div>
-              <div class="text-xs text-gray-500" style="margin-top:3px;" x-text="(req.items||[]).map(it => it.itemName + (it.spec?(' '+it.spec):'') + (it.qty?(' '+it.qty+(it.unit||'')):'')).join(', ')"></div>
+              <!-- 인라인 편집 폼 -->
+              <div x-show="pickupEditId === req.id" x-cloak class="space-y-2">
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="label-base">업체명</label>
+                    <input x-model="pickupEditForm.vendorName" class="input-base" placeholder="업체명">
+                  </div>
+                  <div>
+                    <label class="label-base">픽업 날짜</label>
+                    <input type="date" x-model="pickupEditForm.pickupDate" class="input-base">
+                  </div>
+                  <div>
+                    <label class="label-base">희망 시간대</label>
+                    <input x-model="pickupEditForm.preferredTimeSlot" class="input-base" placeholder="오전 / 오후 / 15시 전 등">
+                  </div>
+                  <div>
+                    <label class="label-base">우선순위</label>
+                    <select x-model="pickupEditForm.priority" class="input-base">
+                      <option value="normal">보통</option>
+                      <option value="urgent">긴급</option>
+                      <option value="todayMust">오늘 필수</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label class="label-base">품목</label>
+                  <div class="space-y-1">
+                    <template x-for="(it, i) in pickupEditForm.items" :key="'ei'+i">
+                      <div class="flex gap-1 items-center">
+                        <input x-model="it.itemName" class="input-base" style="flex:2;" placeholder="품목명">
+                        <input x-model="it.spec" class="input-base" style="flex:1;" placeholder="규격">
+                        <input x-model.number="it.qty" type="number" class="input-base" style="width:72px;" placeholder="수량">
+                        <input x-model="it.unit" class="input-base" style="width:60px;" placeholder="단위">
+                        <button class="btn-ghost btn-sm" @click="removeEditItem(i)" x-show="pickupEditForm.items.length > 1">×</button>
+                      </div>
+                    </template>
+                  </div>
+                  <button class="btn-ghost btn-sm" style="margin-top:4px;" @click="addEditItem()">+ 품목 줄 추가</button>
+                </div>
+                <div>
+                  <label class="label-base">메모</label>
+                  <input x-model="pickupEditForm.memo" class="input-base" placeholder="바로 공장 / 시안 / 현장명 등">
+                </div>
+                <div class="flex gap-2">
+                  <button class="btn-primary btn-sm" @click="savePickupEdit()" :disabled="pickupSaving">
+                    <span class="material-symbols-outlined" style="font-size:14px;">save</span>
+                    <span x-text="pickupSaving ? '저장 중...' : '저장'"></span>
+                  </button>
+                  <button class="btn-ghost btn-sm" @click="cancelEditPickup()">취소</button>
+                </div>
+              </div>
             </div>
           </template>
         </div>

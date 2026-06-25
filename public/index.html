@@ -7693,6 +7693,8 @@ function app() {
     pickupGroups: [],
     pickupParsing: false,
     pickupSaving: false,
+    pickupEditId: null,
+    pickupEditForm: { vendorName: '', pickupDate: '', preferredTimeSlot: '', priority: 'normal', memo: '', items: [] },
     get activePickupVendors() {
       return (this.vendors || []).filter(v => v.isActive === undefined || v.isActive === 1 || v.isActive === true);
     },
@@ -7956,6 +7958,72 @@ function app() {
         this.showToast('취소되었습니다');
         await this.loadPickupMine();
       } catch (e) { this.showToast('취소 실패: ' + e.message, 'error'); }
+    },
+    // 인라인 수정 시작
+    startEditPickup(req) {
+      this.pickupEditId = req.id;
+      this.pickupEditForm = {
+        vendorName: req.vendorName || '',
+        pickupDate: req.pickupDate || this.pickupDate,
+        preferredTimeSlot: req.preferredTimeSlot || '',
+        priority: req.priority || 'normal',
+        memo: req.memo || '',
+        items: (req.items || []).map(it => ({
+          itemName: it.itemName || '', spec: it.spec || '',
+          qty: (it.qty === undefined || it.qty === null) ? null : it.qty, unit: it.unit || '개',
+        })),
+      };
+      if (!this.pickupEditForm.items.length) this.pickupEditForm.items.push({ itemName: '', spec: '', qty: null, unit: '개' });
+    },
+    addEditItem() {
+      this.pickupEditForm.items.push({ itemName: '', spec: '', qty: null, unit: '개' });
+    },
+    removeEditItem(i) {
+      this.pickupEditForm.items.splice(i, 1);
+      if (!this.pickupEditForm.items.length) this.pickupEditForm.items.push({ itemName: '', spec: '', qty: null, unit: '개' });
+    },
+    cancelEditPickup() {
+      this.pickupEditId = null;
+    },
+    async savePickupEdit() {
+      if (this.pickupSaving || this.pickupEditId == null) return;
+      const f = this.pickupEditForm;
+      if (!(f.vendorName || '').trim()) { this.showToast('업체명을 입력하세요', 'error'); return; }
+      const items = (f.items || [])
+        .filter(it => (it.itemName || '').trim())
+        .map(it => ({ itemName: (it.itemName || '').trim(), spec: (it.spec || '').trim(), qty: (it.qty === '' || it.qty === undefined) ? null : it.qty, unit: (it.unit || '').trim() }));
+      this.pickupSaving = true;
+      try {
+        const r = await fetch('/api/pickup/requests/' + encodeURIComponent(this.pickupEditId), {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            vendorName: f.vendorName.trim(),
+            pickupDate: f.pickupDate,
+            preferredTimeSlot: f.preferredTimeSlot,
+            priority: f.priority,
+            memo: f.memo,
+            items,
+          }),
+        });
+        if (!r.ok) { const d = await r.json().catch(() => ({})); this.showToast(d.error || '수정 실패', 'error'); return; }
+        this.pickupEditId = null;
+        await this.loadPickupMine();
+        if (this.pickupView === 'collect') await this.loadPickupRequests();
+        this.showToast('수정되었습니다');
+      } catch (e) { this.showToast('수정 실패: ' + e.message, 'error'); }
+      finally { this.pickupSaving = false; }
+    },
+    // 삭제
+    async deletePickupRequest(id) {
+      if (!confirm('이 픽업 요청을 삭제하시겠습니까?')) return;
+      try {
+        const r = await fetch('/api/pickup/requests/' + encodeURIComponent(id), { method: 'DELETE' });
+        if (!r.ok) { const d = await r.json().catch(() => ({})); this.showToast(d.error || '삭제 실패', 'error'); return; }
+        if (this.pickupEditId === id) this.pickupEditId = null;
+        this.showToast('삭제되었습니다');
+        await this.loadPickupMine();
+        if (this.pickupView === 'collect') await this.loadPickupRequests();
+      } catch (e) { this.showToast('삭제 실패: ' + e.message, 'error'); }
     },
     // 카톡 공유텍스트
     async copyPickupShareText() {
