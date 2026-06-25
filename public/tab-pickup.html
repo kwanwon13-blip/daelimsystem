@@ -36,7 +36,7 @@
               @keyup="onPickupHashInput($event)" @click="onPickupHashInput($event)"
               @keydown.arrow-down.prevent="pkMenuOpen && pkMove(1)"
               @keydown.arrow-up.prevent="pkMenuOpen && pkMove(-1)"
-              @keydown.enter="if(pkMenuOpen && !$event.isComposing){ $event.preventDefault(); pkPick(); }"
+              @keydown.enter="if(pkMenuOpen && pickupVendorSuggest.length > 0 && !$event.isComposing){ $event.preventDefault(); pkPick(); }"
               @keydown.escape="pkMenuOpen = false"
               @blur="setTimeout(() => pkMenuOpen = false, 150)"
               class="input-base" rows="7"
@@ -72,6 +72,7 @@
                 <span class="material-symbols-outlined" style="font-size:16px;color:#6b7280;">store</span>
                 <input type="text" x-model="cand.vendorName" class="input-base" style="flex:1;min-width:160px;font-weight:600;" placeholder="업체명">
                 <span x-show="cand.vendorId" class="text-xs px-2 py-0.5 rounded-full" style="background:#dcfce7;color:#15803d;">✓ 등록됨</span>
+                <span x-show="cand._saveFailed" class="text-xs px-2 py-0.5 rounded-full" style="background:#fee2e2;color:#b91c1c;">저장 실패 · 다시 시도</span>
                 <button class="btn-ghost btn-sm" style="margin-left:auto;" @click="pickupKakaoCandidates.splice(ci,1)">제외</button>
               </div>
               <div style="margin-top:10px;" class="space-y-1">
@@ -219,7 +220,7 @@
       </div>
 
       <!-- 업체 카드 -->
-      <template x-for="g in pickupGroups" :key="g.vendorId">
+      <template x-for="g in pickupGroups" :key="g.groupKey || g.vendorId || g.vendorName">
         <div class="card" style="padding:0;overflow:hidden;">
           <!-- 카드 헤더 -->
           <div style="padding:10px 14px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border-bottom:1px solid #bbf7d0;">
@@ -255,12 +256,12 @@
                   <a x-show="req.sourceType==='workflow' && req.sourceJobId" :href="'#workflow:' + encodeURIComponent(req.sourceJobId)" style="color:#7c3aed;margin-left:4px;">[워크플로 잡 보기]</a>
                 </div>
                 <template x-for="it in req.items" :key="it.id">
-                  <div class="flex items-center gap-2 flex-wrap" style="padding:4px 0;border-bottom:1px dashed #f1f5f9;">
-                    <span class="text-sm" style="flex:1;min-width:120px;" :style="it.status==='cancelled' ? 'text-decoration:line-through;color:#9ca3af;' : ''"
+                  <div style="padding:6px 0;border-bottom:1px dashed #f1f5f9;display:flex;flex-wrap:wrap;align-items:center;gap:6px;">
+                    <span class="text-sm" style="flex:1 1 100%;min-width:0;" :style="it.status==='cancelled' ? 'text-decoration:line-through;color:#9ca3af;' : ''"
                       x-text="it.itemName + (it.spec?(' '+it.spec):'') + (it.qty?(' '+it.qty+(it.unit||'')):'')"></span>
-                    <span class="text-xs px-2 py-0.5 rounded-full" :style="pickupItemStatusStyle(it.status)" x-text="pickupItemStatusLabel(it.status)"></span>
+                    <span class="text-xs px-2 py-0.5 rounded-full" style="flex:0 0 auto;" :style="pickupItemStatusStyle(it.status)" x-text="pickupItemStatusLabel(it.status)"></span>
                     <template x-if="canCheckPickup">
-                      <div class="flex gap-1 items-center">
+                      <div class="flex items-center" style="flex-wrap:wrap;gap:4px;margin-left:auto;">
                         <input type="number" x-model.number="it._pickedQty" class="input-base" style="width:60px;" placeholder="실수거" :value="it.pickedQty ?? ''">
                         <button class="btn-ghost btn-sm" title="수거완료" @click="setPickupItem(it, 'pickedUp', (it._pickedQty != null && it._pickedQty !== '') ? { pickedQty: it._pickedQty } : undefined)">✅</button>
                         <button class="btn-ghost btn-sm" title="미수거" @click="setPickupItemNotPicked(it)">❌</button>

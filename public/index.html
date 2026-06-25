@@ -7786,10 +7786,22 @@ function app() {
       const v = this.pickupVendorSuggest[idx];
       if (!v) return;
       const el = this.$refs.pkTa;
-      const caret = el ? el.selectionStart : this.pickupKakaoText.length;
-      const head = this.pickupKakaoText.slice(0, this.pkTokenStart);
-      const tail = this.pickupKakaoText.slice(caret);
-      const newHead = head + '#' + v.name + '\n';
+      const full = this.pickupKakaoText || '';
+      const start = this.pkTokenStart;
+      if (start < 0) { this.pkMenuOpen = false; return; }
+      // 토큰끝 = 같은 줄에서 #뒤 단어 끝(다음 # 또는 줄끝)까지 — caret 기준 X (중간편집 시 단어 분리 방지)
+      let end = start + 1;   // '#' 다음부터
+      while (end < full.length) {
+        const ch = full[end];
+        if (ch === '\n' || ch === '#') break;
+        end++;
+      }
+      const head = full.slice(0, start);
+      const tail = full.slice(end);
+      // tail 이 이미 줄바꿈으로 시작하거나(=줄끝) 비어있으면 '\n' 강제주입 안 함
+      const needNl = tail.length > 0 && tail[0] !== '\n';
+      const inserted = '#' + v.name + (needNl ? '\n' : '');
+      const newHead = head + inserted;
       this.pickupKakaoText = newHead + tail;
       this.pkMenuOpen = false;
       this.$nextTick(() => {
@@ -7813,7 +7825,18 @@ function app() {
         // 업체명 추정값을 vendorName 으로 prefill, 등록업체와 같으면 vendorId 채움(배지용)
         this.pickupKakaoCandidates = (d.groups || []).map(g => {
           const guess = (g.vendorGuess || '').trim();
-          const match = guess ? (this.vendors || []).find(v => (v.name || '').includes(guess) || guess.includes(v.name || '')) : null;
+          const gn = this.pkNorm(guess);
+          let match = null;
+          if (gn) {
+            const vs = (this.vendors || []);
+            // 1) 정규화 정확일치 우선 (빈 이름은 norm 시 빈값 → gn 과 안 맞음)
+            match = vs.find(v => v.name && this.pkNorm(v.name) === gn) || null;
+            // 2) 부분일치는 guess 3자 이상 + 매칭 후보 유일할 때만
+            if (!match && gn.length >= 3) {
+              const partial = vs.filter(v => v.name && this.pkNorm(v.name).includes(gn));
+              if (partial.length === 1) match = partial[0];
+            }
+          }
           return {
             vendorName: guess,
             vendorId: match ? match.id : '',
@@ -7832,23 +7855,35 @@ function app() {
       if (!ready.length) { this.showToast('업체명과 품목을 입력하세요', 'error'); return; }
       this.pickupSaving = true;
       let ok = 0;
+      const failed = [];   // 실패한 후보(성공분만 목록에서 제거 → 재시도 시 중복 방지)
       try {
         for (const c of ready) {
+          c._saveFailed = false;   // 재시도 시 이전 실패표시 초기화
           const items = c.items.filter(it => (it.itemName || '').trim());
-          const r = await fetch('/api/pickup/requests', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              pickupDate: this.pickupDate,
-              vendorName: (c.vendorName || '').trim(),
-              vendorId: c.vendorId || null,
-              priority: 'normal', memo: '', sourceType: 'manual', items,
-            }),
-          });
-          if (r.ok) ok++;
+          let success = false;
+          try {
+            const r = await fetch('/api/pickup/requests', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                pickupDate: this.pickupDate,
+                vendorName: (c.vendorName || '').trim(),
+                vendorId: c.vendorId || null,
+                priority: 'normal', memo: '', sourceType: 'manual', items,
+              }),
+            });
+            success = r.ok;
+          } catch (e) { success = false; }
+          if (success) { ok++; c._saved = true; }
+          else { c._saveFailed = true; failed.push(c); }
         }
-        this.showToast(ok + '건 등록되었습니다');
-        this.pickupKakaoCandidates = [];
-        this.pickupKakaoText = '';
+        // 성공분만 후보목록에서 제거, 실패분은 보존(실패 표시 유지)
+        this.pickupKakaoCandidates = this.pickupKakaoCandidates.filter(c => !c._saved);
+        if (failed.length) {
+          this.showToast(ok + '건 등록 / ' + failed.length + '건 실패(다시 저장)', 'error');
+        } else {
+          this.showToast(ok + '건 등록되었습니다');
+          this.pickupKakaoText = '';   // 전건 성공일 때만 초기화
+        }
         await this.loadPickupMine();
       } catch (e) { this.showToast('저장 실패: ' + e.message, 'error'); }
       finally { this.pickupSaving = false; }
