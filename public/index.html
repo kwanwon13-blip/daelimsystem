@@ -1635,6 +1635,41 @@
           <label class="label-base">주소</label>
           <input x-model="vendorPopup.form.address" class="input-base" placeholder="주소 입력">
         </div>
+        <div>
+          <label class="label-base">거래처 유형</label>
+          <select x-model="vendorPopup.form.vendorType" class="input-base">
+            <option value="매입처">매입처</option>
+            <option value="판매처">판매처</option>
+            <option value="둘다">둘다</option>
+            <option value="기타">기타</option>
+          </select>
+        </div>
+        <div>
+          <label class="label-base">사용 여부</label>
+          <label style="display:flex;align-items:center;gap:6px;height:34px;font-size:13px;color:#374151;">
+            <input type="checkbox" x-model="vendorPopup.form.isActive"> 사용함 (체크 해제 시 픽업 목록에서 숨김)
+          </label>
+        </div>
+        <div class="col-span-2">
+          <label class="label-base">지도 검색어 <span style="color:#9ca3af;font-weight:400;">(주소로 안 잡힐 때)</span></label>
+          <input x-model="vendorPopup.form.mapSearchKeyword" class="input-base" placeholder='예: "라코스 본사"'>
+        </div>
+        <div>
+          <label class="label-base">담당자</label>
+          <input x-model="vendorPopup.form.contactPerson" class="input-base" placeholder="담당자명">
+        </div>
+        <div>
+          <label class="label-base">담당자 전화</label>
+          <input x-model="vendorPopup.form.contactPhone" class="input-base" placeholder="010-0000-0000">
+        </div>
+        <div class="col-span-2">
+          <label class="label-base">픽업 메모</label>
+          <input x-model="vendorPopup.form.pickupMemo" class="input-base" placeholder="후문 창고 / 점심시간 피하기 등">
+        </div>
+        <div class="col-span-2">
+          <label class="label-base">주차 / 출입 메모</label>
+          <input x-model="vendorPopup.form.parkingAccessMemo" class="input-base" placeholder="지하주차 가능 / 정문 경비 호출 등">
+        </div>
         <div class="col-span-2">
           <label class="label-base">비고</label>
           <textarea x-model="vendorPopup.form.note" class="input-base" style="resize:vertical;min-height:64px;" placeholder="팩스, 업태, 종목 등" rows="3"></textarea>
@@ -5815,6 +5850,11 @@
         <!--INCLUDE:tab-workflow.html-->
       </template>
 
+      <!-- PICKUP TAB (픽업 관리) -->
+      <template x-if="currentTab === 'pickup'">
+        <!--INCLUDE:tab-pickup.html-->
+      </template>
+
       <!-- CALENDAR TAB (캘린더) -->
       <template x-if="currentTab === 'calendar'">
         <div class="space-y-4 fade-in">
@@ -7630,7 +7670,240 @@ function app() {
     // 업체
     showAddVendor: false, newVendor: { name: '', bizNo: '', ceo: '', phone: '', email: '', address: '', note: '' },
     editingVendorId: null, editingVendor: {},
-    vendorPopup: { open: false, x: 80, y: 80, dragging: false, _ox: 0, _oy: 0, editId: null, form: { name:'', bizNo:'', ceo:'', phone:'', email:'', address:'', note:'' } },
+    vendorPopup: { open: false, x: 80, y: 80, dragging: false, _ox: 0, _oy: 0, editId: null, form: { name:'', bizNo:'', ceo:'', phone:'', email:'', address:'', note:'', vendorType:'기타', mapSearchKeyword:'', contactPerson:'', contactPhone:'', pickupMemo:'', parkingAccessMemo:'', isActive:true } },
+    // ── 픽업 관리 (pickup) ──────────────────────────────
+    pickupView: 'register',              // 'register' | 'collect'
+    pickupDate: new Date().toISOString().slice(0, 10),
+    pickupForm: { vendorId: '', pickupDate: new Date().toISOString().slice(0, 10), preferredTimeSlot: '', priority: 'normal', memo: '', items: [{ itemName: '', spec: '', qty: null, unit: '개' }], sourceType: 'manual', sourceJobId: null },
+    pickupVendorPreview: null,
+    pickupKakaoText: '',
+    pickupKakaoCandidates: [],
+    pickupMine: [],
+    pickupRequests: [],
+    pickupGroups: [],
+    pickupParsing: false,
+    pickupSaving: false,
+    get activePickupVendors() {
+      return (this.vendors || []).filter(v => v.isActive === undefined || v.isActive === 1 || v.isActive === true);
+    },
+    get canCheckPickup() {
+      if (this.auth.role === 'admin') return true;
+      return (this.auth.permissions || []).includes('pickup_check');
+    },
+    get canRegisterPickup() {
+      if (this.auth.role === 'admin') return true;
+      return (this.auth.permissions || []).includes('pickup_register');
+    },
+    // 상태 라벨/색상
+    pickupStatusLabel(s) {
+      return ({ requested: '요청됨', inCourse: '코스포함', completed: '수거완료', partial: '부분수거', notPicked: '미수거', cancelled: '취소' })[s] || s || '요청됨';
+    },
+    pickupStatusStyle(s) {
+      const m = { requested: 'background:#e0e7ff;color:#4338ca;', inCourse: 'background:#e0f2fe;color:#0369a1;', completed: 'background:#dcfce7;color:#15803d;', partial: 'background:#fef9c3;color:#a16207;', notPicked: 'background:#fee2e2;color:#b91c1c;', cancelled: 'background:#f3f4f6;color:#6b7280;' };
+      return m[s] || m.requested;
+    },
+    pickupItemStatusLabel(s) {
+      return ({ requested: '요청', pickedUp: '수거완료', notPicked: '미수거', cancelled: '취소' })[s] || s || '요청';
+    },
+    pickupItemStatusStyle(s) {
+      const m = { requested: 'background:#e0e7ff;color:#4338ca;', pickedUp: 'background:#dcfce7;color:#15803d;', notPicked: 'background:#fee2e2;color:#b91c1c;', cancelled: 'background:#f3f4f6;color:#6b7280;' };
+      return m[s] || m.requested;
+    },
+    // 업체 미리보기
+    onPickupVendorChange() {
+      const v = (this.vendors || []).find(x => x.id === this.pickupForm.vendorId);
+      this.pickupVendorPreview = v || null;
+    },
+    // 품목 줄 조작
+    addPickupItemRow() { this.pickupForm.items.push({ itemName: '', spec: '', qty: null, unit: '개' }); },
+    removePickupItemRow(i) { this.pickupForm.items.splice(i, 1); if (!this.pickupForm.items.length) this.addPickupItemRow(); },
+    resetPickupForm() {
+      this.pickupForm = { vendorId: '', pickupDate: this.pickupDate, preferredTimeSlot: '', priority: 'normal', memo: '', items: [{ itemName: '', spec: '', qty: null, unit: '개' }], sourceType: 'manual', sourceJobId: null };
+      this.pickupVendorPreview = null;
+    },
+    // 정식 등록
+    async submitPickupForm() {
+      if (this.pickupSaving) return;
+      if (!this.pickupForm.vendorId) { this.showToast('업체를 선택하세요', 'error'); return; }
+      if (!this.pickupForm.pickupDate) { this.showToast('픽업 날짜를 선택하세요', 'error'); return; }
+      const items = this.pickupForm.items.filter(it => (it.itemName || '').trim());
+      if (!items.length) { this.showToast('품목을 1개 이상 입력하세요', 'error'); return; }
+      this.pickupSaving = true;
+      try {
+        const r = await fetch('/api/pickup/requests', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pickupDate: this.pickupForm.pickupDate, vendorId: this.pickupForm.vendorId,
+            preferredTimeSlot: this.pickupForm.preferredTimeSlot, priority: this.pickupForm.priority,
+            memo: this.pickupForm.memo, sourceType: this.pickupForm.sourceType || 'manual',
+            sourceJobId: this.pickupForm.sourceJobId || null, items,
+          }),
+        });
+        if (!r.ok) { const d = await r.json().catch(() => ({})); this.showToast(d.error || '등록 실패', 'error'); return; }
+        this.showToast('픽업 요청이 등록되었습니다');
+        this.resetPickupForm();
+        await this.loadPickupMine();
+      } catch (e) { this.showToast('등록 실패: ' + e.message, 'error'); }
+      finally { this.pickupSaving = false; }
+    },
+    // 카톡 파싱
+    async parsePickupKakao() {
+      if (this.pickupParsing) return;
+      const text = (this.pickupKakaoText || '').trim();
+      if (!text) { this.showToast('붙여넣을 텍스트가 없습니다', 'error'); return; }
+      this.pickupParsing = true;
+      try {
+        const r = await fetch('/api/pickup/parse-kakao', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+        });
+        const d = await r.json();
+        if (!r.ok) { this.showToast(d.error || '분석 실패', 'error'); return; }
+        // 업체명 추정 → vendorId 자동매칭 시도
+        this.pickupKakaoCandidates = (d.groups || []).map(g => {
+          const guess = (g.vendorGuess || '').trim();
+          const match = guess ? (this.vendors || []).find(v => (v.name || '').includes(guess) || guess.includes(v.name || '')) : null;
+          return { vendorGuess: guess, vendorId: match ? match.id : '', items: (g.items || []).map(it => ({ itemName: it.itemName || '', spec: it.spec || '', qty: it.qty || null, unit: it.unit || '' })) };
+        });
+        if (!this.pickupKakaoCandidates.length) this.showToast('후보를 찾지 못했습니다', 'error');
+      } catch (e) { this.showToast('분석 실패: ' + e.message, 'error'); }
+      finally { this.pickupParsing = false; }
+    },
+    // 카톡 후보 일괄 저장
+    async savePickupCandidates() {
+      if (this.pickupSaving) return;
+      const ready = this.pickupKakaoCandidates.filter(c => c.vendorId && (c.items || []).some(it => (it.itemName || '').trim()));
+      if (!ready.length) { this.showToast('업체가 지정된 후보가 없습니다', 'error'); return; }
+      this.pickupSaving = true;
+      let ok = 0;
+      try {
+        for (const c of ready) {
+          const items = c.items.filter(it => (it.itemName || '').trim());
+          const r = await fetch('/api/pickup/requests', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pickupDate: this.pickupDate, vendorId: c.vendorId, priority: 'normal', memo: '', sourceType: 'manual', items }),
+          });
+          if (r.ok) ok++;
+        }
+        this.showToast(ok + '건 등록되었습니다');
+        this.pickupKakaoCandidates = [];
+        this.pickupKakaoText = '';
+        await this.loadPickupMine();
+      } catch (e) { this.showToast('저장 실패: ' + e.message, 'error'); }
+      finally { this.pickupSaving = false; }
+    },
+    // 조회: 내가 등록한 것
+    async loadPickupMine() {
+      try {
+        const r = await fetch('/api/pickup/requests/mine?date=' + encodeURIComponent(this.pickupDate));
+        this.pickupMine = r.ok ? await r.json() : [];
+      } catch (e) { this.pickupMine = []; }
+    },
+    // 조회: 날짜별 취합
+    async loadPickupRequests() {
+      try {
+        const r = await fetch('/api/pickup/requests?date=' + encodeURIComponent(this.pickupDate));
+        const d = r.ok ? await r.json() : { requests: [], groups: [] };
+        this.pickupRequests = d.requests || [];
+        this.pickupGroups = d.groups || [];
+      } catch (e) { this.pickupRequests = []; this.pickupGroups = []; }
+    },
+    // 그룹 헬퍼 (취합 뷰)
+    pickupGroupVendor(g) {
+      const req = (g.requests || [])[0];
+      return (req && req.vendor) || null;
+    },
+    pickupGroupHasLate(g) { return (g.requests || []).some(r => r.isLate); },
+    pickupGroupHasWorkflow(g) { return (g.requests || []).some(r => r.sourceType === 'workflow'); },
+    pickupGroupRollup(g) {
+      const items = [];
+      for (const r of (g.requests || [])) for (const it of (r.items || [])) items.push(it);
+      const active = items.filter(it => it.status !== 'cancelled');
+      let status = 'requested';
+      if (items.length && !active.length) status = 'cancelled';
+      else if (active.length) {
+        const picked = active.filter(it => it.status === 'pickedUp').length;
+        const notPicked = active.filter(it => it.status === 'notPicked').length;
+        if (picked === active.length) status = 'completed';
+        else if (picked > 0) status = 'partial';
+        else if (notPicked === active.length) status = 'notPicked';
+      }
+      const done = active.filter(it => it.status === 'pickedUp').length;
+      return { status, label: this.pickupStatusLabel(status) + (active.length ? ` (${done}/${active.length})` : '') };
+    },
+    // 라인 체크
+    async setPickupItem(it, status, extra) {
+      if (!this.canCheckPickup) { this.showToast('체크 권한이 없습니다', 'error'); return; }
+      try {
+        const body = Object.assign({ status }, extra || {});
+        const r = await fetch('/api/pickup/items/' + encodeURIComponent(it.id) + '/status', {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        });
+        if (!r.ok) { const d = await r.json().catch(() => ({})); this.showToast(d.error || '체크 실패', 'error'); return; }
+        await this.loadPickupRequests();
+      } catch (e) { this.showToast('체크 실패: ' + e.message, 'error'); }
+    },
+    setPickupItemNotPicked(it) {
+      const reason = prompt('미수거 사유를 입력하세요 (부재/재고없음/위치불명/시간부족 등)', it.failReason || '');
+      if (reason === null) return;
+      this.setPickupItem(it, 'notPicked', { failReason: reason });
+    },
+    // 취소
+    async cancelPickupRequest(id) {
+      if (!confirm('이 픽업 요청을 취소하시겠습니까?')) return;
+      const reason = prompt('취소 사유 (선택)', '') || '';
+      try {
+        const r = await fetch('/api/pickup/requests/' + encodeURIComponent(id) + '/cancel', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }),
+        });
+        if (!r.ok) { const d = await r.json().catch(() => ({})); this.showToast(d.error || '취소 실패', 'error'); return; }
+        this.showToast('취소되었습니다');
+        await this.loadPickupMine();
+      } catch (e) { this.showToast('취소 실패: ' + e.message, 'error'); }
+    },
+    // 카톡 공유텍스트
+    async copyPickupShareText() {
+      try {
+        const r = await fetch('/api/pickup/requests/' + encodeURIComponent(this.pickupDate) + '/share-text');
+        const d = await r.json();
+        if (!r.ok) { this.showToast(d.error || '생성 실패', 'error'); return; }
+        const text = d.text || '';
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+          this.showToast('카톡 공유텍스트가 복사되었습니다');
+        } else {
+          window.prompt('아래 텍스트를 복사하세요 (Ctrl+C)', text);
+        }
+      } catch (e) { this.showToast('생성 실패: ' + e.message, 'error'); }
+    },
+    // 지도 길찾기 (네이버/카카오/T맵 웹 검색 — PC용 새 탭)
+    openPickupMap(vendor, app) {
+      if (!vendor) { this.showToast('업체 정보가 없습니다', 'error'); return; }
+      const q = (vendor.mapSearchKeyword || '').trim() || (vendor.address || '').trim() || (vendor.name || '').trim();
+      if (!q) { this.showToast('주소/검색어가 없습니다. 업체에 주소를 등록하세요', 'error'); return; }
+      const eq = encodeURIComponent(q);
+      let url;
+      if (app === 'kakao') url = 'https://map.kakao.com/?q=' + eq;
+      else if (app === 'tmap') url = 'https://tmap.life/search?name=' + eq;
+      else url = 'https://map.naver.com/v5/search/' + eq;
+      window.open(url, '_blank', 'noopener');
+    },
+    // 워크플로 → 픽업 프리필 (이벤트 브리지로 호출됨)
+    openPickupFromJob(job) {
+      if (!job) return;
+      this.pickupView = 'register';
+      const siteLabel = [job.companyName, job.projectName].filter(Boolean).join(' ');
+      const designLabel = job.title || '';
+      this.pickupForm = {
+        vendorId: '', pickupDate: this.pickupDate, preferredTimeSlot: '', priority: 'normal',
+        memo: [siteLabel, designLabel].filter(Boolean).join(' / '),
+        items: [{ itemName: designLabel || '시안', spec: '', qty: null, unit: '개' }],
+        sourceType: 'workflow', sourceJobId: job.id || null,
+      };
+      this.pickupVendorPreview = null;
+      this.currentTab = 'pickup';
+      this.showToast('워크플로 정보로 픽업 등록폼을 채웠습니다. 업체와 품목을 확정하세요');
+    },
     // 명함
     namecardForm: { mobile: '', tel: '', fax: '', email: '', dept: '', tagline: '', saving: false, success: '', error: '' },
     showNamecardForm: false, showMyCardModal: false,
@@ -8104,6 +8377,22 @@ function app() {
       // ── 브라우저 히스토리 API 연동 (뒤로가기 버튼이 앱을 나가지 않고 이전 탭으로) ──
       // popstate 로 복원할 때는 _suppressHashUpdate=true 를 켜서 재push 방지 (무한루프 차단)
       this._suppressHashUpdate = false;
+
+      // 워크플로 → 픽업 등록폼 프리필 (workflowApp은 별도 루트라 이벤트로 받음)
+      this._pickupFromJobHandler = (e) => {
+        const job = (e && e.detail) || window.__pickupFromJob || null;
+        if (job) this.openPickupFromJob(job);
+        window.__pickupFromJob = null;
+      };
+      window.addEventListener('pickup-from-job', this._pickupFromJobHandler);
+
+      // 픽업 탭 첫 진입 시 자동 로드 (서브탭 버튼도 각각 로드하지만 탭 전환을 매끄럽게)
+      this.$watch('currentTab', (v) => {
+        if (v === 'pickup') {
+          if (this.pickupView === 'collect') this.loadPickupRequests();
+          else this.loadPickupMine();
+        }
+      });
 
       // 워크스페이스 공유 링크로 진입한 경우 (/workspace/view/:token → 서버가 /?wsopen=<pageId>#workspace 로 리디렉트)
       // → localStorage 의 ws:lastPageId 에 저장해서 워크스페이스 탭이 자동으로 해당 페이지 열도록
@@ -9280,10 +9569,14 @@ function app() {
     openVendorPopup(v) {
       if (v) {
         this.vendorPopup.editId = v.id;
-        this.vendorPopup.form = { name:v.name||'', bizNo:v.bizNo||'', ceo:v.ceo||'', phone:v.phone||'', email:v.email||'', address:v.address||'', note:v.note||'' };
+        this.vendorPopup.form = {
+          name:v.name||'', bizNo:v.bizNo||'', ceo:v.ceo||'', phone:v.phone||'', email:v.email||'', address:v.address||'', note:v.note||'',
+          vendorType:v.vendorType||'기타', mapSearchKeyword:v.mapSearchKeyword||'', contactPerson:v.contactPerson||'', contactPhone:v.contactPhone||'',
+          pickupMemo:v.pickupMemo||'', parkingAccessMemo:v.parkingAccessMemo||'', isActive: (v.isActive === undefined ? true : (v.isActive === 1 || v.isActive === true))
+        };
       } else {
         this.vendorPopup.editId = null;
-        this.vendorPopup.form = { name:'', bizNo:'', ceo:'', phone:'', email:'', address:'', note:'' };
+        this.vendorPopup.form = { name:'', bizNo:'', ceo:'', phone:'', email:'', address:'', note:'', vendorType:'기타', mapSearchKeyword:'', contactPerson:'', contactPhone:'', pickupMemo:'', parkingAccessMemo:'', isActive:true };
       }
       this.vendorPopup.x = Math.max(20, Math.round((window.innerWidth - 540) / 2));
       this.vendorPopup.y = Math.round((window.innerHeight - 480) / 2);
