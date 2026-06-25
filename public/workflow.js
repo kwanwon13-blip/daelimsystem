@@ -180,6 +180,7 @@ function workflowApp() {
       handoffNote: '', // 특이사항 — 등록 시 필수(없으면 [없음] 버튼으로 '없음')
       productionRoute: 'internal', // 제작방식: internal(대림컴퍼니) / external(외주 타사 — 공장 건너뛰고 경영관리로)
       storageHint: null, // 추천(pickGuess)이 가리킨 기존 폴더(★포함) — 저장 시 글자 재해석 없이 그대로 사용
+      noProject: false, // '프로젝트 없이 등록' 체크 — 이 작업은 현장 없이 회사/연도 폴더에만 저장(프로젝트 로직 OFF)
     },
     newMail: { send: true, to: '', subject: '', message: '', company: '' }, // +시안 등록 시 첨부발송(내부=대림컴퍼니 / 외주=타사)
     mailNotice: '',
@@ -3789,6 +3790,7 @@ function workflowApp() {
         this.form.handoffNote = '없음';
       }
       this.autoFillCompanyFromProject(); // 현장명이 한 회사에만 있으면 회사 자동 채움(회사 안 적고 현장만 적는 경우)
+      if (this.form.noProject) this.form.projectName = ''; // '프로젝트 없이 등록' 체크 시 현장명 강제 비움(회사 폴더에만 저장)
       if (this.companyNoProject(this.form.companyName)) this.form.projectName = ''; // 프로젝트 안 쓰는 회사는 현장명 비움(회사\\연도 저장)
       if (!String(this.form.companyName || '').trim()) {
         // 현장명(프로젝트)은 선택 — 비우면 회사\연도 폴더에 저장(업체만 있는 곳 대응). 회사명만 필수.
@@ -3931,6 +3933,7 @@ function workflowApp() {
         handoffNote: '',
         productionRoute: 'internal',
         storageHint: null,
+        noProject: false,
       };
       this.newMail = { send: true, to: '', subject: '', message: '', company: '' };
     },
@@ -4296,11 +4299,12 @@ function workflowApp() {
     pickGuess(c) {
       if (!c) return;
       this.form.companyName = c.companyName || '';
-      this.form.projectName = c.projectName || '';
+      this.form.projectName = this.form.noProject ? '' : (c.projectName || ''); // '프로젝트 없음'이면 추천 클릭해도 현장 안 채움
       // 추천이 가리킨 '실제 폴더'(★포함)를 저장힌트로 — 저장이 글자로 재계산하지 않고 이 폴더 그대로 사용
-      this.form.storageHint = (c.companyFolder || c.projectFolder)
-        ? { companyFolder: c.companyFolder || '', projectFolder: c.projectFolder || '' }
-        : null;
+      // (단 '프로젝트 없음'이면 프로젝트 폴더 힌트는 버리고 회사 폴더만 사용)
+      this.form.storageHint = this.form.noProject
+        ? (c.companyFolder ? { companyFolder: c.companyFolder || '', projectFolder: '' } : null)
+        : ((c.companyFolder || c.projectFolder) ? { companyFolder: c.companyFolder || '', projectFolder: c.projectFolder || '' } : null);
       this.projectSnap = { from: '', to: '' };
       this.guessCands = [];
       this.syncAutoJobTitle(true);

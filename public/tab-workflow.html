@@ -2139,8 +2139,14 @@
             </div>
           </div>
           <div class="wf-field" x-show="!companyNoProject(form.companyName)">
-            <label>프로젝트/현장</label>
-            <input class="wf-input" x-model="form.projectName" @focus="projectPickFocus=true" @blur="setTimeout(()=>projectPickFocus=false,150)" @change="syncAutoJobTitle(); autoFillCompanyFromProject()" @keydown.enter.prevent="enterPickProject('form')" autocomplete="off" placeholder="프로젝트명">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+              <label style="margin:0;">프로젝트/현장</label>
+              <label class="wf-creator" style="cursor:pointer;font-weight:600;font-size:12px;color:#475569;">
+                <input type="checkbox" x-model="form.noProject" @change="if(form.noProject){ form.projectName=''; projectSnap={from:'',to:''}; projectPickFocus=false; } syncAutoJobTitle(true)">
+                <span>프로젝트 없이 등록</span>
+              </label>
+            </div>
+            <input class="wf-input" x-model="form.projectName" :disabled="form.noProject" :placeholder="form.noProject ? '프로젝트 없이 등록됩니다 (회사 폴더에만 저장)' : '프로젝트명'" @focus="projectPickFocus=true" @blur="setTimeout(()=>projectPickFocus=false,150)" @change="syncAutoJobTitle(); autoFillCompanyFromProject()" @keydown.enter.prevent="enterPickProject('form')" autocomplete="off">
             <div x-show="projectSnap.to && form.projectName === projectSnap.to" style="font-size:11px;color:#16a34a;font-weight:700;padding:3px 2px;">
               ✓ 정식 현장명 '<span x-text="projectSnap.to"></span>'으로 맞췄어요 (같은 폴더에 저장됩니다)
               <button type="button" tabindex="-1" @click="undoProjectSnap()" style="margin-left:6px;color:#6b7280;text-decoration:underline;background:none;border:none;cursor:pointer;font-size:11px;padding:0;">'<span x-text="projectSnap.from"></span>'로 되돌리기</button>
