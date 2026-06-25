@@ -731,6 +731,60 @@ router.get('/design/thumb', requireAuth, async (req, res) => {
 
 router.get('/design/status', (req, res) => res.json(designIndexStatus));
 
+// ── ★ 폴더 스캔 (이미지 내용검색 색인 범위 — 폴더명에 ★ 들어간 것만) ──
+// 컨트롤 시크릿(X-Control-Secret) 또는 로그인 허용 → 배포 자동화에서도 호출 가능.
+// ⚠️ async(fs.promises)로만 — 동기 전수 스캔은 이벤트루프를 막아 서버를 멈춤(jobs-detail 사고 교훈).
+function designAuthOrControl(req, res, next) {
+  const s = req.headers['x-control-secret'];
+  const exp = process.env.CONTROL_DAEMON_SECRET;
+  if (s && exp && s === exp) return next();
+  return requireAuth(req, res, next);
+}
+async function countImagesUnder(rootDir, cap) {
+  let n = 0;
+  const stack = [rootDir];
+  while (stack.length) {
+    const dir = stack.pop();
+    let entries;
+    try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); } catch (e) { continue; }
+    for (const ent of entries) {
+      if (ent.isDirectory()) stack.push(path.join(dir, ent.name));
+      else if (FILE_TYPES.image.has(path.extname(ent.name).toLowerCase())) { n++; if (n >= cap) return n; }
+    }
+  }
+  return n;
+}
+async function scanStarFolders(root, maxDepth) {
+  const out = [];
+  const stack = [{ dir: root, depth: 0 }];
+  while (stack.length) {
+    const { dir, depth } = stack.pop();
+    let entries;
+    try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); } catch (e) { continue; }
+    for (const ent of entries) {
+      if (!ent.isDirectory()) continue;
+      const full = path.join(dir, ent.name);
+      if (ent.name.includes('★')) {
+        out.push({ name: ent.name, path: full, network: toNetworkPath(full), imageCount: await countImagesUnder(full, 200000) });
+      } else if (depth < maxDepth) {
+        stack.push({ dir: full, depth: depth + 1 });
+      }
+    }
+  }
+  return out;
+}
+router.get('/design/star-scan', designAuthOrControl, async (req, res) => {
+  try {
+    if (!fs.existsSync(DESIGN_ROOT)) return res.status(404).json({ ok: false, error: '경로 없음: ' + DESIGN_ROOT });
+    const maxDepth = Math.min(6, Math.max(1, parseInt(req.query.depth, 10) || 3));
+    const folders = (await scanStarFolders(DESIGN_ROOT, maxDepth)).sort((a, b) => b.imageCount - a.imageCount);
+    const totalImages = folders.reduce((s, f) => s + f.imageCount, 0);
+    res.json({ ok: true, root: DESIGN_ROOT, maxDepth, folderCount: folders.length, totalImages, folders });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 router.get('/design/workflow-options', requireAuth, (req, res) => {
   const options = designWorkflowOptions();
   const companyTerm = designWorkflowStorage.normalizeKey(req.query.company);
