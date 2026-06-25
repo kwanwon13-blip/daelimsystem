@@ -30,6 +30,14 @@ try {
   // 날짜 조회에 잡힘
   const byDate = sql.pickupRequests.getByDate('2099-01-01');
   assert.ok(byDate.find(r => r.id === req.id));
+
+  // update: items 배열 교체 라운드트립 (기존 2줄 → 1줄로 교체 + 상태 재계산)
+  const rep = sql.pickupRequests.update(req.id, { memo: '수정', items: [{ itemName: 'C', qty: 5, unit: '박스' }] });
+  assert.strictEqual(rep.items.length, 1, 'items 교체 후 1줄');
+  assert.strictEqual(rep.items[0].itemName, 'C');
+  assert.strictEqual(rep.items[0].lineNo, 0, 'lineNo 재부여');
+  assert.strictEqual(rep.memo, '수정');
+  assert.strictEqual(rep.status, 'requested', '새 라인 requested → 요청 requested로 재계산');
 } finally {
   sql.pickupRequests.delete(req.id);
   assert.strictEqual(sql.pickupRequests.getById(req.id), null);

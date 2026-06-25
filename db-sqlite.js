@@ -619,13 +619,38 @@ const pickupRequests = {
     return this.getById(id);
   },
   update(id, changes) {
-    const ALLOWED = ['pickupDate', 'preferredTimeSlot', 'priority', 'memo'];
-    const sets = ALLOWED.filter(k => changes[k] !== undefined);
-    if (sets.length) {
-      const sql = 'UPDATE pickup_requests SET ' + sets.map(k => `${k}=@${k}`).join(', ') + ", updatedAt=datetime('now') WHERE id=@id";
-      const params = { id }; sets.forEach(k => params[k] = changes[k]);
-      db.prepare(sql).run(params);
-    }
+    // 헤더 화이트리스트 + 자유 업체명/매칭(vendorName, vendorId[null 가능])
+    const ALLOWED = ['pickupDate', 'preferredTimeSlot', 'priority', 'memo', 'vendorName', 'vendorId'];
+    const hasItems = Array.isArray(changes.items);
+    const tx = db.transaction(() => {
+      const sets = ALLOWED.filter(k => changes[k] !== undefined);
+      if (sets.length) {
+        const sql = 'UPDATE pickup_requests SET ' + sets.map(k => `${k}=@${k}`).join(', ') + ", updatedAt=datetime('now') WHERE id=@id";
+        const params = { id };
+        sets.forEach(k => params[k] = (k === 'vendorId' ? (changes[k] || null) : changes[k]));
+        db.prepare(sql).run(params);
+      }
+      if (hasItems) {
+        // 기존 라인 전부 삭제 후 재삽입 (create의 삽입 로직과 동일, lineNo 재부여)
+        db.prepare('DELETE FROM pickup_items WHERE requestId = ?').run(id);
+        changes.items.forEach((it, i) => {
+          db.prepare(`
+            INSERT INTO pickup_items (id, requestId, lineNo, itemName, spec, qty, unit, status)
+            VALUES (@id, @requestId, @lineNo, @itemName, @spec, @qty, @unit, 'requested')
+          `).run({
+            id: generateId('pi'), requestId: id, lineNo: i,
+            itemName: it.itemName || '', spec: it.spec || '', qty: Number(it.qty) || 0, unit: it.unit || '개',
+          });
+        });
+        // 라인 교체 후 부모 요청 상태 재계산 (_recompute가 updatedAt도 갱신)
+        this._recompute(id);
+      }
+      // 헤더·items 모두 안 바뀌어도 updatedAt 만큼은 갱신 (no-op 방어)
+      if (!sets.length && !hasItems) {
+        db.prepare("UPDATE pickup_requests SET updatedAt=datetime('now') WHERE id=@id").run({ id });
+      }
+    });
+    tx();
     return this.getById(id);
   },
   cancel(id, by, reason) {

@@ -38,6 +38,27 @@ function todayStr() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// 자유 업체명(vendorName) → 등록업체(vendorId) 자동매칭 (POST·PUT 공용)
+// - vendorId 명시: 등록업체 이름으로 보정. 없는 업체면 {error}.
+// - vendorId 없이 이름만: 등록업체 중 정규화(L.normVendorName) 정확일치 시 자동 링크.
+// 반환: { vendorName, vendorId, error? }
+function resolveVendor(rawName, rawId) {
+  let vendorName = String(rawName || '').trim();
+  let vendorId = rawId || null;
+  if (vendorId) {
+    const vendor = db.sql.vendors.getById(vendorId);
+    if (!vendor) return { error: '없는 업체' };
+    vendorName = vendor.name;
+  } else if (vendorName) {
+    const target = L.normVendorName(vendorName);
+    try {
+      const match = (db.sql.vendors.getAll() || []).find(v => L.normVendorName(v.name) === target);
+      if (match) { vendorId = match.id; vendorName = match.name; }
+    } catch (e) { /* 매칭 실패는 무시하고 이름만 저장 */ }
+  }
+  return { vendorName, vendorId };
+}
+
 // ── 조회: 날짜별 취합 (업체 그룹 메타 포함) ──
 router.get('/requests', requirePerm('pickup_view'), (req, res) => {
   try {
@@ -66,22 +87,9 @@ router.post('/requests', requirePerm('pickup_register'), express.json(), (req, r
     if (!P) return res.status(503).json({ error: 'SQLite 필요' });
     const b = safeBody(req.body, []);
     // 자유 업체명(vendorName)만으로도 등록 허용 — 등록업체(vendorId)는 선택.
-    let vendorName = String(b.vendorName || '').trim();
-    let vendorId = b.vendorId || null;
-    if (vendorId) {
-      // vendorId 가 명시되면 등록업체 이름으로 보정
-      const vendor = db.sql.vendors.getById(vendorId);
-      if (!vendor) return res.status(400).json({ error: '없는 업체' });
-      vendorName = vendor.name;
-    } else if (vendorName) {
-      // vendorId 없이 이름만 들어오면 등록업체 중 이름 정규화 일치 시 자동 링크
-      // (groupByVendor/dedup 과 동일한 정규화 공유: 법인격·괄호·특수문자 무시)
-      const target = L.normVendorName(vendorName);
-      try {
-        const match = (db.sql.vendors.getAll() || []).find(v => L.normVendorName(v.name) === target);
-        if (match) { vendorId = match.id; vendorName = match.name; }
-      } catch (e) { /* 매칭 실패는 무시하고 이름만 저장 */ }
-    }
+    const rv = resolveVendor(b.vendorName, b.vendorId);
+    if (rv.error) return res.status(400).json({ error: rv.error });
+    const { vendorName, vendorId } = rv;
     if (!vendorName) return res.status(400).json({ error: 'vendorName 필수' });
     const pickupDate = b.pickupDate || todayStr();
     const items = Array.isArray(b.items) ? b.items : [];
@@ -124,7 +132,23 @@ router.put('/requests/:id', requirePerm('pickup_register'), express.json(), (req
     if (!cur) return res.status(404).json({ error: 'not found' });
     if (cur.registrarId !== getReqUser(req) && req.user.role !== 'admin')
       return res.status(403).json({ error: '본인 요청만 수정 가능' });
-    const updated = P.update(req.params.id, safeBody(req.body, ['id']));
+    const b = safeBody(req.body, ['id']);
+    const changes = {};
+    // 헤더 필드 — 들어온 것만 반영
+    ['pickupDate', 'preferredTimeSlot', 'priority', 'memo'].forEach(k => {
+      if (b[k] !== undefined) changes[k] = b[k];
+    });
+    // 자유 업체명(vendorName) 주면 재매칭 (vendorId null 가능)
+    if (b.vendorName !== undefined || b.vendorId !== undefined) {
+      const rv = resolveVendor(b.vendorName, b.vendorId);
+      if (rv.error) return res.status(400).json({ error: rv.error });
+      if (!rv.vendorName) return res.status(400).json({ error: 'vendorName 필수' });
+      changes.vendorName = rv.vendorName;
+      changes.vendorId = rv.vendorId;
+    }
+    // items 배열 주면 라인 교체 (db-sqlite update가 트랜잭션·_recompute 처리)
+    if (Array.isArray(b.items)) changes.items = b.items;
+    const updated = P.update(req.params.id, changes);
     auditLog(getReqUser(req), '픽업요청 수정', updated.vendorName);
     res.json(updated);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -142,6 +166,21 @@ router.post('/requests/:id/cancel', requirePerm('pickup_register'), express.json
     const r = P.cancel(req.params.id, getReqUser(req), (req.body && req.body.reason) || '');
     auditLog(getReqUser(req), '픽업요청 취소', cur.vendorName);
     res.json(r);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── 삭제 (등록자 본인 또는 admin) — CASCADE로 라인 함께 삭제 ──
+router.delete('/requests/:id', requirePerm('pickup_register'), (req, res) => {
+  try {
+    const P = pickup();
+    if (!P) return res.status(503).json({ error: 'SQLite 필요' });
+    const cur = P.getById(req.params.id);
+    if (!cur) return res.status(404).json({ error: 'not found' });
+    if (cur.registrarId !== getReqUser(req) && req.user.role !== 'admin')
+      return res.status(403).json({ error: '본인 요청만 삭제 가능' });
+    P.delete(req.params.id);
+    auditLog(getReqUser(req), '픽업요청 삭제', cur.vendorName);
+    res.json({ ok: true, id: req.params.id });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
