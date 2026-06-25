@@ -50,8 +50,11 @@ function workflowApp() {
     projectSnap: { from: '', to: '' },      // 부분 현장명을 정식 현장명으로 맞췄을 때 표시+되돌리기용
     guessCands: [],                          // 파일명 추천 후보(서버 /design/guess-target, top-N) — 1클릭 채움
     guessLoading: false,
+    projectPickFocus: false, // 현장 추천 드롭다운(.wf-project-picks)을 '입력칸 포커스 중'에만 띄움 — 평소엔 아래 날짜칸을 덮지 않게(버그#3)
     boardFocus: '', // '' = 모든 칸 동일 / stageId = 그 칸만 크게(나머지는 시안 레일)
     boardView: 'board', // 'board' 진행 3칸 / 'week' 주간일정 / 'ledger' 통합 내역표 (상단 탭)
+    boardPeriod: 'all',   // 보드 기간필터(완료보관/취소보관 카운트·목록 스코프): all/today/week/month
+    boardPeriodFrom: '', boardPeriodTo: '', // 달력 직접선택(custom 범위) 시작/종료일
     ledgerRows: [],
     ledgerLoading: false,
     ledgerBasis: 'reg',   // 'reg' 등록일 / 'done' 완료일 기준
@@ -876,6 +879,33 @@ function workflowApp() {
       return sc ? st + ' · ' + sc : st;
     },
 
+    // 보드 기간필터 범위(KST) — today / week(월~일) / month(이번달). 완료보관/취소보관 카운트·목록에만 적용.
+    boardPeriodRange() {
+      const now = new Date(); const y = now.getFullYear(), m = now.getMonth(); const p = n => String(n).padStart(2, '0');
+      const fmt = dt => dt.getFullYear() + '-' + p(dt.getMonth() + 1) + '-' + p(dt.getDate());
+      if (this.boardPeriod === 'custom') return { from: this.boardPeriodFrom || '', to: this.boardPeriodTo || '' };
+      if (this.boardPeriod === 'today') { const t = fmt(now); return { from: t, to: t }; }
+      if (this.boardPeriod === 'week') { const dow = (now.getDay() + 6) % 7; return { from: fmt(new Date(y, m, now.getDate() - dow)), to: fmt(new Date(y, m, now.getDate() - dow + 6)) }; }
+      if (this.boardPeriod === 'month') { return { from: y + '-' + p(m + 1) + '-01', to: fmt(new Date(y, m + 1, 0)) }; }
+      return { from: '', to: '' };
+    },
+    async setBoardPeriod(period) {
+      this.boardPeriod = ['today', 'week', 'month'].includes(period) ? period : 'all';
+      this.boardPeriodFrom = ''; this.boardPeriodTo = ''; // 빠른버튼 선택 시 달력 직접선택 해제
+      await this.loadJobs();
+      try { await this.loadArchive(); } catch (_) {}
+    },
+    // 달력 직접선택(시작/종료일) — 하나라도 있으면 custom 범위, 둘 다 비면 전체
+    async onBoardPeriodDate() {
+      this.boardPeriod = (this.boardPeriodFrom || this.boardPeriodTo) ? 'custom' : 'all';
+      await this.loadJobs();
+      try { await this.loadArchive(); } catch (_) {}
+    },
+    boardPeriodLabel() {
+      if (this.boardPeriod === 'custom') return (this.boardPeriodFrom || '처음') + '~' + (this.boardPeriodTo || '오늘');
+      return ({ today: '오늘', week: '이번주', month: '이번달' })[this.boardPeriod] || '전체';
+    },
+
     // 상단 '이번주 일정' 칩 클릭 — 아래 일정함으로 부드럽게 스크롤
     scrollToSchedule() {
       try { this.$refs.scheduleInbox?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
@@ -887,6 +917,7 @@ function workflowApp() {
       if (this.query.trim()) qs.set('q', this.query.trim());
       if (this.statusFilter) qs.set('status', this.statusFilter);
       if (this.scopeFilter && this.scopeFilter !== 'all') qs.set('scope', this.scopeFilter);
+      if (this.boardPeriod && this.boardPeriod !== 'all') { const pr = this.boardPeriodRange(); if (pr.from) qs.set('from', pr.from); if (pr.to) qs.set('to', pr.to); }
       // 진행(active) 보드·주간 캘린더는 작업이 조용히 누락되면 안 됨 → 진행건은 한도 없이 전부 로드.
       // (완료/취소/전체 등 대용량 목록만 80캡 유지 — 과거내역은 이미 limit=0)
       const _activeBoard = this.statusFilter === 'active';
@@ -914,7 +945,9 @@ function workflowApp() {
     // 과거내역(완료 보관) — status=done 작업을 따로 불러와 맨 오른쪽 칸에서 검색
     async loadArchive() {
       try {
-        const r = await fetch('/api/workflow/jobs?status=done&limit=0');
+        const _pr = (this.boardPeriod && this.boardPeriod !== 'all') ? this.boardPeriodRange() : { from: '', to: '' };
+        const _pq = (_pr.from ? '&from=' + _pr.from : '') + (_pr.to ? '&to=' + _pr.to : '');
+        const r = await fetch('/api/workflow/jobs?status=done&limit=0' + _pq);
         const d = await r.json();
         this.archiveJobs = Array.isArray(d.jobs) ? d.jobs : [];
         // 새로고침/갱신 후 선택했던 작업이 목록에서 사라졌으면 우측 패널 비움
@@ -2753,13 +2786,9 @@ function workflowApp() {
       if (guess.companyName && !String(this.form.companyName || '').trim()) {
         this.form.companyName = guess.companyName;
       }
-      if (!guess.projectName && String(this.form.companyName || '').trim()) {
-        const matched = this.bestNameMatch(this.workflowProjectOptionsForCompany(this.form.companyName, false), this.fileNameSearchText(files), ['name', 'folderName']);
-        if (matched) guess.projectName = this.optionDisplayName(matched);
-      }
-      if (guess.projectName && !String(this.form.projectName || '').trim()) {
-        this.form.projectName = guess.projectName;
-      }
+      // 현장(projectName)은 자동으로 채우지 않는다 — 사용자가 직접 입력하거나 우측 '자동 추천' 칩(pickGuess)을 눌러서만 확정.
+      // (자동채움은 사용자가 안 골랐는데 form.projectName이 차고, 등록 시 서버가 그 이름 폴더를 만들어버리는 '멋대로 생긴 프로젝트'의 원인)
+      // 회사명만 자동 보조하고 현장은 빈 채로 둔다 — 빈 현장은 서버가 회사\연도 폴더에 저장(routes/workflow.js).
       if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
     },
 
@@ -2768,13 +2797,8 @@ function workflowApp() {
       if (guess.companyName && !String(this.uploadCompanyName || '').trim()) {
         this.uploadCompanyName = guess.companyName;
       }
-      if (!guess.projectName && String(this.uploadCompanyName || '').trim()) {
-        const matched = this.bestNameMatch(this.workflowProjectOptionsForCompany(this.uploadCompanyName, false), this.fileNameSearchText(files), ['name', 'folderName']);
-        if (matched) guess.projectName = this.optionDisplayName(matched);
-      }
-      if (guess.projectName && !String(this.uploadProjectName || '').trim()) {
-        this.uploadProjectName = guess.projectName;
-      }
+      // 업로드 패널도 동일 정책 — 현장(uploadProjectName)은 자동으로 채우지 않는다(회사만 자동 보조).
+      // 사용자가 추천칩 또는 직접 입력으로만 현장을 확정 → 안 고른 현장 폴더가 멋대로 생기는 것 방지.
       if (!this.uploadDesignDueDate) this.uploadDesignDueDate = this.defaultWorkDate();
     },
 
@@ -4242,8 +4266,9 @@ function workflowApp() {
         const exact = ms.find(m => this.normalizeOptionName(m.projectName) === typedKey);
         const snap = exact ? exact.projectName : (ms.length === 1 ? ms[0].projectName : '');
         if (snap && this.normalizeOptionName(snap) !== typedKey) {
+          // 제안만 보관 — 현장명 글자를 자동으로 바꾸지 않는다(부분명→정식명 스냅은 사용자가 픽커/추천칩으로 확정).
+          // (@change·등록 시 현장칸이 멋대로 바뀌어 '안 고른 현장이 확정됨'으로 체감되던 문제 제거)
           this.projectSnap = { from: this.form.projectName, to: snap };
-          this.form.projectName = snap;
         }
         this.syncAutoJobTitle(true);
       } catch (_) {}

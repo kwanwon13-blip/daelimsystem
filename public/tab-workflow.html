@@ -745,7 +745,19 @@
         </div>
       </div>
 
-      <div class="wf-summary">
+      <div class="wf-summary" style="padding-bottom:3px;border-bottom:none;">
+        <span class="wf-sum-lbl">기간</span>
+        <button type="button" class="wf-metric clickable" :class="boardPeriod==='all'?'on':''" @click="setBoardPeriod('all')"><span>전체</span></button>
+        <button type="button" class="wf-metric clickable" :class="boardPeriod==='month'?'on':''" @click="setBoardPeriod('month')"><span>이번달</span></button>
+        <button type="button" class="wf-metric clickable" :class="boardPeriod==='week'?'on':''" @click="setBoardPeriod('week')"><span>이번주</span></button>
+        <button type="button" class="wf-metric clickable" :class="boardPeriod==='today'?'on':''" @click="setBoardPeriod('today')"><span>오늘</span></button>
+        <span class="wf-sum-lbl" style="margin-left:2px;">또는</span>
+        <input type="date" class="wf-e2e-inp" style="height:28px;width:138px;" :class="boardPeriod==='custom'?'':''" x-model="boardPeriodFrom" @change="onBoardPeriodDate()" title="시작일(완료일 기준)">
+        <span style="color:#94a3b8;">~</span>
+        <input type="date" class="wf-e2e-inp" style="height:28px;width:138px;" x-model="boardPeriodTo" @change="onBoardPeriodDate()" title="종료일(완료일 기준)">
+        <span class="wf-sum-lbl" x-show="boardPeriod!=='all'" style="color:#1d4ed8;">완료·취소 = <span x-text="boardPeriodLabel()"></span> 기준</span>
+      </div>
+            <div class="wf-summary">
         <span class="wf-sum-lbl">상태</span>
         <button type="button" class="wf-metric clickable" :class="isFilterOn('active','all') ? 'on' : ''" @click="setWorkflowListFilter('active')">
           <strong x-text="summary.active || 0"></strong>
@@ -2128,12 +2140,12 @@
           </div>
           <div class="wf-field" x-show="!companyNoProject(form.companyName)">
             <label>프로젝트/현장</label>
-            <input class="wf-input" x-model="form.projectName" @change="syncAutoJobTitle(); autoFillCompanyFromProject()" @keydown.enter.prevent="enterPickProject('form')" autocomplete="off" placeholder="프로젝트명">
+            <input class="wf-input" x-model="form.projectName" @focus="projectPickFocus=true" @blur="setTimeout(()=>projectPickFocus=false,150)" @change="syncAutoJobTitle(); autoFillCompanyFromProject()" @keydown.enter.prevent="enterPickProject('form')" autocomplete="off" placeholder="프로젝트명">
             <div x-show="projectSnap.to && form.projectName === projectSnap.to" style="font-size:11px;color:#16a34a;font-weight:700;padding:3px 2px;">
               ✓ 정식 현장명 '<span x-text="projectSnap.to"></span>'으로 맞췄어요 (같은 폴더에 저장됩니다)
               <button type="button" tabindex="-1" @click="undoProjectSnap()" style="margin-left:6px;color:#6b7280;text-decoration:underline;background:none;border:none;cursor:pointer;font-size:11px;padding:0;">'<span x-text="projectSnap.from"></span>'로 되돌리기</button>
             </div>
-            <div class="wf-project-picks" x-show="!workflowProjectExact(form.companyName, form.projectName) && workflowCompanyHasProjects(form.companyName) && workflowProjectSuggestions(form.companyName, 999, form.projectName).length">
+            <div class="wf-project-picks" x-show="projectPickFocus && !workflowProjectExact(form.companyName, form.projectName) && workflowCompanyHasProjects(form.companyName) && workflowProjectSuggestions(form.companyName, 999, form.projectName).length">
               <template x-for="project in workflowProjectSuggestions(form.companyName, 999, form.projectName)" :key="'new-project-'+project.name">
                 <div class="wf-company-pickrow">
                   <button type="button" tabindex="-1" class="wf-project-pick" @click="form.projectName = project.name; syncAutoJobTitle(true)">

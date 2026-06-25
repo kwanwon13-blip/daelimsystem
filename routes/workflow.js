@@ -2872,7 +2872,18 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
   };
 }
 
+// 완료/취소 카운트의 기간 스코프(완료일/취소일 KST 기준). from/to 없으면 전체.
+function inJobDateRange(iso, from, to) {
+  if (!from && !to) return true;
+  const d = kstDay(iso || '');
+  if (!d) return false;
+  if (from && d < from) return false;
+  if (to && d > to) return false;
+  return true;
+}
+
 function buildSummary(data, req) {
+  const periodFrom = safeText(req.query.from, 20), periodTo = safeText(req.query.to, 20); // 보드 기간필터(완료/취소 카운트 스코프)
   const activeJobs = data.jobs.filter(j => !['done', 'cancelled'].includes(j.status));
   const jobById = new Map((data.jobs || []).map(job => [job.id, job]));
   const filesByJob = workflowItemsByJob(data.files);
@@ -3004,8 +3015,8 @@ function buildSummary(data, req) {
   const scheduleItems = buildScheduleItems(data, req);
   return {
     active: activeJobs.length,
-    done: data.jobs.filter(j => j.status === 'done').length,
-    cancelled: data.jobs.filter(j => j.status === 'cancelled').length,
+    done: data.jobs.filter(j => j.status === 'done' && inJobDateRange(j.completedAt, periodFrom, periodTo)).length,
+    cancelled: data.jobs.filter(j => j.status === 'cancelled' && inJobDateRange(j.cancelledAt || j.updatedAt, periodFrom, periodTo)).length,
     readyToComplete,
     overdue: activeJobs.filter(job => isOverdueJob(job) || overdueStageCount(job) > 0).length,
     overdueStages: activeJobs.reduce((sum, job) => sum + overdueStageCount(job), 0),
@@ -4111,6 +4122,13 @@ router.get('/jobs', (req, res) => {
   };
   let jobs = data.jobs.slice();
   if (status && status !== 'all') jobs = jobs.filter(j => j.status === status);
+  // 보드 기간필터(완료일/취소일 KST) — 완료/취소 목록만 스코프(진행은 항상 현재). from/to 없으면 전체.
+  {
+    const _pf = safeText(req.query.from, 20), _pt = safeText(req.query.to, 20);
+    if ((_pf || _pt) && (status === 'done' || status === 'cancelled')) {
+      jobs = jobs.filter(j => inJobDateRange(j.status === 'cancelled' ? (j.cancelledAt || j.updatedAt) : j.completedAt, _pf, _pt));
+    }
+  }
   if (q) {
     jobs = jobs.filter(j => workflowJobSearchText(data, j).includes(q));
   }
