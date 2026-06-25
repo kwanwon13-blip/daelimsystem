@@ -18,6 +18,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
+const pickupLogic = require('./lib/pickup-logic');
 
 const DB_PATH = path.join(__dirname, 'data', '업무데이터.db');
 
@@ -124,6 +125,71 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_quote_items_quote ON quote_items(quoteId);
   CREATE INDEX IF NOT EXISTS idx_quotes_status ON quotes(status);
   CREATE INDEX IF NOT EXISTS idx_quotes_vendorId ON quotes(vendorId);
+
+  CREATE TABLE IF NOT EXISTS pickup_requests (
+    id TEXT PRIMARY KEY,
+    registrarId TEXT NOT NULL,
+    registrarName TEXT DEFAULT '',
+    pickupDate TEXT NOT NULL,
+    vendorId TEXT NOT NULL,
+    vendorName TEXT DEFAULT '',
+    preferredTimeSlot TEXT DEFAULT '',
+    priority TEXT DEFAULT 'normal',
+    status TEXT DEFAULT 'requested',
+    sourceType TEXT DEFAULT 'manual',
+    sourceJobId TEXT DEFAULT NULL,
+    sourceRef TEXT DEFAULT NULL,
+    memo TEXT DEFAULT '',
+    isLate INTEGER DEFAULT 0,
+    requestedAt TEXT DEFAULT (datetime('now')),
+    courseConfirmedAt TEXT DEFAULT NULL,
+    updatedAt TEXT DEFAULT (datetime('now')),
+    cancelledAt TEXT DEFAULT NULL,
+    cancelledBy TEXT DEFAULT NULL,
+    cancelReason TEXT DEFAULT '',
+    courseId TEXT DEFAULT NULL,
+    FOREIGN KEY (vendorId) REFERENCES vendors(id) ON DELETE RESTRICT
+  );
+
+  CREATE TABLE IF NOT EXISTS pickup_items (
+    id TEXT PRIMARY KEY,
+    requestId TEXT NOT NULL,
+    lineNo INTEGER DEFAULT 0,
+    itemName TEXT NOT NULL,
+    spec TEXT DEFAULT '',
+    qty REAL DEFAULT 0,
+    unit TEXT DEFAULT '개',
+    status TEXT DEFAULT 'requested',
+    pickedQty REAL DEFAULT NULL,
+    failReason TEXT DEFAULT '',
+    checkedAt TEXT DEFAULT NULL,
+    checkedBy TEXT DEFAULT NULL,
+    FOREIGN KEY (requestId) REFERENCES pickup_requests(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS pickup_courses (
+    id TEXT PRIMARY KEY,
+    pickupDate TEXT NOT NULL,
+    courseNumber INTEGER,
+    vendorId TEXT,
+    vendorName TEXT DEFAULT '',
+    status TEXT DEFAULT 'draft',
+    assignedDriver TEXT DEFAULT '',
+    vehicle TEXT DEFAULT '',
+    sortOrder INTEGER DEFAULT 0,
+    confirmedAt TEXT DEFAULT NULL,
+    completedAt TEXT DEFAULT NULL,
+    notes TEXT DEFAULT '',
+    createdAt TEXT DEFAULT (datetime('now')),
+    updatedAt TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_pickup_req_date   ON pickup_requests(pickupDate);
+  CREATE INDEX IF NOT EXISTS idx_pickup_req_vendor ON pickup_requests(vendorId);
+  CREATE INDEX IF NOT EXISTS idx_pickup_req_status ON pickup_requests(status);
+  CREATE INDEX IF NOT EXISTS idx_pickup_req_source ON pickup_requests(sourceJobId);
+  CREATE INDEX IF NOT EXISTS idx_pickup_items_req  ON pickup_items(requestId);
+  CREATE INDEX IF NOT EXISTS idx_pickup_courses_date ON pickup_courses(pickupDate);
 `);
 
 // ── 기존 DB 마이그레이션: quote_items.meta 컬럼 없으면 추가 ──
@@ -133,6 +199,23 @@ try {
     db.prepare("ALTER TABLE quote_items ADD COLUMN meta TEXT DEFAULT '{}'").run();
   }
 } catch(e) { console.warn('quote_items meta 마이그레이션 오류:', e.message); }
+
+// ── vendors 픽업 필드 마이그레이션 (없는 컬럼만 ALTER) ──
+try {
+  const vcols = db.prepare("PRAGMA table_info(vendors)").all().map(c => c.name);
+  const adds = [
+    ["vendorType", "TEXT DEFAULT '기타'"],
+    ["mapSearchKeyword", "TEXT DEFAULT ''"],
+    ["contactPerson", "TEXT DEFAULT ''"],
+    ["contactPhone", "TEXT DEFAULT ''"],
+    ["pickupMemo", "TEXT DEFAULT ''"],
+    ["parkingAccessMemo", "TEXT DEFAULT ''"],
+    ["isActive", "INTEGER DEFAULT 1"],
+  ];
+  for (const [col, def] of adds) {
+    if (!vcols.includes(col)) db.prepare(`ALTER TABLE vendors ADD COLUMN ${col} ${def}`).run();
+  }
+} catch (e) { console.warn('vendors 픽업필드 마이그레이션 오류:', e.message); }
 
 // ── 워크플로 이력(events) 테이블 — 섀도 이관 대상(routes/workflow.js의 단일 events 배열) ──
 // 멱등 CREATE. try-catch로 감싸 어떤 경우에도 서버 부팅을 막지 않음(실패 시 events는 JSON으로 계속 동작).
@@ -333,9 +416,18 @@ const vendors = {
   create(v) {
     const id = v.id || generateId('v');
     db.prepare(`
-      INSERT INTO vendors (id, name, bizNo, ceo, phone, email, address, note)
-      VALUES (@id, @name, @bizNo, @ceo, @phone, @email, @address, @note)
-    `).run({ id, name: v.name||'', bizNo: v.bizNo||'', ceo: v.ceo||'', phone: v.phone||'', email: v.email||'', address: v.address||'', note: v.note||'' });
+      INSERT INTO vendors (id, name, bizNo, ceo, phone, email, address, note,
+        vendorType, mapSearchKeyword, contactPerson, contactPhone, pickupMemo, parkingAccessMemo, isActive)
+      VALUES (@id, @name, @bizNo, @ceo, @phone, @email, @address, @note,
+        @vendorType, @mapSearchKeyword, @contactPerson, @contactPhone, @pickupMemo, @parkingAccessMemo, @isActive)
+    `).run({
+      id, name: v.name||'', bizNo: v.bizNo||'', ceo: v.ceo||'', phone: v.phone||'',
+      email: v.email||'', address: v.address||'', note: v.note||'',
+      vendorType: v.vendorType||'기타', mapSearchKeyword: v.mapSearchKeyword||'',
+      contactPerson: v.contactPerson||'', contactPhone: v.contactPhone||'',
+      pickupMemo: v.pickupMemo||'', parkingAccessMemo: v.parkingAccessMemo||'',
+      isActive: (v.isActive === undefined ? 1 : (v.isActive ? 1 : 0))
+    });
     return this.getById(id);
   },
 
@@ -343,8 +435,12 @@ const vendors = {
     const existing = this.getById(id);
     if (!existing) return null;
     const merged = { ...existing, ...changes, id };
+    if (merged.isActive !== undefined) merged.isActive = merged.isActive ? 1 : 0;
     db.prepare(`
-      UPDATE vendors SET name=@name, bizNo=@bizNo, ceo=@ceo, phone=@phone, email=@email, address=@address, note=@note
+      UPDATE vendors SET name=@name, bizNo=@bizNo, ceo=@ceo, phone=@phone, email=@email,
+        address=@address, note=@note, vendorType=@vendorType, mapSearchKeyword=@mapSearchKeyword,
+        contactPerson=@contactPerson, contactPhone=@contactPhone, pickupMemo=@pickupMemo,
+        parkingAccessMemo=@parkingAccessMemo, isActive=@isActive
       WHERE id=@id
     `).run(merged);
     return this.getById(id);
@@ -401,6 +497,100 @@ const vendorPrices = {
     });
     tx();
   }
+};
+
+// ── Pickup (픽업관리) ────────────────────────────────
+const pickupRequests = {
+  // 날짜별 취합 (요청 + 품목 + 업체 픽업정보)
+  getByDate(pickupDate) {
+    const reqs = db.prepare('SELECT * FROM pickup_requests WHERE pickupDate = ? ORDER BY requestedAt').all(pickupDate);
+    return reqs.map(r => this._hydrate(r));
+  },
+  getMine(registrarId, pickupDate) {
+    const reqs = db.prepare('SELECT * FROM pickup_requests WHERE registrarId = ? AND pickupDate = ? ORDER BY requestedAt DESC')
+      .all(registrarId, pickupDate);
+    return reqs.map(r => this._hydrate(r));
+  },
+  getById(id) {
+    const r = db.prepare('SELECT * FROM pickup_requests WHERE id = ?').get(id);
+    return r ? this._hydrate(r) : null;
+  },
+  _hydrate(r) {
+    const items = db.prepare('SELECT * FROM pickup_items WHERE requestId = ? ORDER BY lineNo, id').all(r.id);
+    const v = db.prepare('SELECT name, phone, address, mapSearchKeyword, contactPerson, contactPhone, pickupMemo, parkingAccessMemo FROM vendors WHERE id = ?').get(r.vendorId) || {};
+    return { ...r, items, vendor: v };
+  },
+  // 생성: 요청 1건 + 품목 N개 (트랜잭션)
+  create(reqData, items) {
+    const id = reqData.id || generateId('pk');
+    const create = db.transaction(() => {
+      db.prepare(`
+        INSERT INTO pickup_requests (id, registrarId, registrarName, pickupDate, vendorId, vendorName,
+          preferredTimeSlot, priority, status, sourceType, sourceJobId, sourceRef, memo, isLate)
+        VALUES (@id, @registrarId, @registrarName, @pickupDate, @vendorId, @vendorName,
+          @preferredTimeSlot, @priority, @status, @sourceType, @sourceJobId, @sourceRef, @memo, @isLate)
+      `).run({
+        id,
+        registrarId: reqData.registrarId, registrarName: reqData.registrarName || '',
+        pickupDate: reqData.pickupDate, vendorId: reqData.vendorId, vendorName: reqData.vendorName || '',
+        preferredTimeSlot: reqData.preferredTimeSlot || '', priority: reqData.priority || 'normal',
+        status: 'requested', sourceType: reqData.sourceType || 'manual',
+        sourceJobId: reqData.sourceJobId || null, sourceRef: reqData.sourceRef || null,
+        memo: reqData.memo || '', isLate: reqData.isLate ? 1 : 0,
+      });
+      (items || []).forEach((it, i) => {
+        db.prepare(`
+          INSERT INTO pickup_items (id, requestId, lineNo, itemName, spec, qty, unit, status)
+          VALUES (@id, @requestId, @lineNo, @itemName, @spec, @qty, @unit, 'requested')
+        `).run({
+          id: generateId('pi'), requestId: id, lineNo: i,
+          itemName: it.itemName || '', spec: it.spec || '', qty: Number(it.qty) || 0, unit: it.unit || '개',
+        });
+      });
+    });
+    create();
+    return this.getById(id);
+  },
+  update(id, changes) {
+    const ALLOWED = ['pickupDate', 'preferredTimeSlot', 'priority', 'memo'];
+    const sets = ALLOWED.filter(k => changes[k] !== undefined);
+    if (sets.length) {
+      const sql = 'UPDATE pickup_requests SET ' + sets.map(k => `${k}=@${k}`).join(', ') + ", updatedAt=datetime('now') WHERE id=@id";
+      const params = { id }; sets.forEach(k => params[k] = changes[k]);
+      db.prepare(sql).run(params);
+    }
+    return this.getById(id);
+  },
+  cancel(id, by, reason) {
+    db.prepare("UPDATE pickup_items SET status='cancelled' WHERE requestId=?").run(id);
+    db.prepare("UPDATE pickup_requests SET status='cancelled', cancelledAt=datetime('now'), cancelledBy=@by, cancelReason=@reason, updatedAt=datetime('now') WHERE id=@id")
+      .run({ id, by: by || '', reason: reason || '' });
+    return this.getById(id);
+  },
+  delete(id) {
+    return db.prepare('DELETE FROM pickup_requests WHERE id = ?').run(id); // CASCADE로 items 삭제
+  },
+  // 라인 상태 변경 → 부모 요청 상태 재계산
+  setItemStatus(itemId, patch, checkedBy) {
+    const item = db.prepare('SELECT * FROM pickup_items WHERE id = ?').get(itemId);
+    if (!item) return null;
+    db.prepare(`UPDATE pickup_items SET status=@status, pickedQty=@pickedQty, failReason=@failReason,
+        checkedAt=datetime('now'), checkedBy=@checkedBy WHERE id=@id`).run({
+      id: itemId,
+      status: patch.status || item.status,
+      pickedQty: (patch.pickedQty === undefined ? item.pickedQty : Number(patch.pickedQty)),
+      failReason: patch.failReason !== undefined ? patch.failReason : item.failReason,
+      checkedBy: checkedBy || '',
+    });
+    this._recompute(item.requestId);
+    return this.getById(item.requestId);
+  },
+  _recompute(requestId) {
+    const items = db.prepare('SELECT status FROM pickup_items WHERE requestId = ?').all(requestId);
+    const req = db.prepare('SELECT courseConfirmedAt FROM pickup_requests WHERE id = ?').get(requestId);
+    const status = pickupLogic.computeRequestStatus(items, { courseConfirmed: !!(req && req.courseConfirmedAt) });
+    db.prepare("UPDATE pickup_requests SET status=@status, updatedAt=datetime('now') WHERE id=@id").run({ id: requestId, status });
+  },
 };
 
 // ── Quotes (견적서) ──────────────────────────────────
@@ -686,6 +876,7 @@ module.exports = {
   options,
   vendors,
   vendorPrices,
+  pickupRequests,
   quotes,
   events,
   jobs,
