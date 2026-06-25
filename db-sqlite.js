@@ -629,6 +629,10 @@ const pickupRequests = {
     return this.getById(id);
   },
   cancel(id, by, reason) {
+    // 멱등: 이미 취소된 요청이면 no-op (cancelledAt/By/Reason 덮어쓰기 방지, 수거기록 보존)
+    const existing = db.prepare('SELECT status FROM pickup_requests WHERE id = ?').get(id);
+    if (!existing) return null;
+    if (existing.status === 'cancelled') return this.getById(id);
     db.prepare("UPDATE pickup_items SET status='cancelled' WHERE requestId=?").run(id);
     db.prepare("UPDATE pickup_requests SET status='cancelled', cancelledAt=datetime('now'), cancelledBy=@by, cancelReason=@reason, updatedAt=datetime('now') WHERE id=@id")
       .run({ id, by: by || '', reason: reason || '' });
@@ -641,6 +645,9 @@ const pickupRequests = {
   setItemStatus(itemId, patch, checkedBy) {
     const item = db.prepare('SELECT * FROM pickup_items WHERE id = ?').get(itemId);
     if (!item) return null;
+    // 보안: 부모 요청이 취소된 상태면 라인 상태 변경 차단 (취소된 요청의 라인을 되살리지 못하게)
+    const parent = db.prepare('SELECT status FROM pickup_requests WHERE id = ?').get(item.requestId);
+    if (parent && parent.status === 'cancelled') return this.getById(item.requestId);
     db.prepare(`UPDATE pickup_items SET status=@status, pickedQty=@pickedQty, failReason=@failReason,
         checkedAt=datetime('now'), checkedBy=@checkedBy WHERE id=@id`).run({
       id: itemId,

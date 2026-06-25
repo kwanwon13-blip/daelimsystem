@@ -75,15 +75,32 @@ router.post('/requests', requirePerm('pickup_register'), express.json(), (req, r
       vendorName = vendor.name;
     } else if (vendorName) {
       // vendorId 없이 이름만 들어오면 등록업체 중 이름 정규화 일치 시 자동 링크
-      const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, '');
-      const target = norm(vendorName);
+      // (groupByVendor/dedup 과 동일한 정규화 공유: 법인격·괄호·특수문자 무시)
+      const target = L.normVendorName(vendorName);
       try {
-        const match = (db.sql.vendors.getAll() || []).find(v => norm(v.name) === target);
+        const match = (db.sql.vendors.getAll() || []).find(v => L.normVendorName(v.name) === target);
         if (match) { vendorId = match.id; vendorName = match.name; }
       } catch (e) { /* 매칭 실패는 무시하고 이름만 저장 */ }
     }
     if (!vendorName) return res.status(400).json({ error: 'vendorName 필수' });
     const pickupDate = b.pickupDate || todayStr();
+    const items = Array.isArray(b.items) ? b.items : [];
+    // 가벼운 중복방지(클라 재시도 2차 방어): 같은 등록자+픽업일+정규화 업체명으로
+    // 최근 90초 내 동일 itemName 집합 요청이 이미 있으면 신규 INSERT 대신 그 요청을 반환.
+    try {
+      const normName = L.normVendorName(vendorName);
+      const itemKey = items.map(it => String((it && it.itemName) || '').trim()).filter(Boolean).sort().join('|');
+      const nowMs = Date.now();
+      const recent = (P.getMine(getReqUser(req), pickupDate) || []).find(r => {
+        if (r.status === 'cancelled') return false;
+        if (L.normVendorName(r.vendorName) !== normName) return false;
+        const t = Date.parse((r.requestedAt || '').replace(' ', 'T') + 'Z');
+        if (!t || (nowMs - t) > 90000 || (nowMs - t) < 0) return false;
+        const rKey = (r.items || []).map(it => String((it && it.itemName) || '').trim()).filter(Boolean).sort().join('|');
+        return rKey === itemKey;
+      });
+      if (recent) return res.json(recent);
+    } catch (e) { /* dedup 실패는 무시하고 정상 등록 진행 */ }
     const isLate = L.computeIsLate(new Date(), cutoffTime(), pickupDate, todayStr());
     const created = P.create({
       registrarId: getReqUser(req), registrarName: (req.user && req.user.name) || '',
@@ -91,7 +108,7 @@ router.post('/requests', requirePerm('pickup_register'), express.json(), (req, r
       preferredTimeSlot: b.preferredTimeSlot, priority: b.priority, memo: b.memo,
       sourceType: b.sourceType === 'workflow' ? 'workflow' : 'manual',
       sourceJobId: b.sourceJobId || null, isLate,
-    }, Array.isArray(b.items) ? b.items : []);
+    }, items);
     auditLog(getReqUser(req), '픽업요청 등록', vendorName + (isLate ? ' (추가요청)' : ''));
     notifyDeliveryTeam(`${isLate ? '🔴추가요청 ' : ''}${vendorName} 픽업요청 (${pickupDate})`);
     res.json(created);

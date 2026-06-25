@@ -47,6 +47,17 @@ assert.ok(text.includes('[라코스]'));
 assert.ok(text.includes('현수막 600x900 3개'));
 assert.ok(text.includes('[세원]'));
 
+// ── normVendorName: 소문자·공백 + 법인격·괄호·특수문자 무시 ──
+assert.strictEqual(L.normVendorName('라코스'), '라코스');
+assert.strictEqual(L.normVendorName('라코스(주)'), '라코스');
+assert.strictEqual(L.normVendorName('㈜라코스'), '라코스');
+assert.strictEqual(L.normVendorName('주식회사 라코스'), '라코스');
+assert.strictEqual(L.normVendorName(' 라 코 스 '), '라코스');
+assert.strictEqual(L.normVendorName('ABC-Corp'), 'abccorp');
+// 세 표기가 모두 같은 norm
+assert.strictEqual(L.normVendorName('라코스'), L.normVendorName('라코스(주)'));
+assert.strictEqual(L.normVendorName('라코스(주)'), L.normVendorName('㈜라코스'));
+
 // ── groupByVendor ──
 const grouped = L.groupByVendor([
   { vendorId: 'v1', vendorName: '라코스', items: [{ itemName: 'A' }] },
@@ -56,5 +67,15 @@ const grouped = L.groupByVendor([
 assert.strictEqual(grouped.length, 2);
 const g1 = grouped.find(g => g.vendorId === 'v1');
 assert.strictEqual(g1.items.length, 2); // 두 요청의 품목 합쳐짐
+assert.strictEqual(g1.groupKey, 'v1');  // vendorId 있으면 groupKey = vendorId
+
+// 자유 업체명(vendorId 없음): 정규화한 이름 다른 표기도 한 그룹 + groupKey 노출
+const groupedFree = L.groupByVendor([
+  { vendorId: null, vendorName: '라코스', items: [{ itemName: 'A' }] },
+  { vendorId: null, vendorName: '㈜라코스', items: [{ itemName: 'B' }] },
+]);
+assert.strictEqual(groupedFree.length, 1); // 정규화로 한 업체
+assert.strictEqual(groupedFree[0].groupKey, 'name:' + L.normVendorName('라코스'));
+assert.strictEqual(groupedFree[0].items.length, 2);
 
 console.log('✅ pickup-logic 테스트 통과');
