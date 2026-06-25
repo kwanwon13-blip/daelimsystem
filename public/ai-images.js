@@ -403,6 +403,12 @@ function renderDetail(img) {
       '<dl class="meta-grid">' + metaHtml + '</dl>' +
     '</div>' +
 
+    // 비슷한 이미지 (모아보기) — 0개면 JS 가 숨김. 로드 전 자리만 둠.
+    '<div class="detail-block sim-block" id="simBlock" style="display:none;">' +
+      '<div class="detail-block-label"><span class="material-symbols-outlined">image_search</span>비슷한 이미지</div>' +
+      '<div class="sim-strip" id="simStrip"></div>' +
+    '</div>' +
+
     // 편집: 제목·메모·태그·앨범
     '<div class="detail-block">' +
       '<div class="detail-block-label"><span class="material-symbols-outlined">tune</span>정리</div>' +
@@ -435,6 +441,43 @@ function renderDetail(img) {
   renderDetailTagChips();
   renderDetailFavState(img.favorite);
   wireDetailHandlers(img);
+  loadSimilar(img.id);
+}
+
+// ── 비슷한 이미지 (모아보기) ──
+// GET /images/:id/similar → { ok, images:[ {…행…, _sim} ] }. 타일 클릭 시 그 상세로 전환.
+let _simReqId = 0;
+async function loadSimilar(id) {
+  id = Number(id);
+  const reqId = ++_simReqId;   // 빠른 상세 전환 시 늦게 온 응답 무시
+  const block = $('simBlock');
+  const strip = $('simStrip');
+  if (!block || !strip) return;
+  try {
+    const data = await apiJson('/images/' + id + '/similar?limit=8');
+    if (reqId !== _simReqId || state.detailId !== id) return;  // 그새 다른 이미지로 이동했으면 버림
+    const list = (data && data.images) || [];
+    if (!list.length) { block.style.display = 'none'; strip.innerHTML = ''; return; }
+    strip.innerHTML = list.map(simTileHtml).join('');
+    block.style.display = '';
+  } catch (e) {
+    // 비슷한 이미지 실패는 조용히 (상세 본문은 그대로 유지)
+    if (reqId !== _simReqId || state.detailId !== id) return;
+    block.style.display = 'none';
+    strip.innerHTML = '';
+  }
+}
+function simTileHtml(img) {
+  const thumb = img.url
+    ? '<img src="' + escapeHtml(img.url) + '" alt="" loading="lazy" onerror="this.style.display=\'none\';this.parentNode.classList.add(\'ph-fallback\')">'
+    : '<span class="ph"><span class="material-symbols-outlined">image</span></span>';
+  const title = img.title || (img.prompt || '').slice(0, 30) || '제목 없음';
+  const sim = Number(img._sim) || 0;
+  const simBadge = sim > 0 ? '<span class="sim-badge">' + sim + '% 비슷</span>' : '';
+  return '<button class="sim-tile" data-sim-id="' + img.id + '" title="' + escapeHtml(title) + '">' +
+    '<span class="sim-thumb">' + thumb + simBadge + '</span>' +
+    '<span class="sim-title">' + escapeHtml(title) + '</span>' +
+  '</button>';
 }
 
 let detailTags = [];
@@ -783,6 +826,11 @@ function wire() {
   // 상세
   $('detailClose').addEventListener('click', closeDetail);
   $('detailBg').addEventListener('click', closeDetail);
+  // 비슷한 이미지 타일 클릭 → 그 이미지 상세로 전환 (위임: detailBody 는 정적 노드)
+  $('detailBody').addEventListener('click', (e) => {
+    const simBtn = e.target.closest('[data-sim-id]');
+    if (simBtn) { e.preventDefault(); openDetail(simBtn.getAttribute('data-sim-id')); }
+  });
 
   // 모달
   $('modalCancel').addEventListener('click', closeModal);

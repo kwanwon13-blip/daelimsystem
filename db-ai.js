@@ -237,6 +237,27 @@ if (ready) {
     }
   } catch (e) { console.warn('[db-ai] knowledge 마이그레이션 실패:', e.message); }
 
+  // ── 마이그레이션: ai_images 자기정리용 컬럼 (type·client·keywords·embedding) ──
+  // "비슷한 이미지" 규칙기반 분류(1단계) + 임베딩(2단계) 준비.
+  // 기존 행 보존: 없으면만 ALTER, 각각 try/catch 로 안전하게.
+  try {
+    const cols = db.prepare("PRAGMA table_info(ai_images)").all();
+    const have = new Set(cols.map(c => c.name));
+    const adds = [
+      ['type',      "ALTER TABLE ai_images ADD COLUMN type TEXT DEFAULT ''"],
+      ['client',    "ALTER TABLE ai_images ADD COLUMN client TEXT DEFAULT ''"],
+      ['keywords',  "ALTER TABLE ai_images ADD COLUMN keywords TEXT DEFAULT ''"],
+      ['embedding', "ALTER TABLE ai_images ADD COLUMN embedding TEXT DEFAULT ''"],
+    ];
+    for (const [name, sql] of adds) {
+      if (have.has(name)) continue;
+      try {
+        db.exec(sql);
+        console.log(`[db-ai] ai_images.${name} 컬럼 추가됨 (비슷한 이미지 자기정리)`);
+      } catch (e) { console.warn(`[db-ai] ai_images.${name} 마이그레이션 실패:`, e.message); }
+    }
+  } catch (e) { console.warn('[db-ai] ai_images 분류 컬럼 마이그레이션 실패:', e.message); }
+
   // 기본 "(미분류)" 가상 프로젝트는 project_id=NULL 로 표현 → 레코드 불필요
 }
 
@@ -859,7 +880,8 @@ const artifacts = {
 // ──────────────────────────────────────────────────────────
 const images = {
   create({ ownerId, ownerName, title, userInput, prompt, model, size, quality,
-           costUsd, storedName, url, threadId, messageId, collectionId, tags, promptNorm }) {
+           costUsd, storedName, url, threadId, messageId, collectionId, tags, promptNorm,
+           type, client, keywords }) {
     if (!ready) throw new Error('DB 미사용');
     const now = nowIso();
     const dateYmd = now.slice(0, 10);
@@ -867,15 +889,15 @@ const images = {
       INSERT INTO ai_images
         (owner_id, owner_name, title, user_input, prompt, model, size, quality,
          cost_usd, stored_name, url, thread_id, message_id, collection_id,
-         tags, favorite, note, prompt_norm, created_at, date_ymd)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', ?, ?, ?)
+         tags, favorite, note, prompt_norm, type, client, keywords, created_at, date_ymd)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', ?, ?, ?, ?, ?, ?)
     `).run(
       String(ownerId), ownerName || '', title || '', userInput || '',
       String(prompt || ''), model || '', size || '', quality || '',
       Number(costUsd) || 0, String(storedName || ''), String(url || ''),
       threadId || null, messageId || null,
       (collectionId === undefined || collectionId === null) ? null : collectionId,
-      tags || '', promptNorm || '', now, dateYmd
+      tags || '', promptNorm || '', type || '', client || '', keywords || '', now, dateYmd
     );
     return this.get(r.lastInsertRowid);
   },
@@ -968,6 +990,97 @@ const images = {
       monthCount: m ? m.cnt : 0,
       monthCostUsd: m ? m.cost : 0,
     };
+  },
+
+  // ── "비슷한 이미지" 자기정리 (1단계: 규칙기반 점수) ──
+  // 후보를 owner/excludeId/(있으면) type·client 로 SQL 1차 축소 → JS 에서 점수계산.
+  // 점수: 같은 client +50, 같은 type +25, keywords 교집합 토큰당 +10,
+  //       promptNorm 공백토큰(2글자+) 교집합당 +3(상한 +30), tags 교집합 토큰당 +8.
+  // 점수>0 만, score desc·created_at desc, limit 개. 각 행에 _score·_sim(0~100) 부착.
+  // 2단계 자리: embedding 이 차 있으면 코사인유사도 가산 (지금은 빈 문자열 → 미적용).
+  findSimilar({ ownerId, isAdmin = false, type = '', client = '',
+                keywords = '', promptNorm = '', excludeId = null, limit = 8 } = {}) {
+    if (!ready) return [];
+    const tokenize = (s) => String(s == null ? '' : s)
+      .toLowerCase().split(',').map(t => t.trim()).filter(Boolean);
+    const wordTokens = (s) => String(s == null ? '' : s)
+      .toLowerCase().split(/\s+/).map(t => t.trim()).filter(t => t.length >= 2);
+
+    const wantType = String(type || '').trim();
+    const wantClient = String(client || '').trim();
+    const kwSet = new Set(tokenize(keywords));
+    const promptSet = new Set(wordTokens(promptNorm));
+    // tags 비교: 질의에 별도 tags 입력이 없으므로 keywords 토큰을 태그 시드로 재사용
+    // (후보행 tags ∩ 내 keywords 교집합으로 평가)
+    const myTagSeed = new Set([...kwSet]);
+
+    // 후보 1차 축소 (성능): 본인(or admin 전체) + excludeId 제외 + (type|client 있으면) 둘 중 하나 일치
+    const where = [];
+    const params = [];
+    if (!isAdmin) { where.push('owner_id = ?'); params.push(String(ownerId)); }
+    const exId = parseInt(excludeId, 10);
+    if (Number.isFinite(exId)) {
+      where.push('id <> ?'); params.push(exId);
+    }
+    if (wantType && wantClient) {
+      where.push('(type = ? OR client = ?)'); params.push(wantType, wantClient);
+    } else if (wantType) {
+      where.push('type = ?'); params.push(wantType);
+    } else if (wantClient) {
+      where.push('client = ?'); params.push(wantClient);
+    }
+    const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+    // 1차 후보는 넉넉히 (점수 계산 후 limit 자름)
+    const rows = db.prepare(
+      `SELECT * FROM ai_images ${whereSql} ORDER BY created_at DESC LIMIT 400`
+    ).all(...params);
+
+    const scored = [];
+    for (const r of rows) {
+      let score = 0;
+      // 같은 client (비어있지 않고 일치)
+      if (wantClient && r.client && String(r.client).trim() === wantClient) score += 50;
+      // 같은 type
+      if (wantType && r.type && String(r.type).trim() === wantType) score += 25;
+      // keywords 교집합 (토큰당 +10)
+      if (kwSet.size) {
+        const rk = tokenize(r.keywords);
+        let seen = new Set();
+        for (const t of rk) { if (kwSet.has(t) && !seen.has(t)) { score += 10; seen.add(t); } }
+      }
+      // promptNorm 토큰 교집합 (당 +3, 상한 +30)
+      if (promptSet.size) {
+        const rp = wordTokens(r.prompt_norm);
+        let bonus = 0, seen = new Set();
+        for (const t of rp) { if (promptSet.has(t) && !seen.has(t)) { bonus += 3; seen.add(t); } }
+        score += Math.min(30, bonus);
+      }
+      // tags 교집합 (토큰당 +8) — 후보 tags ∩ 내 keywords
+      if (myTagSeed.size) {
+        const rt = tokenize(r.tags);
+        let seen = new Set();
+        for (const t of rt) { if (myTagSeed.has(t) && !seen.has(t)) { score += 8; seen.add(t); } }
+      }
+      // ── 2단계 자리: embedding 코사인유사도 가산 ──
+      // if (r.embedding && queryEmbedding) { score += Math.round(cosine(...) * 40); }
+      // (지금은 embedding 빈 문자열이라 미적용 — 시그니처/스키마만 준비)
+      if (score > 0) { r._score = score; scored.push(r); }
+    }
+
+    scored.sort((a, b) => {
+      if (b._score !== a._score) return b._score - a._score;
+      return String(b.created_at || '').localeCompare(String(a.created_at || ''));
+    });
+
+    const lim = Math.min(50, Math.max(1, parseInt(limit, 10) || 8));
+    const top = scored.slice(0, lim);
+    // _sim: 상대(최고=100)가 아니라 절대 기준 — 같은 거래처(50)+같은 종류(25)+키워드 2개(20)≈매우 비슷.
+    const STRONG_MATCH = 95;
+    for (const r of top) {
+      r._score = Math.round(r._score);
+      r._sim = Math.min(100, Math.round((r._score / STRONG_MATCH) * 100));
+    }
+    return top;
   }
 };
 

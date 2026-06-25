@@ -23,6 +23,12 @@ const state = {
   imageAspect: 'square',   // 'square' | 'wide' | 'tall'
   imageTier: 'normal',     // 'normal' | 'large'
   imageQuality: 'medium',  // 'medium' | 'high'
+  // 비슷한 이미지 도크 (입력 중 재사용 추천)
+  simItems: [],            // 마지막으로 받은 후보 이미지 목록
+  simSeq: 0,               // 최신 요청만 반영(경합 방지)
+  simTimer: null,          // 입력 디바운스 타이머
+  simRefImage: null,       // "참고" 로 들어온 기존 이미지 { url, title }
+  simManualHide: false,    // 사용자가 도크를 수동으로 닫았는지(같은 입력 동안 다시 안 띄움)
 };
 
 // 비율·크기 → gpt-image-2 size 문자열
@@ -1586,16 +1592,36 @@ const handoffPicker = document.getElementById('handoffPicker');
 const handoffGen = document.getElementById('handoffGen');
 const handoffCancel = document.getElementById('handoffCancel');
 
+const handoffRef = document.getElementById('handoffRef');
+const handoffRefImg = document.getElementById('handoffRefImg');
+const handoffRefTitle = document.getElementById('handoffRefTitle');
+function clearHandoffRef() {
+  state.simRefImage = null;
+  if (handoffRef) handoffRef.classList.remove('visible');
+  if (handoffRefImg) handoffRefImg.removeAttribute('src');
+  if (handoffRefTitle) handoffRefTitle.textContent = '';
+}
 function closeHandoff() {
   if (!handoffBox) return;
   handoffBox.style.display = 'none';
   handoffBox.classList.remove('visible');
   if (handoffInput) handoffInput.value = '';
+  clearHandoffRef();
 }
 // userInput: 사용자가 원한 내용(또는 AI 메시지 텍스트). messageId: 출처 AI 메시지(있으면 전달).
+// opts.refImage: { url, title } — "참고" 로 들어온 기존 이미지(있으면 썸네일 표시 + state 에 보관해 생성 흐름에서 재사용)
 async function openHandoff(userInput, opts) {
   if (!handoffBox || !handoffInput) return;
   opts = opts || {};
+  // 참고 이미지(있으면) 썸네일 표시 + state 보관
+  if (opts.refImage && opts.refImage.url) {
+    state.simRefImage = { url: opts.refImage.url, title: opts.refImage.title || '' };
+    if (handoffRefImg) handoffRefImg.src = opts.refImage.url;
+    if (handoffRefTitle) handoffRefTitle.textContent = opts.refImage.title || '';
+    if (handoffRef) handoffRef.classList.add('visible');
+  } else {
+    clearHandoffRef();
+  }
   // picker 마크업 주입 후 현재 state 로 동기화
   if (handoffPicker) { handoffPicker.innerHTML = handoffPickerHtml(); }
   syncPickerUI();
@@ -1683,6 +1709,129 @@ async function runImageGeneration(prompt) {
   }
 }
 
+// ═══ 비슷한 이미지 도크 (입력 중 재사용 추천 — 비차단) ═══
+// 입력 2글자+ 디바운스 → GET /api/ai/images/similar → 타일(썸네일·NN% 비슷·만든이·날짜).
+// 결과 0개면 숨김(방해 안 함). 타일 동작: '쓰기'(API 비용 없이 기존 이미지 재사용) / '참고'(핸드오프로 변형 생성).
+const simDock = document.getElementById('simDock');
+const simDockList = document.getElementById('simDockList');
+const simDockCount = document.getElementById('simDockCount');
+const simDockClose = document.getElementById('simDockClose');
+const simDockNew = document.getElementById('simDockNew');
+
+function hideSimDock() {
+  state.simItems = [];
+  if (simDock) simDock.classList.remove('visible');
+  if (simDockList) simDockList.innerHTML = '';
+}
+function simTileMeta(img) {
+  const who = escapeHtml(img.owner_name || '');
+  const when = img.created_at ? escapeHtml(formatRelativeTime(img.created_at)) : '';
+  return [who, when].filter(Boolean).join(' · ');
+}
+function renderSimDock(images) {
+  if (!simDock || !simDockList) return;
+  state.simItems = Array.isArray(images) ? images : [];
+  if (state.simItems.length === 0 || state.simManualHide) { hideSimDock(); return; }
+  if (simDockCount) simDockCount.textContent = String(state.simItems.length);
+  let html = '';
+  for (let i = 0; i < state.simItems.length; i++) {
+    const img = state.simItems[i];
+    const url = escapeHtml(img.url || '');
+    const title = escapeHtml(img.title || img.user_input || img.prompt || '이미지');
+    const pct = (img._sim != null) ? (Math.round(img._sim) + '% 비슷') : '';
+    html += '<div class="sim-tile" data-idx="' + i + '">'
+      + (url ? '<img class="sim-tile-thumb" src="' + url + '" alt="" loading="lazy">' : '')
+      + '<div class="sim-tile-body">'
+        + '<div class="sim-tile-top">'
+          + (pct ? '<span class="sim-tile-pct">' + pct + '</span>' : '')
+          + '<span class="sim-tile-title" title="' + title + '">' + title + '</span>'
+        + '</div>'
+        + '<div class="sim-tile-meta">' + simTileMeta(img) + '</div>'
+        + '<div class="sim-tile-actions">'
+          + '<button class="sim-tile-btn sim-tile-use" data-sim-act="use" data-idx="' + i + '"><span class="material-symbols-outlined">check_circle</span>쓰기</button>'
+          + '<button class="sim-tile-btn sim-tile-ref" data-sim-act="ref" data-idx="' + i + '"><span class="material-symbols-outlined">palette</span>참고</button>'
+        + '</div>'
+      + '</div>'
+    + '</div>';
+  }
+  simDockList.innerHTML = html;
+  simDock.classList.add('visible');
+}
+// 입력으로 후보 조회 (최신 요청만 반영). 생성 중에는 호출 안 함.
+async function fetchSimilar(promptText) {
+  const text = String(promptText || '').trim();
+  if (text.length < 2 || state.streaming) { hideSimDock(); return; }
+  const seq = ++state.simSeq;
+  try {
+    const r = await fetch('/api/ai/images/similar?prompt=' + encodeURIComponent(text) + '&limit=8', { credentials: 'include' });
+    if (seq !== state.simSeq) return;          // 더 최신 입력이 있으면 폐기
+    if (!r.ok) { hideSimDock(); return; }
+    const data = await r.json();
+    if (seq !== state.simSeq) return;
+    renderSimDock(data && data.images ? data.images : []);
+  } catch (_) {
+    if (seq === state.simSeq) hideSimDock();
+  }
+}
+function scheduleSimilar() {
+  if (state.simTimer) clearTimeout(state.simTimer);
+  const val = input.value.trim();
+  if (val.length < 2) { state.simManualHide = false; hideSimDock(); return; }
+  state.simTimer = setTimeout(() => fetchSimilar(input.value), 380);
+}
+// 입력 변화에 디바운스로 후크 (autoResize 는 그대로 둠 — 별도 리스너)
+input.addEventListener('input', scheduleSimilar);
+
+// '쓰기' — 기존 이미지를 그대로 재사용 (API 비용 없이 결과 말풍선으로 표시).
+function useExistingImage(img) {
+  if (!img || !img.url) return;
+  hideSimDock();
+  state.simManualHide = false;
+  const askText = String(img.user_input || img.title || img.prompt || '이미지').trim();
+  const userMsg = { role: 'user', content: askText, id: 'tmp_u_' + Date.now() };
+  state.messages.push(userMsg);
+  appendMessage(userMsg);
+  const aiMsg = {
+    role: 'ai',
+    content: '기존에 만든 이미지를 그대로 가져왔어요 (새로 생성하지 않음).',
+    image_url: img.url,
+    id: 'tmp_a_' + Date.now(),
+  };
+  aiMsg._clientId = aiMsg.id;
+  state.messages.push(aiMsg);
+  appendMessage(aiMsg);
+  scrollToBottom(true);
+  // 입력창은 비우고 도크도 정리
+  input.value = '';
+  autoResize();
+}
+// '참고' — 그 이미지를 참고로 두고 핸드오프(프롬프트 편집 → 생성) 진입.
+function referenceExistingImage(img) {
+  if (!img) return;
+  hideSimDock();
+  state.simManualHide = false;
+  const seed = String(img.user_input || img.prompt || img.title || '').trim();
+  openHandoff(seed, { messageId: null, refImage: { url: img.url, title: img.title || img.user_input || '' } });
+}
+if (simDockList) simDockList.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-sim-act]');
+  if (!btn) return;
+  const idx = parseInt(btn.dataset.idx, 10);
+  const img = state.simItems[idx];
+  if (!img) return;
+  if (btn.dataset.simAct === 'use') useExistingImage(img);
+  else if (btn.dataset.simAct === 'ref') referenceExistingImage(img);
+});
+if (simDockClose) simDockClose.addEventListener('click', () => { state.simManualHide = true; hideSimDock(); });
+// '그래도 새로 만들기' — 현재 입력으로 평소 생성 흐름 그대로 (이미지 모드/핸드오프 라우팅 재사용).
+if (simDockNew) simDockNew.addEventListener('click', () => {
+  hideSimDock();
+  state.simManualHide = false;
+  const text = input.value.trim();
+  if (state.imageMode) { if (!sendBtn.disabled) sendMessage(); return; }
+  if (text) openHandoff(text, { messageId: null });   // 텍스트 모드: 핸드오프(picker+편집) 경유 — 평소 이미지 의도와 동일
+});
+
 // ═══ 추가 기능 — Phase 6 마무리 ═══
 const sidebarEl = document.querySelector('.sidebar');
 const hamburgerBtn = document.getElementById('hamburgerBtn');
@@ -1717,7 +1866,7 @@ stopBtn.addEventListener('click', async () => {
 });
 function setStreaming(on) {
   state.streaming = on;
-  if (on) { sendBtn.style.display = 'none'; stopBtn.style.display = 'inline-flex'; }
+  if (on) { sendBtn.style.display = 'none'; stopBtn.style.display = 'inline-flex'; if (typeof hideSimDock === 'function') hideSimDock(); }
   else { sendBtn.style.display = ''; stopBtn.style.display = 'none'; state.abortController = null; }
   updateSendBtn();
 }

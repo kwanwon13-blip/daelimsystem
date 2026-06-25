@@ -53,6 +53,8 @@ try { multer = require('multer'); } catch(e) { multer = null; }
 
 // Tool Use 도구 정의 + 실행 함수
 const aiTools = require('./ai-tools');
+// AI 이미지 자기정리(1단계 규칙기반) — 프롬프트→종류/거래처/키워드 분류 (순수·결정적)
+const imageClassify = require('../lib/image-classify');
 let hermesClient = null;
 try { hermesClient = require('../lib/hermes-client'); } catch (_) {}
 
@@ -3085,6 +3087,14 @@ router.post('/chat-image', async (req, res) => {
         });
       } catch (e) { console.warn('[ai/chat-image] usage log 실패:', e.message); }
 
+      // 자기정리 분류(종류·거래처·키워드) — 실패해도 생성은 안 깨지게 빈값 폴백
+      let cls = { type: '', client: '', keywords: '' };
+      try {
+        cls = imageClassify.classifyImage(String(prompt), {
+          context: (typeof pageContext !== 'undefined' ? pageContext : '')
+        }) || cls;
+      } catch (e) { console.warn('[ai/chat-image] 이미지 분류 실패:', e.message); }
+
       // 이미지 저장소(앨범·태그·재사용) 등록
       try {
         storedImage = ai.images.create({
@@ -3104,6 +3114,9 @@ router.post('/chat-image', async (req, res) => {
           collectionId: null,
           tags: '',
           promptNorm: normalizePrompt(prompt),
+          type: cls.type || '',
+          client: cls.client || '',
+          keywords: cls.keywords || '',
         });
       } catch (e) { console.warn('[ai/chat-image] 이미지 저장소 등록 실패:', e.message); }
     }
@@ -3275,12 +3288,65 @@ router.get('/images', (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// "비슷한 이미지" — 입력(또는 분류값)으로 후보 찾기 (생성 전 재사용 추천).
+// ⚠ 라우트 순서: '/images/:id' 보다 먼저 등록해야 'similar' 가 :id 로 안 잡힘.
+router.get('/images/similar', (req, res) => {
+  try {
+    const promptRaw = String(req.query.prompt || '');
+    let type = String(req.query.type || '').trim();
+    let client = String(req.query.client || '').trim();
+    let keywords = String(req.query.keywords || '').trim();
+    // prompt 가 있고 type/client 중 비어있으면 규칙기반으로 보강
+    if (promptRaw.trim() && (!type || !client)) {
+      try {
+        const cls = imageClassify.classifyImage(promptRaw, {}) || {};
+        if (!type) type = cls.type || '';
+        if (!client) client = cls.client || '';
+        if (!keywords) keywords = cls.keywords || '';
+      } catch (_) {}
+    }
+    let excludeId = req.query.excludeId;
+    if (excludeId === undefined || excludeId === '' || excludeId === 'null') excludeId = null;
+    const images = ai.images.findSimilar({
+      ownerId: req.user.userId,
+      isAdmin: isAdmin(req),
+      type,
+      client,
+      keywords,
+      promptNorm: normalizePrompt(promptRaw),
+      excludeId,
+      limit: Number(req.query.limit) || 8,
+    });
+    res.json({ ok: true, images });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 router.get('/images/:id', (req, res) => {
   try {
     const image = ai.images.get(req.params.id);
     if (!image) return res.status(404).json({ error: '없음' });
     if (!canAccessImage(req, image)) return res.status(403).json({ error: '권한 없음' });
     res.json({ ok: true, image });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 특정 이미지와 "비슷한 이미지" — 상세에서 모아보기용.
+router.get('/images/:id/similar', (req, res) => {
+  try {
+    const image = ai.images.get(req.params.id);
+    if (!image) return res.status(404).json({ error: '없음' });
+    if (!canAccessImage(req, image)) return res.status(403).json({ error: '권한 없음' });
+    const images = ai.images.findSimilar({
+      ownerId: req.user.userId,
+      isAdmin: isAdmin(req),
+      type: image.type || '',
+      client: image.client || '',
+      keywords: image.keywords || '',
+      promptNorm: image.prompt_norm || '',
+      excludeId: image.id,
+      limit: Number(req.query.limit) || 8,
+    });
+    res.json({ ok: true, images });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
