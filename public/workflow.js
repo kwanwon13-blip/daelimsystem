@@ -220,7 +220,7 @@ function workflowApp() {
 
       // 회사별 '프로젝트 없음' 기억 로드 + 회사 선택 시 체크박스 자동 반영(라코스 등)
       this.loadCompanyNoProjectPrefs();
-      try { this.$watch('form.companyName', v => { this.form.noProject = this.companyNoProject(v); }); } catch (_) {}
+      try { this.$watch('form.companyName', v => { if (this.companyNoProject(v)) this.form.noProject = true; }); } catch (_) {}
       // F2 = +시안 빠른 열기 (전역 단축키)
       if (!window.__workflowF2ListenerInstalled) {
         window.addEventListener('keydown', e => {
@@ -611,7 +611,12 @@ function workflowApp() {
 
     async loadSummary() {
       try {
-        const r = await fetch('/api/workflow/summary');
+        const _pr = (this.boardPeriod && this.boardPeriod !== 'all') ? this.boardPeriodRange() : { from: '', to: '' };
+        const _qs = new URLSearchParams();
+        if (_pr.from) _qs.set('from', _pr.from);
+        if (_pr.to) _qs.set('to', _pr.to);
+        const _suf = _qs.toString();
+        const r = await fetch('/api/workflow/summary' + (_suf ? ('?' + _suf) : ''));
         const d = await r.json();
         if (r.ok && d.ok) { this.summary = d.summary || this.summary; this.checkDesktopNotifications(); }
       } catch (_) {}
