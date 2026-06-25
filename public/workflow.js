@@ -3002,15 +3002,21 @@ function workflowApp() {
         .replace(/\s+/g, '')
         .toLowerCase();
     },
-    // 상세 피드에서 같은 그림(발주본+원본 .jpg 등)을 1장으로 접음 — 발주본을 대표로.
+    // 파일 확장자(소문자) — 같은 디자인이라도 형식이 다르면(.jpg/.ai/.pdf) 각각 1개로 유지(필요 파일 안 사라지게).
+    fileExtKey(file) {
+      const m = String((file && (file.originalName || file.name)) || '').match(/\.([a-z0-9]+)$/i);
+      return m ? m[1].toLowerCase() : '';
+    },
+    // 상세 피드에서 같은 디자인의 발주본+원본을 형식별로 1개로 접음(.jpg 2장→1, .ai 2개→1) — 있는 파일·발주본 우선 대표.
     // 파일은 삭제/숨김 아님: 파일 관리 목록(visualFiles/sourceFiles)엔 전부 그대로 노출·다운로드 가능.
-    collapseImageVariants(files) {
+    collapseFileVariants(files) {
+      const score = f => (f.exists !== false ? 2 : 0) + (/발주/.test(f.originalName || f.name || '') ? 1 : 0);
       const idxByKey = new Map();
       const out = [];
       for (const f of files) {
-        const isImg = f.isImage && f.exists !== false;
-        const key = isImg ? this.designVariantKey(f) : '';
-        if (!isImg || !key) { out.push(f); continue; }
+        const base = this.designVariantKey(f);
+        const key = base ? (base + '|' + this.fileExtKey(f)) : '';
+        if (!key) { out.push(f); continue; }
         if (!idxByKey.has(key)) {
           idxByKey.set(key, out.length);
           out.push({ ...f, _variants: [f] });
@@ -3018,9 +3024,7 @@ function workflowApp() {
           const i = idxByKey.get(key);
           const rep = out[i];
           rep._variants.push(f);
-          const repIsOrder = /발주/.test(rep.originalName || rep.name || '');
-          const fIsOrder = /발주/.test(f.originalName || f.name || '');
-          if (fIsOrder && !repIsOrder) out[i] = { ...f, _variants: rep._variants };
+          if (score(f) > score(rep)) out[i] = { ...f, _variants: rep._variants };
         }
       }
       return out;
@@ -3032,7 +3036,7 @@ function workflowApp() {
       if (this.boardTeam === 'welding' || this.boardTeam === 'output') {
         files = files.filter(f => f.team === this.boardTeam);
       }
-      files = this.collapseImageVariants(files); // 같은 그림(발주본·원본) 1장으로 — '사진 2개씩' 표시상 중복 제거(파일은 보존)
+      files = this.collapseFileVariants(files); // 같은 디자인 발주본·원본을 형식별 1개로(.jpg/.ai) — '2개씩' 표시상 중복 제거(파일은 보존)
       return files.sort((a, b) =>
         (((b.isImage && b.exists !== false) ? 1 : 0) - ((a.isImage && a.exists !== false) ? 1 : 0))
         || String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
