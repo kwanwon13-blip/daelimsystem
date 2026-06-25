@@ -3,6 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- 모바일 자동 인식 — 폰이면 /m(모바일 워크플로우)로 즉시 이동(데스크탑 무거운 로딩 전). PC보기(?desktop=1)·강제플래그면 패스 -->
+  <script>
+  (function(){
+    try {
+      var p = location.pathname;
+      if (p === '/m' || p.indexOf('/m/') === 0) return;
+      if (/[?&]desktop=1\b/.test(location.search)) { try { localStorage.setItem('wf_force_desktop','1'); } catch(_){} return; }
+      if (localStorage.getItem('wf_force_desktop') === '1') return;
+      var ua = navigator.userAgent || '';
+      var isPhone = /iPhone|iPod|Windows Phone|BlackBerry|Opera Mini|webOS/i.test(ua) || (/Android/i.test(ua) && /Mobile/i.test(ua));
+      if (isPhone) location.replace('/m');
+    } catch(_) {}
+  })();
+  </script>
   <title>대림에스엠ERP</title>
 
   <!-- Tailwind CSS -->
