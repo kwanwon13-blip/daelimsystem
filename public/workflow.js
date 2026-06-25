@@ -4102,6 +4102,15 @@ function workflowApp() {
       return ((this.detail && this.detail.files) || []).filter(f => f.isImage && f.team !== 'welding' && f.team !== 'output').length;
     },
 
+    // 워크플로 잡 → 픽업 등록폼으로 전달 (app()이 별도 루트라 이벤트 브리지 사용)
+    addJobToPickup(job) {
+      const j = job || (this.detail && this.detail.job);
+      if (!j) return;
+      const payload = { id: j.id, title: j.title || '', companyName: j.companyName || '', projectName: j.projectName || '' };
+      window.__pickupFromJob = payload;
+      window.dispatchEvent(new CustomEvent('pickup-from-job', { detail: payload }));
+    },
+
     async openUnreadFile(item) {
       if (!item || !item.jobId) return;
       await this.openWorkflowTarget(item.jobId, item.id || '');

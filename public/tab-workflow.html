@@ -1180,6 +1180,7 @@
               <span class="wf-chip" x-show="detail.job.createdByName" style="background:#eef2ff;color:#4338ca;font-weight:800;" title="이 발주를 올린 사람(발주자)"><span class="material-symbols-outlined" style="font-size:13px;vertical-align:-2px;">person</span> 발주자 <span x-text="detail.job.createdByName"></span></span>
               <button type="button" class="wf-btn ghost" @click="printDeliverySheet(detail.job)" x-show="detail.job.currentStage==='delivery' || detail.job.status==='done'" title="납품 지시서 인쇄(종이로 출력해 납품팀에 전달)">🖨 인쇄</button>
               <button type="button" class="wf-btn ghost" @click="cardStepBack(detail.job.id)" x-show="detail.job.viewerCanCurrentStage && detail.job.status!=='done' && detail.job.status!=='cancelled' && detail.job.currentStage!=='design'" :disabled="saving" title="이전 단계로 되돌리기 — 실수로 받았을 때 이전 팀으로 돌려보냅니다"><span class="material-symbols-outlined" style="font-size:14px;">undo</span>되돌리기</button>
+              <button type="button" class="wf-btn" @click="addJobToPickup(detail.job)" title="이 작업의 현장·시안 정보로 픽업 등록폼을 채웁니다"><span class="material-symbols-outlined" style="font-size:15px;">local_shipping</span>픽업에 추가</button>
             </div>
             <div class="wf-special-note" x-show="detail.job.handoffNote" x-cloak>
               <span class="material-symbols-outlined">push_pin</span>
