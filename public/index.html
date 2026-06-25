@@ -7678,6 +7678,8 @@ function app() {
     pickupVendorPreview: null,
     pickupKakaoText: '',
     pickupKakaoCandidates: [],
+    // #업체 자동완성 (견적 catSearch 패턴 복제)
+    pkMenuOpen: false, pkHl: 0, pkQuery: '', pkTokenStart: -1,
     pickupShowManualForm: false,
     get pickupCandidateCount() {
       let n = 0;
@@ -7755,6 +7757,46 @@ function app() {
       finally { this.pickupSaving = false; }
     },
     // 카톡 파싱 (입력 즉시 자동 — 디바운스는 마크업 @input)
+    // ── #업체 자동완성 (견적 catSearch 인라인 패턴 복제) ──
+    pkNorm(s) { return String(s || '').toLowerCase().replace(/\s+/g, ''); },
+    get pickupVendorSuggest() {
+      const list = (this.activePickupVendors || []);
+      const q = this.pkNorm(this.pkQuery);
+      const matched = q ? list.filter(v => this.pkNorm(v.name).includes(q)) : list;
+      return matched.slice(0, 8).map(v => ({ name: v.name || '', address: v.address || '' }));
+    },
+    onPickupHashInput(e) {
+      const el = e.target;
+      const caret = el.selectionStart;
+      const before = (el.value || '').slice(0, caret);
+      const m = before.match(/#([^#\n]*)$/);
+      if (m) { this.pkMenuOpen = true; this.pkQuery = m[1]; this.pkTokenStart = m.index; this.pkHl = 0; }
+      else { this.pkMenuOpen = false; }
+    },
+    pkMove(d) {
+      const n = this.pickupVendorSuggest.length;
+      if (!n) { this.pkHl = 0; return; }
+      let i = this.pkHl + d;
+      if (i < 0) i = 0;
+      if (i > n - 1) i = n - 1;
+      this.pkHl = i;
+    },
+    pkPick(idx) {
+      if (idx === undefined) idx = this.pkHl;
+      const v = this.pickupVendorSuggest[idx];
+      if (!v) return;
+      const el = this.$refs.pkTa;
+      const caret = el ? el.selectionStart : this.pickupKakaoText.length;
+      const head = this.pickupKakaoText.slice(0, this.pkTokenStart);
+      const tail = this.pickupKakaoText.slice(caret);
+      const newHead = head + '#' + v.name + '\n';
+      this.pickupKakaoText = newHead + tail;
+      this.pkMenuOpen = false;
+      this.$nextTick(() => {
+        if (el) { el.focus(); const p = newHead.length; el.setSelectionRange(p, p); }
+      });
+      this.parsePickupKakao();
+    },
     async parsePickupKakao() {
       const text = (this.pickupKakaoText || '').trim();
       // 입력 비면 후보 비우고 조용히 종료

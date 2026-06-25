@@ -31,9 +31,35 @@
           </h3>
         </div>
         <div style="padding:14px;" class="space-y-3">
-          <textarea x-model="pickupKakaoText" @input.debounce.400ms="parsePickupKakao()" class="input-base" rows="7"
-            style="resize:vertical;font-size:14px;line-height:1.6;"
-            placeholder="카톡에 쓴 그대로 붙여넣으세요&#10;&#10;예)&#10;#라코스&#10;현수막 600x900 3개&#10;배너 2장&#10;#세원계측기&#10;압력계 1"></textarea>
+          <div class="relative">
+            <textarea x-ref="pkTa" x-model="pickupKakaoText" @input.debounce.400ms="parsePickupKakao()"
+              @keyup="onPickupHashInput($event)" @click="onPickupHashInput($event)"
+              @keydown.arrow-down.prevent="pkMenuOpen && pkMove(1)"
+              @keydown.arrow-up.prevent="pkMenuOpen && pkMove(-1)"
+              @keydown.enter="if(pkMenuOpen && !$event.isComposing){ $event.preventDefault(); pkPick(); }"
+              @keydown.escape="pkMenuOpen = false"
+              @blur="setTimeout(() => pkMenuOpen = false, 150)"
+              class="input-base" rows="7"
+              style="resize:vertical;font-size:14px;line-height:1.6;"
+              placeholder="#치면 업체 자동완성 / 예) #라 → 라코스&#10;&#10;#라코스&#10;현수막 600x900 3개&#10;배너 2장&#10;#세원계측기&#10;압력계 1"></textarea>
+            <div x-show="pkMenuOpen" x-cloak
+              class="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto"
+              style="top:100%;">
+              <template x-for="(v, vi) in pickupVendorSuggest" :key="'pkv'+vi">
+                <div @mousedown.prevent="pkPick(vi)" @mouseenter="pkHl = vi"
+                  class="px-4 py-2.5 cursor-pointer text-sm text-gray-700 transition-colors"
+                  :class="{
+                    'bg-blue-100 font-semibold text-blue-700': pkHl === vi,
+                    'hover:bg-gray-50': pkHl !== vi
+                  }">
+                  <span x-text="v.name"></span>
+                  <span x-show="v.address" class="text-xs text-gray-400 ml-2" x-text="v.address"></span>
+                </div>
+              </template>
+              <div x-show="pickupVendorSuggest.length === 0"
+                class="px-4 py-3 text-xs text-gray-400 text-center">그냥 입력하면 자유 업체명으로 저장</div>
+            </div>
+          </div>
           <div class="flex items-center gap-2" x-show="pickupKakaoCandidates.length">
             <span class="text-xs text-gray-400" x-show="pickupParsing">분석 중...</span>
             <button class="btn-ghost btn-sm" style="margin-left:auto;" @click="pickupKakaoCandidates=[]; pickupKakaoText=''">지우기</button>
