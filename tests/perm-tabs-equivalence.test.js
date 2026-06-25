@@ -39,7 +39,8 @@ const ALL_MENUS = [
   { id: 'settings',        label: '설정',                    tabId: 'settings',       group: '관리',     company: 'both',    desc: 'SMTP·명함 등 시스템 설정' },
   { id: 'admin',           label: '사용자 관리',             tabId: 'admin',          group: '관리',     company: 'both',    desc: '직원 계정·권한 관리' },
   { id: 'workspace',       label: '워크스페이스',            tabId: 'workspace',      group: '공용',     company: 'both',    defaultOnly: true, desc: '개인 메모·문서 작업공간' },
-  { id: 'ai',              label: 'AI 챗',                   tabId: 'ai',             group: '공용',     company: 'both',    defaultOnly: true, desc: 'AI 비서 채팅' },
+  { id: 'ai',              label: 'AI 챗',                   tabId: 'ai',             group: '공용',     company: 'both',    alwaysOn: true,    desc: 'AI 비서 채팅' },
+  { id: 'aiImages',        label: 'AI 이미지',               tabId: 'aiImages',       group: '공용',     company: 'both',    alwaysOn: true,    desc: '생성한 AI 이미지 저장소' },
   { id: 'gpsAttendance',   label: 'GPS 출퇴근',              tabId: 'gpsAttendance',  group: '인사',     company: 'both',    defaultOnly: true, desc: 'GPS 기반 출퇴근 체크' },
 ];
 
@@ -81,6 +82,7 @@ const OLD_ALL_MENUS = [
   { id: 'admin', label: '사용자 관리' },
   { id: 'workspace', label: '워크스페이스' },
   { id: 'ai', label: 'AI 챗' },
+  { id: 'aiImages', label: 'AI 이미지' },
   { id: 'gpsAttendance', label: 'GPS 출퇴근' },
 ];
 
@@ -101,13 +103,14 @@ function oldTabs(ctx) {
       { id: 'contacts', label: '연락처' }, { id: 'workflow', label: '워크플로우' }, { id: 'calendar', label: '캘린더' }, { id: 'notices', label: '공지사항' }, { id: 'settings', label: '설정' },
       { id: 'workspace', label: '워크스페이스' },
       { id: 'ai', label: 'AI 챗' },
+      { id: 'aiImages', label: 'AI 이미지' },
       { id: 'gpsAttendance', label: 'GPS 출퇴근' }
     ];
     return adminTabs;
   }
   const perms = ctx.auth.permissions || [];
-  const universalMenus = ['design', 'photos', 'contacts', 'workflow'];
-  const defaultMenus = ['home', 'quote', 'history', 'salesLookup', 'workspace', 'ai', 'gpsAttendance', ...universalMenus];
+  const universalMenus = ['design', 'photos', 'contacts', 'workflow', 'ai', 'aiImages'];  // 'ai' 추가: AI 챗 전 직원 공용(2026-06-25) / 'aiImages' 추가: AI 이미지 저장소 공용
+  const defaultMenus = ['home', 'quote', 'history', 'salesLookup', 'workspace', 'gpsAttendance', ...universalMenus];
   const allowed = perms.length > 0
     ? ['home', ...perms, ...universalMenus]
     : defaultMenus;

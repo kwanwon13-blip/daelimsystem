@@ -168,6 +168,45 @@ if (ready) {
     );
     CREATE INDEX IF NOT EXISTS idx_ai_artifact_thread ON ai_artifacts(thread_id, created_at DESC);
 
+    -- 생성한 AI 이미지 저장소 (문서화·앨범·태그·재사용)
+    CREATE TABLE IF NOT EXISTS ai_images (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      owner_id     TEXT    NOT NULL,
+      owner_name   TEXT    DEFAULT '',
+      title        TEXT    DEFAULT '',
+      user_input   TEXT    DEFAULT '',
+      prompt       TEXT    NOT NULL,
+      model        TEXT    DEFAULT '',
+      size         TEXT    DEFAULT '',
+      quality      TEXT    DEFAULT '',
+      cost_usd     REAL    DEFAULT 0,
+      stored_name  TEXT    NOT NULL,
+      url          TEXT    NOT NULL,
+      thread_id    INTEGER,
+      message_id   INTEGER,
+      collection_id INTEGER,
+      tags         TEXT    DEFAULT '',
+      favorite     INTEGER DEFAULT 0,
+      note         TEXT    DEFAULT '',
+      prompt_norm  TEXT    DEFAULT '',
+      created_at   TEXT    NOT NULL,
+      date_ymd     TEXT    NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_images_owner_date ON ai_images(owner_id, date_ymd);
+    CREATE INDEX IF NOT EXISTS idx_ai_images_collection ON ai_images(collection_id);
+    CREATE INDEX IF NOT EXISTS idx_ai_images_created ON ai_images(created_at DESC);
+
+    -- AI 이미지 앨범 (컬렉션)
+    CREATE TABLE IF NOT EXISTS ai_image_collections (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      owner_id     TEXT    NOT NULL,
+      name         TEXT    NOT NULL,
+      cover_image_id INTEGER,
+      sort_order   INTEGER DEFAULT 0,
+      created_at   TEXT    NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_img_coll_owner ON ai_image_collections(owner_id, sort_order, created_at DESC);
+
     -- 직원이 요청하고 관리자가 승인하는 Claude Skill 등록 대기열
     CREATE TABLE IF NOT EXISTS ai_skill_requests (
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -687,6 +726,18 @@ const MODEL_PRICING = {
 
 function calcCostUsd(model, usage) {
   if (!usage) return 0;
+  // gpt-image 계열(이미지 생성): 토큰 단가로 계산
+  // 이미지 input $8/1M, 이미지 output $30/1M, 텍스트 input $5/1M
+  // usage 가 토큰을 안 주면 0 → 라우트가 size/quality 추정표로 보완
+  if (typeof model === 'string' && model.includes('gpt-image')) {
+    if (usage && usage.output_tokens) {
+      const imgIn = (usage.input_tokens || 0) * 8;
+      const imgOut = (usage.output_tokens || 0) * 30;
+      const txtIn = ((usage.input_tokens_details && usage.input_tokens_details.text_tokens) || 0) * 5;
+      return (imgIn + imgOut + txtIn) / 1_000_000;
+    }
+    return 0;
+  }
   const p = MODEL_PRICING[model] || MODEL_PRICING['claude-opus-4-8'];
   const input = (usage.input_tokens || 0) * p.input / 1_000_000;
   const output = (usage.output_tokens || 0) * p.output / 1_000_000;
@@ -804,6 +855,178 @@ const artifacts = {
 };
 
 // ──────────────────────────────────────────────────────────
+// AI 이미지 저장소 (생성한 이미지 문서화·앨범·태그·재사용)
+// ──────────────────────────────────────────────────────────
+const images = {
+  create({ ownerId, ownerName, title, userInput, prompt, model, size, quality,
+           costUsd, storedName, url, threadId, messageId, collectionId, tags, promptNorm }) {
+    if (!ready) throw new Error('DB 미사용');
+    const now = nowIso();
+    const dateYmd = now.slice(0, 10);
+    const r = db.prepare(`
+      INSERT INTO ai_images
+        (owner_id, owner_name, title, user_input, prompt, model, size, quality,
+         cost_usd, stored_name, url, thread_id, message_id, collection_id,
+         tags, favorite, note, prompt_norm, created_at, date_ymd)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', ?, ?, ?)
+    `).run(
+      String(ownerId), ownerName || '', title || '', userInput || '',
+      String(prompt || ''), model || '', size || '', quality || '',
+      Number(costUsd) || 0, String(storedName || ''), String(url || ''),
+      threadId || null, messageId || null,
+      (collectionId === undefined || collectionId === null) ? null : collectionId,
+      tags || '', promptNorm || '', now, dateYmd
+    );
+    return this.get(r.lastInsertRowid);
+  },
+  list({ ownerId, isAdmin = false, scope = 'mine', collectionId, favorite,
+         q, tag, sort = 'recent', limit = 60, offset = 0 } = {}) {
+    if (!ready) return [];
+    const where = [];
+    const params = [];
+    // scope='all' && admin 이면 전체, 아니면 본인 것만
+    if (!(scope === 'all' && isAdmin)) {
+      where.push('owner_id = ?'); params.push(String(ownerId));
+    }
+    // 컬렉션 필터: 특수값 'none' → 미분류(IS NULL)
+    if (collectionId !== undefined && collectionId !== null && collectionId !== '') {
+      if (String(collectionId) === 'none') {
+        where.push('collection_id IS NULL');
+      } else {
+        where.push('collection_id = ?'); params.push(parseInt(collectionId, 10));
+      }
+    }
+    if (favorite === true) where.push('favorite = 1');
+    if (q) {
+      where.push('(title LIKE ? OR prompt LIKE ? OR user_input LIKE ?)');
+      const like = `%${q}%`;
+      params.push(like, like, like);
+    }
+    if (tag) { where.push('tags LIKE ?'); params.push(`%${tag}%`); }
+    const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+    let orderSql;
+    switch (sort) {
+      case 'cost': orderSql = 'ORDER BY cost_usd DESC, created_at DESC'; break;
+      case 'fav':  orderSql = 'ORDER BY favorite DESC, created_at DESC'; break;
+      case 'recent':
+      default:     orderSql = 'ORDER BY created_at DESC'; break;
+    }
+    const lim = Math.min(200, Math.max(1, parseInt(limit, 10) || 60));
+    const off = Math.max(0, parseInt(offset, 10) || 0);
+    return db.prepare(`SELECT * FROM ai_images ${whereSql} ${orderSql} LIMIT ? OFFSET ?`)
+      .all(...params, lim, off);
+  },
+  get(id) {
+    if (!ready) return undefined;
+    return db.prepare('SELECT * FROM ai_images WHERE id=?').get(id);
+  },
+  update(id, patch) {
+    if (!ready) throw new Error('DB 미사용');
+    const cur = this.get(id);
+    if (!cur) return null;
+    const fields = [];
+    const values = [];
+    // patch 는 camelCase(collectionId) 를 받아 컬럼명으로 매핑
+    const map = {
+      title: 'title', tags: 'tags', favorite: 'favorite',
+      note: 'note', collectionId: 'collection_id',
+    };
+    for (const k of Object.keys(map)) {
+      if (patch[k] !== undefined) {
+        fields.push(`${map[k]}=?`);
+        if (k === 'favorite') values.push(patch[k] ? 1 : 0);
+        else if (k === 'collectionId') values.push(patch[k] === null ? null : patch[k]);
+        else values.push(patch[k]);
+      }
+    }
+    if (fields.length === 0) return cur;
+    values.push(id);
+    db.prepare(`UPDATE ai_images SET ${fields.join(', ')} WHERE id=?`).run(...values);
+    return this.get(id);
+  },
+  remove(id) {
+    // DB 행만 삭제 — 디스크 파일은 보존 (재사용/이력)
+    if (!ready) return;
+    db.prepare('DELETE FROM ai_images WHERE id=?').run(id);
+  },
+  countSummary(ownerId) {
+    if (!ready) return { todayCount: 0, todayCostUsd: 0, monthCount: 0, monthCostUsd: 0 };
+    const now = nowIso();
+    const today = now.slice(0, 10);
+    const monthPrefix = now.slice(0, 7) + '-%';
+    const t = db.prepare(`
+      SELECT COUNT(*) AS cnt, COALESCE(SUM(cost_usd), 0) AS cost
+      FROM ai_images WHERE owner_id=? AND date_ymd=?
+    `).get(String(ownerId), today);
+    const m = db.prepare(`
+      SELECT COUNT(*) AS cnt, COALESCE(SUM(cost_usd), 0) AS cost
+      FROM ai_images WHERE owner_id=? AND date_ymd LIKE ?
+    `).get(String(ownerId), monthPrefix);
+    return {
+      todayCount: t ? t.cnt : 0,
+      todayCostUsd: t ? t.cost : 0,
+      monthCount: m ? m.cnt : 0,
+      monthCostUsd: m ? m.cost : 0,
+    };
+  }
+};
+
+// ──────────────────────────────────────────────────────────
+// AI 이미지 앨범 (컬렉션)
+// ──────────────────────────────────────────────────────────
+const collections = {
+  create({ ownerId, name }) {
+    if (!ready) throw new Error('DB 미사용');
+    const now = nowIso();
+    const r = db.prepare(`
+      INSERT INTO ai_image_collections (owner_id, name, created_at)
+      VALUES (?, ?, ?)
+    `).run(String(ownerId), String(name || '새 앨범'), now);
+    return this.get(r.lastInsertRowid);
+  },
+  get(id) {
+    if (!ready) return undefined;
+    return db.prepare('SELECT * FROM ai_image_collections WHERE id=?').get(id);
+  },
+  list(ownerId) {
+    if (!ready) return [];
+    // 각 앨범의 이미지 수(cnt) 를 LEFT JOIN 으로 포함
+    return db.prepare(`
+      SELECT c.*, COUNT(i.id) AS cnt
+      FROM ai_image_collections c
+      LEFT JOIN ai_images i ON i.collection_id = c.id
+      WHERE c.owner_id = ?
+      GROUP BY c.id
+      ORDER BY c.sort_order ASC, c.created_at DESC
+    `).all(String(ownerId));
+  },
+  update(id, patch) {
+    if (!ready) throw new Error('DB 미사용');
+    const cur = this.get(id);
+    if (!cur) return null;
+    const fields = [];
+    const values = [];
+    const map = { name: 'name', coverImageId: 'cover_image_id', sortOrder: 'sort_order' };
+    for (const k of Object.keys(map)) {
+      if (patch[k] !== undefined) {
+        fields.push(`${map[k]}=?`);
+        values.push(patch[k] === null ? null : patch[k]);
+      }
+    }
+    if (fields.length === 0) return cur;
+    values.push(id);
+    db.prepare(`UPDATE ai_image_collections SET ${fields.join(', ')} WHERE id=?`).run(...values);
+    return this.get(id);
+  },
+  remove(id) {
+    if (!ready) return;
+    // 앨범 삭제 + 그 안의 이미지는 미분류로 (collection_id=NULL)
+    db.prepare('UPDATE ai_images SET collection_id=NULL WHERE collection_id=?').run(id);
+    db.prepare('DELETE FROM ai_image_collections WHERE id=?').run(id);
+  }
+};
+
+// ──────────────────────────────────────────────────────────
 // Claude Skill 등록 요청
 // ──────────────────────────────────────────────────────────
 const skillRequests = {
@@ -874,6 +1097,8 @@ module.exports = {
   attachments,
   apiUsage,
   artifacts,
+  images,
+  collections,
   skillRequests,
   MODEL_PRICING,
   calcCostUsd,

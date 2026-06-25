@@ -94,11 +94,23 @@ function artifactPayload(a) {
   };
 }
 
+// 내부/임시 산출물 가드 — basename 이 '_' 또는 '.' 로 시작하거나
+// '_agent_done' / '.tmp' 를 포함하면 사용자 '생성 파일' 목록에서 제외한다.
+// (예: _agent_done.json.tmp 가 다운로드 카드에 노출되던 버그 차단)
+function isInternalAgentFile(name) {
+  const base = path.basename(String(name || '').replace(/\\/g, '/'));
+  if (!base) return true;
+  if (base.startsWith('_') || base.startsWith('.')) return true;
+  if (base.includes('_agent_done') || base.includes('.tmp')) return true;
+  return false;
+}
+
 function persistAgentFiles({ userId, threadId, sessionId, files }) {
   const out = [];
   const seen = new Set();
   for (const f of files || []) {
     if (!f || !f.relPath || seen.has(f.relPath)) continue;
+    if (isInternalAgentFile(f.name || f.relPath)) continue;
     seen.add(f.relPath);
     const src = agent.resolveSessionFile(userId, sessionId, f.relPath);
     if (!src) continue;

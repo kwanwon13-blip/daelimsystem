@@ -70,6 +70,27 @@ function apiBillingAllowed() {
   return String(process.env.AI_ALLOW_API_BILLING || '').trim() === '1';
 }
 
+// ── 이미지 생성 비용 추정표 (USD/장) ──
+// gpt-image 응답이 usage 토큰을 안 줄 때 size/quality 로 비용을 보완한다.
+// (usage 토큰이 오면 db-ai.calcCostUsd 가 정확 계산하므로 그 값을 우선)
+const IMAGE_COST_ESTIMATE = {
+  '1024x1024': { medium: 0.053, high: 0.211 },
+  '1536x1024': { medium: 0.041, high: 0.165 },
+  '1024x1536': { medium: 0.041, high: 0.165 },
+  '2048x2048': { medium: 0.16,  high: 0.42 },
+  '2048x1152': { medium: 0.12,  high: 0.33 },
+  '1152x2048': { medium: 0.12,  high: 0.33 },
+};
+function estimateImageCostUsd(size, quality) {
+  const row = IMAGE_COST_ESTIMATE[size] || IMAGE_COST_ESTIMATE['1024x1024'];
+  const q = quality === 'high' ? 'high' : 'medium'; // low 는 medium 칸으로 근사 (안전측 미세 과대)
+  return row[q] || row.medium || 0;
+}
+// 프롬프트 정규화 (소문자·공백정규화·트림) — 중복/재사용 판별용
+function normalizePrompt(p) {
+  return String(p || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
 function requireAuthOrControlSecret(req, res, next) {
   const ctrlSecret = req.headers['x-control-secret'];
   const expected = process.env.CONTROL_DAEMON_SECRET;
@@ -2895,12 +2916,30 @@ router.get('/usage/today', (req, res) => {
   const imageCount = (ai.apiUsage.countImagesToday)
     ? ai.apiUsage.countImagesToday(req.user.userId)
     : 0;
+  // 이미지 비용 요약 (오늘/이번달 횟수 + USD + KRW). ai_images 기준.
+  let image = { todayCount: 0, todayCostUsd: 0, monthCount: 0, monthCostUsd: 0, todayCostKrw: 0, monthCostKrw: 0 };
+  try {
+    if (ai.images && ai.images.countSummary) {
+      const s = ai.images.countSummary(req.user.userId) || {};
+      const tUsd = s.todayCostUsd || 0;
+      const mUsd = s.monthCostUsd || 0;
+      image = {
+        todayCount: s.todayCount || 0,
+        todayCostUsd: tUsd,
+        monthCount: s.monthCount || 0,
+        monthCostUsd: mUsd,
+        todayCostKrw: Math.round(tUsd * 1400),
+        monthCostKrw: Math.round(mUsd * 1400),
+      };
+    }
+  } catch (_) {}
   res.json({
     ok: true,
     count: imageCount,
     limit: imageLimit,
     remaining: Math.max(0, imageLimit - imageCount),
     kind: 'image',  // UI 가 "이미지 N/M" 으로 표시하도록
+    image,
   });
 });
 
@@ -2932,7 +2971,7 @@ router.get('/usage/summary', requireAdminInline, (req, res) => {
 // ──────────────────────────────────────────────────────────
 router.post('/chat-image', async (req, res) => {
   try {
-    const { threadId, projectId, prompt, sourcePageId, attachmentIds, quality } = req.body || {};
+    const { threadId, projectId, prompt, sourcePageId, attachmentIds, quality, size, userInput } = req.body || {};
     if (!prompt || !String(prompt).trim()) return res.status(400).json({ error: 'prompt 필수' });
 
     // 이미지 일일 한도 체크 (텍스트는 무제한, 이미지만 제한)
@@ -2993,6 +3032,7 @@ router.post('/chat-image', async (req, res) => {
       result = await openaiClient.generateImage({
         prompt: String(prompt).trim(),
         quality: quality || undefined,
+        size: size || undefined,
         refImagePaths: sourcePaths.length ? sourcePaths : undefined,
       });
     } else {
@@ -3021,6 +3061,53 @@ router.post('/chat-image', async (req, res) => {
 
     ai.threads.autoTitleIfEmpty(thread.id);
 
+    // 비용 기록 + 이미지 저장소 등록 (성공 시에만)
+    let storedImage = null;
+    let imageCostUsd = 0;
+    if (result.ok && result.url) {
+      const finalSize = result.size || size || '1024x1024';
+      const finalQuality = result.quality || quality || 'medium';
+      // 비용: usage 토큰이 오면 calcCostUsd 가 정확 계산, 없으면 추정표
+      const calcByUsage = (result.usage && ai.calcCostUsd)
+        ? ai.calcCostUsd(result.model || '', result.usage)
+        : 0;
+      imageCostUsd = calcByUsage > 0 ? calcByUsage : estimateImageCostUsd(finalSize, finalQuality);
+
+      // API 사용량 로그 (이미지 비용 트래킹) — apiUsage.log 내부에서 calcCostUsd 로 cost 계산
+      try {
+        ai.apiUsage.log({
+          userId: req.user.userId,
+          userName: req.user.name,
+          threadId: thread.id,
+          model: result.model || '',
+          usage: result.usage || null,
+          durationMs: result.durationMs,
+        });
+      } catch (e) { console.warn('[ai/chat-image] usage log 실패:', e.message); }
+
+      // 이미지 저장소(앨범·태그·재사용) 등록
+      try {
+        storedImage = ai.images.create({
+          ownerId: req.user.userId,
+          ownerName: req.user.name,
+          title: String(prompt).trim().slice(0, 40),
+          userInput: String(userInput || prompt).trim(),
+          prompt: String(prompt).trim(),
+          model: result.model || '',
+          size: finalSize,
+          quality: finalQuality,
+          costUsd: imageCostUsd,
+          storedName: path.basename(result.url),
+          url: result.url,
+          threadId: thread.id,
+          messageId: aiMsg.id,
+          collectionId: null,
+          tags: '',
+          promptNorm: normalizePrompt(prompt),
+        });
+      } catch (e) { console.warn('[ai/chat-image] 이미지 저장소 등록 실패:', e.message); }
+    }
+
     if (!result.ok) {
       return res.status(500).json({
         ok: false,
@@ -3036,6 +3123,10 @@ router.post('/chat-image', async (req, res) => {
       message: aiMsg,
       url: result.url,
       model: result.model,
+      size: result.size || size || '1024x1024',
+      quality: result.quality || quality || 'medium',
+      costUsd: imageCostUsd,
+      image: storedImage,
       fallback: result._fallback || false,
       fallbackHint: result._fallbackHint || null,
     });
@@ -3112,6 +3203,177 @@ async function callGeminiImage(prompt, sourceImagePaths = []) {
     return { ok: false, error: e.message, durationMs: Date.now() - started };
   }
 }
+
+// ──────────────────────────────────────────────────────────
+// 대화 → 이미지 프롬프트 정리 (핸드오프)
+// 채팅 내용/메시지를 gpt-image-2 용 영어 프롬프트 한 문장으로 변환
+// ──────────────────────────────────────────────────────────
+router.post('/image-prompt', async (req, res) => {
+  try {
+    const { userInput, context } = req.body || {};
+    const raw = String(userInput || '').trim();
+    if (!raw) return res.status(400).json({ error: 'userInput 필수' });
+
+    let openaiClient = null;
+    try { openaiClient = require('../lib/openai-client'); } catch (_) {}
+
+    // OpenAI 미설정 시 입력 그대로 폴백
+    if (!openaiClient || !openaiClient.apiKeyAvailable()) {
+      return res.json({ ok: true, prompt: raw });
+    }
+
+    try {
+      const ctx = String(context || '').trim();
+      const result = await openaiClient.chat({
+        system: "You turn a user's request (and optional chat context) into ONE vivid English image-generation prompt for gpt-image-2. Output ONLY the prompt, no preamble.",
+        messages: [{ role: 'user', content: (ctx ? ctx + '\n\n' : '') + raw }],
+        isAdmin: isAdmin(req),
+        maxTokens: 400,
+      });
+      const prompt = (result && result.text) ? result.text : raw;
+      return res.json({ ok: true, prompt: prompt || raw });
+    } catch (e) {
+      // 변환 실패해도 사용자 흐름이 끊기지 않게 입력 그대로
+      console.warn('[ai/image-prompt] 변환 실패 → 입력 폴백:', e.message);
+      return res.json({ ok: true, prompt: raw });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ──────────────────────────────────────────────────────────
+// AI 이미지 저장소 — 이미지 CRUD (본인 또는 관리자만)
+// ──────────────────────────────────────────────────────────
+function canAccessImage(req, image) {
+  return !!image && (String(image.owner_id) === String(req.user.userId) || isAdmin(req));
+}
+
+router.get('/images', (req, res) => {
+  try {
+    const admin = isAdmin(req);
+    // 비admin 은 scope 무시하고 본인 것만
+    const scope = admin ? (req.query.scope || 'mine') : 'mine';
+    let collectionId = req.query.collectionId;
+    if (collectionId === undefined || collectionId === '') collectionId = undefined;
+    const favorite = String(req.query.favorite || '') === '1' || String(req.query.favorite || '') === 'true';
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit || '60', 10) || 60));
+    const offset = Math.max(0, parseInt(req.query.offset || '0', 10) || 0);
+    const images = ai.images.list({
+      ownerId: req.user.userId,
+      isAdmin: admin,
+      scope,
+      collectionId,
+      favorite,
+      q: req.query.q || undefined,
+      tag: req.query.tag || undefined,
+      sort: req.query.sort || 'recent',
+      limit,
+      offset,
+    });
+    res.json({ ok: true, images, total: images.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.get('/images/:id', (req, res) => {
+  try {
+    const image = ai.images.get(req.params.id);
+    if (!image) return res.status(404).json({ error: '없음' });
+    if (!canAccessImage(req, image)) return res.status(403).json({ error: '권한 없음' });
+    res.json({ ok: true, image });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.patch('/images/:id', (req, res) => {
+  try {
+    const image = ai.images.get(req.params.id);
+    if (!image) return res.status(404).json({ error: '없음' });
+    if (!canAccessImage(req, image)) return res.status(403).json({ error: '권한 없음' });
+    const { title, tags, favorite, note, collectionId } = req.body || {};
+    const patch = {};
+    if (title !== undefined) patch.title = String(title).slice(0, 200);
+    if (tags !== undefined) patch.tags = String(tags).slice(0, 500);
+    if (favorite !== undefined) patch.favorite = (favorite === true || favorite === 1 || favorite === '1') ? 1 : 0;
+    if (note !== undefined) patch.note = String(note).slice(0, 2000);
+    if (collectionId !== undefined) {
+      // 앨범 이동 시 대상 앨범 소유권 확인 (null=미분류)
+      if (collectionId === null || collectionId === '' || collectionId === 'null') {
+        patch.collectionId = null;
+      } else {
+        const coll = ai.collections.list(req.user.userId).find(c => String(c.id) === String(collectionId));
+        if (!coll && !isAdmin(req)) return res.status(403).json({ error: '앨범 권한 없음' });
+        patch.collectionId = parseInt(collectionId, 10);
+      }
+    }
+    const updated = ai.images.update(image.id, patch);
+    res.json({ ok: true, image: updated });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.delete('/images/:id', (req, res) => {
+  try {
+    const image = ai.images.get(req.params.id);
+    if (!image) return res.status(404).json({ error: '없음' });
+    if (!canAccessImage(req, image)) return res.status(403).json({ error: '권한 없음' });
+    ai.images.remove(image.id); // DB 행만 삭제, 디스크 파일은 보존
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/images/:id/favorite', (req, res) => {
+  try {
+    const image = ai.images.get(req.params.id);
+    if (!image) return res.status(404).json({ error: '없음' });
+    if (!canAccessImage(req, image)) return res.status(403).json({ error: '권한 없음' });
+    const next = image.favorite ? 0 : 1;
+    ai.images.update(image.id, { favorite: next });
+    res.json({ ok: true, favorite: next });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ──────────────────────────────────────────────────────────
+// AI 이미지 저장소 — 앨범(컬렉션) CRUD
+// ──────────────────────────────────────────────────────────
+router.get('/image-collections', (req, res) => {
+  try {
+    const collections = ai.collections.list(req.user.userId);
+    res.json({ ok: true, collections });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/image-collections', (req, res) => {
+  try {
+    const name = String((req.body && req.body.name) || '').trim();
+    if (!name) return res.status(400).json({ error: 'name 필수' });
+    const collection = ai.collections.create({ ownerId: req.user.userId, name: name.slice(0, 80) });
+    res.json({ ok: true, collection });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.patch('/image-collections/:id', (req, res) => {
+  try {
+    const coll = ai.collections.list(req.user.userId).find(c => String(c.id) === String(req.params.id));
+    // 본인 앨범이 아니면서 관리자도 아니면 거부 (소유권 검사)
+    if (!coll && !isAdmin(req)) return res.status(403).json({ error: '권한 없음' });
+    const { name, coverImageId, sortOrder } = req.body || {};
+    const patch = {};
+    if (name !== undefined) patch.name = String(name).slice(0, 80);
+    if (coverImageId !== undefined) patch.coverImageId = coverImageId === null ? null : parseInt(coverImageId, 10);
+    if (sortOrder !== undefined) patch.sortOrder = parseInt(sortOrder, 10) || 0;
+    const updated = ai.collections.update(parseInt(req.params.id, 10), patch);
+    res.json({ ok: true, collection: updated });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.delete('/image-collections/:id', (req, res) => {
+  try {
+    const coll = ai.collections.list(req.user.userId).find(c => String(c.id) === String(req.params.id));
+    // 본인 앨범이 아니면서 관리자도 아니면 거부 (소유권 검사)
+    if (!coll && !isAdmin(req)) return res.status(403).json({ error: '권한 없음' });
+    ai.collections.remove(parseInt(req.params.id, 10)); // 앨범 삭제 + 이미지 collection_id=NULL
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // ──────────────────────────────────────────────────────────
 // 템플릿

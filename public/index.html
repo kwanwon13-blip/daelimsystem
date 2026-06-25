@@ -1955,6 +1955,7 @@
             currentTab === 'stats' ? 'bar_chart' :
             currentTab === 'workspace' ? 'edit_document' :
             currentTab === 'ai' ? 'smart_toy' :
+            currentTab === 'aiImages' ? 'photo_library' :
             currentTab === 'workflow' ? 'account_tree' :
             currentTab === 'gpsAttendance' ? 'location_on' :
             'settings'
@@ -1983,7 +1984,7 @@
     </header>
 
     <!-- CONTENT AREA -->
-    <div class="flex-1 overflow-y-auto main-scroll" :class="currentTab === 'workspace' || currentTab === 'ai' || currentTab === 'gpsAttendance' ? '' : 'p-6'" :style="(currentTab === 'workspace' || currentTab === 'ai') ? 'background:#f8f9fb;overflow:hidden;' : currentTab === 'gpsAttendance' ? 'background:#f8f9fb;' : 'background:#eef1f6;'">
+    <div class="flex-1 overflow-y-auto main-scroll" :class="currentTab === 'workspace' || currentTab === 'ai' || currentTab === 'aiImages' || currentTab === 'gpsAttendance' ? '' : 'p-6'" :style="(currentTab === 'workspace' || currentTab === 'ai' || currentTab === 'aiImages') ? 'background:#f8f9fb;overflow:hidden;' : currentTab === 'gpsAttendance' ? 'background:#f8f9fb;' : 'background:#eef1f6;'">
 
       <!-- QUOTE TAB → history 탭으로만 전환 (팝업은 버튼으로만 열기)
            x-init는 <template>에 걸면 x-if 값과 상관없이 항상 실행되므로 제거.
@@ -5205,6 +5206,12 @@
         <!--INCLUDE:tab-ai.html-->
       </div>
 
+      <!-- AI 이미지 저장소 탭 (생성 이미지 보관·앨범·태그·재사용) -->
+      <!-- x-show 로 유지해서 탭 전환 시에도 검색/필터/스크롤 보존 -->
+      <div x-show="currentTab === 'aiImages'" style="height:100%;">
+        <!--INCLUDE:tab-ai-images.html-->
+      </div>
+
       <template x-if="currentTab === 'gpsAttendance'">
         <!--INCLUDE:tab-gps-attendance.html-->
       </template>
@@ -6831,7 +6838,7 @@ function app() {
   // F5 새로고침 시 복원할 탭 목록 (이 목록에 없는 탭은 새로고침 시 홈으로 이동).
   // - workspace: 편집 중인 견적 작업은 새로고침해도 유지되는 게 실용적
   // - history 는 제외: 항상 견적목록으로만 튀는 문제 때문
-  const REMEMBERED_TABS = ['workspace', 'ai', 'workflow'];
+  const REMEMBERED_TABS = ['workspace', 'ai', 'aiImages', 'workflow'];
 
   return {
     // 기억할 탭 목록을 data에도 노출 (Alpine 내부에서 참조 가능)
@@ -6909,7 +6916,8 @@ function app() {
       { id: 'settings',        label: '설정',                    tabId: 'settings',        group: '관리',     company: 'both',    desc: 'SMTP·명함 등 시스템 설정' },
       { id: 'admin',           label: '사용자 관리',             tabId: 'admin',           group: '관리',     company: 'both',    desc: '직원 계정·권한 관리' },
       { id: 'workspace',       label: '워크스페이스',            tabId: 'workspace',       group: '공용',     company: 'both',    defaultOnly: true, desc: '개인 메모·문서 작업공간' },
-      { id: 'ai',              label: 'AI 챗',                   tabId: 'ai',              group: '공용',     company: 'both',    defaultOnly: true, desc: 'AI 비서 채팅' },
+      { id: 'ai',              label: 'AI 챗',                   tabId: 'ai',              group: '공용',     company: 'both',    alwaysOn: true,    desc: 'AI 비서 채팅' },
+      { id: 'aiImages',        label: 'AI 이미지',               tabId: 'aiImages',        group: '공용',     company: 'both',    alwaysOn: true,    desc: '생성한 AI 이미지 저장소' },
       { id: 'gpsAttendance',   label: 'GPS 출퇴근',              tabId: 'gpsAttendance',   group: '인사',     company: 'both',    defaultOnly: true, desc: 'GPS 기반 출퇴근 체크' }
     ],
     // 역할 프리셋(시드) — 권한 일괄 부여용. design/photos/contacts/workflow 는 공용(alwaysOn)이라 넣지 않음.
@@ -7130,6 +7138,7 @@ function app() {
       ]},
       { group: '나만의 공간', icon: 'auto_awesome', items: [
         { id: 'ai', label: 'AI 챗', icon: 'smart_toy' },
+        { id: 'aiImages', label: 'AI 이미지', icon: 'photo_library' },
         { id: 'workspace', label: '워크스페이스', icon: 'edit_document' },
       ]},
     ],

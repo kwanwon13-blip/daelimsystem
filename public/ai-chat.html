@@ -242,6 +242,33 @@ input,textarea{font:inherit}
 .composer:focus-within{border-color:#4f6ef7;box-shadow:0 2px 12px rgba(79,110,247,.12)}
 .composer.image-mode{border-color:#ec4899;box-shadow:0 2px 12px rgba(236,72,153,.12);background:#fdf2f8}
 .composer.image-mode .composer-input{color:#831843}
+/* 이미지 picker (이미지 모드일 때만 표시) */
+.img-picker{display:none;flex-wrap:wrap;gap:10px;padding:6px 10px 2px;align-items:center}
+.composer.image-mode .img-picker{display:flex}
+.img-picker-group{display:inline-flex;align-items:center;gap:4px}
+.img-picker-label{font-size:11px;font-weight:600;color:#9d4670;margin-right:1px}
+.img-seg{display:inline-flex;border:1px solid #f3c6dd;border-radius:8px;overflow:hidden;background:#fff}
+.img-seg button{padding:4px 9px;font-size:11.5px;font-weight:600;color:#9d4670;background:#fff;border:none;border-right:1px solid #f3c6dd;transition:background .1s,color .1s}
+.img-seg button:last-child{border-right:none}
+.img-seg button.on{background:#ec4899;color:#fff}
+.img-seg button:not(.on):hover{background:#fce7f3}
+/* 핸드오프(대화→이미지) 편집 박스 */
+.handoff-box{max-width:760px;margin:0 auto 10px;border:1.5px solid #f3c6dd;background:#fff5fa;border-radius:12px;padding:12px 13px}
+.handoff-box.visible{display:block}
+.handoff-title{font-size:12px;font-weight:700;color:#be185d;display:flex;align-items:center;gap:6px;margin-bottom:7px}
+.handoff-title .material-symbols-outlined{font-size:16px}
+.handoff-input{width:100%;min-height:64px;max-height:200px;padding:9px 11px;border:1px solid #f3c6dd;border-radius:9px;font-size:13px;line-height:1.5;font-family:inherit;color:#831843;outline:none;resize:vertical;box-sizing:border-box;background:#fff}
+.handoff-input:focus{border-color:#ec4899}
+.handoff-picker{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:8px 0 2px}
+.handoff-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:9px}
+.handoff-actions button{padding:7px 15px;border-radius:8px;font-size:12.5px;font-weight:600;cursor:pointer;border:none}
+.handoff-gen{background:linear-gradient(135deg,#ec4899,#db2777);color:#fff;display:inline-flex;align-items:center;gap:4px}
+.handoff-gen .material-symbols-outlined{font-size:15px}
+.handoff-gen:disabled{background:#f3c6dd;color:#fff;cursor:not-allowed}
+.handoff-cancel{background:#f3f4f6;color:#6b7280}
+.msg-img-handoff-btn{display:inline-flex;align-items:center;gap:4px;margin-top:8px;padding:5px 11px;border-radius:8px;font-size:11.5px;font-weight:600;color:#be185d;background:#fdf2f8;border:1px solid #f9d4e6;cursor:pointer;transition:background .1s,border-color .1s}
+.msg-img-handoff-btn:hover{background:#fce7f3;border-color:#ec4899}
+.msg-img-handoff-btn .material-symbols-outlined{font-size:14px}
 .attachments-row{display:flex;flex-wrap:wrap;gap:6px;padding:8px 8px 0}
 .attachments-row:empty{display:none}
 .att-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 8px 4px 4px;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:8px;font-size:12px;color:#374151;max-width:220px}
@@ -326,9 +353,34 @@ input,textarea{font:inherit}
 </div>
 </div>
 <div class="composer-wrap">
+<!-- 핸드오프: 대화 → 이미지 프롬프트 편집 후 생성 -->
+<div class="handoff-box" id="handoffBox" style="display:none;">
+<div class="handoff-title"><span class="material-symbols-outlined">palette</span>이 내용으로 이미지 만들기 — 프롬프트를 다듬고 생성하세요</div>
+<textarea class="handoff-input" id="handoffInput" placeholder="이미지 프롬프트 (영어 권장)"></textarea>
+<div class="handoff-picker" id="handoffPicker"></div>
+<div class="handoff-actions">
+<button class="handoff-cancel" id="handoffCancel">취소</button>
+<button class="handoff-gen" id="handoffGen"><span class="material-symbols-outlined">auto_awesome</span>생성</button>
+</div>
+</div>
 <div class="composer" id="composer">
 <div class="attachments-row" id="attachmentsRow"></div>
 <textarea class="composer-input" id="composerInput" rows="1" placeholder="무엇이든 물어보세요. 파일은 드래그하거나 📎로 첨부."></textarea>
+<!-- 이미지 picker — 이미지 모드에서만 보임 -->
+<div class="img-picker" id="imgPicker">
+<div class="img-picker-group"><span class="img-picker-label">비율</span>
+<div class="img-seg" id="segAspect">
+<button data-v="square" class="on">정사각</button><button data-v="wide">가로</button><button data-v="tall">세로</button>
+</div></div>
+<div class="img-picker-group"><span class="img-picker-label">크기</span>
+<div class="img-seg" id="segTier">
+<button data-v="normal" class="on">보통</button><button data-v="large">크게</button>
+</div></div>
+<div class="img-picker-group"><span class="img-picker-label">품질</span>
+<div class="img-seg" id="segQuality">
+<button data-v="medium" class="on">보통</button><button data-v="high">고화질</button>
+</div></div>
+</div>
 <div class="composer-bottom">
 <div class="composer-tools">
 <button class="tool-btn" id="attachBtn" title="파일 첨부"><span class="material-symbols-outlined">attach_file</span></button>

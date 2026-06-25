@@ -19,7 +19,33 @@ const state = {
   imageMode: false, usage: null,
   modelId: SAVED_MODEL,
   apiKeyAvailable: null,
+  // 이미지 picker (이미지 모드 + 핸드오프 공용)
+  imageAspect: 'square',   // 'square' | 'wide' | 'tall'
+  imageTier: 'normal',     // 'normal' | 'large'
+  imageQuality: 'medium',  // 'medium' | 'high'
 };
+
+// 비율·크기 → gpt-image-2 size 문자열
+function sizeFor() {
+  const a = state.imageAspect, t = state.imageTier;
+  if (a === 'square') return t === 'large' ? '2048x2048' : '1024x1024';
+  if (a === 'wide')   return t === 'large' ? '2048x1152' : '1536x1024';
+  /* tall */          return t === 'large' ? '1152x2048' : '1024x1536';
+}
+// 이미지 의도 감지: 이미지 명사 + 생성 동사 둘다 && 문서/코드/질문 아님.
+//   '그림'은 명사 목록에만 둔다(동사 목록에 두면 '그림' 한 단어로 항상 매칭돼 일반 질문까지 가로챔).
+//   질문/설명/능력문의("이 그림 설명해줘", "로고 만들 때 주의점 알려줘", "포스터 만들 수 있어?")는 답을 원하는 것이므로 제외.
+function isImageIntent(text) {
+  const s = String(text || '');
+  const imgWords = /(포스터|이미지|그림|일러스트|배너|현수막\s*시안|로고|썸네일|캐릭터)/i;
+  const makeWords = /(만들|뽑아|그려|생성|디자인|제작)/i;
+  const fileWords = /(svg|html|엑셀|xlsx|csv|pdf|문서|표로|json|마크다운)/i;
+  const askWords = /(\?|？|알려|설명|뭐야|뭔지|무엇|어떻게|방법|차이|추천|뜻|의미|왜\s|가능해|수\s*있)/;
+  const aboutExisting = /(이|그|저|위|아래|해당|첨부)\s*(그림|이미지|로고|사진|포스터|시안)/;
+  if (fileWords.test(s)) return false;
+  if (askWords.test(s) || aboutExisting.test(s)) return false;
+  return imgWords.test(s) && makeWords.test(s);
+}
 
 const $ = (id) => document.getElementById(id);
 const input = $('composerInput'), sendBtn = $('sendBtn'), composerEl = $('composer');
@@ -91,6 +117,8 @@ async function copyTextToClipboard(text) {
 }
 function shouldUseAgentMode(text, attachmentIds) {
   if (state.imageMode) return false;
+  // 이미지 의도면 코드 에이전트로 새지 않게 (핸드오프 경로로 처리)
+  if (isImageIntent(text)) return false;
   const s = String(text || '').toLowerCase();
   const hasAttachment = Array.isArray(attachmentIds) && attachmentIds.length > 0;
   // ① 명확한 업무 문서/마감 키워드 — 단독으로도 에이전트 행 (파일 생성이 거의 확실)
@@ -167,6 +195,46 @@ imageModeBtn.addEventListener('click', () => {
   else { usagePill.style.display = 'none'; }
 });
 
+// ── 이미지 picker (비율/크기/품질) ──
+// 같은 data-* 세그먼트가 composer 와 핸드오프 박스 양쪽에 있을 수 있으므로 모두 동기화한다.
+function syncPickerUI() {
+  document.querySelectorAll('#segAspect, [data-seg="aspect"]').forEach(seg => {
+    seg.querySelectorAll('button[data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === state.imageAspect));
+  });
+  document.querySelectorAll('#segTier, [data-seg="tier"]').forEach(seg => {
+    seg.querySelectorAll('button[data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === state.imageTier));
+  });
+  document.querySelectorAll('#segQuality, [data-seg="quality"]').forEach(seg => {
+    seg.querySelectorAll('button[data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === state.imageQuality));
+  });
+}
+// 세그먼트 클릭 → state 갱신 → 전체 동기화 (이벤트 위임으로 동적 추가된 핸드오프 picker 도 처리)
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.img-seg button[data-v]');
+  if (!btn) return;
+  const seg = btn.closest('.img-seg');
+  if (!seg) return;
+  const kind = seg.id === 'segAspect' ? 'aspect'
+    : seg.id === 'segTier' ? 'tier'
+    : seg.id === 'segQuality' ? 'quality'
+    : (seg.dataset.seg || '');
+  if (kind === 'aspect') state.imageAspect = btn.dataset.v;
+  else if (kind === 'tier') state.imageTier = btn.dataset.v;
+  else if (kind === 'quality') state.imageQuality = btn.dataset.v;
+  else return;
+  syncPickerUI();
+});
+// 핸드오프 박스용 picker 마크업 (composer picker 와 동일한 옵션 — data-seg 로 구분)
+function handoffPickerHtml() {
+  return '<div class="img-picker-group"><span class="img-picker-label">비율</span>'
+    + '<div class="img-seg" data-seg="aspect">'
+    + '<button data-v="square">정사각</button><button data-v="wide">가로</button><button data-v="tall">세로</button></div></div>'
+    + '<div class="img-picker-group"><span class="img-picker-label">크기</span>'
+    + '<div class="img-seg" data-seg="tier"><button data-v="normal">보통</button><button data-v="large">크게</button></div></div>'
+    + '<div class="img-picker-group"><span class="img-picker-label">품질</span>'
+    + '<div class="img-seg" data-seg="quality"><button data-v="medium">보통</button><button data-v="high">고화질</button></div></div>';
+}
+
 // 모델 선택
 function setModel(id) {
   state.modelId = id;
@@ -225,7 +293,16 @@ async function loadUsage() {
     if (!r.ok) return;
     const data = await r.json();
     state.usage = data;
-    if (data && data.limit !== undefined) usageLabel.textContent = '이미지 ' + (data.count || 0) + '/' + data.limit;
+    if (data && data.limit !== undefined) {
+      // 기본: 이미지 N/한도. 비용 정보(image)가 오면 오늘/이번달 ₩ 도 함께 표시.
+      let label = '이미지 ' + (data.count || 0) + '/' + data.limit;
+      const img = data.image;
+      if (img && (img.todayCostKrw || img.monthCostKrw)) {
+        label += ' · 오늘 ₩' + (img.todayCostKrw || 0).toLocaleString('ko-KR')
+               + ' · 이번달 ₩' + (img.monthCostKrw || 0).toLocaleString('ko-KR');
+      }
+      usageLabel.textContent = label;
+    }
   } catch (e) {}
 }
 
@@ -461,6 +538,15 @@ function buildMessageEl(m) {
       img.src = m.image_url;
       img.alt = '생성된 이미지';
       contentEl.appendChild(img);
+    }
+    // 핸드오프 버튼: 완료된 텍스트 답변에만 (생성 중·이미지 결과 메시지 제외)
+    if (!m.streaming && !m.image_url && (m.content || '').trim()) {
+      const hb = document.createElement('button');
+      hb.className = 'msg-img-handoff-btn';
+      hb.type = 'button';
+      hb.dataset.imgHandoff = '1';
+      hb.innerHTML = '<span class="material-symbols-outlined">palette</span>🎨 이 내용으로 이미지';
+      contentEl.appendChild(hb);
     }
   } else {
     contentEl.innerHTML = '<p>' + escapeHtml(m.content).replace(/\n/g, '<br>') + '</p>';
@@ -1251,6 +1337,18 @@ async function sendMessage() {
   if (state.streaming) return;
 
   const ownerThreadId = state.activeThreadId ? String(state.activeThreadId) : 'new';
+  // 중복 실행 가드: 같은 대화가 이미 생성 중이면 무시 (state.streaming 과 병행)
+  if (state.streamingByThread && state.streamingByThread.has(ownerThreadId)) return;
+
+  // 의도 라우팅: 이미지 의도면 (이미지 모드 OFF여도) 핸드오프 경로로 보낸다.
+  //   → /image-prompt 로 프롬프트 정리 후 picker 와 함께 편집 박스를 띄움. 메시지/스트리밍은 시작하지 않음.
+  if (!state.imageMode && isImageIntent(text)) {
+    input.value = '';
+    autoResize();
+    openHandoff(text, { messageId: null });
+    return;
+  }
+
   state.abortController = new AbortController(); setStreaming(true);
   state.streamingByThread.add(ownerThreadId);
   renderThreadList();
@@ -1283,7 +1381,7 @@ async function sendMessage() {
       const r = await fetch('/api/ai/chat-image', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         signal: state.abortController.signal,
-        body: JSON.stringify({ prompt: text, threadId: state.activeThreadId || undefined }),
+        body: JSON.stringify({ prompt: text, threadId: state.activeThreadId || undefined, size: sizeFor(), quality: state.imageQuality, userInput: text }),
       });
       if (r.status === 401) { window.location.href = '/'; return; }
       const data = await r.json();
@@ -1481,6 +1579,110 @@ async function sendMessage() {
   }
 }
 
+// ═══ 이미지 핸드오프 (대화/버튼 → 프롬프트 편집 → 생성) ═══
+const handoffBox = document.getElementById('handoffBox');
+const handoffInput = document.getElementById('handoffInput');
+const handoffPicker = document.getElementById('handoffPicker');
+const handoffGen = document.getElementById('handoffGen');
+const handoffCancel = document.getElementById('handoffCancel');
+
+function closeHandoff() {
+  if (!handoffBox) return;
+  handoffBox.style.display = 'none';
+  handoffBox.classList.remove('visible');
+  if (handoffInput) handoffInput.value = '';
+}
+// userInput: 사용자가 원한 내용(또는 AI 메시지 텍스트). messageId: 출처 AI 메시지(있으면 전달).
+async function openHandoff(userInput, opts) {
+  if (!handoffBox || !handoffInput) return;
+  opts = opts || {};
+  // picker 마크업 주입 후 현재 state 로 동기화
+  if (handoffPicker) { handoffPicker.innerHTML = handoffPickerHtml(); }
+  syncPickerUI();
+  handoffBox.style.display = 'block';
+  handoffBox.classList.add('visible');
+  handoffInput.value = '정리 중…';
+  handoffInput.disabled = true;
+  if (handoffGen) handoffGen.disabled = true;
+  handoffInput.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  // /image-prompt 로 영어 프롬프트 한 문장으로 정리 (실패해도 입력 그대로 폴백)
+  let prompt = String(userInput || '').trim();
+  try {
+    const r = await fetch('/api/ai/image-prompt', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ userInput: prompt, messageId: opts.messageId || undefined, threadId: state.activeThreadId || undefined }),
+    });
+    if (r.status === 401) { window.location.href = '/'; return; }
+    if (r.ok) { const d = await r.json(); if (d && d.prompt) prompt = d.prompt; }
+  } catch (_) {}
+  handoffInput.value = prompt;
+  handoffInput.disabled = false;
+  if (handoffGen) handoffGen.disabled = false;
+  setTimeout(() => { try { handoffInput.focus(); handoffInput.setSelectionRange(prompt.length, prompt.length); } catch(_){} }, 30);
+}
+if (handoffCancel) handoffCancel.addEventListener('click', closeHandoff);
+if (handoffGen) handoffGen.addEventListener('click', () => {
+  const prompt = (handoffInput.value || '').trim();
+  if (!prompt) { handoffInput.focus(); return; }
+  closeHandoff();
+  runImageGeneration(prompt);
+});
+
+// 명시적 프롬프트로 이미지 생성 (핸드오프 전용). 메시지 말풍선 생성 + 렌더는 imageMode 분기와 동일.
+async function runImageGeneration(prompt) {
+  if (state.streaming) return;
+  const ownerThreadId = state.activeThreadId ? String(state.activeThreadId) : 'new';
+  if (state.streamingByThread && state.streamingByThread.has(ownerThreadId)) return;
+  state.abortController = new AbortController(); setStreaming(true);
+  state.streamingByThread.add(ownerThreadId);
+  renderThreadList();
+  input.disabled = true;
+
+  const userMsg = { role: 'user', content: prompt, id: 'tmp_u_' + Date.now() };
+  state.messages.push(userMsg);
+  appendMessage(userMsg);
+  const aiMsg = { role: 'ai', content: '이미지 생성 중… (10~30초 소요)', streaming: true, id: 'tmp_a_' + Date.now() };
+  aiMsg._clientId = aiMsg.id;
+  state.messages.push(aiMsg);
+  state.liveByThread[ownerThreadId] = aiMsg;
+  appendMessage(aiMsg);
+  scrollToBottom();
+
+  try {
+    const r = await fetch('/api/ai/chat-image', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      signal: state.abortController.signal,
+      body: JSON.stringify({ prompt, threadId: state.activeThreadId || undefined, size: sizeFor(), quality: state.imageQuality, userInput: prompt }),
+    });
+    if (r.status === 401) { window.location.href = '/'; return; }
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || ('chat-image ' + r.status));
+    aiMsg.streaming = false;
+    aiMsg.content = data.text || (data.message && data.message.content) || '이미지가 생성되었습니다.';
+    aiMsg.image_url = data.url || data.image_url || data.imageUrl || (data.message && (data.message.image_url || data.message.imageUrl)) || null;
+    aiMsg.artifacts = data.artifacts || [];
+    if (messagesEl.lastElementChild && messagesEl.lastElementChild.classList && messagesEl.lastElementChild.classList.contains('msg-ai')) messagesEl.removeChild(messagesEl.lastElementChild);
+    appendMessage(aiMsg);
+    scrollToBottom();
+    if (data.threadId && !state.activeThreadId) { state.activeThreadId = data.threadId; await loadThreads(); }
+    else { loadThreads(); }
+    loadUsage();
+  } catch (e) {
+    console.error('이미지 생성 실패:', e);
+    aiMsg.streaming = false;
+    aiMsg.content = '**오류:** ' + e.message;
+    if (messagesEl.lastElementChild && messagesEl.lastElementChild.classList && messagesEl.lastElementChild.classList.contains('msg-ai')) messagesEl.removeChild(messagesEl.lastElementChild);
+    appendMessage(aiMsg);
+  } finally {
+    state.streamingByThread.delete(ownerThreadId);
+    state.streamingByThread.delete('new');
+    delete state.liveByThread[ownerThreadId];
+    if (state.activeThreadId) delete state.liveByThread[String(state.activeThreadId)];
+    setStreaming(false); input.disabled = false; autoResize(); input.focus();
+    renderThreadList();
+  }
+}
+
 // ═══ 추가 기능 — Phase 6 마무리 ═══
 const sidebarEl = document.querySelector('.sidebar');
 const hamburgerBtn = document.getElementById('hamburgerBtn');
@@ -1627,6 +1829,19 @@ messagesEl.addEventListener('click', (e) => {
   if (act === 'copy') copyMessage(msg, btn);
   else if (act === 'edit') editMessage(msg, msgEl);
   else if (act === 'regenerate') regenerateMessage(msg);
+});
+
+// 🎨 이 내용으로 이미지 — AI 메시지 텍스트를 핸드오프(프롬프트 정리 → picker → 생성)로
+messagesEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-img-handoff]');
+  if (!btn) return;
+  if (state.streaming) return;
+  const msgEl = btn.closest('.msg');
+  if (!msgEl) return;
+  const msg = state.messages.find(m => String(m.id) === String(msgEl.dataset.id));
+  const text = (msg && msg.content) || '';
+  if (!text.trim()) return;
+  openHandoff(text, { messageId: (msg && msg.serverMsgId) || (msg && msg.id) || null });
 });
 
 async function copyMessage(msg, btn) {
@@ -2164,6 +2379,18 @@ if (_isEmbedded) {
   if (sidebarFooter) sidebarFooter.style.display = 'none';
   document.body.style.background = '#fff';
 }
+
+// 프리필: 저장소(ai-images)에서 "이걸로 다시" 로 넘어온 프롬프트를 이미지 모드 입력에 채움
+(function applyPrefill() {
+  let pre = '';
+  try { pre = new URLSearchParams(location.search).get('prefill') || ''; } catch (_) {}
+  if (!pre) return;
+  // 이미지 모드 ON (picker 노출) + 입력 채우기
+  if (!state.imageMode) imageModeBtn.click();
+  input.value = pre;
+  autoResize();
+  setTimeout(() => { try { input.focus(); input.setSelectionRange(pre.length, pre.length); } catch(_){} }, 60);
+})();
 
 // 초기화: 스레드 목록 로드 후 → 마지막 보던 대화 자동 복원 (F5/탭이동 복원)
 loadThreads().then(restoreLastThread);
