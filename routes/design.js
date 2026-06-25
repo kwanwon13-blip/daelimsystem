@@ -785,6 +785,78 @@ router.get('/design/star-scan', designAuthOrControl, async (req, res) => {
   }
 });
 
+// ── 캡션 검증 (샘플): ★폴더 이미지 N장을 비전으로 한국어 설명 — "AI가 사진을 읽나" 증명용 ──
+// 컨트롤 시크릿/로그인. 기존 openaiClient.vision 재사용(신규 설치 0). 소량 검증용.
+router.get('/design/caption-sample', designAuthOrControl, async (req, res) => {
+  try {
+    const folder = String(req.query.folder || '').trim();
+    const n = Math.min(40, Math.max(1, parseInt(req.query.n, 10) || 12));
+    if (!folder) return res.status(400).json({ ok: false, error: 'folder 필요' });
+    const folderPath = path.resolve(DESIGN_ROOT, folder);
+    if (!folderPath.toLowerCase().startsWith(path.resolve(DESIGN_ROOT).toLowerCase())) {
+      return res.status(400).json({ ok: false, error: '경로 위반' });
+    }
+    if (!fs.existsSync(folderPath)) return res.status(404).json({ ok: false, error: '폴더 없음: ' + folderPath });
+    const imgs = [];
+    const stack = [folderPath];
+    while (stack.length && imgs.length < n) {
+      const dir = stack.pop();
+      let entries; try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); } catch (e) { continue; }
+      for (const ent of entries) {
+        if (imgs.length >= n) break;
+        const full = path.join(dir, ent.name);
+        if (ent.isDirectory()) stack.push(full);
+        else if (FILE_TYPES.image.has(path.extname(ent.name).toLowerCase())) imgs.push(full);
+      }
+    }
+    let openaiClient; try { openaiClient = require('../lib/openai-client'); } catch (e) { openaiClient = null; }
+    if (!openaiClient || !openaiClient.apiKeyAvailable()) {
+      return res.json({ ok: false, error: 'OPENAI_API_KEY 미설정 — 비전 캡션 불가(서버 .env 확인)', imagesFound: imgs.length });
+    }
+    const results = [];
+    for (const p of imgs) {
+      try {
+        const r = await openaiClient.vision({
+          prompt: '이 이미지가 무엇인지 한국어로 한 문장으로 설명해줘. 그다음 줄에 검색용 키워드 6개를 쉼표로. (종류: 로고/현수막/제품/캐릭터/배경/인물 등 + 핵심 사물·색·분위기 포함)',
+          imagePaths: [p], isAdmin: true, maxTokens: 220,
+        });
+        results.push({ file: path.basename(p), caption: String(r.text || '').trim() });
+      } catch (e) { results.push({ file: path.basename(p), error: String(e.message).slice(0, 140) }); }
+    }
+    res.json({ ok: true, folder, imagesFound: imgs.length, captioned: results.length, results });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ── 내용 캡션 저장소 (로컬 클로드가 그림 읽고 7축 캡션 → 저장 → 내용 검색) ──
+const designCaptions = require('../lib/design-captions-db');
+
+// 캡션 ingest — 로컬 캡션 잡이 캡션을 POST(배열 또는 {items:[…]}). 컨트롤시크릿/로그인.
+router.post('/design/caption-ingest', designAuthOrControl, express.json({ limit: '8mb' }), (req, res) => {
+  try {
+    const body = req.body || {};
+    const items = Array.isArray(body) ? body : (Array.isArray(body.items) ? body.items : [body]);
+    let n = 0;
+    for (const it of items) { if (it && it.path) { designCaptions.upsert(it); n++; } }
+    res.json({ ok: true, ingested: n, total: designCaptions.count() });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+// 내용 검색(AI 캡션) — 파일명 검색(/design/search)과 분리된 별도 모드. 자유어 q + 패싯 필터.
+router.get('/design/content-search', designAuthOrControl, (req, res) => {
+  try {
+    const { q, client, type, material, usage, folder, limit } = req.query;
+    const rows = designCaptions.search({ q, client, type, material, usage, folder, limit });
+    const results = rows.map(r => ({
+      name: path.basename(r.path), path: r.path, network: toNetworkPath(r.path),
+      folder: r.folder, client: r.client, type: r.type, material: r.material,
+      usage: r.usage, text: r.text_in, visual: r.visual, size: r.size,
+    }));
+    res.json({ ok: true, count: results.length, total: designCaptions.count(), facets: designCaptions.facets(), results });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
 router.get('/design/workflow-options', requireAuth, (req, res) => {
   const options = designWorkflowOptions();
   const companyTerm = designWorkflowStorage.normalizeKey(req.query.company);
