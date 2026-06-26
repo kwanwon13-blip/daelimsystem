@@ -82,7 +82,7 @@ const NOISE_KEYS = new Set([
   'backup', 'data', 'temp', 'tmp', 'thumbs', 'images', 'image', 'ai', 'pdf', 'jpg', 'png',
   'pricelistapp', 'priceapplist', 'node_modules', 'sessions', 'claude',
   '견적서', '관리팀', '각종시안자료', '본사제작품', '기타', '새폴더', '설치사진',
-  '대구부산시안참고사진', '김다한자료', '대표님', '박과장', '보건실',
+  '대구부산시안참고사진', '김다한자료', '박과장', '보건실',
 ].map(normalizeKey));
 
 const PROJECT_NOISE_KEYWORDS = [
