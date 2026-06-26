@@ -147,15 +147,22 @@
   .pcnote{text-align:center;color:#9aa3b2;font-size:13px;line-height:1.6;margin:18px 4px 6px;padding:14px;background:#fff;border:1px dashed #d7dbe3;border-radius:13px;}
   .pcnote .material-symbols-outlined{font-size:18px;vertical-align:-4px;color:#94a3b8;}
 
-  /* 라이트박스 */
-  .lb{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:200;display:none;flex-direction:column;}
+  /* 라이트박스 — 시안 전용 뷰어(확대/이동/넘기기), 다운로드 없음 */
+  .lb{position:fixed;inset:0;background:rgba(0,0,0,.94);z-index:200;display:none;flex-direction:column;}
   .lb.on{display:flex;}
-  .lb-top{display:flex;justify-content:space-between;align-items:center;padding:calc(env(safe-area-inset-top) + 8px) 14px 8px;color:#fff;}
-  .lb-x{width:42px;height:42px;border:none;background:rgba(255,255,255,.14);color:#fff;border-radius:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+  .lb-top{display:flex;align-items:center;gap:10px;padding:calc(env(safe-area-inset-top) + 8px) 14px 8px;color:#fff;}
+  .lb-site{flex:1;min-width:0;font-size:14px;font-weight:700;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .lb-count{flex:none;font-size:13px;font-weight:700;opacity:.85;}
+  .lb-x{flex:none;width:42px;height:42px;border:none;background:rgba(255,255,255,.14);color:#fff;border-radius:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;}
   .lb-x .material-symbols-outlined{font-size:24px;}
-  .lb-body{flex:1;display:flex;align-items:center;justify-content:center;overflow:auto;padding:8px;}
-  .lb-body img{max-width:100%;max-height:100%;object-fit:contain;}
-  .lb-dl{display:inline-flex;align-items:center;gap:6px;background:#16a34a;color:#fff;text-decoration:none;border-radius:12px;padding:11px 18px;font-size:15px;font-weight:700;}
+  .lb-body{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:8px;position:relative;touch-action:none;}
+  .lb-body img{max-width:100%;max-height:100%;object-fit:contain;transform-origin:center center;will-change:transform;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-user-drag:none;}
+  .lb-nav{position:absolute;top:50%;transform:translateY(-50%);width:46px;height:46px;border:none;background:rgba(0,0,0,.42);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2;}
+  .lb-nav:disabled{opacity:.22;}
+  .lb-nav.prev{left:10px;} .lb-nav.next{right:10px;}
+  .lb-nav .material-symbols-outlined{font-size:28px;}
+  .lb-name{flex:none;text-align:center;color:#cbd5e1;font-size:13px;padding:5px 14px 0;line-height:1.3;word-break:break-all;}
+  .lb-hint{flex:none;text-align:center;color:#94a3b8;font-size:12px;padding:5px 14px calc(10px + env(safe-area-inset-bottom));}
 
   /* 토스트(saving) */
   .saving-bar{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#111827;color:#fff;font-size:14px;font-weight:700;padding:11px 20px;border-radius:14px;z-index:300;display:flex;align-items:center;gap:9px;}
@@ -394,12 +401,7 @@
           </button>
         </div>
 
-        <!-- 전체 파일 받기 -->
-        <a class="btn btn-green btn-wide" style="width:100%;text-decoration:none;margin-bottom:14px;" :href="smartArchiveUrl()">
-          <span class="material-symbols-outlined">folder_zip</span>전체 파일 ZIP 받기
-        </a>
-
-        <!-- 파일/시안 목록 -->
+        <!-- 파일/시안 목록 (모바일은 보기 전용 — 다운로드는 PC에서) -->
         <div class="sec-label">
           <span class="material-symbols-outlined">imagesmode</span>시안 · 파일
         </div>
@@ -432,7 +434,7 @@
               </div>
             </div>
 
-            <!-- 파일 하단: 상태 + 수신확인 + 받기 -->
+            <!-- 파일 하단: 상태 + 수신확인 + 크게 보기(다운로드 없음) -->
             <div class="file-foot">
               <span class="file-st wait" x-show="file.hasTarget && !file.targetRead">수신대기</span>
               <span class="file-st ok" x-show="file.hasTarget && file.targetRead">수신확인됨</span>
@@ -440,9 +442,9 @@
               <button type="button" class="btn btn-amber" x-show="isUnreadFile(file)" @click="markRead(file)" :disabled="saving">
                 <span class="material-symbols-outlined">done_all</span>수신확인
               </button>
-              <a class="btn btn-grey" x-show="file.exists!==false" :href="smartFileUrl(file)">
-                <span class="material-symbols-outlined">download</span>받기
-              </a>
+              <button type="button" class="btn btn-grey" x-show="file.isImage && file.exists!==false" @click="mOpenLightbox(file)">
+                <span class="material-symbols-outlined">zoom_in</span>크게 보기
+              </button>
             </div>
           </div>
         </template>
@@ -450,26 +452,35 @@
         <!-- PC 안내 -->
         <div class="pcnote">
           <span class="material-symbols-outlined">desktop_windows</span>
-          발주메일·현장명 변경·팀 분배·시안 교체 등 자세한 작업은 PC 화면에서 처리하세요.
+          파일 다운로드·발주메일·현장명 변경·팀 분배·시안 교체 등은 PC 화면에서 처리하세요.
         </div>
       </div>
     </div>
   </template>
 
-  <!-- 라이트박스 -->
+  <!-- 라이트박스 — 시안 전용 뷰어(확대·이동·넘기기), 다운로드 없음 -->
   <div class="lb" :class="mLb.open ? 'on' : ''">
     <div class="lb-top">
+      <div class="lb-site" x-text="(detail && detail.job) ? ([detail.job.companyName, detail.job.projectName].filter(Boolean).join(' · ') || '현장 미지정') : ''"></div>
+      <span class="lb-count" x-show="mLbImages().length > 1" x-text="(mLbIndex()+1) + ' / ' + mLbImages().length"></span>
       <button type="button" class="lb-x" @click="mLb.open=false" aria-label="닫기">
         <span class="material-symbols-outlined">close</span>
       </button>
-      <a class="lb-dl" x-show="mLb.file" :href="mLb.file ? smartFileUrl(mLb.file) : '#'">
-        <span class="material-symbols-outlined">download</span>받기
-      </a>
     </div>
-    <div class="lb-body">
-      <img x-show="mLb.file" :src="mLb.file ? (filePreviewUrl(mLb.file) || fileThumbUrl(mLb.file)) : ''"
+    <div class="lb-body" id="lbBody">
+      <button type="button" class="lb-nav prev" x-show="mLbImages().length > 1" :disabled="mLbIndex()<=0"
+              @click="mLbStep(-1)" aria-label="이전 시안">
+        <span class="material-symbols-outlined">chevron_left</span>
+      </button>
+      <img id="lbImg" x-show="mLb.file" :src="mLb.file ? (filePreviewUrl(mLb.file) || fileThumbUrl(mLb.file)) : ''"
            @error="handleWorkflowImageError($event, mLb.file ? fileThumbUrl(mLb.file) : '')">
+      <button type="button" class="lb-nav next" x-show="mLbImages().length > 1" :disabled="mLbIndex()>=mLbImages().length-1"
+              @click="mLbStep(1)" aria-label="다음 시안">
+        <span class="material-symbols-outlined">chevron_right</span>
+      </button>
     </div>
+    <div class="lb-name" x-show="mLb.file" x-text="(mLb.file && mLb.file.originalName) ? mLb.file.originalName : ''"></div>
+    <div class="lb-hint">두 손가락으로 확대 · 두 번 탭하면 확대/축소</div>
   </div>
 
   <!-- 저장 중 표시 -->
@@ -532,9 +543,121 @@
         if (!file || !file.isImage || file.exists === false) return;
         this.mLb = { open: true, file: file };
       };
+      // 현재 상세의 이미지 시안 목록(넘기기용)
+      base.mLbImages = function () {
+        try {
+          return (this.detailTiles() || []).filter(function (f) { return f && f.isImage && f.exists !== false; });
+        } catch (e) { return []; }
+      };
+      base.mLbIndex = function () {
+        if (!this.mLb || !this.mLb.file) return -1;
+        var imgs = this.mLbImages();
+        for (var i = 0; i < imgs.length; i++) { if (imgs[i].id === this.mLb.file.id) return i; }
+        return -1;
+      };
+      base.mLbStep = function (dir) {
+        var imgs = this.mLbImages();
+        if (!imgs.length) return;
+        var i = this.mLbIndex(); if (i < 0) i = 0;
+        var n = i + dir;
+        if (n < 0 || n >= imgs.length) return;
+        this.mLb = { open: true, file: imgs[n] };
+      };
       return base;
     };
     window.workflowApp.__mobileWrapped = true;
+  })();
+</script>
+
+<!-- 시안 라이트박스 줌/이동 제스처(핀치·드래그·더블탭). viewport가 maximum-scale=1이라 브라우저 핀치가 막혀 있어 직접 구현. -->
+<script>
+  (function () {
+    function setup() {
+      var body = document.getElementById('lbBody');
+      var img = document.getElementById('lbImg');
+      if (!body || !img) { return; }
+
+      var scale = 1, tx = 0, ty = 0;
+      var pointers = {};
+      var mode = null;                 // 'pan' | 'pinch'
+      var pinchStartDist = 0, pinchStartScale = 1;
+      var panStartX = 0, panStartY = 0, panBaseTx = 0, panBaseTy = 0;
+      var lastTapTime = 0;
+      var MIN = 1, MAX = 5;
+
+      function apply() { img.style.transform = 'translate3d(' + tx + 'px,' + ty + 'px,0) scale(' + scale + ')'; }
+      function reset() { scale = 1; tx = 0; ty = 0; img.style.transition = 'none'; apply(); }
+      function ids() { return Object.keys(pointers); }
+      function clamp(s) { return Math.max(MIN, Math.min(MAX, s)); }
+
+      // 새 이미지 로드(열기/넘기기)마다 줌 초기화
+      img.addEventListener('load', reset);
+      img.addEventListener('dragstart', function (e) { e.preventDefault(); });
+
+      body.addEventListener('pointerdown', function (e) {
+        // 넘기기/닫기 버튼은 제스처 대상에서 제외
+        if (e.target.closest && e.target.closest('.lb-nav, .lb-x')) return;
+        pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+        try { body.setPointerCapture(e.pointerId); } catch (_) {}
+        var k = ids();
+        if (k.length === 2) {
+          mode = 'pinch';
+          var a = pointers[k[0]], b = pointers[k[1]];
+          pinchStartDist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+          pinchStartScale = scale;
+        } else if (k.length === 1) {
+          mode = 'pan';
+          panStartX = e.clientX; panStartY = e.clientY; panBaseTx = tx; panBaseTy = ty;
+          var now = Date.now();
+          if (now - lastTapTime < 300) {           // 더블탭 → 확대/축소 토글
+            img.style.transition = 'transform .18s ease';
+            if (scale > 1.02) { scale = 1; tx = 0; ty = 0; } else { scale = 2.5; }
+            apply();
+            mode = null; lastTapTime = 0; return;
+          }
+          lastTapTime = now;
+        }
+      });
+
+      body.addEventListener('pointermove', function (e) {
+        if (!pointers[e.pointerId]) return;
+        pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+        var k = ids();
+        if (mode === 'pinch' && k.length >= 2) {
+          var a = pointers[k[0]], b = pointers[k[1]];
+          var d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+          img.style.transition = 'none';
+          scale = clamp(pinchStartScale * (d / pinchStartDist));
+          apply();
+        } else if (mode === 'pan' && k.length === 1 && scale > 1.02) {
+          img.style.transition = 'none';
+          tx = panBaseTx + (e.clientX - panStartX);
+          ty = panBaseTy + (e.clientY - panStartY);
+          apply();
+        }
+      });
+
+      function up(e) {
+        delete pointers[e.pointerId];
+        try { body.releasePointerCapture(e.pointerId); } catch (_) {}
+        var k = ids();
+        if (k.length === 0) {
+          mode = null;
+          if (scale <= 1.02) { img.style.transition = 'transform .18s ease'; reset2(); }
+        } else if (k.length === 1) {
+          // 핀치 → 팬 전환(손가락 하나 떼면 남은 손가락으로 이동)
+          mode = 'pan';
+          var id = k[0];
+          panStartX = pointers[id].x; panStartY = pointers[id].y; panBaseTx = tx; panBaseTy = ty;
+        }
+      }
+      function reset2() { scale = 1; tx = 0; ty = 0; apply(); }
+      body.addEventListener('pointerup', up);
+      body.addEventListener('pointercancel', up);
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setup);
+    else setup();
   })();
 </script>
 </body>
