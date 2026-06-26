@@ -4099,7 +4099,10 @@ function workflowApp() {
 
     // 팀 미배정 시안 수 (분배 배너용)
     detailUnassignedCount() {
-      return ((this.detail && this.detail.files) || []).filter(f => f.isImage && f.team !== 'welding' && f.team !== 'output').length;
+      // 접힌 타일(같은 디자인=1장) 기준 — 화면에 보이는 타일과 일치(발주본·원본 묶음을 2장으로 안 셈). 팀필터 영향 없게 collapseFileVariants 직접 사용.
+      const files = (this.detail && this.detail.files) ? this.detail.files : [];
+      const tiles = (typeof this.collapseFileVariants === 'function') ? this.collapseFileVariants(files) : files;
+      return tiles.filter(f => f.isImage && f.exists !== false && f.team !== 'welding' && f.team !== 'output').length;
     },
 
     // 워크플로 잡 → 픽업 등록폼으로 전달 (app()이 별도 루트라 이벤트 브리지 사용)
@@ -4937,14 +4940,19 @@ function workflowApp() {
     async assignFileTeam(file, team) {
       if (!this.detail || !this.detail.job || !file) return;
       const next = (file.team === team) ? '' : team;
+      // 접힌 변형(발주본·원본 등)도 함께 배정 — 숨겨진 변형이 팀 미배정으로 남지 않게(시안접기와 정합)
+      const group = (file._variants && file._variants.length) ? file._variants : [file];
       try {
-        const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/files/' + encodeURIComponent(file.id) + '/team', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ team: next }),
-        });
-        const d = await r.json();
-        if (!r.ok || !d.ok) throw new Error(d.error || '팀 배정 실패');
-        file.team = next;
+        for (const f of group) {
+          if (!f || !f.id || !f.isImage) continue;
+          const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(this.detail.job.id) + '/files/' + encodeURIComponent(f.id) + '/team', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ team: next }),
+          });
+          const d = await r.json();
+          if (!r.ok || !d.ok) throw new Error(d.error || '팀 배정 실패');
+          f.team = next;
+        }
         await this.loadJobs();
         await this.refreshDetail(false);
       } catch (e) { alert(e.message); }
