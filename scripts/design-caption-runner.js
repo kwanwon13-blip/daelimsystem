@@ -21,6 +21,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { spawn } = require('child_process');
 const http = require('http');
 
@@ -41,8 +42,8 @@ const ENV = { ...loadEnv(), ...process.env };
 const SHARE = (ENV.DESIGN_SHARE || '\\\\192.168.0.133\\dd').replace(/[\\/]+$/, '');
 const SERVER = ENV.DESIGN_SERVER || 'http://192.168.0.133:3000';
 const SECRET = String(ENV.CONTROL_DAEMON_SECRET || '').trim();
-const MODEL_RAW = ENV.DESIGN_CAPTION_MODEL || 'sonnet';
-const MODEL = /^[A-Za-z0-9._-]+$/.test(MODEL_RAW) ? MODEL_RAW : 'sonnet'; // shell 주입 차단(아래 shell:true)
+const MODEL_RAW = ENV.DESIGN_CAPTION_MODEL || 'haiku';   // 캡션엔 haiku로 충분, rate limit 여유(sonnet과 속도 동급으로 실측됨)
+const MODEL = /^[A-Za-z0-9._-]+$/.test(MODEL_RAW) ? MODEL_RAW : 'haiku'; // shell 주입 차단(아래 shell:true)
 const DB_SHARE_PATH = SHARE + '\\price-list-app\\data\\design-captions.db';
 const IMG_EXT = new Set(['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp']);
 const SKIP_DIRS = new Set(['node_modules', '.git', '$RECYCLE.BIN', 'System Volume Information', 'price-list-app']);
@@ -56,10 +57,19 @@ function arg(name, def) {
 const LIMIT = parseInt(arg('limit', '0'), 10) || 0;
 const FOLDER_FILTER = (arg('folder', '') === true) ? '' : String(arg('folder', ''));
 const CONCURRENCY = Math.max(1, Math.min(6, parseInt(arg('concurrency', '2'), 10) || 2));
+const BATCH = Math.max(1, Math.min(12, parseInt(arg('batch', '5'), 10) || 5)); // 한 claude 호출당 이미지 수 — 시동비용 분산(17초→8초/장)
 const DRY = !!arg('dry', false);
-const PER_TIMEOUT_MS = (parseInt(arg('timeout', '120'), 10) || 120) * 1000;
+const PER_IMG_TIMEOUT_S = parseInt(arg('timeout', '40'), 10) || 40;            // 이미지 1장당 상한(초). 배치는 ×장수+여유
 
 if (!SECRET) { console.error('[runner] CONTROL_DAEMON_SECRET 없음 — 로컬 .env 확인'); process.exit(1); }
+
+// MCP 서버 로딩 스킵(빈 설정) — 시동 단순화·MCP 오류 차단. 실패해도 무해(플래그 생략).
+let MCP_FLAGS = '';
+try {
+  const f = path.join(os.tmpdir(), 'design-caption-empty-mcp.json');
+  fs.writeFileSync(f, '{"mcpServers":{}}');
+  MCP_FLAGS = ` --strict-mcp-config --mcp-config "${f}"`;
+} catch (_) { MCP_FLAGS = ''; }
 
 // 공유경로(\\192.168.0.133\dd\X) → 서버 저장 규약(D:\X)
 function toServerPath(sharePath) {
@@ -102,42 +112,54 @@ function* walkStarImages(root) {
   }
 }
 
-const VISION_PROMPT = (sharePath) =>
-  'Read 도구로 아래 이미지 파일을 직접 열어 보고, 오직 JSON 한 줄로만 답해라. 설명·코드펜스·여는말 전부 금지. JSON 외 다른 텍스트를 출력하면 실패다.\n' +
-  '이미지: ' + sharePath + '\n' +
-  '형식: {"type":"종류 한단어(현수막/포스터/로고/스티커/간판/현황판/캐릭터/배경/제품/일러스트/기타)",' +
-  '"client":"보이는 회사·브랜드명(없으면 빈문자열)",' +
-  '"material":"자재(포맥스/타포린/PE/투명스티커/고무자석 등, 없으면 빈문자열)",' +
-  '"usage":"용도·주제(안전/홍보/행사/MSDS/공사현황 등, 없으면 빈문자열)",' +
-  '"text":"이미지 속 핵심 문구(없으면 빈문자열)",' +
-  '"visual":"색상·구성·분위기 한 줄",' +
-  '"keywords":"검색용 한국어 키워드 5개 쉼표"}';
-
-function extractJson(text) {
-  if (!text) return null;
-  const s = String(text).replace(/```[a-zA-Z]*\s*/g, '').replace(/```/g, '');
-  const a = s.indexOf('{'), b = s.lastIndexOf('}');
-  if (a === -1 || b <= a) return null;
-  try { return JSON.parse(s.slice(a, b + 1)); } catch (_) { return null; }
+// 배치 프롬프트 — N장 → JSON 배열(객체 N개). 각 객체 file(파일명)로 매칭.
+function batchPrompt(jobs) {
+  const list = jobs.map((j, n) => `${n + 1}: ${j.sharePath}`).join('\n');
+  return 'Read 도구로 아래 이미지 파일들을 각각 직접 열어 보고, 오직 JSON 배열로만 답해라(이미지 1장당 객체 1개, 입력 순서대로). 설명·코드펜스·여는말 전부 금지. JSON 배열 외 다른 텍스트는 실패다.\n' +
+    list + '\n' +
+    '각 객체 형식: {"file":"파일명(확장자 포함)",' +
+    '"type":"종류 한단어(현수막/포스터/로고/스티커/간판/현황판/캐릭터/배경/제품/일러스트/기타)",' +
+    '"client":"보이는 회사·브랜드명(없으면 빈문자열)",' +
+    '"material":"자재(포맥스/타포린/PE/투명스티커/고무자석 등, 없으면 빈문자열)",' +
+    '"usage":"용도·주제(안전/홍보/행사/MSDS/공사현황 등, 없으면 빈문자열)",' +
+    '"text":"이미지 속 핵심 문구(없으면 빈문자열)",' +
+    '"visual":"색상·구성·분위기 한 줄",' +
+    '"keywords":"검색용 한국어 키워드 5개 쉼표"}';
 }
 
-// claude CLI 로 이미지 1장 캡션
-function captionOne(sharePath) {
+function extractArray(text) {
+  if (!text) return null;
+  const s = String(text).replace(/```[a-zA-Z]*\s*/g, '').replace(/```/g, '');
+  const a = s.indexOf('['), b = s.lastIndexOf(']');
+  if (a === -1 || b <= a) return null;
+  try { const v = JSON.parse(s.slice(a, b + 1)); return Array.isArray(v) ? v : null; } catch (_) { return null; }
+}
+
+// 반환 배열을 입력 jobs 에 매칭 — file(basename) 우선, 없으면 순서. 못 맞춘 장은 null(다음 실행 재시도).
+function matchResults(jobs, arr) {
+  const byFile = new Map();
+  for (const o of arr) { if (o && o.file) byFile.set(path.basename(String(o.file)).trim().toLowerCase(), o); }
+  return jobs.map((j, n) => byFile.get(path.basename(j.sharePath).toLowerCase()) || (arr[n] && typeof arr[n] === 'object' ? arr[n] : null));
+}
+
+// claude CLI 로 이미지 N장 한 번에 캡션
+function captionBatch(jobs) {
   return new Promise((resolve) => {
-    // 고정 명령문자열(MODEL은 위에서 살균) — args 배열+shell:true 의 DEP0190 경고 회피. 프롬프트는 stdin.
-    const child = spawn(`claude -p --model ${MODEL} --allowedTools Read`, { shell: true });
+    // 고정 명령문자열(MODEL/경로는 위에서 통제) — args 배열+shell:true 의 DEP0190 경고 회피. 프롬프트는 stdin.
+    const child = spawn(`claude -p --model ${MODEL}${MCP_FLAGS} --allowedTools Read`, { shell: true });
     let out = '', err = '';
-    const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch (_) {} resolve({ ok: false, reason: 'timeout' }); }, PER_TIMEOUT_MS);
+    const callTimeout = (PER_IMG_TIMEOUT_S * jobs.length + 30) * 1000;
+    const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch (_) {} resolve({ ok: false, reason: 'timeout' }); }, callTimeout);
     child.stdout.on('data', d => { out += d; });
     child.stderr.on('data', d => { err += d; });
     child.on('error', e => { clearTimeout(timer); resolve({ ok: false, reason: 'spawn:' + e.message }); });
     child.on('close', () => {
       clearTimeout(timer);
-      const parsed = extractJson(out);
-      if (!parsed) return resolve({ ok: false, reason: 'nojson', raw: (out || err).replace(/\s+/g, ' ').slice(0, 160) });
-      resolve({ ok: true, data: parsed });
+      const arr = extractArray(out);
+      if (!arr) return resolve({ ok: false, reason: 'nojson', raw: (out || err).replace(/\s+/g, ' ').slice(0, 160) });
+      resolve({ ok: true, arr });
     });
-    try { child.stdin.write(VISION_PROMPT(sharePath)); child.stdin.end(); } catch (_) {}
+    try { child.stdin.write(batchPrompt(jobs)); child.stdin.end(); } catch (_) {}
   });
 }
 
@@ -166,7 +188,7 @@ function buildItem(serverPath, folder, d) {
 }
 
 (async () => {
-  console.log(`[runner] share=${SHARE} server=${SERVER} model=${MODEL} conc=${CONCURRENCY} limit=${LIMIT || '∞'} folder=${FOLDER_FILTER || '(전체)'} dry=${DRY}`);
+  console.log(`[runner] share=${SHARE} server=${SERVER} model=${MODEL} batch=${BATCH} conc=${CONCURRENCY} limit=${LIMIT || '∞'} folder=${FOLDER_FILTER || '(전체)'} dry=${DRY}`);
   const done = loadDoneSet();
   console.log(`[runner] 이미 캡션됨: ${done.size}장`);
 
@@ -181,32 +203,44 @@ function buildItem(serverPath, folder, d) {
   console.log(`[runner] 이번 실행 대상: ${todo.length}장`);
   if (!todo.length) { console.log('[runner] 할 것 없음 — 완료됐거나 필터 결과 0'); return; }
 
-  let okN = 0, failN = 0, consecFail = 0, i = 0, aborted = false;
+  // 배치로 분할 — 한 claude 호출이 BATCH장 처리(시동비용 분산)
+  const batches = [];
+  for (let k = 0; k < todo.length; k += BATCH) batches.push(todo.slice(k, k + BATCH));
+  console.log(`[runner] ${batches.length}개 배치(배치당 ≤${BATCH}장) × 동시 ${CONCURRENCY}`);
+
+  let okN = 0, failN = 0, consecFail = 0, bi = 0, aborted = false;
   const t0 = Date.now();
   async function worker() {
-    while (i < todo.length && !aborted) {
-      const idx = i++;
-      const job = todo[idx];
-      const r = await captionOne(job.sharePath);
+    while (bi < batches.length && !aborted) {
+      const myIdx = bi++;
+      const jobs = batches[myIdx];
+      const r = await captionBatch(jobs);
       if (!r.ok) {
-        failN++; consecFail++;
-        console.log(`  ✗ [${idx + 1}/${todo.length}] ${r.reason} :: ${path.basename(job.sharePath)}${r.raw ? ' | ' + r.raw : ''}`);
-        if (consecFail >= 8) { aborted = true; console.error('[runner] 연속 8회 실패 — rate limit 추정. 종료(다음 실행이 이어감).'); }
+        failN += jobs.length; consecFail++;
+        console.log(`  ✗ 배치#${myIdx + 1}/${batches.length} ${r.reason} (${jobs.length}장 다음 실행 재시도)${r.raw ? ' | ' + r.raw : ''}`);
+        if (consecFail >= 5) { aborted = true; console.error('[runner] 연속 5배치 실패 — rate limit 추정. 종료(다음 실행이 이어감).'); }
         continue;
       }
       consecFail = 0;
-      if (DRY) { okN++; console.log(`  · [${idx + 1}/${todo.length}] ${job.folder} | ${r.data.type}/${r.data.client || '-'} | ${(r.data.text || '').slice(0, 24)} :: ${path.basename(job.sharePath)}`); continue; }
-      const res = await ingest([buildItem(job.serverPath, job.folder, r.data)]);
+      const matched = matchResults(jobs, r.arr);
+      const ok = [];
+      for (let n = 0; n < jobs.length; n++) {
+        const d = matched[n];
+        if (!d || typeof d !== 'object') { failN++; continue; } // 매칭 안 된 장 → 다음 실행 재시도
+        if (DRY) { okN++; console.log(`  · ${jobs[n].folder} | ${(d.type || '')}/${(d.client || '-')} | ${String(d.text || '').slice(0, 20)} :: ${path.basename(jobs[n].sharePath)}`); continue; }
+        ok.push({ job: jobs[n], item: buildItem(jobs[n].serverPath, jobs[n].folder, d) });
+      }
+      if (DRY || !ok.length) continue;
+      const res = await ingest(ok.map(x => x.item));
       if (res.status === 200) {
-        okN++; done.add(job.serverPath);
-        if (okN % 20 === 0) {
-          const rate = (okN + failN) / ((Date.now() - t0) / 1000);
-          console.log(`  ✓ ${okN}장 적재 (실패 ${failN}, ${rate.toFixed(2)}장/s) … 최근 ${job.folder} | ${r.data.type}/${r.data.client || '-'}`);
-        }
-      } else { failN++; console.log(`  ✗ ingest ${res.status}: ${String(res.body).slice(0, 120)}`); }
+        okN += ok.length; ok.forEach(x => done.add(x.job.serverPath));
+        const rate = okN / ((Date.now() - t0) / 1000);
+        console.log(`  ✓ ${okN}장 적재 (실패 ${failN}, ${rate.toFixed(2)}장/s) … 배치#${myIdx + 1} ${jobs[0].folder}`);
+      } else { failN += ok.length; console.log(`  ✗ ingest ${res.status}: ${String(res.body).slice(0, 120)}`); }
     }
   }
   await Promise.all(Array.from({ length: CONCURRENCY }, worker));
-  const secs = ((Date.now() - t0) / 1000).toFixed(0);
-  console.log(`[runner] 종료 — 성공 ${okN}, 실패 ${failN}, ${secs}s. 누적 캡션 ${done.size}장. (다시 실행하면 이어서)`);
+  const wall = (Date.now() - t0) / 1000;
+  const persec = okN > 0 ? (wall / okN).toFixed(1) : '-';
+  console.log(`[runner] 종료 — 성공 ${okN}, 실패 ${failN}, ${wall.toFixed(0)}s (${persec}s/장 실측). 누적 캡션 ${done.size}장. (다시 실행하면 이어서)`);
 })();
