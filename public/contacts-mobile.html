@@ -238,13 +238,13 @@
 
   async function init() {
     bindEvents();
-    if (!TOKEN) { openTokenSheet(); return; } // 토큰 전혀 없음 → 잠금화면 대신 암호 입력칸
+    // 토큰이 없어도 로그인 세션이 있으면 서버가 허용한다(모바일 홈에서 진입). 일단 시도 → 403이면 암호 입력칸.
     if (!STORE.map()) $('#mapModal').classList.add('visible');
     offline = false;
     $('#offlineBar').style.display = 'none';
     try {
       const r = await api('/all');
-      if (r.status === 403) { renderTokenError(); return; }
+      if (r.status === 403) { if (!TOKEN) openTokenSheet(); else renderTokenError(); return; }
       if (!r.ok) throw new Error('all ' + r.status);
       allContacts = await r.json();
       if (Array.isArray(allContacts) && allContacts.length) {
@@ -506,7 +506,7 @@
         let data = {};
         try { data = await r.json(); } catch (e) { data = {}; }
         $('#cardLoading').classList.remove('visible');
-        if (r.status === 403) { renderTokenError(); return; }
+        if (r.status === 403) { if (!TOKEN) openTokenSheet(); else renderTokenError(); return; }
         if (!r.ok || !data || data.ok === false) {
           fillCardForm({}); // 빈 폼이라도 띄워 직접 입력 가능
           $('#cardSheet').classList.add('visible');

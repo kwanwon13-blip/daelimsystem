@@ -341,6 +341,24 @@ try {
   `);
 } catch(e) { console.warn('workflow_file_downloads 테이블 생성 오류:', e.message); }
 
+// ── 자동로그인(remember-me) 토큰 — 서버 재시작에도 살아남는 영속 로그인. ──
+// selector/validator 분리 패턴: 쿠키는 "selector.validator", DB엔 selector(PK)+validator의 sha256만 저장.
+// → DB 유출돼도 원본 validator를 복원 못 함(replay 방지). 조회는 selector 인덱스, 비교는 상수시간.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS remember_tokens (
+      id            TEXT PRIMARY KEY,            -- selector (쿠키 앞부분, 비밀 아님)
+      userId        TEXT NOT NULL,
+      validatorHash TEXT NOT NULL,               -- sha256(validator)
+      device        TEXT DEFAULT '',             -- user-agent 라벨(분실기기 식별용)
+      createdAt     TEXT NOT NULL,
+      lastUsedAt    TEXT NOT NULL,
+      expiresAt     INTEGER NOT NULL             -- epoch ms
+    );
+    CREATE INDEX IF NOT EXISTS idx_remember_user ON remember_tokens(userId);
+  `);
+} catch(e) { console.warn('remember_tokens 테이블 생성 오류:', e.message); }
+
 // ── 헬퍼 ─────────────────────────────────────────────
 
 function generateId(prefix = 'id') {
@@ -964,6 +982,40 @@ const downloads = {
   },
 };
 
+// ── 자동로그인 토큰 CRUD ─────────────────────────────
+const rememberTokens = {
+  issue(row) {
+    return db.prepare(`INSERT INTO remember_tokens (id, userId, validatorHash, device, createdAt, lastUsedAt, expiresAt)
+      VALUES (@id, @userId, @validatorHash, @device, @createdAt, @lastUsedAt, @expiresAt)`).run({
+      id: String(row.id),
+      userId: String(row.userId),
+      validatorHash: String(row.validatorHash),
+      device: String((row.device || '')).slice(0, 200),
+      createdAt: String(row.createdAt),
+      lastUsedAt: String(row.lastUsedAt),
+      expiresAt: Number(row.expiresAt) || 0,
+    });
+  },
+  get(id) {
+    return db.prepare('SELECT * FROM remember_tokens WHERE id = ?').get(String(id || ''));
+  },
+  touch(id, iso) {
+    return db.prepare('UPDATE remember_tokens SET lastUsedAt = ? WHERE id = ?').run(String(iso || ''), String(id || ''));
+  },
+  revoke(id) {
+    return db.prepare('DELETE FROM remember_tokens WHERE id = ?').run(String(id || ''));
+  },
+  revokeUser(userId) {
+    return db.prepare('DELETE FROM remember_tokens WHERE userId = ?').run(String(userId || ''));
+  },
+  listByUser(userId) {
+    return db.prepare('SELECT id, device, createdAt, lastUsedAt, expiresAt FROM remember_tokens WHERE userId = ? ORDER BY lastUsedAt DESC').all(String(userId || ''));
+  },
+  purgeExpired() {
+    return db.prepare('DELETE FROM remember_tokens WHERE expiresAt < ?').run(Date.now());
+  },
+};
+
 function close() {
   db.close();
 }
@@ -983,5 +1035,6 @@ module.exports = {
   orders,
   projects,
   downloads,
+  rememberTokens,
   close
 };

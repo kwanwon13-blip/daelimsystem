@@ -881,6 +881,17 @@ function getMobileToken() {
 }
 
 function checkMobileToken(req, res, next) {
+  // 로그인된(또는 remember 쿠키로 자동로그인 가능한) 직원은 토큰 없이도 허용 —
+  // 모바일 홈 허브에서 바로 연락처로 진입할 수 있게(세션 인증이 공유 토큰보다 강함).
+  try {
+    const auth = require('../middleware/auth');
+    if (auth.tryReviveSession && auth.tryReviveSession(req, res)) {
+      req.viaSession = true;
+      return next();
+    }
+  } catch (e) {}
+
+  // 그 외(미로그인 외근 PWA·공유 링크)는 기존 토큰 검사.
   // FAIL CLOSED: 환경변수/설정 둘 다 비면 모든 /m/* 요청 거부 (하드코딩 기본값 금지)
   const expected = getMobileToken();
   if (!expected) {

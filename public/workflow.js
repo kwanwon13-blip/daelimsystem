@@ -284,7 +284,7 @@ function workflowApp() {
 
     async loadAuth() {
       try {
-        const r = await fetch('/api/auth/me');
+        const r = await fetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' });
         const d = await r.json();
         this.currentUser = d && d.loggedIn ? d : null;
       } catch (_) {

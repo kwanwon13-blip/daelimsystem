@@ -16,9 +16,10 @@ const {
   sessions, parseCookies,
   hashPassword, verifyPassword,
   getFailureKey, isLocked, recordFailure, clearFailures, getRemainingLockMinutes,
-  requireAuth, requireAdmin
+  requireAuth, requireAdmin, tryReviveSession
 } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
+const remember = require('../middleware/remember');
 
 // ── 로그인 ────────────────────────────────────────────
 router.post('/login', (req, res) => {
@@ -89,7 +90,16 @@ router.post('/login', (req, res) => {
     department: user.department || '', companyId: user.companyId || 'dalim-sm',
     permissions: perms, loginAt: Date.now()
   };
-  res.setHeader('Set-Cookie', `session_token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`);
+  const secure = (remember.isHttps && remember.isHttps(req)) ? '; Secure' : '';
+  res.setHeader('Set-Cookie', [`session_token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secure}`]);
+  // ⑦-2 자동로그인: remember=true(모바일 기본)면 60일 영속 토큰 발급 → 서버 재시작에도 로그인 유지
+  //   단, 임시 비밀번호(mustChangePassword) 사용자는 비번 변경 전까지 자동로그인 발급 금지(우회 방지)
+  if (req.body && req.body.remember && !user.mustChangePassword) {
+    try {
+      const rememberOk = remember.issue(res, user.userId, req.headers['user-agent'] || '', { secure: !!secure });
+      if (!rememberOk) console.warn(`[AUTH] 자동로그인 토큰 발급 실패(SQLite 불가): ${user.userId}`);
+    } catch (e) { console.warn('[AUTH] 자동로그인 발급 예외:', e.message); }
+  }
   auditLog(user.userId, '로그인', '시스템');
 
   // 팀장 여부
@@ -199,15 +209,28 @@ router.post('/logout', (req, res) => {
   if (token && sessions[token]) {
     delete sessions[token];
   }
-  res.setHeader('Set-Cookie', 'session_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
+  // 자동로그인 토큰도 폐기(이 기기 한정) — 안 하면 로그아웃해도 다시 자동로그인됨
+  if (cookies.remember_token) {
+    try { remember.revoke(cookies.remember_token); } catch (e) {}
+  }
+  res.setHeader('Set-Cookie', [
+    'session_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0',
+    'remember_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0',
+  ]);
   res.json({ ok: true });
 });
 
 // ── 현재 로그인 상태 ──────────────────────────────────
 router.get('/me', (req, res) => {
+  // 인증 상태는 절대 캐시 금지(서버 재시작 후 옛 응답이 박혀 오판하는 사고 방지)
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
   const cookies = parseCookies(req);
-  const token = cookies.session_token || req.headers['x-session-token'];
-  if (!token || !sessions[token]) return res.json({ loggedIn: false });
+  let token = cookies.session_token || req.headers['x-session-token'];
+  if (!token || !sessions[token]) {
+    // 자동로그인: 세션이 없으면 remember 쿠키로 복구 시도(서버 재시작 후 첫 진입)
+    token = tryReviveSession(req, res);
+    if (!token) return res.json({ loggedIn: false });
+  }
   const s = sessions[token];
 
   let isTeamLeader = false;

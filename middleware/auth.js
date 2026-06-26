@@ -13,6 +13,12 @@ const crypto = require('crypto');
 // ── 세션 저장소 ───────────────────────────────────────
 const sessions = {};        // { token: { userId, name, role, permissions, ... } }
 
+// 자동로그인(remember-me) 토큰 — 지연 require로 순환참조 방지(remember.js는 auth를 require하지 않음)
+let _remember = null;
+function rememberMod() { try { if (!_remember) _remember = require('./remember'); } catch (e) {} return _remember; }
+let _db = null;
+function dbMod() { try { if (!_db) _db = require('../db'); } catch (e) {} return _db; }
+
 // ── 로그인 실패 추적 ──────────────────────────────────
 // { "ip_or_userId": { count, lockedUntil } }
 const loginFailures = {};
@@ -123,11 +129,59 @@ function getRemainingLockMinutes(key) {
 
 // ── 기본 인증 미들웨어 ────────────────────────────────
 
+/**
+ * tryReviveSession — 유효 세션이 없을 때 remember(자동로그인) 쿠키로 세션을 재발급한다.
+ * 서버 재시작/업데이트로 메모리 세션이 날아가도 폰에서 재로그인 없이 이어쓰게 하는 핵심.
+ * 같은 요청의 downstream(requireAuth 등)도 통과하도록 req.headers.cookie에 새 세션을 주입하고,
+ * res가 있으면 새 session_token 쿠키를 응답에 심는다.
+ * @returns {string|null} 새/기존 세션 토큰
+ */
+function tryReviveSession(req, res) {
+  try {
+    const cookies = parseCookies(req);
+    const st = cookies.session_token || req.headers['x-session-token'];
+    if (st && sessions[st]) return st;             // 이미 유효
+    const raw = cookies.remember_token;
+    if (!raw) return null;
+
+    const remember = rememberMod();
+    const db = dbMod();
+    if (!remember || !db) return null;
+
+    const v = remember.verify(raw);
+    if (!v) return null;
+
+    const uData = db.loadUsers();
+    const user = (uData.users || []).find(u => u.userId === v.userId);
+    if (!user || ['resigned', 'rejected', 'pending'].includes(user.status)) {
+      remember.revoke(raw);
+      if (res) remember.clearCookie(res);
+      return null;
+    }
+
+    const token = generateSessionToken();
+    sessions[token] = {
+      userId: user.userId, name: user.name, role: user.role,
+      position: user.position || '', phone: user.phone || '',
+      department: user.department || '', companyId: user.companyId || 'dalim-sm',
+      permissions: user.permissions || [], loginAt: Date.now(), viaRemember: true
+    };
+    req.headers.cookie = (req.headers.cookie ? req.headers.cookie + '; ' : '') + 'session_token=' + token;
+    const secure = (remember.isHttps && remember.isHttps(req)) ? '; Secure' : '';
+    if (res) remember.appendCookie(res, `session_token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secure}`);
+    return token;
+  } catch (e) {
+    try { console.warn('[auth] tryReviveSession 오류:', e.message); } catch (_) {}
+    return null;
+  }
+}
+
 function requireAuth(req, res, next) {
   const cookies = parseCookies(req);
-  const token = cookies.session_token || req.headers['x-session-token'];
+  let token = cookies.session_token || req.headers['x-session-token'];
   if (!token || !sessions[token]) {
-    return res.status(401).json({ error: '로그인이 필요합니다' });
+    token = tryReviveSession(req, res);            // 자동로그인 토큰으로 세션 복구 시도
+    if (!token) return res.status(401).json({ error: '로그인이 필요합니다' });
   }
   req.user = sessions[token];
   req.sessionToken = token;
@@ -162,6 +216,7 @@ function generateSessionToken() {
 
 module.exports = {
   sessions,
+  loginFailures,
   generateSessionToken,
   parseCookies,
   hashPassword,
@@ -174,5 +229,6 @@ module.exports = {
   getRemainingLockMinutes,
   requireAuth,
   requireAdmin,
-  getReqUser
+  getReqUser,
+  tryReviveSession
 };
