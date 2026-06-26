@@ -112,6 +112,18 @@
   .wf-col.dense:not(.mini) .wf-rc-bot{padding:3px 8px;}
   .wf-col.dense:not(.mini) .wf-rc-sub{margin-top:2px;padding-top:2px;border-top:0;}
   .wf-col.dense:not(.mini) .wf-rc-co{display:none;}
+  /* 칸 확대(⤢) 시: 발주 시안을 가로폭 맞춰 컴팩트 그리드로 — 썸네일 위·내용 아래로 쌓되 완료일·발주자·액션버튼·상태색·긴급테두리·+N 전부 유지(기능 그대로). .focus 한정이라 비포커스·모바일 영향 0. :not(.mini)로 dense와 동일특이도+뒤배치라 dense 압축을 덮어씀(dense 줄 무수정). */
+  .wf-col.focus:not(.mini) .wf-col-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;align-content:start;padding:8px;}
+  .wf-col.focus:not(.mini) .wf-grp{display:contents;}
+  .wf-col.focus:not(.mini) .wf-grp-head{grid-column:1/-1;}
+  .wf-col.focus:not(.mini) .wf-rowcard{flex-direction:column;align-items:stretch;gap:5px;padding:7px;}
+  .wf-col.focus:not(.mini) .wf-rc-thumb{flex:0 0 auto;width:100%;height:auto;aspect-ratio:1/1;}
+  .wf-col.focus:not(.mini) .wf-rc-minititle{display:block;text-align:left;font-size:12.5px;line-height:1.3;}
+  .wf-col.focus:not(.mini) .wf-rc-top{display:none;}
+  .wf-col.focus:not(.mini) .wf-rc-co{display:none;}
+  .wf-col.focus:not(.mini) .wf-rc-sub{margin-top:0;padding-top:0;border-top:0;flex-wrap:wrap;gap:5px;}
+  .wf-col.focus:not(.mini) .wf-rc-line{flex-wrap:wrap;}
+  @media(max-width:900px){.wf-col.focus:not(.mini) .wf-col-list{grid-template-columns:repeat(auto-fill,minmax(130px,1fr));}}
   /* 상세 닫기(✕) — 닫으면 보드가 전체 폭 */
   .wf-detail-head{position:relative;}
   .wf-detail-close{position:absolute;top:10px;right:10px;width:26px;height:26px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#64748b;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0;z-index:2;}
