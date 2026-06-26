@@ -2997,9 +2997,9 @@ function workflowApp() {
     // 같은 시안의 '발주본/원본' 변형을 한 키로 — 확장자·'발주(공장)' 접미사·공백 제거 후 비교.
     designVariantKey(file) {
       return String((file && (file.originalName || file.name)) || '')
-        .replace(/\.[a-z0-9]+$/i, '')
-        .replace(/[\s_]*발주\s*\(?\s*공장\s*\)?\s*/g, '')
-        .replace(/\s+/g, '')
+        .replace(/\.[a-z0-9]+$/i, '')   // 확장자 제거 (.jpg/.ai 등)
+        .replace(/발주.*$/, '')          // '발주'부터 끝까지 — 발주(임의업체)·발주N·-01·-02·(2) 등 모든 접미 변형 일괄 제거
+        .replace(/[\s_\-]+/g, '')       // 모든 구분자(공백·언더스코어·하이픈) 제거 → 하이픈/공백 표기차 흡수
         .toLowerCase();
     },
     // 파일 확장자(소문자) — 같은 디자인이라도 형식이 다르면(.jpg/.ai/.pdf) 각각 1개로 유지(필요 파일 안 사라지게).

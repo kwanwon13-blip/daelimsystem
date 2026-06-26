@@ -494,7 +494,7 @@
      ⚠ 스크립트 순서 중요: workflow.js(정의)를 먼저 동기 로드 → 그 다음 래퍼(동기)가 정의본을 감싼다.
      래퍼가 먼저면 _orig=window.workflowApp가 undefined라 return되어 mStage/mVisibleJobs 등이 빠진다(콘솔 ReferenceError).
      Alpine은 <head>에서 defer로 로드되어 DOM 파싱 완료 후(=이 두 동기 스크립트 실행 후) x-data를 평가하므로 합쳐진 정의본이 보장된다. -->
-<script src="/workflow.js?v=20260625a"></script><!-- v= 캐시버스트: workflow.js 배포 때마다 올릴 것(옛 JS 캐시로 새 버튼이 죽는 사고 방지) -->
+<script src="/workflow.js?v=20260626a"></script><!-- v= 캐시버스트: workflow.js 배포 때마다 올릴 것(옛 JS 캐시로 새 버튼이 죽는 사고 방지) -->
 <script>
   // workflowApp()에 모바일 전용 보조 필드/메서드를 주입(원본 로직은 그대로 재사용).
   // 데스크톱 보드(jobsByStage)·상세(detail)·권한 플래그·파일 메서드를 그대로 쓰고,
