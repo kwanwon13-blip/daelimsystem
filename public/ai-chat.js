@@ -43,11 +43,11 @@ function sizeFor() {
 //   질문/설명/능력문의("이 그림 설명해줘", "로고 만들 때 주의점 알려줘", "포스터 만들 수 있어?")는 답을 원하는 것이므로 제외.
 function isImageIntent(text) {
   const s = String(text || '');
-  const imgWords = /(포스터|이미지|그림|일러스트|배너|현수막\s*시안|로고|썸네일|캐릭터)/i;
+  const imgWords = /(포스터|이미지|그림|일러스트|배너|현수막\s*시안|로고|썸네일|캐릭터|사진)/i;
   const makeWords = /(만들|뽑아|그려|생성|디자인|제작)/i;
   const fileWords = /(svg|html|엑셀|xlsx|csv|pdf|문서|표로|json|마크다운)/i;
   const askWords = /(\?|？|알려|설명|뭐야|뭔지|무엇|어떻게|방법|차이|추천|뜻|의미|왜\s|가능해|수\s*있)/;
-  const aboutExisting = /(이|그|저|위|아래|해당|첨부)\s*(그림|이미지|로고|사진|포스터|시안)/;
+  const aboutExisting = /(^|[\s,.])(이|그|저|위|아래|해당|첨부)\s*(그림|이미지|로고|사진|포스터|시안)/;
   if (fileWords.test(s)) return false;
   if (askWords.test(s) || aboutExisting.test(s)) return false;
   return imgWords.test(s) && makeWords.test(s);
@@ -1346,12 +1346,13 @@ async function sendMessage() {
   // 중복 실행 가드: 같은 대화가 이미 생성 중이면 무시 (state.streaming 과 병행)
   if (state.streamingByThread && state.streamingByThread.has(ownerThreadId)) return;
 
-  // 의도 라우팅: 이미지 의도면 (이미지 모드 OFF여도) 핸드오프 경로로 보낸다.
-  //   → /image-prompt 로 프롬프트 정리 후 picker 와 함께 편집 박스를 띄움. 메시지/스트리밍은 시작하지 않음.
+  // 의도 라우팅: 이미지 의도면 (이미지 모드 OFF여도) 바로 생성한다.
+  //   (예전엔 조용한 편집 박스만 떠서 '아무 반응 없음'으로 보였음 — 한 팀장 케이스.)
+  //   프롬프트를 다듬고 싶으면 AI 답변의 '🎨 이 내용으로 이미지' 버튼(openHandoff)을 쓰면 됨.
   if (!state.imageMode && isImageIntent(text)) {
     input.value = '';
     autoResize();
-    openHandoff(text, { messageId: null });
+    runImageGeneration(text);
     return;
   }
 

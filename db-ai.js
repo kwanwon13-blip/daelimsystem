@@ -248,6 +248,8 @@ if (ready) {
       ['client',    "ALTER TABLE ai_images ADD COLUMN client TEXT DEFAULT ''"],
       ['keywords',  "ALTER TABLE ai_images ADD COLUMN keywords TEXT DEFAULT ''"],
       ['embedding', "ALTER TABLE ai_images ADD COLUMN embedding TEXT DEFAULT ''"],
+      // 비전 캡션(실제 그림을 GPT-4o 비전으로 읽은 7축 합본) — 검색용 깔끔한 본문
+      ['caption',   "ALTER TABLE ai_images ADD COLUMN caption TEXT DEFAULT ''"],
     ];
     for (const [name, sql] of adds) {
       if (have.has(name)) continue;
@@ -881,7 +883,7 @@ const artifacts = {
 const images = {
   create({ ownerId, ownerName, title, userInput, prompt, model, size, quality,
            costUsd, storedName, url, threadId, messageId, collectionId, tags, promptNorm,
-           type, client, keywords }) {
+           type, client, keywords, caption }) {
     if (!ready) throw new Error('DB 미사용');
     const now = nowIso();
     const dateYmd = now.slice(0, 10);
@@ -889,15 +891,15 @@ const images = {
       INSERT INTO ai_images
         (owner_id, owner_name, title, user_input, prompt, model, size, quality,
          cost_usd, stored_name, url, thread_id, message_id, collection_id,
-         tags, favorite, note, prompt_norm, type, client, keywords, created_at, date_ymd)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', ?, ?, ?, ?, ?, ?)
+         tags, favorite, note, prompt_norm, type, client, keywords, caption, created_at, date_ymd)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', ?, ?, ?, ?, ?, ?, ?)
     `).run(
       String(ownerId), ownerName || '', title || '', userInput || '',
       String(prompt || ''), model || '', size || '', quality || '',
       Number(costUsd) || 0, String(storedName || ''), String(url || ''),
       threadId || null, messageId || null,
       (collectionId === undefined || collectionId === null) ? null : collectionId,
-      tags || '', promptNorm || '', type || '', client || '', keywords || '', now, dateYmd
+      tags || '', promptNorm || '', type || '', client || '', keywords || '', caption || '', now, dateYmd
     );
     return this.get(r.lastInsertRowid);
   },
@@ -952,6 +954,8 @@ const images = {
     const map = {
       title: 'title', tags: 'tags', favorite: 'favorite',
       note: 'note', collectionId: 'collection_id',
+      // 비전 캡션 재분류용 (recaption / chat-image 비전 결과 저장)
+      type: 'type', client: 'client', keywords: 'keywords', caption: 'caption',
     };
     for (const k of Object.keys(map)) {
       if (patch[k] !== undefined) {

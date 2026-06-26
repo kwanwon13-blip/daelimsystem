@@ -55,6 +55,8 @@ try { multer = require('multer'); } catch(e) { multer = null; }
 const aiTools = require('./ai-tools');
 // AI 이미지 자기정리(1단계 규칙기반) — 프롬프트→종류/거래처/키워드 분류 (순수·결정적)
 const imageClassify = require('../lib/image-classify');
+// 비전 캡션(2단계) — 실제 그림을 GPT-4o 비전으로 읽어 7축 캡션. 프롬프트 분류보다 우선, 실패 시 폴백.
+const visionCaption = require('../lib/vision-caption');
 let hermesClient = null;
 try { hermesClient = require('../lib/hermes-client'); } catch (_) {}
 
@@ -3087,7 +3089,9 @@ router.post('/chat-image', async (req, res) => {
         });
       } catch (e) { console.warn('[ai/chat-image] usage log 실패:', e.message); }
 
-      // 자기정리 분류(종류·거래처·키워드) — 실패해도 생성은 안 깨지게 빈값 폴백
+      // 자기정리 분류(종류·거래처·키워드) — 실패해도 생성은 안 깨지게 빈값 폴백.
+      // 즉시 응답엔 빠른 규칙기반 분류만 쓰고, 정밀한 비전 7축 캡션은 응답 후 백그라운드로 보강한다
+      // (비전 왕복이 최대 90s라 생성 응답을 막지 않도록 — "키자마자 바로" 유지).
       let cls = { type: '', client: '', keywords: '' };
       try {
         cls = imageClassify.classifyImage(String(prompt), {
@@ -3117,6 +3121,7 @@ router.post('/chat-image', async (req, res) => {
           type: cls.type || '',
           client: cls.client || '',
           keywords: cls.keywords || '',
+          caption: '',
         });
       } catch (e) { console.warn('[ai/chat-image] 이미지 저장소 등록 실패:', e.message); }
     }
@@ -3143,6 +3148,22 @@ router.post('/chat-image', async (req, res) => {
       fallback: result._fallback || false,
       fallbackHint: result._fallbackHint || null,
     });
+
+    // 비전 7축 캡션은 응답 후 백그라운드로 보강 — 생성 체감속도를 막지 않음(최대 90s 왕복).
+    // 끝나면 같은 행을 update(거래처·종류·키워드·합본캡션). 실패/미설정이면 규칙기반 값 유지.
+    if (storedImage && storedImage.id && visionCaption.ready()) {
+      const imgId = storedImage.id;
+      const imgUrl = result.url;
+      setImmediate(async () => {
+        try {
+          const absImg = path.join(__dirname, '..', String(imgUrl).replace(/^\//, '').replace(/\//g, path.sep));
+          const vc = await visionCaption.captionImageFile(absImg, { isAdmin });
+          if (vc && vc.ok) {
+            ai.images.update(imgId, { type: vc.type, client: vc.client, keywords: vc.keywords, caption: vc.caption });
+          }
+        } catch (e) { console.warn('[ai/chat-image] 백그라운드 비전 캡션 실패:', e.message); }
+      });
+    }
   } catch (e) {
     console.error('[ai/chat-image]', e);
     res.status(500).json({ error: e.message });
@@ -3176,7 +3197,7 @@ async function callGeminiImage(prompt, sourceImagePaths = []) {
 
     const output = await new Promise((resolve, reject) => {
       // Windows cmd.exe / POSIX sh 둘 다 "<" redirect 지원
-      const cmd = `gemini -p "generate-image" < "${promptFile}"`;
+      const cmd = `gemini -y -p "generate-image" < "${promptFile}"`;
       const child = spawn(cmd, {
         shell: true,
         env: { ...process.env, LANG: 'ko_KR.UTF-8' },
@@ -3211,7 +3232,7 @@ async function callGeminiImage(prompt, sourceImagePaths = []) {
     const ext = path.extname(latest.n);
     const finalName = `ai_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`;
     fs.renameSync(path.join(workDir, latest.n), path.join(imgDir, finalName));
-    return { ok: true, url: `/data/workspace-images/${finalName}`, durationMs: Date.now() - started };
+    return { ok: true, url: `/data/workspace-images/${finalName}`, model: 'gemini-nanobanana', durationMs: Date.now() - started };
   } catch (e) {
     return { ok: false, error: e.message, durationMs: Date.now() - started };
   }
@@ -3319,6 +3340,64 @@ router.get('/images/similar', (req, res) => {
     });
     res.json({ ok: true, images });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 재캡션 — 실제 그림을 비전으로 다시 읽어 type/client/keywords/caption 채움(빈약한 행 보강).
+// onlyEmpty=true 면 caption 빈 행만(=비전 미처리). client 빈값은 '브랜드 없는 정상 이미지'라
+// 술어에 넣으면 매 호출마다 재선택·재과금되므로 제외. owner 범위: 비admin=본인, control/admin=전체.
+// 파일없음/비전실패는 skip. resumable(재호출 시 remaining 계속 처리).
+// ⚠ 라우트 순서: '/images/:id' 보다 먼저 등록(POST지만 명시성 위해 위에 둠).
+router.post('/images/recaption', async (req, res) => {
+  try {
+    if (!visionCaption.ready()) {
+      return res.status(503).json({ ok: false, error: '비전 캡션 사용 불가 (OPENAI_API_KEY 미설정)', code: 'VISION_NOT_READY' });
+    }
+    const b = req.body || {};
+    const limit = Math.min(100, Math.max(1, parseInt(b.limit, 10) || 20));
+    const onlyEmpty = b.onlyEmpty === undefined ? true : !!b.onlyEmpty;
+    // control 시크릿 인증이거나 admin 이면 전체, 그 외 본인 것만.
+    const isControl = req.sessionToken === 'control-secret-ai';
+    const allOwners = isAdmin(req) || isControl;
+
+    const where = [];
+    const params = [];
+    if (!allOwners) { where.push('owner_id = ?'); params.push(String(req.user.userId)); }
+    if (onlyEmpty) { where.push("(caption = '' OR caption IS NULL)"); }
+    const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+
+    const rows = ai.db.prepare(`SELECT * FROM ai_images ${whereSql} ORDER BY created_at DESC LIMIT ?`)
+      .all(...params, limit);
+
+    let recaptioned = 0;
+    let skipped = 0;
+    for (const row of rows) {
+      try {
+        const rel = String(row.url || '').replace(/^\//, '').replace(/\//g, path.sep);
+        if (!rel) { skipped++; continue; }
+        const absImg = path.join(__dirname, '..', rel);
+        if (!fs.existsSync(absImg)) { skipped++; continue; }
+        const vc = await visionCaption.captionImageFile(absImg, { isAdmin: isAdmin(req) });
+        if (!vc || !vc.ok) { skipped++; continue; }
+        ai.images.update(row.id, {
+          type: vc.type,
+          client: vc.client,
+          keywords: vc.keywords,
+          caption: vc.caption,
+        });
+        recaptioned++;
+      } catch (e) {
+        skipped++;
+        console.warn('[ai/recaption] 행 처리 실패:', row && row.id, e.message);
+      }
+    }
+
+    // 잔여는 산술 추정(remainingBefore-recaptioned) 대신 동일 술어로 재카운트 — 거짓 진척 방지.
+    const remaining = ai.db.prepare(`SELECT COUNT(*) AS c FROM ai_images ${whereSql}`).get(...params).c;
+    res.json({ ok: true, recaptioned, skipped, remaining });
+  } catch (e) {
+    console.error('[ai/recaption]', e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 router.get('/images/:id', (req, res) => {
