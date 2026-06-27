@@ -56,9 +56,15 @@ function arg(name, def) {
 }
 const LIMIT = parseInt(arg('limit', '0'), 10) || 0;
 const FOLDER_FILTER = (arg('folder', '') === true) ? '' : String(arg('folder', ''));
+// --folder 는 쉼표로 여러 거래처(부분일치 OR). 예: --folder 포스코,DL,현대산업
+const FOLDER_TERMS = FOLDER_FILTER ? FOLDER_FILTER.split(',').map(s => s.trim().toLowerCase()).filter(Boolean) : [];
+// --year 는 쉼표로 여러 연도(폴더경로에 포함되면 통과). 예: --year 2025,2026
+const YEAR_RAW = (arg('year', '') === true) ? '' : String(arg('year', ''));
+const YEAR_TERMS = YEAR_RAW ? YEAR_RAW.split(',').map(s => s.trim()).filter(Boolean) : [];
 const CONCURRENCY = Math.max(1, Math.min(6, parseInt(arg('concurrency', '3'), 10) || 3));
 const BATCH = Math.max(1, Math.min(12, parseInt(arg('batch', '5'), 10) || 5)); // 한 claude 호출당 이미지 수 — 시동비용 분산(17초→8초/장)
 const DRY = !!arg('dry', false);
+const COUNT_ONLY = !!arg('count', false); // 캡션 안 하고 필터 결과 장수만 세고 종료(무료 미리보기)
 const PER_IMG_TIMEOUT_S = parseInt(arg('timeout', '40'), 10) || 40;            // 이미지 1장당 상한(초). 배치는 ×장수+여유
 
 if (!SECRET) { console.error('[runner] CONTROL_DAEMON_SECRET 없음 — 로컬 .env 확인'); process.exit(1); }
@@ -188,13 +194,16 @@ function buildItem(serverPath, folder, d) {
 }
 
 (async () => {
-  console.log(`[runner] share=${SHARE} server=${SERVER} model=${MODEL} batch=${BATCH} conc=${CONCURRENCY} limit=${LIMIT || '∞'} folder=${FOLDER_FILTER || '(전체)'} dry=${DRY}`);
+  console.log(`[runner] share=${SHARE} server=${SERVER} model=${MODEL} batch=${BATCH} conc=${CONCURRENCY} limit=${LIMIT || '∞'} folder=${FOLDER_TERMS.join('|') || '(전체)'} year=${YEAR_TERMS.join('|') || '(전체)'} dry=${DRY}`);
   const done = loadDoneSet();
   console.log(`[runner] 이미 캡션됨: ${done.size}장`);
 
   const todo = [];
   for (const it of walkStarImages(SHARE)) {
-    if (FOLDER_FILTER && !it.folder.includes(FOLDER_FILTER)) continue;
+    // 거래처 필터: 상위 ★폴더명에 지정 용어 중 하나라도 포함
+    if (FOLDER_TERMS.length && !FOLDER_TERMS.some(t => it.folder.toLowerCase().includes(t))) continue;
+    // 연도 필터: 이미지 폴더경로(파일명 제외)에 지정 연도 중 하나라도 포함
+    if (YEAR_TERMS.length) { const dir = path.dirname(it.sharePath); if (!YEAR_TERMS.some(y => dir.includes(y))) continue; }
     const serverPath = toServerPath(it.sharePath);
     if (done.has(serverPath)) continue;
     todo.push({ sharePath: it.sharePath, folder: it.folder, serverPath });
@@ -202,6 +211,14 @@ function buildItem(serverPath, folder, d) {
   }
   console.log(`[runner] 이번 실행 대상: ${todo.length}장`);
   if (!todo.length) { console.log('[runner] 할 것 없음 — 완료됐거나 필터 결과 0'); return; }
+
+  if (COUNT_ONLY) {
+    const byFolder = {};
+    for (const t of todo) byFolder[t.folder] = (byFolder[t.folder] || 0) + 1;
+    for (const [k, v] of Object.entries(byFolder).sort((a, b) => b[1] - a[1])) console.log(`   ${k}: ${v}장`);
+    console.log('[runner] --count 모드: 세기만 하고 종료(캡션 안 함).');
+    return;
+  }
 
   // 배치로 분할 — 한 claude 호출이 BATCH장 처리(시동비용 분산)
   const batches = [];
