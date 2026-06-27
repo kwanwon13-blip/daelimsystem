@@ -42,8 +42,8 @@ const ENV = { ...loadEnv(), ...process.env };
 const SHARE = (ENV.DESIGN_SHARE || '\\\\192.168.0.133\\dd').replace(/[\\/]+$/, '');
 const SERVER = ENV.DESIGN_SERVER || 'http://192.168.0.133:3000';
 const SECRET = String(ENV.CONTROL_DAEMON_SECRET || '').trim();
-const MODEL_RAW = ENV.DESIGN_CAPTION_MODEL || 'haiku';   // 캡션엔 haiku로 충분, rate limit 여유(sonnet과 속도 동급으로 실측됨)
-const MODEL = /^[A-Za-z0-9._-]+$/.test(MODEL_RAW) ? MODEL_RAW : 'haiku'; // shell 주입 차단(아래 shell:true)
+const MODEL_RAW = ENV.DESIGN_CAPTION_MODEL || 'sonnet'; // 자산DB는 한 번에 정확히 — sonnet이 현장명·스펙 또렷(속도 동급, rate limit만 더 씀). haiku=빠른소진 대안
+const MODEL = /^[A-Za-z0-9._-]+$/.test(MODEL_RAW) ? MODEL_RAW : 'sonnet'; // shell 주입 차단(아래 shell:true)
 const DB_SHARE_PATH = SHARE + '\\price-list-app\\data\\design-captions.db';
 const IMG_EXT = new Set(['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp']);
 const SKIP_DIRS = new Set(['node_modules', '.git', '$RECYCLE.BIN', 'System Volume Information', 'price-list-app']);
