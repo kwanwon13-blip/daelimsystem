@@ -324,6 +324,11 @@
   .wf-week-chip.un{border-left:3px dashed #94a3b8;}
   .wf-week-chip:hover{background:#f1f5f9;}
   .wf-week-lane-empty{font-size:10.5px;color:#cbd5e1;padding:1px 2px;}
+  /* 제작완료(delivery 단계) 시안 — 초록 틴트 + 우측 체크 */
+  .wf-week-chip.done{background:#f0fdf4;border-color:#bbf7d0;}
+  .wf-week-chip.done .wf-week-chipname{color:#15803d;font-weight:800;}
+  .wf-week-chip.done::after{content:'✓';margin-left:auto;color:#16a34a;font-weight:900;font-size:13px;line-height:1;flex:0 0 auto;padding-left:3px;}
+  .wf-week-sumitem.done{background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;}
   /* 핵심 날짜 카드 (단계별 — 공장은 완료가능일 강조) */
   .wf-keybox{display:flex;flex-direction:column;gap:6px;padding:11px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;}
   .wf-keybox-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
@@ -1004,6 +1009,7 @@
             <span class="wf-week-sumitem weld">용접 <b x-text="weekTeamTotal('welding')"></b></span>
             <span class="wf-week-sumitem out">출력 <b x-text="weekTeamTotal('output')"></b></span>
             <span class="wf-week-sumitem un" x-show="weekTeamTotal('unassigned')">미배정 <b x-text="weekTeamTotal('unassigned')"></b></span>
+            <span class="wf-week-sumitem done" x-show="weekDoneTotal()" title="제작 끝나 경영관리(배송) 단계로 넘어간 시안">제작완료 <b x-text="weekDoneTotal()"></b></span>
           </div>
         </div>
         <div class="wf-week-grid">
@@ -1013,7 +1019,7 @@
               <div class="wf-week-lane weld">
                 <div class="wf-week-lanehead">용접 <span x-text="weekImages(day.date,'welding').length"></span></div>
                 <template x-for="u in weekImages(day.date,'welding')" :key="'w'+day.date+u.file.id">
-                  <div class="wf-week-chip weld" role="button" tabindex="0" @click="selectJob(u.job.id, u.job.currentStage)" :title="(u.job.projectName||'')+' '+(u.job.companyName||'')+' · '+(u.file.name||'')">
+                  <div class="wf-week-chip weld" :class="weekItemDone(u.job)?'done':''" role="button" tabindex="0" @click="selectJob(u.job.id, u.job.currentStage)" :title="(u.job.projectName||'')+' '+(u.job.companyName||'')+' · '+(u.file.name||'')">
                     <img class="wf-week-thumb" :src="u.file.thumbUrl" @click.stop="openCardPreview(u.job)" loading="lazy" @error="handleWorkflowImageError($event, u.file.previewUrl)" title="클릭하면 시안 크게 보기">
                     <span class="wf-week-chipname" x-text="u.job.projectName||u.job.companyName||u.job.title||'현장'"></span>
                   </div>
@@ -1023,7 +1029,7 @@
               <div class="wf-week-lane out">
                 <div class="wf-week-lanehead">출력 <span x-text="weekImages(day.date,'output').length"></span></div>
                 <template x-for="u in weekImages(day.date,'output')" :key="'o'+day.date+u.file.id">
-                  <div class="wf-week-chip out" role="button" tabindex="0" @click="selectJob(u.job.id, u.job.currentStage)" :title="(u.job.projectName||'')+' '+(u.job.companyName||'')+' · '+(u.file.name||'')">
+                  <div class="wf-week-chip out" :class="weekItemDone(u.job)?'done':''" role="button" tabindex="0" @click="selectJob(u.job.id, u.job.currentStage)" :title="(u.job.projectName||'')+' '+(u.job.companyName||'')+' · '+(u.file.name||'')">
                     <img class="wf-week-thumb" :src="u.file.thumbUrl" @click.stop="openCardPreview(u.job)" loading="lazy" @error="handleWorkflowImageError($event, u.file.previewUrl)" title="클릭하면 시안 크게 보기">
                     <span class="wf-week-chipname" x-text="u.job.projectName||u.job.companyName||u.job.title||'현장'"></span>
                   </div>
@@ -1034,7 +1040,7 @@
                 <div class="wf-week-lane un">
                   <div class="wf-week-lanehead">미배정 <span x-text="weekImages(day.date,'unassigned').length"></span></div>
                   <template x-for="u in weekImages(day.date,'unassigned')" :key="'u'+day.date+u.file.id">
-                    <div class="wf-week-chip un" role="button" tabindex="0" @click="selectJob(u.job.id, u.job.currentStage)" :title="(u.job.projectName||'')+' '+(u.job.companyName||'')+' · '+(u.file.name||'')">
+                    <div class="wf-week-chip un" :class="weekItemDone(u.job)?'done':''" role="button" tabindex="0" @click="selectJob(u.job.id, u.job.currentStage)" :title="(u.job.projectName||'')+' '+(u.job.companyName||'')+' · '+(u.file.name||'')">
                       <img class="wf-week-thumb" :src="u.file.thumbUrl" @click.stop="openCardPreview(u.job)" loading="lazy" @error="handleWorkflowImageError($event, u.file.previewUrl)" title="클릭하면 시안 크게 보기">
                       <span class="wf-week-chipname" x-text="u.job.projectName||u.job.companyName||u.job.title||'현장'"></span>
                     </div>

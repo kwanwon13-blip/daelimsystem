@@ -4915,6 +4915,20 @@ function workflowApp() {
     weekThis() { this.weekAnchor = this.wfYmd(this.weekMonday(new Date())); },
     weekRangeLabel() { const d = this.weekDays(); if (!d.length) return ''; return `${d[0].month}/${d[0].dnum} ~ ${d[6].month}/${d[6].dnum}`; },
 
+    // 주간 칸 '제작 완료' 판정 — 대림컴퍼니(factory) 제작이 끝나 경영관리(delivery) 단계로 넘어간 시안. (납품완료/보관 done은 주간에서 빠짐)
+    weekItemDone(job) { return !!(job && job.currentStage === 'delivery'); },
+    // 이번 주 '제작완료'(delivery 단계) 시안 장수 — 주간 1회 순회(가벼움)
+    weekDoneTotal() {
+      const set = new Set(this.weekDays().map(d => d.date));
+      let n = 0;
+      (this.jobs || []).forEach(j => {
+        if (j.status !== 'active' || j.currentStage !== 'delivery') return;
+        if (!set.has(this.jobSchedDate(j))) return;
+        n += (j.visualFilesBrief || []).length;
+      });
+      return n;
+    },
+
     // 상세 닫기 — 선택 해제 → 보드가 전체 폭으로
     closeDetail() {
       this.selectedId = '';
