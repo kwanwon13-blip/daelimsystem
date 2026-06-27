@@ -56,7 +56,7 @@ function arg(name, def) {
 }
 const LIMIT = parseInt(arg('limit', '0'), 10) || 0;
 const FOLDER_FILTER = (arg('folder', '') === true) ? '' : String(arg('folder', ''));
-const CONCURRENCY = Math.max(1, Math.min(6, parseInt(arg('concurrency', '2'), 10) || 2));
+const CONCURRENCY = Math.max(1, Math.min(6, parseInt(arg('concurrency', '3'), 10) || 3));
 const BATCH = Math.max(1, Math.min(12, parseInt(arg('batch', '5'), 10) || 5)); // 한 claude 호출당 이미지 수 — 시동비용 분산(17초→8초/장)
 const DRY = !!arg('dry', false);
 const PER_IMG_TIMEOUT_S = parseInt(arg('timeout', '40'), 10) || 40;            // 이미지 1장당 상한(초). 배치는 ×장수+여유
