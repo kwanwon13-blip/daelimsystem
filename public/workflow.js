@@ -4104,6 +4104,23 @@ function workflowApp() {
       const tiles = (typeof this.collapseFileVariants === 'function') ? this.collapseFileVariants(files) : files;
       return tiles.filter(f => f.isImage && f.exists !== false && f.team !== 'welding' && f.team !== 'output').length;
     },
+    // 카드 팀 배지(미배정/용접/출력)를 디자인 단위로 — 발주본+원본을 1개로(시안접기 detailUnassignedCount와 일관). visualFilesBrief만 사용(상세호출 0).
+    jobTeamCounts(job) {
+      const brief = (job && job.visualFilesBrief) || [];
+      const groups = new Map();
+      for (const f of brief) {
+        const base = this.designVariantKey(f);
+        const k = base ? (base + '|' + this.fileExtKey(f)) : ('__' + f.id);
+        if (!groups.has(k)) groups.set(k, []);
+        groups.get(k).push(f);
+      }
+      let welding = 0, output = 0, unassigned = 0;
+      for (const fs of groups.values()) {
+        const t = fs.some(f => f.team === 'welding') ? 'welding' : fs.some(f => f.team === 'output') ? 'output' : '';
+        if (t === 'welding') welding++; else if (t === 'output') output++; else unassigned++;
+      }
+      return { welding, output, unassigned };
+    },
 
     // 워크플로 잡 → 픽업 등록폼으로 전달 (app()이 별도 루트라 이벤트 브리지 사용)
     addJobToPickup(job) {
