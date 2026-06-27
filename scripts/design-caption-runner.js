@@ -45,6 +45,7 @@ const SECRET = String(ENV.CONTROL_DAEMON_SECRET || '').trim();
 const MODEL_RAW = ENV.DESIGN_CAPTION_MODEL || 'sonnet'; // 자산DB는 한 번에 정확히 — sonnet이 현장명·스펙 또렷(속도 동급, rate limit만 더 씀). haiku=빠른소진 대안
 const MODEL = /^[A-Za-z0-9._-]+$/.test(MODEL_RAW) ? MODEL_RAW : 'sonnet'; // shell 주입 차단(아래 shell:true)
 const DB_SHARE_PATH = SHARE + '\\price-list-app\\data\\design-captions.db';
+const WF_JSON_PATH = SHARE + '\\price-list-app\\data\\workflow.json'; // --workflow 모드: 워크플로 시안 목록
 const IMG_EXT = new Set(['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp']);
 const SKIP_DIRS = new Set(['node_modules', '.git', '$RECYCLE.BIN', 'System Volume Information', 'price-list-app']);
 
@@ -65,6 +66,7 @@ const CONCURRENCY = Math.max(1, Math.min(6, parseInt(arg('concurrency', '3'), 10
 const BATCH = Math.max(1, Math.min(12, parseInt(arg('batch', '5'), 10) || 5)); // 한 claude 호출당 이미지 수 — 시동비용 분산(17초→8초/장)
 const DRY = !!arg('dry', false);
 const COUNT_ONLY = !!arg('count', false); // 캡션 안 하고 필터 결과 장수만 세고 종료(무료 미리보기)
+const WORKFLOW = !!arg('workflow', false); // ★스캔 대신 workflow.json 의 워크플로 시안만 캡션(매일밤 신규 자동)
 const PER_IMG_TIMEOUT_S = parseInt(arg('timeout', '40'), 10) || 40;            // 이미지 1장당 상한(초). 배치는 ×장수+여유
 
 if (!SECRET) { console.error('[runner] CONTROL_DAEMON_SECRET 없음 — 로컬 .env 확인'); process.exit(1); }
@@ -82,6 +84,30 @@ function toServerPath(sharePath) {
   const pref = SHARE + '\\';
   if (sharePath.toLowerCase().startsWith(pref.toLowerCase())) return 'D:\\' + sharePath.slice(pref.length);
   return sharePath;
+}
+// 서버 D:\ 경로 → 러너가 읽을 공유경로(\\192.168.0.133\dd\…). 워크플로 시안 읽기용.
+function toSharePath(serverPath) {
+  return String(serverPath).replace(/^[A-Za-z]:\\/, SHARE + '\\');
+}
+// 워크플로 시안 열거 — workflow.json files[] 의 이미지 파일을 {sharePath, folder, serverPath} 로
+function enumerateWorkflowImages() {
+  let wf;
+  try { wf = JSON.parse(fs.readFileSync(WF_JSON_PATH, 'utf8')); }
+  catch (e) { console.error('[runner] workflow.json 읽기 실패:', e.message); return []; }
+  const out = [], seen = new Set();
+  for (const f of (wf.files || [])) {
+    const isImg = /^image\//.test(f.mime || '') || IMG_EXT.has(path.extname(f.originalName || f.storedName || '').toLowerCase());
+    if (!isImg) continue;
+    if (f.supersededBy) continue; // 교체된 옛 버전은 건너뜀(최신만)
+    const serverPath = String(f.storedPath || '');
+    if (!/^[A-Za-z]:\\/.test(serverPath)) continue; // D:\ 경로(디자인 저장)만 — 내부 임시경로 제외
+    if (seen.has(serverPath)) continue;
+    seen.add(serverPath);
+    const sharePath = toSharePath(serverPath);
+    try { if (!fs.existsSync(sharePath)) continue; } catch (_) { continue; } // stale 경로(이동·삭제됨) 건너뜀 — garbage 캡션 방지
+    out.push({ sharePath, folder: f.storageCompanyName || '워크플로', serverPath });
+  }
+  return out;
 }
 
 // 이미 캡션된 path 집합(재시작용) — 서버 design-captions.db 를 공유로 읽기전용
@@ -141,6 +167,12 @@ function extractArray(text) {
   try { const v = JSON.parse(s.slice(a, b + 1)); return Array.isArray(v) ? v : null; } catch (_) { return null; }
 }
 
+// claude가 파일을 못 읽었을 때의 응답 감지 — 적재하면 garbage(기타/빈값)가 done으로 박힘.
+function looksUnreadable(d) {
+  const blob = `${d.type || ''} ${d.client || ''} ${d.material || ''} ${d.usage || ''} ${d.text || ''} ${d.visual || ''} ${d.caption || ''}`.toLowerCase();
+  return /읽을 수 없|읽지 못|열 수 없|볼 수 없|찾을 수 없|cannot read|unable to read|can'?t (read|open|access)|no such file|not found/.test(blob);
+}
+
 // 반환 배열을 입력 jobs 에 매칭 — file(basename) 우선, 없으면 순서. 못 맞춘 장은 null(다음 실행 재시도).
 function matchResults(jobs, arr) {
   const byFile = new Map();
@@ -194,17 +226,18 @@ function buildItem(serverPath, folder, d) {
 }
 
 (async () => {
-  console.log(`[runner] share=${SHARE} server=${SERVER} model=${MODEL} batch=${BATCH} conc=${CONCURRENCY} limit=${LIMIT || '∞'} folder=${FOLDER_TERMS.join('|') || '(전체)'} year=${YEAR_TERMS.join('|') || '(전체)'} dry=${DRY}`);
+  console.log(`[runner] src=${WORKFLOW ? '워크플로시안' : '★폴더'} model=${MODEL} batch=${BATCH} conc=${CONCURRENCY} limit=${LIMIT || '∞'} folder=${FOLDER_TERMS.join('|') || '(전체)'} year=${YEAR_TERMS.join('|') || '(전체)'} dry=${DRY}`);
   const done = loadDoneSet();
   console.log(`[runner] 이미 캡션됨: ${done.size}장`);
 
+  const source = WORKFLOW ? enumerateWorkflowImages() : walkStarImages(SHARE);
   const todo = [];
-  for (const it of walkStarImages(SHARE)) {
-    // 거래처 필터: 상위 ★폴더명에 지정 용어 중 하나라도 포함
+  for (const it of source) {
+    // 거래처 필터: 폴더명(또는 워크플로 회사명)에 지정 용어 중 하나라도 포함
     if (FOLDER_TERMS.length && !FOLDER_TERMS.some(t => it.folder.toLowerCase().includes(t))) continue;
+    const serverPath = it.serverPath || toServerPath(it.sharePath);
     // 연도 필터: 이미지 폴더경로(파일명 제외)에 지정 연도 중 하나라도 포함
-    if (YEAR_TERMS.length) { const dir = path.dirname(it.sharePath); if (!YEAR_TERMS.some(y => dir.includes(y))) continue; }
-    const serverPath = toServerPath(it.sharePath);
+    if (YEAR_TERMS.length) { const dir = path.dirname(serverPath); if (!YEAR_TERMS.some(y => dir.includes(y))) continue; }
     if (done.has(serverPath)) continue;
     todo.push({ sharePath: it.sharePath, folder: it.folder, serverPath });
     if (LIMIT && todo.length >= LIMIT) break;
@@ -244,6 +277,7 @@ function buildItem(serverPath, folder, d) {
       for (let n = 0; n < jobs.length; n++) {
         const d = matched[n];
         if (!d || typeof d !== 'object') { failN++; continue; } // 매칭 안 된 장 → 다음 실행 재시도
+        if (looksUnreadable(d)) { failN++; continue; }           // claude가 파일 못읽음 → 적재·done 안 함(재시도)
         if (DRY) { okN++; console.log(`  · ${jobs[n].folder} | ${(d.type || '')}/${(d.client || '-')} | ${String(d.text || '').slice(0, 20)} :: ${path.basename(jobs[n].sharePath)}`); continue; }
         ok.push({ job: jobs[n], item: buildItem(jobs[n].serverPath, jobs[n].folder, d) });
       }
