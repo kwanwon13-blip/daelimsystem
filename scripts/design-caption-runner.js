@@ -42,11 +42,12 @@ const ENV = { ...loadEnv(), ...process.env };
 const SHARE = (ENV.DESIGN_SHARE || '\\\\192.168.0.133\\dd').replace(/[\\/]+$/, '');
 const SERVER = ENV.DESIGN_SERVER || 'http://192.168.0.133:3000';
 const SECRET = String(ENV.CONTROL_DAEMON_SECRET || '').trim();
-// 주간한도 실측(2026-06-28): claude -p 는 호출당 시스템프롬프트 ~28k토큰을 매번 새로 캐시(재사용 안 됨).
-// 그 고정비를 배치로 분산 + haiku로 → sonnet-b5 $0.05/장 → haiku-b12 $0.0107/장 (5배↓). 정확도는 약간↓지만 검색엔 충분.
-// 현장명·스펙까지 또렷이 원하면 --model sonnet (단 주간한도 ~5배 더 씀).
-const MODEL_RAW = ENV.DESIGN_CAPTION_MODEL || 'haiku';
-const MODEL = /^[A-Za-z0-9._-]+$/.test(MODEL_RAW) ? MODEL_RAW : 'haiku'; // shell 주입 차단(아래 shell:true)
+// 주간한도 실측(2026-06-28): claude -p 는 호출당 시스템프롬프트 ~26k토큰을 매번 새로 캐시(호출 간 재사용 안 됨).
+// 인라인·--system-prompt·--exclude-dynamic 다 효과없음 → 유일한 지렛대=배치로 그 고정비 분산.
+// sonnet: b5 $0.05 → b12 $0.035/장(1.4배↓, b12가 안전상한 — 더 키우면 출력 잘려 JSON 깨짐).
+// 한도 더 아끼려면: 매일 --limit N 으로 쪼개 돌리거나(스로틀), 핵심 폴더만 sonnet·나머지 haiku($0.0107, 3배↓).
+const MODEL_RAW = ENV.DESIGN_CAPTION_MODEL || 'sonnet';
+const MODEL = /^[A-Za-z0-9._-]+$/.test(MODEL_RAW) ? MODEL_RAW : 'sonnet'; // shell 주입 차단(아래 shell:true)
 const DB_SHARE_PATH = SHARE + '\\price-list-app\\data\\design-captions.db';
 const WF_JSON_PATH = SHARE + '\\price-list-app\\data\\workflow.json'; // --workflow 모드: 워크플로 시안 목록
 const IMG_EXT = new Set(['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp']);
