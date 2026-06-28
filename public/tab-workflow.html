@@ -337,6 +337,16 @@
   .wf-week-cochip.on{background:#1d4ed8;border-color:#1d4ed8;color:#fff;}
   .wf-week-cochip b{font-weight:900;opacity:.65;font-size:11px;}
   .wf-week-cochip.on b{opacity:.9;}
+  .wf-week-zoombtn{display:inline-flex;align-items:center;gap:3px;height:30px;padding:0 10px;border:1px solid #cbd5e1;border-radius:7px;background:#fff;color:#334155;font-size:12px;font-weight:800;cursor:pointer;margin-left:4px;}
+  .wf-week-zoombtn:hover{background:#f1f5f9;}
+  .wf-week-zoombtn.on{background:#1d4ed8;border-color:#1d4ed8;color:#fff;}
+  .wf-week-zoombtn .material-symbols-outlined{font-size:17px;}
+  /* 크게 보기 — 시안 썸네일을 카드형으로 큼직하게 */
+  .wf-view-week.big .wf-week-grid{grid-template-columns:repeat(7,minmax(150px,1fr));}
+  .wf-view-week.big .wf-week-chip{position:relative;flex-direction:column;align-items:stretch;gap:4px;padding:5px;}
+  .wf-view-week.big .wf-week-thumb{width:100%;height:110px;}
+  .wf-view-week.big .wf-week-chipname{white-space:normal;line-height:1.22;font-size:12.5px;}
+  .wf-view-week.big .wf-week-chip.done::after{position:absolute;top:8px;right:8px;margin:0;width:19px;height:19px;display:flex;align-items:center;justify-content:center;background:#16a34a;color:#fff;border-radius:999px;font-size:12px;padding:0;box-shadow:0 1px 3px rgba(0,0,0,.25);}
   /* 핵심 날짜 카드 (단계별 — 공장은 완료가능일 강조) */
   .wf-keybox{display:flex;flex-direction:column;gap:6px;padding:11px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;}
   .wf-keybox-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
@@ -1005,13 +1015,14 @@
       </div>
 
       <!-- 주간 일정 — 제작 중(공장·배송) 작업을 완료가능일(없으면 납기일) 기준 월~일로, 용접/출력 2레인 -->
-      <div class="wf-view-week" x-show="boardView==='week'" x-cloak>
+      <div class="wf-view-week" :class="weekBigThumb?'big':''" x-show="boardView==='week'" x-cloak>
         <div class="wf-week-bar">
           <div class="wf-week-nav">
             <button @click="weekShift(-7)" title="지난주"><span class="material-symbols-outlined" style="font-size:18px;">chevron_left</span></button>
             <button @click="weekThis()">이번주</button>
             <button @click="weekShift(7)" title="다음주"><span class="material-symbols-outlined" style="font-size:18px;">chevron_right</span></button>
             <span class="wf-week-range" x-text="weekRangeLabel()"></span>
+            <button type="button" class="wf-week-zoombtn" :class="weekBigThumb?'on':''" @click="toggleWeekBig()" :title="weekBigThumb?'작게 보기로':'시안 크게 보기'"><span class="material-symbols-outlined" x-text="weekBigThumb?'photo_size_select_small':'photo_size_select_large'"></span><span x-text="weekBigThumb?'작게':'크게'"></span></button>
           </div>
           <div class="wf-week-sum">
             <span class="wf-week-sumitem weld">용접 <b x-text="weekTeamTotal('welding')"></b></span>

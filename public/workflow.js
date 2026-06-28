@@ -65,6 +65,7 @@ function workflowApp() {
     _ledgerDrag: null,
     weekAnchor: '', // 주간달력 기준 월요일(YYYY-MM-DD), 빈값이면 이번주
     weekCompanyFilter: '', // 주간 회사별 필터(빈값=전체) — 담당자가 자기 회사만 보기
+    weekBigThumb: false, // 주간 시안 크게 보기(카드형 큰 썸네일)
     newOpen: false,
     newFiles: [],
     newUploadDragOver: false,
@@ -251,6 +252,7 @@ function workflowApp() {
       this.loadPublicLinkSettings();
       if (!this.form.dueDate) this.form.dueDate = this.defaultWorkDate();
       this.loadBoardPrefs(); // 사용자별 보드 필터/정렬 복원(로그인 계정 기준) — loadJobs 전에 적용
+      try { this.weekBigThumb = (localStorage.getItem('wf_week_big') === '1'); } catch (e) {} // 주간 크게보기 선택 복원
       ['boardSort', 'boardTeam', 'factorySort', 'statusFilter', 'scopeFilter', 'boardUnordered'].forEach(k => { try { this.$watch(k, () => this.saveBoardPrefs()); } catch (_) {} });
       await this.loadJobs();
       this.startWorkflowPolling();
@@ -4946,6 +4948,8 @@ function workflowApp() {
     },
     // 회사 칩 클릭 — 같은 회사 다시 누르면 전체로
     weekPickCompany(name) { this.weekCompanyFilter = (this.weekCompanyFilter === name) ? '' : name; },
+    // 주간 시안 크게/작게 토글 — 선택 유지(localStorage)
+    toggleWeekBig() { this.weekBigThumb = !this.weekBigThumb; try { localStorage.setItem('wf_week_big', this.weekBigThumb ? '1' : '0'); } catch (e) {} },
 
     // 상세 닫기 — 선택 해제 → 보드가 전체 폭으로
     closeDetail() {
