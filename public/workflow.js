@@ -66,6 +66,7 @@ function workflowApp() {
     weekAnchor: '', // 주간달력 기준 월요일(YYYY-MM-DD), 빈값이면 이번주
     weekCompanyFilter: '', // 주간 회사별 필터(빈값=전체) — 담당자가 자기 회사만 보기
     weekBigThumb: false, // 주간 시안 크게 보기(카드형 큰 썸네일)
+    weekSearch: '', // 주간 검색(현장·회사·시안 파일명·발주자)
     newOpen: false,
     newFiles: [],
     newUploadDragOver: false,
@@ -4901,7 +4902,9 @@ function workflowApp() {
         if (this.weekCompanyFilter && (((j.companyName || '').trim()) || '(미지정)') !== this.weekCompanyFilter) return;
         (j.visualFilesBrief || []).forEach(f => {
           const t = (f.team === 'welding' || f.team === 'output') ? f.team : 'unassigned';
-          if (t === team) out.push({ job: j, file: f });
+          if (t !== team) return;
+          if (!this.weekTextMatch(j, f)) return;
+          out.push({ job: j, file: f });
         });
       });
       return out;
@@ -4929,7 +4932,7 @@ function workflowApp() {
         if (j.status !== 'active' || j.currentStage !== 'delivery') return;
         if (!set.has(this.jobSchedDate(j))) return;
         if (this.weekCompanyFilter && (((j.companyName || '').trim()) || '(미지정)') !== this.weekCompanyFilter) return;
-        n += (j.visualFilesBrief || []).length;
+        (j.visualFilesBrief || []).forEach(f => { if (this.weekTextMatch(j, f)) n++; });
       });
       return n;
     },
@@ -4950,6 +4953,14 @@ function workflowApp() {
     weekPickCompany(name) { this.weekCompanyFilter = (this.weekCompanyFilter === name) ? '' : name; },
     // 주간 시안 크게/작게 토글 — 선택 유지(localStorage)
     toggleWeekBig() { this.weekBigThumb = !this.weekBigThumb; try { localStorage.setItem('wf_week_big', this.weekBigThumb ? '1' : '0'); } catch (e) {} },
+    // 주간 검색 매칭 — 현장명/회사/제목/발주자/시안 파일명. 검색어 없으면 항상 true(무비용).
+    weekTextMatch(j, f) {
+      const q = (this.weekSearch || '').trim().toLowerCase();
+      if (!q) return true;
+      const fname = f ? ((f.name || '') + ' ' + (f.originalName || '')) : '';
+      const hay = ((j.projectName || '') + ' ' + (j.companyName || '') + ' ' + (j.title || '') + ' ' + (j.createdByName || '') + ' ' + fname).toLowerCase();
+      return hay.includes(q);
+    },
 
     // 상세 닫기 — 선택 해제 → 보드가 전체 폭으로
     closeDetail() {

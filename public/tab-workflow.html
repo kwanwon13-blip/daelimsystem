@@ -347,6 +347,11 @@
   .wf-view-week.big .wf-week-thumb{width:100%;height:110px;}
   .wf-view-week.big .wf-week-chipname{white-space:normal;line-height:1.22;font-size:12.5px;}
   .wf-view-week.big .wf-week-chip.done::after{position:absolute;top:8px;right:8px;margin:0;width:19px;height:19px;display:flex;align-items:center;justify-content:center;background:#16a34a;color:#fff;border-radius:999px;font-size:12px;padding:0;box-shadow:0 1px 3px rgba(0,0,0,.25);}
+  .wf-week-search{display:flex;align-items:center;gap:5px;height:32px;padding:0 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;flex:0 1 300px;min-width:170px;}
+  .wf-week-search .material-symbols-outlined{font-size:18px;color:#94a3b8;flex:0 0 auto;}
+  .wf-week-search input{border:0;outline:0;flex:1;font-size:13px;background:transparent;color:#334155;min-width:0;}
+  .wf-week-search button{border:0;background:#e2e8f0;color:#475569;border-radius:999px;width:18px;height:18px;font-size:11px;line-height:1;cursor:pointer;flex:0 0 auto;}
+  .wf-week-search button:hover{background:#cbd5e1;}
   /* 핵심 날짜 카드 (단계별 — 공장은 완료가능일 강조) */
   .wf-keybox{display:flex;flex-direction:column;gap:6px;padding:11px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;}
   .wf-keybox-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
@@ -1032,6 +1037,11 @@
           </div>
         </div>
         <div class="wf-week-cofilter" x-show="weekCompanies().length">
+          <div class="wf-week-search">
+            <span class="material-symbols-outlined">search</span>
+            <input type="text" x-model="weekSearch" placeholder="현장·회사·시안 검색">
+            <button type="button" x-show="weekSearch" @click="weekSearch=''" title="지우기">✕</button>
+          </div>
           <span class="wf-week-cofilter-label">회사</span>
           <button type="button" class="wf-week-cochip" :class="weekCompanyFilter===''?'on':''" @click="weekCompanyFilter=''">전체</button>
           <template x-for="co in weekCompanies()" :key="co.name">
