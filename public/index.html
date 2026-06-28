@@ -7680,7 +7680,7 @@ function app() {
     pickupKakaoText: '',
     pickupKakaoCandidates: [],
     // #업체 자동완성 (견적 catSearch 패턴 복제)
-    pkMenuOpen: false, pkHl: 0, pkQuery: '', pkTokenStart: -1,
+    pkMenuOpen: false, pkHl: 0, pkQuery: '', pkTokenStart: -1, pkSuppress: false,
     pickupShowManualForm: false,
     get pickupCandidateCount() {
       let n = 0;
@@ -7769,6 +7769,7 @@ function app() {
       return matched.slice(0, 8).map(v => ({ name: v.name || '', address: v.address || '' }));
     },
     onPickupHashInput(e) {
+      if (this.pkSuppress) { this.pkSuppress = false; this.pkMenuOpen = false; return; }
       const el = e.target;
       const caret = el.selectionStart;
       const before = (el.value || '').slice(0, caret);
@@ -7801,14 +7802,16 @@ function app() {
       }
       const head = full.slice(0, start);
       const tail = full.slice(end);
-      // tail 이 이미 줄바꿈으로 시작하거나(=줄끝) 비어있으면 '\n' 강제주입 안 함
-      const needNl = tail.length > 0 && tail[0] !== '\n';
-      const inserted = '#' + v.name + (needNl ? '\n' : '');
-      const newHead = head + inserted;
-      this.pickupKakaoText = newHead + tail;
+      const namePart = '#' + v.name;
+      // 선택 후 항상 다음 줄로 내려 품목 입력 준비 + 메뉴 재오픈 방지
+      // (커서가 '#업체' 바로 뒤에 남으면 onPickupHashInput 이 그 토큰을 다시 잡아 메뉴를 재오픈 → 엔터가 계속 '선택'으로 먹혀 줄바꿈 불가). 이미 줄바꿈이면 중복 안 함.
+      const addNl = !tail.startsWith('\n');
+      this.pickupKakaoText = head + namePart + (addNl ? '\n' : '') + tail;
+      const pos = head.length + namePart.length + 1; // 줄바꿈 다음(=다음 줄 시작)
       this.pkMenuOpen = false;
+      this.pkSuppress = true; // 직후 keyup 이 같은 토큰으로 메뉴 재오픈하지 않도록
       this.$nextTick(() => {
-        if (el) { el.focus(); const p = newHead.length; el.setSelectionRange(p, p); }
+        if (el) { el.focus(); el.setSelectionRange(pos, pos); }
       });
       this.parsePickupKakao();
     },
