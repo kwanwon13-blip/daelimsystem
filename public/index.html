@@ -3193,6 +3193,7 @@
                     <option value="user">일반</option>
                     <option value="admin">관리자</option>
                   </select>
+                  <input type="date" x-model="createUserForm.hireDate" class="input-base py-1.5 text-xs" style="width:130px;" title="입사일(연차 계산용)">
                   <button @click="adminCreateUser()" class="btn-primary text-xs py-1.5 px-3">추가</button>
                 </div>
                 <p x-show="createUserForm.error" class="text-xs text-red-600 font-semibold mt-1" x-text="createUserForm.error"></p>
@@ -6896,7 +6897,7 @@ function app() {
     adminUsers: [],
     approveModal: { open: false, userId: '', userName: '', matches: [], loading: false, selected: null, deptId: '' },
     showCreateUser: false,
-    createUserForm: { name: '', userId: '', password: '', role: 'user', position: '', phone: '', department: '', error: '' },
+    createUserForm: { name: '', userId: '', password: '', role: 'user', position: '', phone: '', department: '', hireDate: '', error: '' },
     editingPermUserId: null,
     editingProfileUserId: null,
     profileEditForm: { name: '', position: '', phone: '', hireDate: '', capsName: '', attendanceRule: 'general', error: '', success: '' },
@@ -10661,11 +10662,11 @@ function app() {
       if (f.userId.length < 3) { f.error = '아이디는 3자 이상'; return; }
       if (f.password.length < 4) { f.error = '비밀번호는 4자 이상'; return; }
       const r = await fetch('/api/admin/users/create', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: f.name, userId: f.userId, password: f.password, role: f.role, position: f.position, phone: f.phone, department: f.department }) });
+        body: JSON.stringify({ name: f.name, userId: f.userId, password: f.password, role: f.role, position: f.position, phone: f.phone, department: f.department, hireDate: f.hireDate }) });
       const j = await r.json();
       if (!r.ok) { f.error = j.error || '생성 실패'; return; }
       this.showCreateUser = false;
-      this.createUserForm = { name:'', userId:'', password:'', role:'user', position:'', phone:'', department:'', error:'' };
+      this.createUserForm = { name:'', userId:'', password:'', role:'user', position:'', phone:'', department:'', hireDate:'', error:'' };
       this.showToast(j.message || '계정이 생성되었습니다');
       await this.loadAdminUsers();
     },
