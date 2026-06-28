@@ -77,15 +77,16 @@
               </div>
               <div style="margin-top:10px;" class="space-y-1">
                 <template x-for="(it, ii) in cand.items" :key="'ci'+ci+'it'+ii">
-                  <div class="flex gap-1 items-center">
+                  <div class="flex gap-1 items-center" style="flex-wrap:wrap;">
                     <input x-model="it.itemName" class="input-base" style="flex:2;" placeholder="품목">
                     <input x-model="it.spec" class="input-base" style="flex:1;" placeholder="규격">
+                    <input x-model="it.site" class="input-base" style="flex:1;" placeholder="현장">
                     <input x-model.number="it.qty" type="number" class="input-base" style="width:64px;" placeholder="수량">
                     <input x-model="it.unit" class="input-base" style="width:56px;" placeholder="단위">
                     <button class="btn-ghost btn-sm" @click="cand.items.splice(ii,1)">×</button>
                   </div>
                 </template>
-                <button class="btn-ghost btn-sm" style="margin-top:2px;" @click="cand.items.push({ itemName:'', spec:'', qty:null, unit:'' })">+ 품목 줄 추가</button>
+                <button class="btn-ghost btn-sm" style="margin-top:2px;" @click="cand.items.push({ itemName:'', spec:'', site:'', qty:null, unit:'' })">+ 품목 줄 추가</button>
               </div>
             </div>
           </template>
@@ -155,9 +156,10 @@
             <label class="label-base">품목</label>
             <div class="space-y-1">
               <template x-for="(it, i) in pickupForm.items" :key="'fi'+i">
-                <div class="flex gap-1 items-center">
+                <div class="flex gap-1 items-center" style="flex-wrap:wrap;">
                   <input x-model="it.itemName" class="input-base" style="flex:2;" placeholder="품목명">
                   <input x-model="it.spec" class="input-base" style="flex:1;" placeholder="규격">
+                  <input x-model="it.site" class="input-base" style="flex:1;" placeholder="현장">
                   <input x-model.number="it.qty" type="number" class="input-base" style="width:72px;" placeholder="수량">
                   <input x-model="it.unit" class="input-base" style="width:60px;" placeholder="단위">
                   <button class="btn-ghost btn-sm" @click="removePickupItemRow(i)" x-show="pickupForm.items.length > 1">×</button>
@@ -206,7 +208,7 @@
                     </button>
                   </div>
                 </div>
-                <div class="text-xs text-gray-500" style="margin-top:3px;" x-text="(req.items||[]).map(it => it.itemName + (it.spec?(' '+it.spec):'') + (it.qty?(' '+it.qty+(it.unit||'')):'')).join(', ')"></div>
+                <div class="text-xs text-gray-500" style="margin-top:3px;" x-text="(req.items||[]).map(it => it.itemName + (it.spec?(' '+it.spec):'') + (it.site?(' @'+it.site):'') + (it.qty?(' '+it.qty+(it.unit||'')):'')).join(', ')"></div>
               </div>
               <!-- 인라인 편집 폼 -->
               <div x-show="pickupEditId === req.id" x-cloak class="space-y-2">
@@ -236,9 +238,10 @@
                   <label class="label-base">품목</label>
                   <div class="space-y-1">
                     <template x-for="(it, i) in pickupEditForm.items" :key="'ei'+i">
-                      <div class="flex gap-1 items-center">
+                      <div class="flex gap-1 items-center" style="flex-wrap:wrap;">
                         <input x-model="it.itemName" class="input-base" style="flex:2;" placeholder="품목명">
                         <input x-model="it.spec" class="input-base" style="flex:1;" placeholder="규격">
+                        <input x-model="it.site" class="input-base" style="flex:1;" placeholder="현장">
                         <input x-model.number="it.qty" type="number" class="input-base" style="width:72px;" placeholder="수량">
                         <input x-model="it.unit" class="input-base" style="width:60px;" placeholder="단위">
                         <button class="btn-ghost btn-sm" @click="removeEditItem(i)" x-show="pickupEditForm.items.length > 1">×</button>
@@ -318,8 +321,10 @@
                 </div>
                 <template x-for="it in req.items" :key="it.id">
                   <div style="padding:6px 0;border-bottom:1px dashed #f1f5f9;display:flex;flex-wrap:wrap;align-items:center;gap:6px;">
-                    <span class="text-sm" style="flex:1 1 100%;min-width:0;" :style="it.status==='cancelled' ? 'text-decoration:line-through;color:#9ca3af;' : ''"
-                      x-text="it.itemName + (it.spec?(' '+it.spec):'') + (it.qty?(' '+it.qty+(it.unit||'')):'')"></span>
+                    <span class="text-sm" style="flex:1 1 100%;min-width:0;" :style="it.status==='cancelled' ? 'text-decoration:line-through;color:#9ca3af;' : ''">
+                      <span x-text="it.itemName + (it.spec?(' '+it.spec):'') + (it.qty?(' '+it.qty+(it.unit||'')):'')"></span>
+                      <span x-show="it.site" class="text-xs px-2 py-0.5 rounded-full" style="background:#eef2ff;color:#4f46e5;margin-left:4px;" x-text="'🏗 '+it.site"></span>
+                    </span>
                     <span class="text-xs px-2 py-0.5 rounded-full" style="flex:0 0 auto;" :style="pickupItemStatusStyle(it.status)" x-text="pickupItemStatusLabel(it.status)"></span>
                     <template x-if="canCheckPickup">
                       <div class="flex items-center" style="flex-wrap:wrap;gap:4px;margin-left:auto;">

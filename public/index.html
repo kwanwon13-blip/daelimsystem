@@ -7714,7 +7714,7 @@ function app() {
     // ── 픽업 관리 (pickup) ──────────────────────────────
     pickupView: 'register',              // 'register' | 'collect'
     pickupDate: new Date().toISOString().slice(0, 10),
-    pickupForm: { vendorId: '', pickupDate: new Date().toISOString().slice(0, 10), preferredTimeSlot: '', priority: 'normal', memo: '', items: [{ itemName: '', spec: '', qty: null, unit: '개' }], sourceType: 'manual', sourceJobId: null },
+    pickupForm: { vendorId: '', pickupDate: new Date().toISOString().slice(0, 10), preferredTimeSlot: '', priority: 'normal', memo: '', items: [{ itemName: '', spec: '', site: '', qty: null, unit: '개' }], sourceType: 'manual', sourceJobId: null },
     pickupVendorPreview: null,
     pickupKakaoText: '',
     pickupKakaoCandidates: [],
@@ -7767,10 +7767,10 @@ function app() {
       this.pickupVendorPreview = v || null;
     },
     // 품목 줄 조작
-    addPickupItemRow() { this.pickupForm.items.push({ itemName: '', spec: '', qty: null, unit: '개' }); },
+    addPickupItemRow() { this.pickupForm.items.push({ itemName: '', spec: '', site: '', qty: null, unit: '개' }); },
     removePickupItemRow(i) { this.pickupForm.items.splice(i, 1); if (!this.pickupForm.items.length) this.addPickupItemRow(); },
     resetPickupForm() {
-      this.pickupForm = { vendorId: '', pickupDate: this.pickupDate, preferredTimeSlot: '', priority: 'normal', memo: '', items: [{ itemName: '', spec: '', qty: null, unit: '개' }], sourceType: 'manual', sourceJobId: null };
+      this.pickupForm = { vendorId: '', pickupDate: this.pickupDate, preferredTimeSlot: '', priority: 'normal', memo: '', items: [{ itemName: '', spec: '', site: '', qty: null, unit: '개' }], sourceType: 'manual', sourceJobId: null };
       this.pickupVendorPreview = null;
     },
     // 정식 등록
@@ -7885,7 +7885,7 @@ function app() {
           return {
             vendorName: guess,
             vendorId: match ? match.id : '',
-            items: (g.items || []).map(it => ({ itemName: it.itemName || '', spec: it.spec || '', qty: it.qty || null, unit: it.unit || '' })),
+            items: (g.items || []).map(it => ({ itemName: it.itemName || '', spec: it.spec || '', site: it.site || '', qty: it.qty || null, unit: it.unit || '' })),
           };
         });
       } catch (e) { this.showToast('분석 실패: ' + e.message, 'error'); }
@@ -8012,18 +8012,18 @@ function app() {
         priority: req.priority || 'normal',
         memo: req.memo || '',
         items: (req.items || []).map(it => ({
-          itemName: it.itemName || '', spec: it.spec || '',
+          itemName: it.itemName || '', spec: it.spec || '', site: it.site || '',
           qty: (it.qty === undefined || it.qty === null) ? null : it.qty, unit: it.unit || '개',
         })),
       };
-      if (!this.pickupEditForm.items.length) this.pickupEditForm.items.push({ itemName: '', spec: '', qty: null, unit: '개' });
+      if (!this.pickupEditForm.items.length) this.pickupEditForm.items.push({ itemName: '', spec: '', site: '', qty: null, unit: '개' });
     },
     addEditItem() {
-      this.pickupEditForm.items.push({ itemName: '', spec: '', qty: null, unit: '개' });
+      this.pickupEditForm.items.push({ itemName: '', spec: '', site: '', qty: null, unit: '개' });
     },
     removeEditItem(i) {
       this.pickupEditForm.items.splice(i, 1);
-      if (!this.pickupEditForm.items.length) this.pickupEditForm.items.push({ itemName: '', spec: '', qty: null, unit: '개' });
+      if (!this.pickupEditForm.items.length) this.pickupEditForm.items.push({ itemName: '', spec: '', site: '', qty: null, unit: '개' });
     },
     cancelEditPickup() {
       this.pickupEditId = null;
@@ -8034,7 +8034,7 @@ function app() {
       if (!(f.vendorName || '').trim()) { this.showToast('업체명을 입력하세요', 'error'); return; }
       const items = (f.items || [])
         .filter(it => (it.itemName || '').trim())
-        .map(it => ({ itemName: (it.itemName || '').trim(), spec: (it.spec || '').trim(), qty: (it.qty === '' || it.qty === undefined) ? null : it.qty, unit: (it.unit || '').trim() }));
+        .map(it => ({ itemName: (it.itemName || '').trim(), spec: (it.spec || '').trim(), site: (it.site || '').trim(), qty: (it.qty === '' || it.qty === undefined) ? null : it.qty, unit: (it.unit || '').trim() }));
       this.pickupSaving = true;
       try {
         const r = await fetch('/api/pickup/requests/' + encodeURIComponent(this.pickupEditId), {
@@ -8104,7 +8104,7 @@ function app() {
       this.pickupForm = {
         vendorId: '', pickupDate: this.pickupDate, preferredTimeSlot: '', priority: 'normal',
         memo: [siteLabel, designLabel].filter(Boolean).join(' / '),
-        items: [{ itemName: designLabel || '시안', spec: '', qty: null, unit: '개' }],
+        items: [{ itemName: designLabel || '시안', spec: '', site: '', qty: null, unit: '개' }],
         sourceType: 'workflow', sourceJobId: job.id || null,
       };
       this.pickupVendorPreview = null;
