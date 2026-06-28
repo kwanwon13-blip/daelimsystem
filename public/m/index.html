@@ -10,6 +10,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="대림에스엠">
+<link rel="manifest" href="/manifest-m.webmanifest">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png">
 <link rel="stylesheet" href="/fonts/material-symbols.css" />
 <title>대림에스엠 — 모바일</title>
@@ -46,12 +47,22 @@
 
   .tile.workflow{border-left-color:#1d4ed8;}
   .tile.workflow .tile-ic{background:#1d4ed8;}
+  .tile.pickup{border-left-color:#d97706;}
+  .tile.pickup .tile-ic{background:#d97706;}
   .tile.design{border-left-color:#0ea5e9;}
   .tile.design .tile-ic{background:#0ea5e9;}
   .tile.contacts{border-left-color:#16a34a;}
   .tile.contacts .tile-ic{background:#16a34a;}
   .tile.soon{opacity:.62;}
   .tile.soon .badge{background:#fef3c7;color:#92400e;}
+
+  /* 알림 켜기 배너 */
+  .pushbar{margin:14px 14px 0;background:#fff;border:1px solid #e8ebf1;border-left:5px solid #d97706;border-radius:14px;padding:13px 14px;display:flex;align-items:center;gap:12px;}
+  .pushbar .material-symbols-outlined{font-size:26px;color:#d97706;flex:none;}
+  .pushbar .pb-main{flex:1;min-width:0;}
+  .pushbar .pb-t{font-size:15px;font-weight:800;}
+  .pushbar .pb-s{font-size:12.5px;color:#6b7280;margin-top:2px;line-height:1.35;}
+  .pushbar .pb-btn{flex:none;min-height:40px;border:none;border-radius:11px;background:#d97706;color:#fff;font-size:14px;font-weight:800;padding:0 14px;cursor:pointer;}
 
   .pc{display:block;text-align:center;color:#9aa3b2;font-size:13px;text-decoration:none;padding:6px 0 26px;}
   .pc .material-symbols-outlined{font-size:16px;vertical-align:-3px;margin-right:3px;}
@@ -81,6 +92,16 @@
       </div>
     </div>
 
+    <!-- 알림 켜기 배너(미구독 + 지원 환경에서만) -->
+    <div class="pushbar" id="pushBar" style="display:none;">
+      <span class="material-symbols-outlined">notifications_active</span>
+      <div class="pb-main">
+        <div class="pb-t">알림 켜기</div>
+        <div class="pb-s">새 픽업·작업이 오면 폰으로 바로 알려드려요.</div>
+      </div>
+      <button class="pb-btn" id="pushEnableBtn">켜기</button>
+    </div>
+
     <div class="sec">업무 메뉴</div>
     <div class="grid">
       <a class="tile workflow" href="/m/workflow.html">
@@ -88,6 +109,15 @@
         <div class="tile-main">
           <div class="tile-t">워크플로우</div>
           <div class="tile-s">발주·시안·제작 진행 확인 및 처리</div>
+        </div>
+        <div class="tile-arrow"><span class="material-symbols-outlined">chevron_right</span></div>
+      </a>
+
+      <a class="tile pickup" href="/m/pickup.html" id="pickupTile" style="display:none;">
+        <div class="tile-ic"><span class="material-symbols-outlined">local_shipping</span></div>
+        <div class="tile-main">
+          <div class="tile-t">픽업관리</div>
+          <div class="tile-s">오늘 픽업할 업체·품목 확인 및 수거 체크</div>
         </div>
         <div class="tile-arrow"><span class="material-symbols-outlined">chevron_right</span></div>
       </a>
@@ -116,10 +146,30 @@
 
   <div class="toast" id="toast"></div>
 
+<script src="/m/pwa.js"></script>
 <script>
 (function(){
   var booting = document.getElementById('booting');
   var wrap = document.getElementById('wrap');
+
+  function setupPush(){
+    try {
+      if (!window.erpPwa) return;
+      window.erpPwa.state().then(function(st){
+        var bar = document.getElementById('pushBar');
+        if (bar && st === 'off') bar.style.display = 'flex';
+      });
+    } catch(e) {}
+  }
+  var pe = document.getElementById('pushEnableBtn');
+  if (pe) pe.addEventListener('click', function(){
+    if (!window.erpPwa) return;
+    pe.disabled = true;
+    window.erpPwa.enable().then(function(st){
+      pe.disabled = false;
+      if (st === 'on') { var bar = document.getElementById('pushBar'); if (bar) bar.style.display = 'none'; }
+    });
+  });
 
   function toast(msg){ var t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(function(){ t.classList.remove('show'); }, 2500); }
 
@@ -146,8 +196,14 @@
       if (d.position) meta.push(d.position);
       if (d.role === 'admin') meta.push('관리자');
       document.getElementById('userMeta').textContent = meta.join(' · ');
+      // 픽업 권한 있으면 픽업관리 타일 노출
+      var perms = d.permissions || [];
+      if (d.role === 'admin' || perms.indexOf('pickup_view') >= 0) {
+        var pt = document.getElementById('pickupTile'); if (pt) pt.style.display = 'flex';
+      }
       booting.style.display = 'none';
       wrap.style.display = 'block';
+      setupPush();
     })
     .catch(function(){ location.replace('/m/login.html'); });
 

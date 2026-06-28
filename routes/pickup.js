@@ -220,7 +220,8 @@ function notifyDeliveryTeam(message) {
   try {
     const users = (db['조직관리'].load().users || []).filter(u =>
       u.status === 'approved' && (u.role === 'admin' || (u.permissions || []).includes('pickup_check')));
-    for (const u of users) notify(u.userId || u.id, 'pickup', message, '/?tab=pickup');
+    // 픽업은 현장(납품팀) 업무 → 알림 클릭 시 모바일 픽업 화면으로(폰 우선). PC에서 눌러도 동작.
+    for (const u of users) notify(u.userId || u.id, 'pickup', message, '/m/pickup.html');
   } catch (e) { /* 알림 실패는 무시 */ }
 }
 

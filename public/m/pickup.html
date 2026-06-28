@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta name="theme-color" content="#1d4ed8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="픽업">
+<link rel="manifest" href="/manifest-m.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png">
+<link rel="stylesheet" href="/fonts/material-symbols.css" />
+<title>픽업 — 대림에스엠</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{font-family:-apple-system,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;background:#eef1f6;color:#111827;-webkit-font-smoothing:antialiased;font-size:16px;padding-bottom:env(safe-area-inset-bottom);}
+  [x-cloak]{display:none!important;}
+  .material-symbols-outlined{font-variation-settings:'FILL' 0,'wght' 500,'GRAD' 0,'opsz' 24;display:inline-flex;align-items:center;justify-content:center;line-height:1;}
+  .wrap{max-width:560px;margin:0 auto;min-height:100vh;background:#eef1f6;}
+
+  .hd{background:#1d4ed8;color:#fff;padding:calc(env(safe-area-inset-top) + 14px) 14px 12px;position:sticky;top:0;z-index:60;}
+  .hd-row{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .hd-h1{font-size:21px;font-weight:800;letter-spacing:-.3px;}
+  .hd-sub{font-size:12px;opacity:.9;}
+  .hd-btns{display:flex;gap:7px;flex:none;}
+  .hd-btn{display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,.16);color:#fff;border:none;border-radius:11px;padding:8px 10px;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;}
+  .hd-btn .material-symbols-outlined{font-size:18px;}
+  .hd-btn.live{background:rgba(255,255,255,.1);}
+  .hd-btn .dot{width:8px;height:8px;border-radius:50%;background:#9ca3af;}
+  .hd-btn .dot.on{background:#4ade80;}
+
+  /* 날짜 바 */
+  .datebar{display:flex;align-items:center;gap:8px;padding:10px 12px;position:sticky;top:calc(env(safe-area-inset-top) + 64px);z-index:55;background:#eef1f6;}
+  .date-nav{width:42px;height:42px;border:2px solid #d7dbe3;background:#fff;border-radius:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;}
+  .date-mid{flex:1;text-align:center;background:#fff;border:2px solid #d7dbe3;border-radius:12px;min-height:44px;display:flex;flex-direction:column;justify-content:center;position:relative;}
+  .date-mid input{position:absolute;inset:0;opacity:0;width:100%;height:100%;border:none;}
+  .date-d{font-size:16px;font-weight:800;}
+  .date-w{font-size:11px;color:#6b7280;}
+  .today-btn{flex:none;min-height:44px;padding:0 12px;border:none;border-radius:12px;background:#dbeafe;color:#1e40af;font-weight:800;font-size:13px;cursor:pointer;}
+
+  .summary{padding:2px 14px 8px;color:#374151;font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px;}
+  .summary .pill{background:#fee2e2;color:#b91c1c;border-radius:999px;padding:2px 10px;font-size:13px;font-weight:800;}
+  .summary .pill.zero{background:#dcfce7;color:#15803d;}
+
+  .list{padding:4px 12px 110px;}
+  .statebar{display:flex;align-items:center;gap:8px;padding:6px 4px 10px;color:#6b7280;font-size:13px;}
+  .spin{width:18px;height:18px;border:3px solid #cbd5e1;border-top-color:#1d4ed8;border-radius:50%;animation:spin 1s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  /* 업체 카드 */
+  .vcard{background:#fff;border-radius:16px;border:1px solid #e8ebf1;margin-bottom:13px;overflow:hidden;border-left:5px solid #1d4ed8;}
+  .vcard.done{border-left-color:#16a34a;opacity:.78;}
+  .vcard.late{border-left-color:#dc2626;}
+  .vc-head{padding:13px 14px 10px;}
+  .vc-top{display:flex;align-items:flex-start;gap:8px;}
+  .vc-name{flex:1;min-width:0;font-size:18px;font-weight:800;letter-spacing:-.2px;word-break:break-all;}
+  .vc-badge{flex:none;font-size:11px;font-weight:800;border-radius:999px;padding:3px 9px;}
+  .b-req{background:#eef2ff;color:#3730a3;} .b-partial{background:#fef9c3;color:#854d0e;}
+  .b-done{background:#dcfce7;color:#15803d;} .b-late{background:#fee2e2;color:#b91c1c;}
+  .vc-meta{font-size:13px;color:#6b7280;margin-top:3px;word-break:break-all;}
+  .vc-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px;}
+  .va{display:inline-flex;align-items:center;gap:4px;border:1px solid #e2e6ee;background:#f8fafc;color:#374151;border-radius:10px;padding:8px 11px;font-size:13px;font-weight:700;text-decoration:none;cursor:pointer;}
+  .va .material-symbols-outlined{font-size:17px;}
+  .va.call{background:#ecfdf5;color:#15803d;border-color:#bbf7d0;}
+  .vc-memo{margin-top:9px;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:8px 11px;font-size:13px;color:#9a3412;line-height:1.4;}
+
+  /* 요청 블록 */
+  .req{border-top:1px solid #f0f2f6;padding:10px 14px;}
+  .req-by{font-size:12px;color:#9aa3b2;margin-bottom:7px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+  .req-by .who{color:#4b5563;font-weight:700;}
+  .req-by .memo{color:#7c2d12;background:#fff7ed;border-radius:6px;padding:1px 7px;}
+
+  .item{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px dashed #eef1f6;}
+  .item:first-child{border-top:none;}
+  .item-ic{flex:none;width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:#f1f3f7;color:#94a3b8;}
+  .item-ic.ok{background:#dcfce7;color:#16a34a;} .item-ic.no{background:#fee2e2;color:#dc2626;}
+  .item-ic .material-symbols-outlined{font-size:21px;}
+  .item-main{flex:1;min-width:0;}
+  .item-name{font-size:15.5px;font-weight:700;word-break:break-all;line-height:1.3;}
+  .item-name.struck{text-decoration:line-through;color:#9aa3b2;text-decoration-color:#16a34a;}
+  .item-sub{font-size:12.5px;color:#6b7280;margin-top:1px;}
+  .item-sub .fail{color:#b91c1c;font-weight:700;}
+  .item-act{flex:none;display:flex;gap:6px;}
+  .ib{min-height:38px;border:none;border-radius:10px;padding:0 12px;font-size:13px;font-weight:800;display:inline-flex;align-items:center;gap:4px;cursor:pointer;}
+  .ib .material-symbols-outlined{font-size:18px;}
+  .ib-pick{background:#16a34a;color:#fff;} .ib-no{background:#eef1f6;color:#6b7280;border:1px solid #e2e6ee;}
+  .ib-undo{background:#f1f5f9;color:#475569;}
+  .chip{font-size:12px;font-weight:800;border-radius:999px;padding:3px 10px;}
+  .chip.req{background:#eef2ff;color:#3730a3;} .chip.no{background:#fee2e2;color:#b91c1c;} .chip.cancel{background:#f3f4f6;color:#6b7280;}
+
+  .empty{padding:54px 28px;text-align:center;color:#4b5563;}
+  .empty .material-symbols-outlined{font-size:54px;color:#cbd5e1;}
+  .empty-t{font-size:17px;color:#6b7280;font-weight:700;margin-top:10px;}
+  .empty-s{font-size:14px;color:#9aa3b2;margin-top:5px;line-height:1.5;}
+
+  .gate{padding:60px 26px;text-align:center;color:#4b5563;}
+  .gate .material-symbols-outlined{font-size:56px;color:#cbd5e1;}
+  .gate-t{font-size:18px;font-weight:700;margin:12px 0 6px;}
+  .gate a{color:#1d4ed8;text-decoration:none;font-weight:700;}
+
+  .saving-bar{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#111827;color:#fff;font-size:14px;font-weight:700;padding:11px 20px;border-radius:14px;z-index:300;display:flex;align-items:center;gap:9px;}
+  .saving-bar .spin{border-color:rgba(255,255,255,.35);border-top-color:#fff;}
+</style>
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+</head>
+<body>
+<div class="wrap" x-data="pickupApp()" x-init="init()" x-cloak>
+
+  <!-- 헤더 -->
+  <div class="hd">
+    <div class="hd-row">
+      <div>
+        <div class="hd-sub">대림에스엠 · 모바일</div>
+        <div class="hd-h1">픽업</div>
+      </div>
+      <div class="hd-btns">
+        <button class="hd-btn" @click="enablePush()" x-show="pushState!=='on' && pushState!=='unsupported'" title="알림 켜기">
+          <span class="material-symbols-outlined">notifications</span>알림
+        </button>
+        <span class="hd-btn live" title="실시간 연결">
+          <span class="dot" :class="sseOn ? 'on' : ''"></span>실시간
+        </span>
+        <a class="hd-btn" href="/m/" title="홈">
+          <span class="material-symbols-outlined">home</span>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- 권한 없음 -->
+  <template x-if="authChecked && !canView">
+    <div class="gate">
+      <span class="material-symbols-outlined">lock</span>
+      <div class="gate-t">픽업 조회 권한이 없습니다</div>
+      <div class="empty-s">관리자에게 픽업 권한을 요청하세요.</div>
+      <div style="margin-top:18px;"><a href="/m/">← 홈으로</a></div>
+    </div>
+  </template>
+
+  <template x-if="canView">
+    <div>
+      <!-- 날짜 바 -->
+      <div class="datebar">
+        <button class="date-nav" @click="shiftDate(-1)" aria-label="전날"><span class="material-symbols-outlined">chevron_left</span></button>
+        <label class="date-mid">
+          <span class="date-d" x-text="dateLabel()"></span>
+          <span class="date-w" x-text="weekday()"></span>
+          <input type="date" :value="date" @change="setDate($event.target.value)">
+        </label>
+        <button class="date-nav" @click="shiftDate(1)" aria-label="다음날"><span class="material-symbols-outlined">chevron_right</span></button>
+        <button class="today-btn" @click="setDate(today)" x-show="date!==today">오늘</button>
+      </div>
+
+      <div class="summary">
+        <span x-text="'픽업 ' + groups.length + '곳'"></span>
+        <span class="pill" :class="pendingCount()===0 ? 'zero' : ''"
+              x-text="pendingCount()===0 ? '남은 픽업 없음' : ('남은 품목 ' + pendingCount())"></span>
+      </div>
+
+      <div class="list">
+        <div class="statebar">
+          <template x-if="loading"><span class="spin"></span></template>
+          <span x-show="loading">불러오는 중…</span>
+          <span x-show="!loading && error" x-text="error" style="color:#b91c1c;"></span>
+        </div>
+
+        <!-- 업체 카드 -->
+        <template x-for="g in groups" :key="g.groupKey || g.vendorName">
+          <div class="vcard" :class="groupClass(g)">
+            <div class="vc-head">
+              <div class="vc-top">
+                <div class="vc-name" x-text="vendorOf(g).name || g.vendorName || '업체 미지정'"></div>
+                <span class="vc-badge" :class="rollupBadge(g).cls" x-text="rollupBadge(g).label"></span>
+              </div>
+              <div class="vc-meta" x-show="vendorOf(g).address" x-text="vendorOf(g).address"></div>
+
+              <div class="vc-actions">
+                <a class="va call" x-show="vendorPhone(g)" :href="'tel:' + vendorPhone(g)">
+                  <span class="material-symbols-outlined">call</span><span x-text="vendorPhone(g)"></span>
+                </a>
+                <a class="va" :href="mapUrl(vendorOf(g),'naver')" target="_blank" rel="noopener">
+                  <span class="material-symbols-outlined">map</span>네이버
+                </a>
+                <a class="va" :href="mapUrl(vendorOf(g),'kakao')" target="_blank" rel="noopener">
+                  <span class="material-symbols-outlined">map</span>카카오
+                </a>
+                <a class="va" :href="mapUrl(vendorOf(g),'tmap')" target="_blank" rel="noopener">
+                  <span class="material-symbols-outlined">navigation</span>T맵
+                </a>
+              </div>
+              <div class="vc-memo" x-show="vendorOf(g).pickupMemo" x-text="'📍 ' + vendorOf(g).pickupMemo"></div>
+            </div>
+
+            <!-- 요청별 품목 -->
+            <template x-for="req in (g.requests||[])" :key="req.id">
+              <div class="req" x-show="req.status!=='cancelled'">
+                <div class="req-by">
+                  <span class="who" x-text="req.registrarName || '등록자'"></span>
+                  <span x-show="req.isLate" style="color:#b91c1c;font-weight:800;">🔴 추가요청</span>
+                  <span class="memo" x-show="req.memo" x-text="req.memo"></span>
+                </div>
+
+                <template x-for="it in (req.items||[])" :key="it.id">
+                  <div class="item" x-show="it.status!=='cancelled'">
+                    <div class="item-ic" :class="it.status==='pickedUp' ? 'ok' : (it.status==='notPicked' ? 'no' : '')">
+                      <span class="material-symbols-outlined" x-text="it.status==='pickedUp' ? 'check' : (it.status==='notPicked' ? 'close' : 'inventory_2')"></span>
+                    </div>
+                    <div class="item-main">
+                      <div class="item-name" :class="it.status==='pickedUp' ? 'struck' : ''"
+                           x-text="it.itemName + (it.spec ? (' ' + it.spec) : '') + (it.qty ? ('  ' + it.qty + (it.unit||'개')) : '')"></div>
+                      <div class="item-sub" x-show="it.status==='notPicked'">
+                        <span class="fail" x-text="'미수거' + (it.failReason ? (' · ' + it.failReason) : '')"></span>
+                      </div>
+                    </div>
+
+                    <!-- 납품팀: 체크 액션 -->
+                    <template x-if="canCheck">
+                      <div class="item-act">
+                        <template x-if="it.status==='requested'">
+                          <div style="display:flex;gap:6px;">
+                            <button class="ib ib-pick" @click="markPicked(it)" :disabled="saving">
+                              <span class="material-symbols-outlined">check</span>수거
+                            </button>
+                            <button class="ib ib-no" @click="markNot(it)" :disabled="saving">미수거</button>
+                          </div>
+                        </template>
+                        <template x-if="it.status==='pickedUp' || it.status==='notPicked'">
+                          <button class="ib ib-undo" @click="resetItem(it)" :disabled="saving">
+                            <span class="material-symbols-outlined">undo</span>되돌리기
+                          </button>
+                        </template>
+                      </div>
+                    </template>
+
+                    <!-- 조회만: 상태칩 -->
+                    <template x-if="!canCheck">
+                      <span class="chip"
+                            :class="it.status==='notPicked' ? 'no' : 'req'"
+                            x-text="it.status==='pickedUp' ? '수거완료' : (it.status==='notPicked' ? '미수거' : '대기')"
+                            x-show="it.status!=='pickedUp'"></span>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <!-- 빈 상태 -->
+        <template x-if="!loading && !groups.length">
+          <div class="empty">
+            <span class="material-symbols-outlined">local_shipping</span>
+            <div class="empty-t">이 날짜에 픽업이 없습니다</div>
+            <div class="empty-s">날짜를 바꿔보거나<br>경영관리팀이 등록하면 여기 표시됩니다.</div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </template>
+
+  <div class="saving-bar" x-show="saving" x-cloak><span class="spin"></span>처리 중…</div>
+</div>
+
+<script src="/m/pwa.js"></script>
+<script>
+  function pickupApp() {
+    return {
+      today: '', date: '',
+      loading: true, error: '', authChecked: false,
+      me: null, canView: false, canCheck: false,
+      requests: [], groups: [],
+      saving: false, sseOn: false, pushState: '',
+      _es: null, _poll: null,
+
+      async init() {
+        this.today = this.todayStr();
+        this.date = this.today;
+        await this.loadMe();
+        if (!this.me) { location.replace('/m/login.html'); return; }
+        this.authChecked = true;
+        if (!this.canView) { this.loading = false; return; }
+        await this.load();
+        this.connectSSE();
+        this.startPoll();
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) this.load(); });
+        try { this.pushState = await window.erpPwa.state(); } catch (_) {}
+      },
+
+      todayStr() {
+        var d = new Date();
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      },
+      dateLabel() {
+        var p = (this.date || '').split('-');
+        return p.length === 3 ? (Number(p[1]) + '월 ' + Number(p[2]) + '일') : this.date;
+      },
+      weekday() {
+        try { var d = new Date(this.date + 'T00:00:00'); return ['일','월','화','수','목','금','토'][d.getDay()] + '요일'; }
+        catch (_) { return ''; }
+      },
+      setDate(v) { if (!v) return; this.date = v; this.load(); },
+      shiftDate(n) {
+        var d = new Date(this.date + 'T00:00:00'); d.setDate(d.getDate() + n);
+        this.date = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+        this.load();
+      },
+
+      async loadMe() {
+        try {
+          var r = await fetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' });
+          var d = await r.json();
+          if (d && d.loggedIn) {
+            this.me = d;
+            var p = d.permissions || [], admin = d.role === 'admin';
+            this.canView = admin || p.indexOf('pickup_view') >= 0;
+            this.canCheck = admin || p.indexOf('pickup_check') >= 0;
+          } else { this.me = null; }
+        } catch (_) { this.me = null; }
+      },
+
+      async load() {
+        if (!this.canView) return;
+        this.loading = true; this.error = '';
+        try {
+          var r = await fetch('/api/pickup/requests?date=' + encodeURIComponent(this.date), { credentials: 'same-origin', cache: 'no-store' });
+          if (r.status === 401) { location.replace('/m/login.html'); return; }
+          if (r.status === 403) { this.error = '픽업 조회 권한이 없습니다.'; this.groups = []; this.requests = []; this.loading = false; return; }
+          if (!r.ok) throw new Error('load ' + r.status);
+          var d = await r.json();
+          this.requests = d.requests || [];
+          this.groups = d.groups || [];
+        } catch (e) { this.error = '목록을 불러오지 못했습니다.'; }
+        this.loading = false;
+      },
+
+      // ── 헬퍼 ──
+      vendorOf(g) {
+        var req = (g.requests || []).find(function (x) { return x && x.vendor; });
+        return (req && req.vendor) || { name: g.vendorName };
+      },
+      vendorPhone(g) { var v = this.vendorOf(g); return v.contactPhone || v.phone || ''; },
+      pendingCount() {
+        var n = 0;
+        (this.requests || []).forEach(function (req) {
+          if (req.status === 'cancelled') return;
+          (req.items || []).forEach(function (it) { if (it.status === 'requested') n++; });
+        });
+        return n;
+      },
+      groupItems(g) {
+        var out = [];
+        (g.requests || []).forEach(function (req) { (req.items || []).forEach(function (it) { out.push(it); }); });
+        return out;
+      },
+      groupClass(g) {
+        var its = this.groupItems(g).filter(function (i) { return i.status !== 'cancelled'; });
+        if (its.length && its.every(function (i) { return i.status === 'pickedUp'; })) return 'done';
+        if ((g.requests || []).some(function (r) { return r.isLate; })) return 'late';
+        return '';
+      },
+      rollupBadge(g) {
+        var its = this.groupItems(g).filter(function (i) { return i.status !== 'cancelled'; });
+        if (!its.length) return { cls: 'b-req', label: '대기' };
+        if (its.every(function (i) { return i.status === 'pickedUp'; })) return { cls: 'b-done', label: '완료' };
+        if (its.some(function (i) { return i.status === 'pickedUp' || i.status === 'notPicked'; })) {
+          var left = its.filter(function (i) { return i.status === 'requested'; }).length;
+          return { cls: 'b-partial', label: left ? ('남음 ' + left) : '확인필요' };
+        }
+        return { cls: 'b-req', label: '대기 ' + its.length };
+      },
+      mapUrl(v, app) {
+        var q = encodeURIComponent((v && (v.mapSearchKeyword || v.address || v.name)) || '');
+        if (app === 'kakao') return 'https://map.kakao.com/?q=' + q;
+        if (app === 'tmap') return 'https://tmap.life/search?name=' + q;
+        return 'https://map.naver.com/v5/search/' + q;
+      },
+
+      // ── 라인 체크(납품팀) ──
+      async setItem(it, status, extra) {
+        if (!this.canCheck || this.saving) return;
+        var prev = it.status;
+        it.status = status;           // 낙관적 갱신
+        this.saving = true;
+        try {
+          var body = Object.assign({ status: status }, extra || {});
+          var r = await fetch('/api/pickup/items/' + encodeURIComponent(it.id) + '/status', {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin', body: JSON.stringify(body),
+          });
+          if (!r.ok) throw new Error('patch ' + r.status);
+          await this.load();          // 롤업/상태 재동기화
+        } catch (e) { it.status = prev; alert('상태 변경 실패. 다시 시도해주세요.'); }
+        this.saving = false;
+      },
+      markPicked(it) { this.setItem(it, 'pickedUp'); },
+      markNot(it) { var reason = prompt('미수거 사유를 적어주세요', '부재중'); if (reason === null) return; this.setItem(it, 'notPicked', { failReason: reason }); },
+      resetItem(it) { this.setItem(it, 'requested'); },
+
+      // ── 실시간 ──
+      connectSSE() {
+        try {
+          var es = new EventSource('/api/workflow/events');
+          this._es = es;
+          es.onopen = () => { this.sseOn = true; };
+          es.onmessage = (ev) => {
+            try { var d = JSON.parse(ev.data); if (d && d.t === 'hello') return; } catch (_) {}
+            this.load();              // 알림(픽업 등) 신호 오면 즉시 새로고침
+          };
+          es.onerror = () => { this.sseOn = false; };
+        } catch (_) {}
+      },
+      startPoll() {
+        var self = this;
+        this._poll = setInterval(function () { if (!document.hidden && !self.sseOn) self.load(); }, 30000);
+      },
+
+      async enablePush() { try { this.pushState = await window.erpPwa.enable(); } catch (_) {} },
+    };
+  }
+</script>
+</body>
+</html>

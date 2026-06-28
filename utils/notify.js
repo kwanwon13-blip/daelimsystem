@@ -18,7 +18,7 @@ function pushTargetFromLink(type, link) {
   return { url: '/', tag: type || 'erp' };
 }
 
-const PUSH_TITLES = { workflow: '워크플로우 알림', approval: '결재 알림', quote: '견적 알림' };
+const PUSH_TITLES = { workflow: '워크플로우 알림', approval: '결재 알림', quote: '견적 알림', pickup: '픽업 알림' };
 
 function notify(targetUserId, type, message, link = '') {
   try {

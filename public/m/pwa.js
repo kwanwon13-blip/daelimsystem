@@ -1,0 +1,75 @@
+// public/m/pwa.js — 모바일 PWA 공통: 서비스워커 등록 + 웹푸시 켜기/상태
+// 기존 인프라 재사용: /sw.js(푸시 수신·notificationclick), /api/push/* (구독), utils/notify(발송)
+(function () {
+  function supported() {
+    try {
+      return ('serviceWorker' in navigator) && ('PushManager' in window)
+        && (typeof Notification !== 'undefined') && window.isSecureContext;
+    } catch (_) { return false; }
+  }
+
+  function registerSW() {
+    try { if ('serviceWorker' in navigator) return navigator.serviceWorker.register('/sw.js'); }
+    catch (_) {}
+    return Promise.resolve(null);
+  }
+
+  function b64ToU8(b64) {
+    var pad = '='.repeat((4 - b64.length % 4) % 4);
+    var s = (b64 + pad).replace(/-/g, '+').replace(/_/g, '/');
+    var raw = atob(s), arr = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+    return arr;
+  }
+
+  // 'unsupported' | 'denied' | 'on' | 'off'
+  async function state() {
+    if (!supported()) return 'unsupported';
+    if (Notification.permission === 'denied') return 'denied';
+    try {
+      var reg = await navigator.serviceWorker.getRegistration();
+      var sub = reg ? await reg.pushManager.getSubscription() : null;
+      return sub ? 'on' : 'off';
+    } catch (_) { return 'off'; }
+  }
+
+  async function enable() {
+    if (!supported()) {
+      alert('이 접속 방식에선 푸시 알림을 켤 수 없습니다.\n\n· 핸드폰: erp.daelimsm.com(https)로 접속 → 홈 화면에 추가 → 알림 켜기\n· 사내 IP(http) 접속은 푸시 불가(화면 안 알림만 옵니다).');
+      return 'unsupported';
+    }
+    try {
+      var perm = await Notification.requestPermission();
+      if (perm !== 'granted') {
+        alert(perm === 'denied'
+          ? '알림이 차단돼 있습니다. 브라우저/설정에서 이 사이트 알림을 허용으로 바꿔주세요.'
+          : '알림 권한이 허용되지 않았습니다.');
+        return perm === 'denied' ? 'denied' : 'off';
+      }
+      var reg = await navigator.serviceWorker.register('/sw.js');
+      await navigator.serviceWorker.ready;
+      var r = await fetch('/api/push/vapid-public-key', { credentials: 'same-origin' });
+      var j = await r.json();
+      if (!j || !j.key) { alert('서버 푸시가 아직 준비되지 않았습니다.\n(관리자: web-push 설치 + 재시작 필요)'); return 'off'; }
+      var sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: b64ToU8(j.key),
+        });
+      }
+      var sr = await fetch('/api/push/subscribe', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin', body: JSON.stringify({ subscription: sub }),
+      });
+      if (sr.ok) { alert('알림을 켰습니다 ✅\n앱을 꺼둬도 새 픽업·작업이 오면 이 폰으로 알려드립니다.'); return 'on'; }
+      alert('구독 저장에 실패했습니다. 잠시 후 다시 시도해주세요.'); return 'off';
+    } catch (e) {
+      alert('알림 켜기 실패: ' + ((e && e.message) || e)); return 'off';
+    }
+  }
+
+  // 페이지 로드 시 서비스워커 자동 등록(홈화면 설치 + 푸시 수신 기반)
+  registerSW();
+  window.erpPwa = { supported: supported, state: state, enable: enable, registerSW: registerSW };
+})();
