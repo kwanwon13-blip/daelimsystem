@@ -100,6 +100,14 @@
   .gate-t{font-size:18px;font-weight:700;margin:12px 0 6px;}
   .gate a{color:#1d4ed8;text-decoration:none;font-weight:700;}
 
+  /* 알림 켜기 배너(납품팀, 미구독) */
+  .pushbar{margin:6px 12px 2px;background:#fff7ed;border:1px solid #fed7aa;border-left:5px solid #d97706;border-radius:14px;padding:12px 14px;display:flex;align-items:center;gap:11px;}
+  .pushbar .material-symbols-outlined{font-size:25px;color:#d97706;flex:none;}
+  .pushbar .pb-main{flex:1;min-width:0;}
+  .pushbar .pb-t{font-size:14.5px;font-weight:800;color:#9a3412;}
+  .pushbar .pb-s{font-size:12px;color:#9a6b4a;margin-top:2px;line-height:1.35;}
+  .pushbar .pb-btn{flex:none;min-height:40px;border:none;border-radius:11px;background:#d97706;color:#fff;font-size:14px;font-weight:800;padding:0 16px;cursor:pointer;}
+
   .saving-bar{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#111827;color:#fff;font-size:14px;font-weight:700;padding:11px 20px;border-radius:14px;z-index:300;display:flex;align-items:center;gap:9px;}
   .saving-bar .spin{border-color:rgba(255,255,255,.35);border-top-color:#fff;}
 </style>
@@ -157,6 +165,16 @@
         <span x-text="'픽업 ' + groups.length + '곳'"></span>
         <span class="pill" :class="pendingCount()===0 ? 'zero' : ''"
               x-text="pendingCount()===0 ? '남은 픽업 없음' : ('남은 품목 ' + pendingCount())"></span>
+      </div>
+
+      <!-- 알림 켜기(납품팀·미구독·지원환경). 안드로이드는 한 번 탭으로 끝 -->
+      <div class="pushbar" x-show="canCheck && pushState==='off'" x-cloak>
+        <span class="material-symbols-outlined">notifications_active</span>
+        <div class="pb-main">
+          <div class="pb-t">픽업 알림 켜기</div>
+          <div class="pb-s">새 픽업이 등록되면 폰으로 바로 알려드려요. 한 번만 눌러두세요.</div>
+        </div>
+        <button class="pb-btn" @click="enablePush()">켜기</button>
       </div>
 
       <div class="list">

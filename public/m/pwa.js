@@ -35,7 +35,7 @@
 
   async function enable() {
     if (!supported()) {
-      alert('이 접속 방식에선 푸시 알림을 켤 수 없습니다.\n\n· 핸드폰: erp.daelimsm.com(https)로 접속 → 홈 화면에 추가 → 알림 켜기\n· 사내 IP(http) 접속은 푸시 불가(화면 안 알림만 옵니다).');
+      alert('지금 접속(사내 와이파이 http)에선 알림을 켤 수 없어요.\n\n폰에서 erp.daelimsm.com (https)로 접속하면 켜집니다.\n· 안드로이드: 홈 화면 추가 없이 크롬에서 바로 켜짐\n· 아이폰: 홈 화면에 추가한 뒤 켜기');
       return 'unsupported';
     }
     try {
