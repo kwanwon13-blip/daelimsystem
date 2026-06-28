@@ -4900,7 +4900,7 @@ function workflowApp() {
         if (j.currentStage !== 'factory' && j.currentStage !== 'delivery') return;
         if (this.jobSchedDate(j) !== dateStr) return;
         if (this.weekCompanyFilter && (((j.companyName || '').trim()) || '(미지정)') !== this.weekCompanyFilter) return;
-        (j.visualFilesBrief || []).forEach(f => {
+        this.collapseFileVariants(j.visualFilesBrief || []).forEach(f => { // 발주본+원본을 형식별 1개로 — 보드/상세와 동일
           const t = (f.team === 'welding' || f.team === 'output') ? f.team : 'unassigned';
           if (t !== team) return;
           if (!this.weekTextMatch(j, f)) return;
@@ -4932,7 +4932,7 @@ function workflowApp() {
         if (j.status !== 'active' || j.currentStage !== 'delivery') return;
         if (!set.has(this.jobSchedDate(j))) return;
         if (this.weekCompanyFilter && (((j.companyName || '').trim()) || '(미지정)') !== this.weekCompanyFilter) return;
-        (j.visualFilesBrief || []).forEach(f => { if (this.weekTextMatch(j, f)) n++; });
+        this.collapseFileVariants(j.visualFilesBrief || []).forEach(f => { if (this.weekTextMatch(j, f)) n++; });
       });
       return n;
     },
@@ -4945,7 +4945,7 @@ function workflowApp() {
         if (j.currentStage !== 'factory' && j.currentStage !== 'delivery') return;
         if (!set.has(this.jobSchedDate(j))) return;
         const co = (j.companyName || '').trim() || '(미지정)';
-        m.set(co, (m.get(co) || 0) + (j.visualFilesBrief || []).length);
+        m.set(co, (m.get(co) || 0) + this.collapseFileVariants(j.visualFilesBrief || []).length);
       });
       return Array.from(m, ([name, files]) => ({ name, files })).sort((a, b) => b.files - a.files || a.name.localeCompare(b.name));
     },
