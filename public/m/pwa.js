@@ -69,7 +69,40 @@
     }
   }
 
+  // ── 앱 설치(홈 화면 추가) — 안드로이드 크롬은 한 번 탭으로 설치 ──
+  var deferredInstall = null;
+  function isStandalone() {
+    try { return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true; }
+    catch (_) { return false; }
+  }
+  function isIOS() {
+    try { return /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream; } catch (_) { return false; }
+  }
+  // 크롬이 설치 가능해지면 이 이벤트가 옴 → 가로채서 우리 버튼으로 띄움
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+    deferredInstall = e;
+    try { window.dispatchEvent(new Event('erp-installable')); } catch (_) {}
+  });
+  window.addEventListener('appinstalled', function () {
+    deferredInstall = null;
+    try { window.dispatchEvent(new Event('erp-installed')); } catch (_) {}
+  });
+  function canInstall() { return !!deferredInstall && !isStandalone(); }
+  async function install() {
+    if (!deferredInstall) return 'unavailable';
+    try {
+      deferredInstall.prompt();
+      var res = await deferredInstall.userChoice;
+      deferredInstall = null;
+      return (res && res.outcome) || 'dismissed';   // 'accepted' | 'dismissed'
+    } catch (_) { return 'error'; }
+  }
+
   // 페이지 로드 시 서비스워커 자동 등록(홈화면 설치 + 푸시 수신 기반)
   registerSW();
-  window.erpPwa = { supported: supported, state: state, enable: enable, registerSW: registerSW };
+  window.erpPwa = {
+    supported: supported, state: state, enable: enable, registerSW: registerSW,
+    canInstall: canInstall, install: install, isStandalone: isStandalone, isIOS: isIOS,
+  };
 })();

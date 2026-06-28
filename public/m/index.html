@@ -56,6 +56,17 @@
   .tile.soon{opacity:.62;}
   .tile.soon .badge{background:#fef3c7;color:#92400e;}
 
+  /* 앱 설치 배너 */
+  .installbar{margin:14px 14px 0;background:linear-gradient(135deg,#1d4ed8,#1e40af);color:#fff;border-radius:16px;padding:14px 16px;display:flex;align-items:center;gap:12px;box-shadow:0 6px 16px rgba(29,78,216,.28);}
+  .installbar .material-symbols-outlined{font-size:28px;flex:none;}
+  .installbar .ib-main{flex:1;min-width:0;}
+  .installbar .ib-t{font-size:15.5px;font-weight:800;}
+  .installbar .ib-s{font-size:12.5px;opacity:.9;margin-top:2px;line-height:1.35;}
+  .installbar .ib-btn{flex:none;min-height:40px;border:none;border-radius:11px;background:#fff;color:#1d4ed8;font-size:14px;font-weight:800;padding:0 16px;cursor:pointer;}
+  .installbar.ios{background:#fff;color:#111827;border:1px solid #e8ebf1;border-left:5px solid #1d4ed8;box-shadow:0 2px 8px rgba(17,24,39,.05);}
+  .installbar.ios .material-symbols-outlined{color:#1d4ed8;}
+  .installbar.ios .ib-s{opacity:1;color:#6b7280;}
+
   /* 알림 켜기 배너 */
   .pushbar{margin:14px 14px 0;background:#fff;border:1px solid #e8ebf1;border-left:5px solid #d97706;border-radius:14px;padding:13px 14px;display:flex;align-items:center;gap:12px;}
   .pushbar .material-symbols-outlined{font-size:26px;color:#d97706;flex:none;}
@@ -89,6 +100,25 @@
         <button class="hd-out" id="logoutBtn">
           <span class="material-symbols-outlined">logout</span>로그아웃
         </button>
+      </div>
+    </div>
+
+    <!-- 앱 설치 배너(안드로이드: 한 번 탭 설치) -->
+    <div class="installbar" id="installBar" style="display:none;">
+      <span class="material-symbols-outlined">install_mobile</span>
+      <div class="ib-main">
+        <div class="ib-t">앱으로 설치하기</div>
+        <div class="ib-s">홈 화면 아이콘으로, 주소창 없는 전체화면 앱처럼 빠르게.</div>
+      </div>
+      <button class="ib-btn" id="installBtn">설치</button>
+    </div>
+
+    <!-- 앱 설치 안내(아이폰: 수동) -->
+    <div class="installbar ios" id="iosInstallBar" style="display:none;">
+      <span class="material-symbols-outlined">ios_share</span>
+      <div class="ib-main">
+        <div class="ib-t">앱처럼 쓰기 (아이폰)</div>
+        <div class="ib-s">사파리 공유 <b>↑</b> → "홈 화면에 추가"를 누르면 아이콘으로 실행돼요.</div>
       </div>
     </div>
 
@@ -161,6 +191,25 @@
       });
     } catch(e) {}
   }
+
+  function setupInstall(){
+    try {
+      if (!window.erpPwa || window.erpPwa.isStandalone()) return; // 이미 앱으로 실행 중이면 숨김
+      var ib = document.getElementById('installBar');
+      function showAndroid(){ if (ib && window.erpPwa.canInstall()) ib.style.display = 'flex'; }
+      showAndroid();
+      window.addEventListener('erp-installable', showAndroid);
+      window.addEventListener('erp-installed', function(){ if (ib) ib.style.display = 'none'; });
+      var btn = document.getElementById('installBtn');
+      if (btn) btn.addEventListener('click', function(){
+        window.erpPwa.install().then(function(o){ if (o === 'accepted' && ib) ib.style.display = 'none'; });
+      });
+      // 아이폰은 프로그램 설치 프롬프트가 없어 수동 안내
+      if (window.erpPwa.isIOS()) {
+        var iosb = document.getElementById('iosInstallBar'); if (iosb) iosb.style.display = 'flex';
+      }
+    } catch(e) {}
+  }
   var pe = document.getElementById('pushEnableBtn');
   if (pe) pe.addEventListener('click', function(){
     if (!window.erpPwa) return;
@@ -203,6 +252,7 @@
       }
       booting.style.display = 'none';
       wrap.style.display = 'block';
+      setupInstall();
       setupPush();
     })
     .catch(function(){ location.replace('/m/login.html'); });
