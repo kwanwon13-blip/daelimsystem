@@ -258,7 +258,9 @@ function tileHtml(img) {
   let sub = meta.map(m => '<span>' + m + '</span>').join('<span class="dot"></span>');
   const costKrw = '<span class="tile-cost">' + krw(img.cost_usd) + '</span>';
   const dateS = '<span>' + fmtDate(img.created_at) + '</span>';
-  sub = [sub, costKrw, dateS].filter(Boolean).join('<span class="dot"></span>');
+  // 공용 갤러리 — 누가 만들었는지 표시
+  const ownerS = img.owner_name ? '<span style="color:#7c3aed;font-weight:600;">' + escapeHtml(img.owner_name) + '</span>' : '';
+  sub = [sub, costKrw, ownerS, dateS].filter(Boolean).join('<span class="dot"></span>');
   return '<div class="tile' + (sel ? ' selected' : '') + '" data-id="' + img.id + '">' +
     '<div class="tile-thumb">' + thumb +
       '<button class="tile-check' + (sel ? ' on' : '') + '" data-check="' + img.id + '" title="선택"><span class="material-symbols-outlined">check</span></button>' +

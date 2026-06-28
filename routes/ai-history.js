@@ -3286,8 +3286,8 @@ function canAccessImage(req, image) {
 router.get('/images', (req, res) => {
   try {
     const admin = isAdmin(req);
-    // 비admin 은 scope 무시하고 본인 것만
-    const scope = admin ? (req.query.scope || 'mine') : 'mine';
+    // 공용 갤러리 — 누가 만든 이미지든 전체 표시(기본 all). scope=mine 넘기면 본인 것만 필터.
+    const scope = req.query.scope || 'all';
     let collectionId = req.query.collectionId;
     if (collectionId === undefined || collectionId === '') collectionId = undefined;
     const favorite = String(req.query.favorite || '') === '1' || String(req.query.favorite || '') === 'true';
@@ -3404,7 +3404,7 @@ router.get('/images/:id', (req, res) => {
   try {
     const image = ai.images.get(req.params.id);
     if (!image) return res.status(404).json({ error: '없음' });
-    if (!canAccessImage(req, image)) return res.status(403).json({ error: '권한 없음' });
+    // 공용 갤러리 — 누가 만든 이미지든 상세 보기 허용(수정·삭제·즐겨찾기는 아래에서 소유자/admin만)
     res.json({ ok: true, image });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -3414,7 +3414,7 @@ router.get('/images/:id/similar', (req, res) => {
   try {
     const image = ai.images.get(req.params.id);
     if (!image) return res.status(404).json({ error: '없음' });
-    if (!canAccessImage(req, image)) return res.status(403).json({ error: '권한 없음' });
+    // 공용 갤러리 — 비슷한 이미지 보기도 전체 허용
     const images = ai.images.findSimilar({
       ownerId: req.user.userId,
       isAdmin: isAdmin(req),

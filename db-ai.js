@@ -908,8 +908,8 @@ const images = {
     if (!ready) return [];
     const where = [];
     const params = [];
-    // scope='all' && admin 이면 전체, 아니면 본인 것만
-    if (!(scope === 'all' && isAdmin)) {
+    // 공용 갤러리: scope='all'(기본) 이면 누가 만들었든 전체, scope='mine' 이면 본인 것만
+    if (scope !== 'all') {
       where.push('owner_id = ?'); params.push(String(ownerId));
     }
     // 컬렉션 필터: 특수값 'none' → 미분류(IS NULL)
