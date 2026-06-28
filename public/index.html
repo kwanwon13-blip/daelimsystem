@@ -3709,7 +3709,7 @@
       <!-- DESIGN SEARCH TAB -->
       <template x-if="currentTab === 'design'">
         <div class="fade-in" x-data="{
-          q:'',results:[],total:0,loading:false,loadingMore:false,searched:false,
+          q:'',searchMode:'file',results:[],total:0,loading:false,loadingMore:false,searched:false,
           indexStatus:{built:false,building:false,count:0,error:null},
           searchTimer:null, thumbSize:160, pollTimer:null, yearFilter:'',
           designMasters:null, mastersLoading:false, brandFilter:'', vendorFilter:'', collectionFilter:'',
@@ -3999,6 +3999,7 @@
             return '/api/design/search?'+params.toString();
           },
           async doSearch(){
+            if(this.searchMode==='content')return this.doContentSearch();
             if(!this.q.trim()&&!this.yearFilter&&!this.brandFilter&&!this.vendorFilter&&!this.collectionFilter&&this.typeFilter.length===0){this.results=[];this.total=0;this.searched=false;this.hasMore=false;this.selectedPaths=[];this.rememberSearchTab();return;}
             this.loading=true;this.searched=true;this.currentPage=1;
             this.selectedPaths=[];this.preview={open:false,index:-1};
@@ -4011,6 +4012,23 @@
               if(r.typeCounts)this.typeCounts=r.typeCounts;
               this.rememberSearchTab();
             }
+            finally{this.loading=false;}
+          },
+          // 내용 검색(AI 캡션) — 그림 속 문구·색·종류·거래처로 찾기. /api/design/content-search → 결과를 그리드 item 모양으로 매핑.
+          async doContentSearch(){
+            if(!this.q.trim()){this.results=[];this.total=0;this.searched=false;this.hasMore=false;this.selectedPaths=[];this.rememberSearchTab();return;}
+            this.loading=true;this.searched=true;this.currentPage=1;this.hasMore=false;
+            this.selectedPaths=[];this.preview={open:false,index:-1};
+            try{
+              var r=await fetch('/api/design/content-search?q='+encodeURIComponent(this.q.trim())+'&limit=120',{credentials:'include'}).then(function(res){return res.json();});
+              this.results=(r.results||[]).map(function(x){
+                return {path:x.path,name:x.name,netPath:x.network,
+                  parts:String(x.path||'').split(/[\\\/]/).filter(Boolean),fileType:'image',
+                  capClient:x.client||'',capType:x.type||'',capText:x.text||'',capMaterial:x.material||'',capUsage:x.usage||''};
+              });
+              this.total=(typeof r.count==='number')?r.count:this.results.length;
+              this.rememberSearchTab();
+            }catch(e){this.results=[];this.total=0;}
             finally{this.loading=false;}
           },
           async loadMore(){
@@ -4145,15 +4163,29 @@
                 <span class="material-symbols-outlined" style="font-size:18px;">add</span>
               </button>
             </div>
+            <!-- 검색 모드: 파일명 ↔ 내용(AI 캡션) -->
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px;flex-wrap:wrap;">
+              <div style="display:inline-flex;background:#f1f5f9;border:1px solid #e5e7eb;border-radius:11px;padding:3px;gap:2px;">
+                <button type="button" @click="searchMode='file';if(searched||q.trim())doSearch()"
+                  :style="'font-size:12px;font-weight:700;padding:6px 15px;border-radius:8px;cursor:pointer;border:none;'+(searchMode==='file'?'background:#4f6ef7;color:#fff;box-shadow:0 1px 3px rgba(79,110,247,.4);':'background:transparent;color:#64748b;')">
+                  파일명
+                </button>
+                <button type="button" @click="searchMode='content';if(q.trim())doSearch()"
+                  :style="'font-size:12px;font-weight:700;padding:6px 15px;border-radius:8px;cursor:pointer;border:none;display:flex;align-items:center;gap:4px;'+(searchMode==='content'?'background:#7c3aed;color:#fff;box-shadow:0 1px 3px rgba(124,58,237,.4);':'background:transparent;color:#64748b;')">
+                  내용 검색 <span style="font-size:8px;font-weight:800;padding:1px 4px;border-radius:5px;" :style="searchMode==='content'?'background:rgba(255,255,255,.25);':'background:#ede9fe;color:#7c3aed;'">AI</span>
+                </button>
+              </div>
+              <span x-show="searchMode==='content'" style="font-size:11px;color:#7c3aed;font-weight:600;">🎨 그림 속 문구·색·종류로 찾기 — 예: "공사중 노란 현수막", "추락 위험 스티커"</span>
+            </div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <div style="position:relative;flex:1 1 360px;min-width:260px;">
                 <span class="material-symbols-outlined" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:18px;color:#94a3b8;pointer-events:none;">search</span>
                 <input x-ref="designSearchInput" x-model="q" @input="onInput()" @keydown.enter="doSearch()"
-                  placeholder="띄어쓰기로 AND 검색  예) 현수막 750g 2024"
+                  :placeholder="searchMode==='content'?'그림 내용으로 검색  예) 추락 위험 스티커, 포스코 현황판':'띄어쓰기로 AND 검색  예) 현수막 750g 2024'"
                 class="w-full rounded-xl text-sm border border-gray-200 focus:outline-none focus:border-blue-400"
                 style="padding:12px 16px 12px 40px;background:#f8fafc;">
               </div>
-              <div style="display:flex;align-items:center;gap:6px;padding:4px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:14px;flex-wrap:wrap;">
+              <div x-show="searchMode==='file'" style="display:flex;align-items:center;gap:6px;padding:4px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:14px;flex-wrap:wrap;">
                 <span style="font-size:11px;font-weight:700;color:#64748b;padding-left:6px;">필터</span>
                 <select x-model="yearFilter" @change="doSearch()" class="rounded-lg text-sm border border-gray-200 focus:outline-none focus:border-blue-400"
                   style="padding:8px 9px;background:#fff;width:96px;cursor:pointer;">
@@ -4189,7 +4221,7 @@
               </button>
             </div>
             <!-- 분류 필터 칩 -->
-            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center;">
+            <div x-show="searchMode==='file'" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center;">
               <span style="font-size:11px;color:#6b7280;font-weight:600;margin-right:2px;">분류:</span>
               <template x-for="c in collectionOptions" :key="c.id">
                 <button type="button" @click="setCollection(c.id)"
@@ -4200,7 +4232,7 @@
               </template>
             </div>
             <!-- 파일종류 필터 칩 -->
-            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center;">
+            <div x-show="searchMode==='file'" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center;">
               <span style="font-size:11px;color:#6b7280;font-weight:600;margin-right:2px;">파일:</span>
               <!-- 전체 버튼 -->
               <button @click="clearTypes()"
@@ -4302,6 +4334,13 @@
                     <div style="padding:8px 10px;">
                       <p class="text-[11px] font-semibold text-gray-700 truncate" x-text="item.name"></p>
                       <p class="text-[10px] text-gray-400 truncate mt-0.5" x-text="item.parts.length>1?item.parts.slice(0,-1).join(' › '):''"></p>
+                      <!-- 내용 검색: AI 캡션(종류·거래처·문구) -->
+                      <template x-if="item.capType || item.capClient">
+                        <p class="text-[10px] truncate mt-1" style="color:#7c3aed;font-weight:700;" x-text="(item.capType||'')+(item.capClient?' · '+item.capClient:'')"></p>
+                      </template>
+                      <template x-if="item.capText">
+                        <p class="text-[10px] text-gray-500 truncate" :title="item.capText" x-text="'“'+item.capText+'”'"></p>
+                      </template>
                       <!-- 버튼: 내부망=폴더열기+AI열기, 외부=다운로드 -->
                       <div class="flex gap-1 mt-2">
                         <!-- 경로복사: 내부망만 -->
