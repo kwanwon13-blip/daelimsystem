@@ -37,6 +37,12 @@ assert.strictEqual(noHeader.length, 1);
 assert.strictEqual(noHeader[0].vendorGuess, '');
 assert.strictEqual(noHeader[0].items[0].itemName, '볼트');
 
+// ── parseItemLine: 단일 숫자 규격 (k2-17 270 3ea → 품목 k2-17 / 규격 270 / 3 ea) ──
+assert.deepStrictEqual(L.parseItemLine('k2-17 270 3ea'), { itemName: 'k2-17', spec: '270', qty: 3, unit: 'ea' });
+assert.deepStrictEqual(L.parseItemLine('현수막 600x900 3개'), { itemName: '현수막', spec: '600x900', qty: 3, unit: '개' });
+assert.deepStrictEqual(L.parseItemLine('배너 2장'), { itemName: '배너', spec: '', qty: 2, unit: '장' });
+assert.deepStrictEqual(L.parseItemLine('볼트 M8 2개'), { itemName: '볼트 M8', spec: '', qty: 2, unit: '개' }); // 글자시작 토큰은 규격 아님
+
 // ── buildShareText ──
 const text = L.buildShareText('2026-06-25', [
   { vendorName: '라코스', items: [{ itemName: '현수막', spec: '600x900', qty: 3, unit: '개' }] },
