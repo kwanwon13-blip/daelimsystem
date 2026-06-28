@@ -80,6 +80,20 @@
                   <span style="font-size:11px;color:#93c5fd;background:rgba(0,0,0,.2);padding:2px 8px;border-radius:6px;" x-text="approvals.length + '건'"></span>
                 </div>
                 <div style="display:flex;gap:8px;">
+                  <template x-if="canCompanyOvertime">
+                    <button @click="startOvertimeAdd()"
+                      style="background:rgba(255,255,255,.15);color:#fff;border:1.5px solid rgba(255,237,213,.65);border-radius:8px;padding:7px 14px;font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .15s;"
+                      onmouseover="this.style.background='rgba(234,115,23,.55)'" onmouseout="this.style.background='rgba(255,255,255,.15)'">
+                      <span class="material-symbols-outlined" style="font-size:14px;">person_add</span> 추가근무 등록
+                    </button>
+                  </template>
+                  <template x-if="canCompanyOvertime">
+                    <button @click="openSummary()"
+                      style="background:#fff7ed;color:#c2410c;border:1.5px solid #fdba74;border-radius:8px;padding:7px 14px;font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .15s;"
+                      onmouseover="this.style.background='#ffedd5'" onmouseout="this.style.background='#fff7ed'">
+                      <span class="material-symbols-outlined" style="font-size:14px;">bar_chart</span> 월별 집계
+                    </button>
+                  </template>
                   <button @click="startWrite('overtime')"
                     style="background:rgba(255,255,255,.15);color:#fff;border:1.5px solid rgba(255,255,255,.4);border-radius:8px;padding:7px 14px;font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .15s;"
                     onmouseover="this.style.background='rgba(255,255,255,.25)'" onmouseout="this.style.background='rgba(255,255,255,.15)'">
@@ -447,6 +461,171 @@
                   </button>
                 </div>
               </div>
+            </div>
+          </template>
+
+          <!-- ===== 추가근무 등록 뷰 (컴퍼니 — 전실장 대신입력) ===== -->
+          <template x-if="currentView === 'overtime_add'">
+            <div class="card" style="padding:0;overflow:hidden;">
+              <div style="padding:14px 20px;background:linear-gradient(135deg,#c2410c,#ea7317);display:flex;align-items:center;justify-content:space-between;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <span class="material-symbols-outlined" style="font-size:18px;color:#ffedd5;">person_add</span>
+                  <span style="font-size:14px;font-weight:700;color:#fff;">추가근무 등록 <span style="font-size:11px;font-weight:500;opacity:.85;">· 컴퍼니</span></span>
+                </div>
+                <div style="display:flex;gap:6px;">
+                  <button @click="openSummary()" style="background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.4);border-radius:7px;padding:5px 12px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+                    <span class="material-symbols-outlined" style="font-size:14px;">bar_chart</span> 월별 집계
+                  </button>
+                  <button @click="currentView='list'" style="background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:7px;padding:5px 12px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+                    <span class="material-symbols-outlined" style="font-size:14px;">arrow_back</span> 목록
+                  </button>
+                </div>
+              </div>
+              <div style="padding:20px 24px;">
+                <div style="background:#fff7ed;border:1.5px solid #fdba74;border-radius:12px;padding:16px 18px;">
+                  <div style="font-size:12px;font-weight:700;color:#c2410c;margin-bottom:14px;display:flex;align-items:center;gap:6px;">
+                    <span class="material-symbols-outlined" style="font-size:16px;">schedule</span> 직원 추가근무 (시간 단위로 등록)
+                  </div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">
+                    <div>
+                      <label class="label-base">대상 직원 <span style="color:#dc2626;">*</span></label>
+                      <select x-model="overtimeAddForm.targetUserId" class="input-base" style="width:100%;">
+                        <option value="">직원 선택...</option>
+                        <template x-for="u in companyEmployees" :key="u.userId">
+                          <option :value="u.userId" x-text="u.name + (u.position ? ' ('+u.position+')' : '')"></option>
+                        </template>
+                      </select>
+                    </div>
+                    <div>
+                      <label class="label-base">근무 날짜 <span style="color:#dc2626;">*</span></label>
+                      <div style="cursor:pointer;" @click="$el.querySelector('input').showPicker()">
+                        <input type="date" x-model="overtimeAddForm.date" class="input-base" style="cursor:pointer;width:100%;box-sizing:border-box;">
+                      </div>
+                    </div>
+                  </div>
+                  <div style="margin-bottom:14px;">
+                    <label class="label-base">추가근무 시간 <span style="color:#dc2626;">*</span></label>
+                    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;align-items:center;">
+                      <template x-for="hc in hourChips" :key="hc">
+                        <button type="button" @click="overtimeAddForm.hours = hc"
+                          style="padding:7px 14px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;transition:all .12s;"
+                          :style="Number(overtimeAddForm.hours)===hc ? 'background:#ea7317;color:#fff;border:2px solid #ea7317;' : 'background:#fff;color:#9a3412;border:2px solid #fed7aa;'"
+                          x-text="hc + '시간'"></button>
+                      </template>
+                      <div style="display:flex;align-items:center;gap:4px;margin-left:6px;">
+                        <input type="number" step="0.5" min="0.5" max="24" x-model.number="overtimeAddForm.hours"
+                          class="input-base" style="width:78px;text-align:center;" placeholder="직접">
+                        <span style="font-size:12px;color:#9a3412;font-weight:600;">시간</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <label class="label-base">사유 <span style="color:#dc2626;">*</span></label>
+                    <textarea x-model="overtimeAddForm.reason" class="input-base" rows="2" placeholder="예: 납기 맞추기 위한 야간 작업, 긴급 출고 등"></textarea>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;margin-top:18px;">
+                  <button @click="submitOvertimeAdd()"
+                    style="background:#ea7317;color:#fff;border:none;border-radius:10px;padding:11px 28px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;">
+                    <span class="material-symbols-outlined" style="font-size:16px;">add_circle</span> 등록 (승인 대기)
+                  </button>
+                  <span style="font-size:11px;color:#9ca3af;">등록하면 사유만 비워져요 — 같은 직원 다른 날짜로 바로 또 등록 가능</span>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- ===== 월별 추가근무 집계 뷰 (컴퍼니) ===== -->
+          <template x-if="currentView === 'summary'">
+            <div class="card" style="padding:0;overflow:hidden;">
+              <div style="padding:14px 20px;background:linear-gradient(135deg,#c2410c,#ea7317);display:flex;align-items:center;justify-content:space-between;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <span class="material-symbols-outlined" style="font-size:18px;color:#ffedd5;">bar_chart</span>
+                  <span style="font-size:14px;font-weight:700;color:#fff;">월별 추가근무 집계 <span style="font-size:11px;font-weight:500;opacity:.85;">· 컴퍼니</span></span>
+                </div>
+                <div style="display:flex;gap:6px;">
+                  <template x-if="canCompanyOvertime">
+                    <button @click="startOvertimeAdd()" style="background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.4);border-radius:7px;padding:5px 12px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+                      <span class="material-symbols-outlined" style="font-size:14px;">person_add</span> 등록
+                    </button>
+                  </template>
+                  <button @click="currentView='list'" style="background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:7px;padding:5px 12px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+                    <span class="material-symbols-outlined" style="font-size:14px;">arrow_back</span> 목록
+                  </button>
+                </div>
+              </div>
+
+              <!-- 월 선택 + 합계 -->
+              <div style="padding:12px 20px;background:#fff7ed;border-bottom:1px solid #fed7aa;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <button @click="shiftSummaryMonth(-1)" style="width:30px;height:30px;border-radius:8px;border:1px solid #fdba74;background:#fff;color:#c2410c;cursor:pointer;font-size:16px;line-height:1;">‹</button>
+                <input type="month" x-model="summaryMonth" @change="loadSummary()" class="input-base" style="width:150px;">
+                <button @click="shiftSummaryMonth(1)" style="width:30px;height:30px;border-radius:8px;border:1px solid #fdba74;background:#fff;color:#c2410c;cursor:pointer;font-size:16px;line-height:1;">›</button>
+                <div style="flex:1;"></div>
+                <template x-if="summaryData">
+                  <div style="display:flex;gap:8px;align-items:center;">
+                    <span style="font-size:12px;font-weight:700;color:#15803d;background:#dcfce7;padding:5px 12px;border-radius:20px;">승인 <span x-text="summaryData.totalApproved"></span>시간</span>
+                    <template x-if="summaryData.totalPending > 0">
+                      <span style="font-size:12px;font-weight:700;color:#b45309;background:#fef3c7;padding:5px 12px;border-radius:20px;">대기 <span x-text="summaryData.totalPending"></span>시간</span>
+                    </template>
+                  </div>
+                </template>
+              </div>
+
+              <div x-show="summaryLoading" style="padding:40px;text-align:center;color:#94a3b8;font-size:12px;">
+                <span class="material-symbols-outlined" style="font-size:28px;animation:spin 1s linear infinite;display:block;margin-bottom:6px;">progress_activity</span>
+                불러오는 중...
+              </div>
+              <template x-if="!summaryLoading && summaryData && summaryData.employees.length === 0">
+                <div style="padding:50px;text-align:center;color:#94a3b8;">
+                  <span class="material-symbols-outlined" style="font-size:40px;display:block;margin-bottom:8px;color:#cbd5e1;">event_busy</span>
+                  <div style="font-size:13px;font-weight:600;" x-text="fmtMonthKo(summaryMonth) + ' 추가근무 내역이 없습니다'"></div>
+                </div>
+              </template>
+
+              <!-- 직원별 카드 (출퇴근 기록부 스타일) -->
+              <template x-if="!summaryLoading && summaryData && summaryData.employees.length > 0">
+                <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px;">
+                  <template x-for="emp in summaryData.employees" :key="emp.userId || emp.name">
+                    <div style="border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+                      <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:#fafafa;border-bottom:1px solid #f1f5f9;">
+                        <div style="width:38px;height:38px;border-radius:50%;background:#ea7317;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex:0 0 auto;" x-text="(emp.name||'?').slice(0,1)"></div>
+                        <div style="flex:1;min-width:0;">
+                          <div style="font-size:14px;font-weight:700;color:#1e293b;" x-text="emp.name"></div>
+                          <div style="font-size:11px;color:#94a3b8;" x-text="emp.entries.length + '건'"></div>
+                        </div>
+                        <div style="text-align:right;">
+                          <div style="font-size:20px;font-weight:800;color:#c2410c;line-height:1;"><span x-text="emp.approvedHours"></span><span style="font-size:12px;font-weight:600;">시간</span></div>
+                          <template x-if="emp.pendingHours > 0">
+                            <div style="font-size:11px;color:#b45309;font-weight:600;margin-top:2px;">대기 <span x-text="emp.pendingHours"></span>시간</div>
+                          </template>
+                        </div>
+                        <template x-if="summaryData.canApprove && emp.pendingIds.length > 0">
+                          <div style="display:flex;flex-direction:column;gap:4px;flex:0 0 auto;">
+                            <button @click="bulkProcessOvertime(emp,'approved')" :disabled="summaryBusy"
+                              style="background:#16a34a;color:#fff;border:none;border-radius:7px;padding:6px 14px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">
+                              대기 <span x-text="emp.pendingIds.length"></span>건 승인
+                            </button>
+                            <button @click="bulkProcessOvertime(emp,'rejected')" :disabled="summaryBusy"
+                              style="background:#fff;color:#dc2626;border:1px solid #fca5a5;border-radius:7px;padding:5px 14px;font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;">
+                              반려
+                            </button>
+                          </div>
+                        </template>
+                      </div>
+                      <div>
+                        <template x-for="en in emp.entries" :key="en.id">
+                          <div style="display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid #f8fafc;font-size:12px;">
+                            <span style="font-weight:700;color:#475569;width:92px;flex:0 0 auto;" x-text="en.date"></span>
+                            <span style="font-weight:800;color:#c2410c;width:54px;flex:0 0 auto;"><span x-text="en.hours"></span>시간</span>
+                            <span style="flex:1;color:#64748b;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" x-text="en.reason"></span>
+                            <span class="ap-status" :class="en.status==='approved'?'ap-status-approved':(en.status==='rejected'?'ap-status-rejected':'ap-status-pending')" x-text="statusLabel(en.status)" style="flex:0 0 auto;"></span>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </template>
             </div>
           </template>
 

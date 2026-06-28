@@ -53,7 +53,7 @@
 
   <!-- 별도 파일 컴포넌트 -->
   <script src="/contacts.js"></script>
-  <script src="/approval.js"></script>
+  <script src="/approval.js?v=20260628ot"></script>
   <script src="/photos.js"></script>
   <script src="/ocr.js"></script>
   <script src="/purchase-auto.js"></script>
@@ -8697,7 +8697,7 @@ function app() {
         const r = await fetch('/api/auth/me');
         const me = await r.json();
         if (me.loggedIn) {
-          this.auth = { loggedIn: true, userId: me.userId, name: me.name||me.userId, role: me.role||'user', position: me.position||'', phone: me.phone||'', permissions: me.permissions||[], isTeamLeader: me.isTeamLeader||false, mustChangePassword: !!me.mustChangePassword };
+          this.auth = { loggedIn: true, userId: me.userId, name: me.name||me.userId, role: me.role||'user', position: me.position||'', phone: me.phone||'', permissions: me.permissions||[], companyId: me.companyId||'dalim-sm', isTeamLeader: me.isTeamLeader||false, mustChangePassword: !!me.mustChangePassword };
           this.quoteHeader.vendorManager = this.auth.name + (this.auth.position ? ' ' + this.auth.position : '') + (this.auth.phone ? ' ' + this.auth.phone : '');
           // admin이 비번 리셋 → mustChangePassword=true → 강제 변경 다이얼로그
           if (this.auth.mustChangePassword) {
@@ -9183,7 +9183,7 @@ function app() {
           body: JSON.stringify({ userId: this.loginForm.userId, password: this.loginForm.password }) });
         const j = await r.json();
         if (!r.ok || !j.ok) { this.loginForm.error = j.error || '로그인 실패'; return; }
-        this.auth = { loggedIn: true, userId: j.userId, name: j.name||j.userId, role: j.role||'user', position: j.position||'', phone: j.phone||'', permissions: j.permissions||[], isTeamLeader: j.isTeamLeader||false, mustChangePassword: !!j.mustChangePassword };
+        this.auth = { loggedIn: true, userId: j.userId, name: j.name||j.userId, role: j.role||'user', position: j.position||'', phone: j.phone||'', permissions: j.permissions||[], companyId: j.companyId||'dalim-sm', isTeamLeader: j.isTeamLeader||false, mustChangePassword: !!j.mustChangePassword };
         if (this.auth.mustChangePassword) {
           setTimeout(() => this.changeMyPassword(true), 1500);
         }

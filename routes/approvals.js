@@ -108,10 +108,184 @@ router.delete('/delegate/:id', requireAuth, (req, res) => {
   }
 });
 
+// ── 추가근무(컴퍼니) — 전실장이 직원별 대신 입력 + 월별 집계 ───────────
+// 컴퍼니 부서장(전실장) 또는 admin만. '결재형'(대기 → 사장님 승인). /:id 보다 먼저 등록.
+function isCompanyTeamLeader(user, uData) {
+  try {
+    const me = (uData.users || []).find(u => u.userId === user.userId);
+    if (!me) return false;
+    if ((me.companyId || 'dalim-sm') !== 'dalim-company') return false;
+    const dept = (uData.departments || []).find(d => d.id === me.department);
+    return !!(dept && dept.leaderId === me.id);
+  } catch (e) { return false; }
+}
+function canCompanyOvertime(user, uData) {
+  return user.role === 'admin' || isCompanyTeamLeader(user, uData);
+}
+
+// 추가근무 기안 (대상 직원 + 날짜 + 시간(소수점) + 사유) — 입력자: 전실장/admin
+router.post('/overtime-add', requireAuth, (req, res) => {
+  const uData = db.loadUsers();
+  if (!canCompanyOvertime(req.user, uData)) {
+    return res.status(403).json({ error: '추가근무 등록 권한이 없습니다 (관리자·컴퍼니 팀장)' });
+  }
+  const { targetUserId, date, hours, reason } = req.body;
+  if (!targetUserId || !date || hours === undefined || hours === null) {
+    return res.status(400).json({ error: '대상 직원, 날짜, 시간을 입력해주세요' });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
+    return res.status(400).json({ error: '날짜 형식이 올바르지 않습니다' });
+  }
+  const hoursNum = Math.round(Number(hours) * 10) / 10;
+  if (!(hoursNum > 0) || hoursNum > 24) {
+    return res.status(400).json({ error: '시간은 0 초과 24 이하로 입력해주세요' });
+  }
+  if (!reason || !String(reason).trim()) {
+    return res.status(400).json({ error: '사유를 입력해주세요' });
+  }
+  const target = (uData.users || []).find(u => u.userId === targetUserId);
+  if (!target) return res.status(400).json({ error: '대상 직원을 찾을 수 없습니다' });
+  if ((target.companyId || 'dalim-sm') !== 'dalim-company') {
+    return res.status(400).json({ error: '컴퍼니 직원만 등록할 수 있습니다' });
+  }
+
+  // 승인자 = 관리자(사장님). 없으면 입력자 자신(폴백).
+  const adminUser = (uData.users || []).find(u => u.role === 'admin');
+  const approverId = adminUser ? adminUser.userId : req.user.userId;
+  const approverName = adminUser ? adminUser.name : req.user.name;
+  const effectiveApproverId = getEffectiveApprover(approverId);
+  const effectiveApprover = (uData.users || []).find(u => u.userId === effectiveApproverId);
+  const isDelegated = effectiveApproverId !== approverId;
+
+  if (!uData.approvals) uData.approvals = [];
+  const authorDept = (() => {
+    const u = (uData.users || []).find(u2 => u2.userId === req.user.userId);
+    const dept = (uData.departments || []).find(d => d.id === (u ? u.department : ''));
+    return dept ? dept.name : '';
+  })();
+
+  const doc = {
+    id: db.generateId('appr'),
+    type: '추가근무',
+    title: `추가근무 — ${target.name} ${date} (${hoursNum}시간)`,
+    authorId: req.user.userId,
+    authorName: req.user.name,
+    authorDept,
+    approverId,
+    approverName,
+    effectiveApproverId,
+    approverDelegatedTo: (isDelegated && effectiveApprover) ? effectiveApprover.name : null,
+    isDelegated,
+    companyId: 'dalim-company',
+    status: 'pending',
+    formData: {
+      targetUserId, targetName: target.name,
+      date, hours: hoursNum, reason: String(reason).trim()
+    },
+    comment: '',
+    createdAt: new Date().toISOString(),
+    processedAt: null
+  };
+  uData.approvals.push(doc);
+  db.saveUsers(uData);
+
+  auditLog(req.user.userId, '추가근무 등록', `${target.name} ${date} ${hoursNum}시간`);
+  notify(effectiveApproverId, 'approval',
+    `${req.user.name}님이 ${target.name} 추가근무를 등록했습니다: ${date} ${hoursNum}시간`,
+    'approvals');
+
+  res.json({ ok: true, id: doc.id });
+});
+
+// 추가근무 월별 직원별 집계 (컴퍼니) — admin / 컴퍼니 팀장
+router.get('/overtime-summary', requireAuth, (req, res) => {
+  const uData = db.loadUsers();
+  if (!canCompanyOvertime(req.user, uData)) {
+    return res.status(403).json({ error: '집계 열람 권한이 없습니다' });
+  }
+  const month = String(req.query.month || '');
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    return res.status(400).json({ error: 'month=YYYY-MM 형식으로 요청해주세요' });
+  }
+  const docs = (uData.approvals || []).filter(d =>
+    d.type === '추가근무' &&
+    d.status !== 'deleted' &&
+    (d.companyId || 'dalim-company') === 'dalim-company' &&
+    d.formData && typeof d.formData.date === 'string' &&
+    d.formData.date.slice(0, 7) === month
+  );
+  const byEmp = {};
+  for (const d of docs) {
+    const fd = d.formData || {};
+    const key = fd.targetUserId || fd.targetName || '(미상)';
+    if (!byEmp[key]) {
+      byEmp[key] = { userId: fd.targetUserId || '', name: fd.targetName || '(미상)',
+        entries: [], approvedHours: 0, pendingHours: 0, pendingIds: [] };
+    }
+    const h = Number(fd.hours) || 0;
+    byEmp[key].entries.push({
+      id: d.id, date: fd.date, hours: h, reason: fd.reason || '',
+      status: d.status, enteredBy: d.authorName
+    });
+    if (d.status === 'approved') byEmp[key].approvedHours += h;
+    else if (d.status === 'pending') { byEmp[key].pendingHours += h; byEmp[key].pendingIds.push(d.id); }
+  }
+  const employees = Object.values(byEmp).map(e => {
+    e.entries.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    e.approvedHours = Math.round(e.approvedHours * 10) / 10;
+    e.pendingHours = Math.round(e.pendingHours * 10) / 10;
+    return e;
+  }).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+  const totalApproved = Math.round(employees.reduce((s, e) => s + e.approvedHours, 0) * 10) / 10;
+  const totalPending = Math.round(employees.reduce((s, e) => s + e.pendingHours, 0) * 10) / 10;
+  res.json({ month, employees, totalApproved, totalPending, canApprove: req.user.role === 'admin' });
+});
+
+// 추가근무 일괄 승인/반려 (admin=사장님 또는 해당 승인자) — 집계 화면 직원별 묶음 처리
+router.post('/overtime-bulk-process', requireAuth, (req, res) => {
+  const { ids, action, comment } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: '처리할 항목이 없습니다' });
+  }
+  if (action !== 'approved' && action !== 'rejected') {
+    return res.status(400).json({ error: 'action은 approved 또는 rejected여야 합니다' });
+  }
+  const uData = db.loadUsers();
+  let changed = 0;
+  const touched = [];
+  for (const id of ids) {
+    const doc = (uData.approvals || []).find(d => d.id === id && d.type === '추가근무');
+    if (!doc || doc.status !== 'pending') continue;
+    const approverId = doc.effectiveApproverId || doc.approverId;
+    if (req.user.role !== 'admin' && approverId !== req.user.userId) continue;
+    doc.status = action;
+    doc.comment = comment || '';
+    doc.processedAt = new Date().toISOString();
+    doc.approvedBy = req.user.userId;
+    changed++;
+    touched.push(doc);
+  }
+  if (changed) db.saveUsers(uData);
+  auditLog(req.user.userId, `추가근무 ${action === 'approved' ? '승인' : '반려'}`, `${changed}건`);
+  if (changed) {
+    const byAuthor = {};
+    for (const d of touched) byAuthor[d.authorId] = (byAuthor[d.authorId] || 0) + 1;
+    for (const [authorId, cnt] of Object.entries(byAuthor)) {
+      if (authorId === req.user.userId) continue;
+      notify(authorId, 'approval',
+        `추가근무 ${cnt}건이 ${action === 'approved' ? '승인' : '반려'}되었습니다`,
+        'approvals');
+    }
+  }
+  res.json({ ok: true, changed });
+});
+
 // ── 결재 문서 목록 조회 ──────────────────────────────────
 router.get('/', requireAuth, (req, res) => {
   const uData = db.loadUsers();
   let docs = uData.approvals || [];
+  // 추가근무(컴퍼니 대신입력)는 결재함 목록에서 제외 — 전용 '월별 집계' 화면에서만 관리
+  docs = docs.filter(d => d.type !== '추가근무');
   const { filter, status, dept } = req.query;
   const myId = req.user.userId;
 

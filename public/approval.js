@@ -56,6 +56,17 @@ function approvalApp() {
     // 현재 로그인 유저 ID (메인 앱에서 가져옴)
     myUserId: '',
     myRole: '',
+    myCompanyId: '',
+    myIsLeader: false,
+
+    // 추가근무(컴퍼니) 대신입력 폼 — 전실장이 직원별로 등록
+    overtimeAddForm: { targetUserId: '', date: new Date().toISOString().slice(0, 10), hours: 2, reason: '' },
+    hourChips: [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5],
+    // 월별 집계
+    summaryMonth: '',
+    summaryData: null,
+    summaryLoading: false,
+    summaryBusy: false,
 
     // 초기화
     async init() {
@@ -65,8 +76,11 @@ function approvalApp() {
         if (mainApp?.auth) {
           this.myUserId = mainApp.auth.userId || '';
           this.myRole = mainApp.auth.role || '';
+          this.myCompanyId = mainApp.auth.companyId || '';
+          this.myIsLeader = !!mainApp.auth.isTeamLeader;
         }
       } catch (e) {}
+      this.summaryMonth = this._prevMonthStr();
       await this.loadDepartments();
       await this.loadUsers();
       await this.loadApprovals();
@@ -418,6 +432,90 @@ function approvalApp() {
     overtimeHoursOf(doc) {
       if (!doc || !doc.formData) return null;
       return this._calcHours(doc.formData.startTime, doc.formData.endTime);
+    },
+
+    // ── 추가근무(컴퍼니) — 전실장 대신입력 + 월별 집계 ──────────────
+    get canCompanyOvertime() {
+      return this.myRole === 'admin' || (this.myCompanyId === 'dalim-company' && this.myIsLeader);
+    },
+    get companyEmployees() {
+      return (this.allUsers || []).filter(u => u.companyId === 'dalim-company' && u.status === 'approved');
+    },
+    _prevMonthStr() {
+      const now = new Date();
+      let y = now.getFullYear(), m = now.getMonth(); // 0-based 현재월
+      m -= 1; if (m < 0) { m = 11; y -= 1; }
+      return `${y}-${String(m + 1).padStart(2, '0')}`;
+    },
+    fmtMonthKo(ym) {
+      if (!ym) return '';
+      const [y, m] = ym.split('-');
+      return `${y}년 ${Number(m)}월`;
+    },
+    startOvertimeAdd() {
+      this.overtimeAddForm = { targetUserId: '', date: new Date().toISOString().slice(0, 10), hours: 2, reason: '' };
+      this.currentView = 'overtime_add';
+    },
+    async submitOvertimeAdd() {
+      const f = this.overtimeAddForm;
+      if (!f.targetUserId) { this.showToast3('대상 직원을 선택해주세요', 'error'); return; }
+      if (!f.date) { this.showToast3('날짜를 선택해주세요', 'error'); return; }
+      const h = Number(f.hours);
+      if (!(h > 0)) { this.showToast3('시간을 선택해주세요', 'error'); return; }
+      if (!f.reason || !f.reason.trim()) { this.showToast3('사유를 입력해주세요', 'error'); return; }
+      try {
+        const r = await fetch('/api/approval/overtime-add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ targetUserId: f.targetUserId, date: f.date, hours: h, reason: f.reason.trim() })
+        });
+        const result = await r.json();
+        if (r.ok) {
+          const nm = (this.companyEmployees.find(u => u.userId === f.targetUserId) || {}).name || '';
+          this.showToast3(`추가근무 등록됨 — ${nm} ${f.date} ${h}시간 (대기)`, 'success');
+          this.overtimeAddForm.reason = '';   // 사유만 비움 — 같은 직원 다른 날짜 연속 등록 편의
+        } else {
+          this.showToast3(result.error || '등록 실패', 'error');
+        }
+      } catch (e) { this.showToast3('네트워크 오류', 'error'); }
+    },
+    async openSummary() {
+      if (!this.summaryMonth) this.summaryMonth = this._prevMonthStr();
+      this.currentView = 'summary';
+      await this.loadSummary();
+    },
+    async loadSummary() {
+      if (!/^\d{4}-\d{2}$/.test(this.summaryMonth || '')) return;
+      this.summaryLoading = true; this.summaryData = null;
+      try {
+        const r = await fetch('/api/approval/overtime-summary?month=' + encodeURIComponent(this.summaryMonth));
+        if (r.ok) this.summaryData = await r.json();
+        else { const e = await r.json().catch(() => ({})); this.showToast3(e.error || '집계 로드 실패', 'error'); }
+      } catch (e) { this.showToast3('네트워크 오류', 'error'); }
+      this.summaryLoading = false;
+    },
+    shiftSummaryMonth(delta) {
+      const [y, m] = (this.summaryMonth || this._prevMonthStr()).split('-').map(Number);
+      const d = new Date(y, (m - 1) + delta, 1);
+      this.summaryMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      this.loadSummary();
+    },
+    async bulkProcessOvertime(emp, action) {
+      if (!emp || !emp.pendingIds || !emp.pendingIds.length) return;
+      const verb = action === 'approved' ? '승인' : '반려';
+      if (!confirm(`${emp.name}님 ${emp.pendingIds.length}건(${emp.pendingHours}시간)을 ${verb}하시겠습니까?`)) return;
+      this.summaryBusy = true;
+      try {
+        const r = await fetch('/api/approval/overtime-bulk-process', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: emp.pendingIds, action })
+        });
+        const result = await r.json();
+        if (r.ok) { this.showToast3(`${verb} ${result.changed}건 완료`, 'success'); await this.loadSummary(); }
+        else { this.showToast3(result.error || '처리 실패', 'error'); }
+      } catch (e) { this.showToast3('네트워크 오류', 'error'); }
+      this.summaryBusy = false;
     },
 
     // 문서 상세 보기

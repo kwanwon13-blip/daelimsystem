@@ -450,6 +450,7 @@ router.get('/users/list', requireAuth, (req, res) => {
     .map(u => ({
       id: u.id, userId: u.userId, name: u.name,
       position: u.position || '', department: u.department || '',
+      companyId: u.companyId || 'dalim-sm',
       status: u.status || 'approved',
       role: u.role || 'user',
       capsName: u.capsName || ''
