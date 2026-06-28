@@ -42,8 +42,11 @@ const ENV = { ...loadEnv(), ...process.env };
 const SHARE = (ENV.DESIGN_SHARE || '\\\\192.168.0.133\\dd').replace(/[\\/]+$/, '');
 const SERVER = ENV.DESIGN_SERVER || 'http://192.168.0.133:3000';
 const SECRET = String(ENV.CONTROL_DAEMON_SECRET || '').trim();
-const MODEL_RAW = ENV.DESIGN_CAPTION_MODEL || 'sonnet'; // 자산DB는 한 번에 정확히 — sonnet이 현장명·스펙 또렷(속도 동급, rate limit만 더 씀). haiku=빠른소진 대안
-const MODEL = /^[A-Za-z0-9._-]+$/.test(MODEL_RAW) ? MODEL_RAW : 'sonnet'; // shell 주입 차단(아래 shell:true)
+// 주간한도 실측(2026-06-28): claude -p 는 호출당 시스템프롬프트 ~28k토큰을 매번 새로 캐시(재사용 안 됨).
+// 그 고정비를 배치로 분산 + haiku로 → sonnet-b5 $0.05/장 → haiku-b12 $0.0107/장 (5배↓). 정확도는 약간↓지만 검색엔 충분.
+// 현장명·스펙까지 또렷이 원하면 --model sonnet (단 주간한도 ~5배 더 씀).
+const MODEL_RAW = ENV.DESIGN_CAPTION_MODEL || 'haiku';
+const MODEL = /^[A-Za-z0-9._-]+$/.test(MODEL_RAW) ? MODEL_RAW : 'haiku'; // shell 주입 차단(아래 shell:true)
 const DB_SHARE_PATH = SHARE + '\\price-list-app\\data\\design-captions.db';
 const WF_JSON_PATH = SHARE + '\\price-list-app\\data\\workflow.json'; // --workflow 모드: 워크플로 시안 목록
 const IMG_EXT = new Set(['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp']);
@@ -63,7 +66,7 @@ const FOLDER_TERMS = FOLDER_FILTER ? FOLDER_FILTER.split(',').map(s => s.trim().
 const YEAR_RAW = (arg('year', '') === true) ? '' : String(arg('year', ''));
 const YEAR_TERMS = YEAR_RAW ? YEAR_RAW.split(',').map(s => s.trim()).filter(Boolean) : [];
 const CONCURRENCY = Math.max(1, Math.min(6, parseInt(arg('concurrency', '3'), 10) || 3));
-const BATCH = Math.max(1, Math.min(12, parseInt(arg('batch', '5'), 10) || 5)); // 한 claude 호출당 이미지 수 — 시동비용 분산(17초→8초/장)
+const BATCH = Math.max(1, Math.min(20, parseInt(arg('batch', '12'), 10) || 12)); // 한 claude 호출당 이미지 수 — 고정비(시스템프롬프트 28k) 분산. 기본12=장당비용 batch5 대비 ~1.5배↓
 const DRY = !!arg('dry', false);
 const COUNT_ONLY = !!arg('count', false); // 캡션 안 하고 필터 결과 장수만 세고 종료(무료 미리보기)
 const WORKFLOW = !!arg('workflow', false); // ★스캔 대신 workflow.json 의 워크플로 시안만 캡션(매일밤 신규 자동)
