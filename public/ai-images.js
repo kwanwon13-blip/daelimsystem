@@ -119,6 +119,8 @@ function buildQuery() {
   p.set('sort', state.sort);
   p.set('limit', String(state.limit));
   p.set('offset', String(state.offset));
+  // 갤러리는 회사 AI 이미지 자산 보기 — admin은 전체, 직원은 서버가 본인 것만으로 강제(비admin은 scope 무시).
+  p.set('scope', 'all');
   if (state.q) p.set('q', state.q);
   if (state.activeTag) p.set('tag', state.activeTag);
   if (state.view === 'favorite') p.set('favorite', '1');
