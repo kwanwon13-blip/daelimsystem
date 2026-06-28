@@ -64,6 +64,7 @@ function workflowApp() {
     ledgerColOrder: null, // 헤더 드래그 순서(localStorage)
     _ledgerDrag: null,
     weekAnchor: '', // 주간달력 기준 월요일(YYYY-MM-DD), 빈값이면 이번주
+    weekCompanyFilter: '', // 주간 회사별 필터(빈값=전체) — 담당자가 자기 회사만 보기
     newOpen: false,
     newFiles: [],
     newUploadDragOver: false,
@@ -4895,6 +4896,7 @@ function workflowApp() {
         if (j.status !== 'active') return;
         if (j.currentStage !== 'factory' && j.currentStage !== 'delivery') return;
         if (this.jobSchedDate(j) !== dateStr) return;
+        if (this.weekCompanyFilter && (((j.companyName || '').trim()) || '(미지정)') !== this.weekCompanyFilter) return;
         (j.visualFilesBrief || []).forEach(f => {
           const t = (f.team === 'welding' || f.team === 'output') ? f.team : 'unassigned';
           if (t === team) out.push({ job: j, file: f });
@@ -4924,10 +4926,26 @@ function workflowApp() {
       (this.jobs || []).forEach(j => {
         if (j.status !== 'active' || j.currentStage !== 'delivery') return;
         if (!set.has(this.jobSchedDate(j))) return;
+        if (this.weekCompanyFilter && (((j.companyName || '').trim()) || '(미지정)') !== this.weekCompanyFilter) return;
         n += (j.visualFilesBrief || []).length;
       });
       return n;
     },
+    // 이번 주(factory/delivery·당주)에 있는 회사 목록 — 시안 장수 desc. 주간 회사 필터 칩용.
+    weekCompanies() {
+      const set = new Set(this.weekDays().map(d => d.date));
+      const m = new Map();
+      (this.jobs || []).forEach(j => {
+        if (j.status !== 'active') return;
+        if (j.currentStage !== 'factory' && j.currentStage !== 'delivery') return;
+        if (!set.has(this.jobSchedDate(j))) return;
+        const co = (j.companyName || '').trim() || '(미지정)';
+        m.set(co, (m.get(co) || 0) + (j.visualFilesBrief || []).length);
+      });
+      return Array.from(m, ([name, files]) => ({ name, files })).sort((a, b) => b.files - a.files || a.name.localeCompare(b.name));
+    },
+    // 회사 칩 클릭 — 같은 회사 다시 누르면 전체로
+    weekPickCompany(name) { this.weekCompanyFilter = (this.weekCompanyFilter === name) ? '' : name; },
 
     // 상세 닫기 — 선택 해제 → 보드가 전체 폭으로
     closeDetail() {

@@ -329,6 +329,14 @@
   .wf-week-chip.done .wf-week-chipname{color:#15803d;font-weight:800;}
   .wf-week-chip.done::after{content:'✓';margin-left:auto;color:#16a34a;font-weight:900;font-size:13px;line-height:1;flex:0 0 auto;padding-left:3px;}
   .wf-week-sumitem.done{background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;}
+  /* 주간 회사별 필터 칩 — 담당자가 자기 회사만 */
+  .wf-week-cofilter{display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:0 0 auto;margin:0 0 8px;}
+  .wf-week-cofilter-label{font-size:11px;font-weight:900;color:#94a3b8;margin-right:2px;}
+  .wf-week-cochip{display:inline-flex;align-items:center;gap:5px;height:27px;padding:0 11px;border:1px solid #d8dee9;border-radius:999px;background:#fff;color:#475569;font-size:12px;font-weight:800;cursor:pointer;}
+  .wf-week-cochip:hover{background:#f1f5f9;}
+  .wf-week-cochip.on{background:#1d4ed8;border-color:#1d4ed8;color:#fff;}
+  .wf-week-cochip b{font-weight:900;opacity:.65;font-size:11px;}
+  .wf-week-cochip.on b{opacity:.9;}
   /* 핵심 날짜 카드 (단계별 — 공장은 완료가능일 강조) */
   .wf-keybox{display:flex;flex-direction:column;gap:6px;padding:11px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;}
   .wf-keybox-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
@@ -1011,6 +1019,15 @@
             <span class="wf-week-sumitem un" x-show="weekTeamTotal('unassigned')">미배정 <b x-text="weekTeamTotal('unassigned')"></b></span>
             <span class="wf-week-sumitem done" x-show="weekDoneTotal()" title="제작 끝나 경영관리(배송) 단계로 넘어간 시안">제작완료 <b x-text="weekDoneTotal()"></b></span>
           </div>
+        </div>
+        <div class="wf-week-cofilter" x-show="weekCompanies().length">
+          <span class="wf-week-cofilter-label">회사</span>
+          <button type="button" class="wf-week-cochip" :class="weekCompanyFilter===''?'on':''" @click="weekCompanyFilter=''">전체</button>
+          <template x-for="co in weekCompanies()" :key="co.name">
+            <button type="button" class="wf-week-cochip" :class="weekCompanyFilter===co.name?'on':''" @click="weekPickCompany(co.name)">
+              <span x-text="co.name"></span><b x-text="co.files"></b>
+            </button>
+          </template>
         </div>
         <div class="wf-week-grid">
           <template x-for="day in weekDays()" :key="day.date">
