@@ -157,6 +157,7 @@ db.exec(`
     lineNo INTEGER DEFAULT 0,
     itemName TEXT NOT NULL,
     spec TEXT DEFAULT '',
+    site TEXT DEFAULT '',
     qty REAL DEFAULT 0,
     unit TEXT DEFAULT '개',
     status TEXT DEFAULT 'requested',
@@ -216,6 +217,12 @@ try {
     if (!vcols.includes(col)) db.prepare(`ALTER TABLE vendors ADD COLUMN ${col} ${def}`).run();
   }
 } catch (e) { console.warn('vendors 픽업필드 마이그레이션 오류:', e.message); }
+
+// ── pickup_items.site 컬럼 마이그레이션 (없으면 추가) ──
+try {
+  const icols = db.prepare("PRAGMA table_info(pickup_items)").all().map(c => c.name);
+  if (!icols.includes('site')) db.prepare("ALTER TABLE pickup_items ADD COLUMN site TEXT DEFAULT ''").run();
+} catch (e) { console.warn('pickup_items site 마이그레이션 오류:', e.message); }
 
 // ── 기존 DB 마이그레이션: pickup_requests.vendorId 를 NULLABLE 로 (자유 업체명 등록 허용) ──
 // 기존 테이블이 vendorId NOT NULL + FK RESTRICT 로 만들어져 있으면 재구성한다.
@@ -625,11 +632,11 @@ const pickupRequests = {
       });
       (items || []).forEach((it, i) => {
         db.prepare(`
-          INSERT INTO pickup_items (id, requestId, lineNo, itemName, spec, qty, unit, status)
-          VALUES (@id, @requestId, @lineNo, @itemName, @spec, @qty, @unit, 'requested')
+          INSERT INTO pickup_items (id, requestId, lineNo, itemName, spec, site, qty, unit, status)
+          VALUES (@id, @requestId, @lineNo, @itemName, @spec, @site, @qty, @unit, 'requested')
         `).run({
           id: generateId('pi'), requestId: id, lineNo: i,
-          itemName: it.itemName || '', spec: it.spec || '', qty: Number(it.qty) || 0, unit: it.unit || '개',
+          itemName: it.itemName || '', spec: it.spec || '', site: it.site || '', qty: Number(it.qty) || 0, unit: it.unit || '개',
         });
       });
     });
@@ -653,11 +660,11 @@ const pickupRequests = {
         db.prepare('DELETE FROM pickup_items WHERE requestId = ?').run(id);
         changes.items.forEach((it, i) => {
           db.prepare(`
-            INSERT INTO pickup_items (id, requestId, lineNo, itemName, spec, qty, unit, status)
-            VALUES (@id, @requestId, @lineNo, @itemName, @spec, @qty, @unit, 'requested')
+            INSERT INTO pickup_items (id, requestId, lineNo, itemName, spec, site, qty, unit, status)
+            VALUES (@id, @requestId, @lineNo, @itemName, @spec, @site, @qty, @unit, 'requested')
           `).run({
             id: generateId('pi'), requestId: id, lineNo: i,
-            itemName: it.itemName || '', spec: it.spec || '', qty: Number(it.qty) || 0, unit: it.unit || '개',
+            itemName: it.itemName || '', spec: it.spec || '', site: it.site || '', qty: Number(it.qty) || 0, unit: it.unit || '개',
           });
         });
         // 라인 교체 후 부모 요청 상태 재계산 (_recompute가 updatedAt도 갱신)

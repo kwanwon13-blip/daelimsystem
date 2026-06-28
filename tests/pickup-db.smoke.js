@@ -13,11 +13,12 @@ if (!vendor) {
 
 const req = sql.pickupRequests.create(
   { registrarId: 'smoke', registrarName: '스모크', pickupDate: '2099-01-01', vendorId: vendor.id, vendorName: vendor.name, isLate: false },
-  [{ itemName: 'A', spec: '600x900', qty: 2, unit: '개' }, { itemName: 'B', qty: 1 }]
+  [{ itemName: 'A', spec: '600x900', qty: 2, unit: '개', site: '부평현장' }, { itemName: 'B', qty: 1 }]
 );
 try {
   assert.strictEqual(req.status, 'requested');
   assert.strictEqual(req.items.length, 2);
+  assert.strictEqual(req.items[0].site, '부평현장', 'site 저장/조회 라운드트립');
   assert.ok(req.vendor && req.vendor.name === vendor.name, 'vendor 픽업정보 하이드레이션');
 
   // 한 품목 수거완료 → partial
@@ -32,9 +33,10 @@ try {
   assert.ok(byDate.find(r => r.id === req.id));
 
   // update: items 배열 교체 라운드트립 (기존 2줄 → 1줄로 교체 + 상태 재계산)
-  const rep = sql.pickupRequests.update(req.id, { memo: '수정', items: [{ itemName: 'C', qty: 5, unit: '박스' }] });
+  const rep = sql.pickupRequests.update(req.id, { memo: '수정', items: [{ itemName: 'C', qty: 5, unit: '박스', site: '강남현장' }] });
   assert.strictEqual(rep.items.length, 1, 'items 교체 후 1줄');
   assert.strictEqual(rep.items[0].itemName, 'C');
+  assert.strictEqual(rep.items[0].site, '강남현장', 'update 후 site 유지');
   assert.strictEqual(rep.items[0].lineNo, 0, 'lineNo 재부여');
   assert.strictEqual(rep.memo, '수정');
   assert.strictEqual(rep.status, 'requested', '새 라인 requested → 요청 requested로 재계산');
