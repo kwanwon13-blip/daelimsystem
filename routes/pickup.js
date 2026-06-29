@@ -29,6 +29,19 @@ router.post('/import-vendors', express.json({ limit: '4mb' }), (req, res) => {
     if (!expected || !ctrl || ctrl !== expected) return res.status(401).json({ error: 'unauthorized' });
     if (!db.sql || !db.sql.vendors) return res.status(503).json({ error: 'SQLite 필요(better-sqlite3 미설치)' });
     const b = req.body || {};
+    // [점검] 중복 후보만 반환(쓰기 X) — { mode:'dupes' }. 클라 '중복 찾기'와 동일 로직(정규화 동일 + 한쪽이 다른쪽 포함).
+    if (b.mode === 'dupes') {
+      const all = db.sql.vendors.getAll() || [];
+      const arr = all.map(v => ({ name: v.name, type: v.vendorType || '기타', n: L.normVendorName(v.name) })).filter(x => x.n.length >= 2);
+      const pairs = [];
+      for (let i = 0; i < arr.length; i++) for (let j = i + 1; j < arr.length; j++) {
+        const a = arr[i], c = arr[j];
+        if (a.n === c.n) pairs.push({ kind: '동일', a: a.name, at: a.type, b: c.name, bt: c.type });
+        else { const sh = a.n.length <= c.n.length ? a.n : c.n; const lo = a.n.length <= c.n.length ? c.n : a.n; if (sh.length >= 2 && lo.indexOf(sh) !== -1) pairs.push({ kind: '포함', a: a.name, at: a.type, b: c.name, bt: c.type }); }
+      }
+      pairs.sort((x, y) => (x.kind === '동일' ? 0 : 1) - (y.kind === '동일' ? 0 : 1));
+      return res.json({ totalVendors: all.length, dupePairs: pairs.length, pairs });
+    }
     const list = Array.isArray(b.vendors) ? b.vendors : [];
     const vendorType = String(b.vendorType || '매입처');
     const dryRun = !!b.dryRun;
