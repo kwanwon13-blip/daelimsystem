@@ -2838,6 +2838,36 @@
 
           </div>
 
+          <!-- 중복 업체 후보 찾기 -->
+          <div class="card" style="padding:0;overflow:hidden;">
+            <div style="padding:10px 14px;background:linear-gradient(135deg,#fef9c3,#fde68a);border-bottom:1px solid #fcd34d;" class="flex items-center justify-between flex-wrap gap-2">
+              <h3 class="font-work text-[13px] font-bold text-gray-800 flex items-center gap-2 m-0">
+                <span class="material-symbols-outlined" style="font-size:16px;color:#ca8a04;">content_copy</span> 중복 업체 후보
+                <span x-show="vendorDupScan" class="text-xs font-medium px-2.5 py-1 rounded-full" style="background:rgba(202,138,4,.14);color:#a16207;" x-text="duplicateVendorPairs.length + '쌍'"></span>
+              </h3>
+              <button class="btn-ghost btn-sm" @click="vendorDupScan = !vendorDupScan">
+                <span class="material-symbols-outlined" style="font-size:15px;" x-text="vendorDupScan ? 'expand_less' : 'search'"></span>
+                <span x-text="vendorDupScan ? '닫기' : '중복 찾기'"></span>
+              </button>
+            </div>
+            <div x-show="vendorDupScan" x-cloak style="padding:8px 14px;">
+              <div x-show="!duplicateVendorPairs.length" class="text-xs text-gray-400" style="padding:8px 0;">비슷한 이름의 업체가 없어요 (중복 의심 없음).</div>
+              <div class="text-xs text-gray-400" x-show="duplicateVendorPairs.length" style="margin-bottom:6px;">표기만 다른 같은 업체일 수 있어요 — 잘못된 쪽을 삭제하세요. (매입처/매출처 표시 참고, 헷갈리면 안 지워도 됨)</div>
+              <template x-for="(p, pi) in duplicateVendorPairs" :key="'dup'+pi">
+                <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px dashed #f1f5f9;flex-wrap:wrap;">
+                  <span class="text-xs px-2 py-0.5 rounded-full" style="flex:none;" :style="p.kind==='동일' ? 'background:#fee2e2;color:#b91c1c;' : 'background:#fef9c3;color:#a16207;'" x-text="p.kind"></span>
+                  <span style="font-weight:700;color:#374151;" x-text="p.a.name"></span>
+                  <span class="text-xs" style="color:#94a3b8;" x-text="'('+(p.a.vendorType||'기타')+')'"></span>
+                  <button class="btn-ghost btn-sm" style="color:#dc2626;padding:1px 7px;" @click="deleteVendorDup(p.a.id)">삭제</button>
+                  <span style="color:#cbd5e1;font-weight:700;">↔</span>
+                  <span style="font-weight:700;color:#374151;" x-text="p.b.name"></span>
+                  <span class="text-xs" style="color:#94a3b8;" x-text="'('+(p.b.vendorType||'기타')+')'"></span>
+                  <button class="btn-ghost btn-sm" style="color:#dc2626;padding:1px 7px;" @click="deleteVendorDup(p.b.id)">삭제</button>
+                </div>
+              </template>
+            </div>
+          </div>
+
           <div class="card" style="padding:0;overflow:hidden;">
             <div style="padding:10px 14px;background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border-bottom:1px solid #bae6fd;">
               <h3 class="font-work text-[13px] font-bold text-gray-800 flex items-center gap-2 m-0">
@@ -7710,6 +7740,7 @@ function app() {
     // 업체
     showAddVendor: false, newVendor: { name: '', bizNo: '', ceo: '', phone: '', email: '', address: '', note: '' },
     editingVendorId: null, editingVendor: {},
+    vendorDupScan: false,   // 중복 업체 후보 패널 열림 여부(열 때만 O(n²) 스캔)
     vendorPopup: { open: false, x: 80, y: 80, dragging: false, _ox: 0, _oy: 0, editId: null, form: { name:'', bizNo:'', ceo:'', phone:'', email:'', address:'', note:'', vendorType:'기타', mapSearchKeyword:'', contactPerson:'', contactPhone:'', pickupMemo:'', parkingAccessMemo:'', isActive:true } },
     // ── 픽업 관리 (pickup) ──────────────────────────────
     pickupView: 'register',              // 'register' | 'collect'
@@ -9911,6 +9942,32 @@ function app() {
     // ── 업체 ──
     async createVendor() { if(!this.newVendor.name.trim()){this.showToast('업체명을 입력해주세요','error');return;} await fetch('/api/vendors',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(this.newVendor)}); this.showAddVendor=false; this.newVendor={name:'',bizNo:'',ceo:'',phone:'',email:'',address:'',note:''}; await this.loadVendors(); },
     async deleteVendor(id) { if(!confirm('삭제?'))return; await fetch('/api/vendors/'+id,{method:'DELETE'}); await this.loadVendors(); },
+    // ── 중복 업체 후보 (클라이언트, 로드된 vendors 비교 — 표기만 다른 같은 회사 찾기) ──
+    _normVendor(s) {
+      return String(s || '').toLowerCase()
+        .replace(/㈜|\(주\)|주식회사|（주）/g, '')
+        .replace(/[（）()【】「」『』\[\]<>{}.,·・:;/\\\-_~!@#$%^&*+='"`|?\s]/g, '');
+    },
+    get duplicateVendorPairs() {
+      if (!this.vendorDupScan) return [];   // 패널 열 때만 O(n²) 스캔
+      const vs = (this.vendors || []).map(v => ({ v, n: this._normVendor(v.name) })).filter(x => x.n.length >= 2);
+      const out = [];
+      for (let i = 0; i < vs.length; i++) for (let j = i + 1; j < vs.length; j++) {
+        const a = vs[i], b = vs[j];
+        if (a.n === b.n) { out.push({ a: a.v, b: b.v, kind: '동일', score: 100 }); continue; }
+        const short = a.n.length <= b.n.length ? a.n : b.n;
+        const long = a.n.length <= b.n.length ? b.n : a.n;
+        if (short.length >= 2 && long.includes(short)) out.push({ a: a.v, b: b.v, kind: '포함', score: short.length });
+      }
+      out.sort((x, y) => (x.kind === '동일' ? 0 : 1) - (y.kind === '동일' ? 0 : 1) || y.score - x.score);
+      return out;
+    },
+    async deleteVendorDup(id) {
+      const v = (this.vendors || []).find(x => x.id === id);
+      if (!confirm((v ? v.name : '이 업체') + ' 를 삭제할까요?')) return;
+      await fetch('/api/vendors/' + id, { method: 'DELETE' });
+      await this.loadVendors();
+    },
     startEditVendor(v) { this.editingVendorId = v.id; this.editingVendor = { name:v.name||'', bizNo:v.bizNo||'', ceo:v.ceo||'', phone:v.phone||'', email:v.email||'', address:v.address||'', note:v.note||'' }; },
     cancelEditVendor() { this.editingVendorId = null; this.editingVendor = {}; },
     async saveEditVendor(id) { if(!this.editingVendor.name.trim()){this.showToast('업체명을 입력해주세요','error');return;} const r=await fetch('/api/vendors/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(this.editingVendor)}); if(r.ok){this.editingVendorId=null;this.editingVendor={};await this.loadVendors();this.showToast('저장되었습니다');}else{this.showToast('저장 실패','error');} },
