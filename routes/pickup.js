@@ -42,6 +42,16 @@ router.post('/import-vendors', express.json({ limit: '4mb' }), (req, res) => {
       pairs.sort((x, y) => (x.kind === '동일' ? 0 : 1) - (y.kind === '동일' ? 0 : 1));
       return res.json({ totalVendors: all.length, dupePairs: pairs.length, pairs });
     }
+    // [정리] 중복 한 곳 삭제 — { mode:'delete', name:'정확한 업체명', dryRun? }. 정확 일치만(안전), dryRun=미리보기.
+    if (b.mode === 'delete') {
+      const target = String(b.name || '').trim();
+      if (!target) return res.status(400).json({ error: 'name 필수' });
+      const matches = (db.sql.vendors.getAll() || []).filter(v => v.name === target);
+      if (b.dryRun) return res.json({ matched: matches.length, names: matches.map(v => v.name + '(' + (v.vendorType || '기타') + ')') });
+      let deleted = 0;
+      for (const v of matches) { try { db.sql.vendors.delete(v.id); deleted++; } catch (_) {} }
+      return res.json({ deleted, target });
+    }
     const list = Array.isArray(b.vendors) ? b.vendors : [];
     const vendorType = String(b.vendorType || '매입처');
     const dryRun = !!b.dryRun;
