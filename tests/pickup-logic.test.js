@@ -96,4 +96,24 @@ assert.strictEqual(groupedFree.length, 1); // 정규화로 한 업체
 assert.strictEqual(groupedFree[0].groupKey, 'name:' + L.normVendorName('라코스'));
 assert.strictEqual(groupedFree[0].items.length, 2);
 
+// ── salesSupportUserIds: 영업지원팀 부서원(승인)만, 없으면 admin 폴백 ──
+const org1 = {
+  departments: [{ id: 'd1', name: '영업지원팀' }, { id: 'd2', name: '디자인팀' }],
+  users: [
+    { userId: 'u1', status: 'approved', department: 'd1', role: 'member' },   // 영업지원·승인 → 포함
+    { userId: 'u2', status: 'approved', department: 'd2', role: 'member' },   // 타부서 → 제외
+    { userId: 'u3', status: 'pending',  department: 'd1', role: 'member' },   // 미승인 → 제외
+    { userId: 'a1', status: 'approved', department: 'd2', role: 'admin' },    // 영업지원 있으면 admin은 안 넣음
+  ],
+};
+assert.deepStrictEqual(L.salesSupportUserIds(org1), ['u1']);
+// 영업지원팀 부서가 없으면 admin(승인) 폴백 — 알림 유실 방지
+const org2 = { departments: [{ id: 'd2', name: '디자인팀' }], users: [
+  { userId: 'a1', status: 'approved', role: 'admin', department: 'd2' },
+  { userId: 'u2', status: 'approved', role: 'member', department: 'd2' },
+] };
+assert.deepStrictEqual(L.salesSupportUserIds(org2), ['a1']);
+assert.deepStrictEqual(L.salesSupportUserIds({}), []);            // 빈 조직 → 빈 배열
+assert.strictEqual(L.salesSupportUserIds().length, 0);            // 인자 없음 안전
+
 console.log('✅ pickup-logic 테스트 통과');

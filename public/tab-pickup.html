@@ -198,7 +198,8 @@
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="font-semibold text-sm" x-text="req.vendorName"></span>
                   <span class="text-xs px-2 py-0.5 rounded-full" :style="pickupStatusStyle(req.status)" x-text="pickupStatusLabel(req.status)"></span>
-                  <span class="text-xs text-gray-400" x-show="req.isLate" style="color:#dc2626;">🔴 추가요청</span>
+                  <span class="text-xs" x-show="req.isLate" style="color:#dc2626;font-weight:600;">🔴 추가요청<span x-show="pkTime(req)" x-text="' '+pkTime(req)"></span></span>
+                  <span class="text-xs text-gray-400" x-show="!req.isLate && pkTime(req)" x-text="pkTime(req)+' 등록'"></span>
                   <div class="flex items-center gap-1" style="margin-left:auto;">
                     <button class="btn-ghost btn-sm" @click="startEditPickup(req)" title="수정">
                       <span class="material-symbols-outlined" style="font-size:14px;">edit</span> 수정
@@ -274,9 +275,17 @@
     <div class="space-y-3">
       <div class="card" style="padding:10px 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <span class="text-xs text-gray-500" x-text="pickupGroups.length + '개 업체 · 요청 ' + pickupRequests.length + '건'"></span>
-        <button class="btn-secondary btn-sm" style="margin-left:auto;" @click="copyPickupShareText()">
-          <span class="material-symbols-outlined" style="font-size:14px;">share</span> 카톡 공유텍스트 복사
-        </button>
+        <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="btn-primary btn-sm" @click="copyPickupImage()" title="픽업 목록을 이미지로 클립보드에 복사 — 카톡에 바로 붙여넣기(Ctrl+V)">
+            <span class="material-symbols-outlined" style="font-size:14px;">content_copy</span> 이미지 복사
+          </button>
+          <button class="btn-secondary btn-sm" @click="savePickupImage()" title="픽업 목록 이미지를 파일로 저장">
+            <span class="material-symbols-outlined" style="font-size:14px;">download</span> 이미지 저장
+          </button>
+          <button class="btn-ghost btn-sm" @click="copyPickupShareText()" title="텍스트로 복사(기존)">
+            <span class="material-symbols-outlined" style="font-size:14px;">share</span> 텍스트
+          </button>
+        </div>
       </div>
 
       <div x-show="!pickupGroups.length" class="card" style="padding:24px;text-align:center;color:#9ca3af;font-size:13px;">
@@ -316,6 +325,7 @@
               <div>
                 <div class="text-xs text-gray-400" style="margin-bottom:2px;">
                   <span x-text="req.registrarName || '등록자'"></span>
+                  <span x-show="pkTime(req)" :style="req.isLate ? 'color:#dc2626;font-weight:600;' : ''"> · <span x-text="pkTime(req) + (req.isLate ? ' 추가요청' : ' 등록')"></span></span>
                   <span x-show="req.memo"> · <span x-text="req.memo"></span></span>
                   <a x-show="req.sourceType==='workflow' && req.sourceJobId" :href="'#workflow:' + encodeURIComponent(req.sourceJobId)" style="color:#7c3aed;margin-left:4px;">[워크플로 잡 보기]</a>
                 </div>
@@ -328,7 +338,7 @@
                     <span class="text-xs px-2 py-0.5 rounded-full" style="flex:0 0 auto;" :style="pickupItemStatusStyle(it.status)" x-text="pickupItemStatusLabel(it.status)"></span>
                     <template x-if="canCheckPickup">
                       <div class="flex items-center" style="flex-wrap:wrap;gap:4px;margin-left:auto;">
-                        <input type="number" x-model.number="it._pickedQty" class="input-base" style="width:60px;" placeholder="실수거" :value="it.pickedQty ?? ''">
+                        <input type="number" x-model.number="it._pickedQty" class="input-base" style="width:60px;" placeholder="수거수량" :value="it.pickedQty ?? ''">
                         <button class="btn-ghost btn-sm" title="수거완료" @click="setPickupItem(it, 'pickedUp', (it._pickedQty != null && it._pickedQty !== '') ? { pickedQty: it._pickedQty } : undefined)">✅</button>
                         <button class="btn-ghost btn-sm" title="미수거" @click="setPickupItemNotPicked(it)">❌</button>
                         <button class="btn-ghost btn-sm" title="취소" @click="setPickupItem(it, 'cancelled')">🚫</button>

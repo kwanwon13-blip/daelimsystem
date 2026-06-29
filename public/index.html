@@ -8083,6 +8083,133 @@ function app() {
         }
       } catch (e) { this.showToast('생성 실패: ' + e.message, 'error'); }
     },
+    // ── 등록시각: requestedAt(UTC 'YYYY-MM-DD HH:MM:SS') → 로컬 HH:MM ──
+    pkTime(req) {
+      const s = (req && req.requestedAt) || '';
+      if (!s) return '';
+      const iso = String(s).replace(' ', 'T');
+      const d = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? iso : iso + 'Z');
+      if (isNaN(d.getTime())) return '';
+      return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+    },
+    // ── 픽업 목록 → 이미지(Canvas, 외부 라이브러리 없음) ──
+    _pickupDateKorean(d) {
+      const m = String(d || '').match(/(\d{4})-(\d{2})-(\d{2})/);
+      return m ? `${m[1]}년 ${m[2]}월 ${m[3]}일` : String(d || '');
+    },
+    _wrapCanvasLines(ctx, text, maxW) {
+      const out = []; let cur = '';
+      for (const ch of String(text)) {
+        const t = cur + ch;
+        if (cur && ctx.measureText(t).width > maxW) { out.push(cur); cur = ch; }
+        else cur = t;
+      }
+      if (cur) out.push(cur);
+      return out.length ? out : [''];
+    },
+    // 취합된 픽업 목록을 사장님 카톡 양식 이미지로 그림 → canvas 반환(비어있으면 null)
+    renderPickupImageCanvas() {
+      const G = [];
+      for (const g of (this.pickupGroups || [])) {
+        const items = [];
+        for (const r of (g.requests || [])) for (const it of (r.items || [])) {
+          if (it && it.status !== 'cancelled') items.push(it);   // 취소 품목은 픽업목록에서 제외
+        }
+        if (items.length) G.push({ vendorName: g.vendorName || '미지정', items });
+      }
+      if (!G.length) { this.showToast('픽업 목록이 비어있어요', 'error'); return null; }
+      const W = 720, PAD = 44, dpr = 2;
+      const FF = "'Malgun Gothic','Apple SD Gothic Neo','Noto Sans KR',sans-serif";
+      const maxW = W - PAD * 2;
+      const dateStr = this._pickupDateKorean(this.pickupDate);
+      const inst = ['업체위치는 네이버 회사 계정으로 로그인 후, 네이버지도 참고바랍니다.', '픽업 완료된 품목에 형광펜으로 표시바랍니다.'];
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      // measure(false)/draw(true) 공통 레이아웃 워커 — y만 누적하거나 실제로 그림
+      const layout = (draw) => {
+        let y = 40;
+        if (draw) {
+          ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+          ctx.font = '800 38px ' + FF; ctx.fillStyle = '#111';
+          try { ctx.letterSpacing = '12px'; } catch (e) {}
+          ctx.fillText('픽업목록', W / 2 + 6, y + 34);
+          try { ctx.letterSpacing = '0px'; } catch (e) {}
+          ctx.font = '500 15px ' + FF; ctx.fillStyle = '#444'; ctx.textAlign = 'right';
+          ctx.fillText(dateStr, W - PAD, y + 32);
+        }
+        y += 50;
+        if (draw) { ctx.strokeStyle = '#111'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke(); }
+        y += 26;
+        ctx.font = '400 14px ' + FF;
+        if (draw) { ctx.fillStyle = '#9097a1'; ctx.textAlign = 'center'; }
+        for (const line of inst) { if (draw) ctx.fillText(line, W / 2, y); y += 23; }
+        y += 16;
+        let first = true;
+        for (const g of G) {
+          y += first ? 0 : 18; first = false;
+          if (draw) { ctx.font = '800 18px ' + FF; ctx.fillStyle = '#1565c0'; ctx.textAlign = 'left'; ctx.fillText('#' + g.vendorName, PAD, y + 16); }
+          y += 28;
+          ctx.font = '400 16px ' + FF;
+          for (const it of g.items) {
+            const main = (it.itemName || '') + (it.spec ? (' ' + it.spec) : '') + (it.qty ? (' ' + it.qty + (it.unit || '')) : '');
+            const siteStr = it.site ? ('  (' + it.site + ')') : '';
+            const mainW = ctx.measureText(main).width;
+            const siteW = siteStr ? ctx.measureText(siteStr).width : 0;
+            if (mainW + siteW <= maxW) {
+              if (draw) {
+                ctx.textAlign = 'left'; ctx.fillStyle = '#1a1a1a'; ctx.fillText(main, PAD, y + 16);
+                if (siteStr) { ctx.fillStyle = '#777'; ctx.fillText(siteStr, PAD + mainW, y + 16); }
+              }
+              y += 27;
+            } else {
+              const lines = this._wrapCanvasLines(ctx, main + siteStr, maxW);
+              for (const ln of lines) { if (draw) { ctx.textAlign = 'left'; ctx.fillStyle = '#1a1a1a'; ctx.fillText(ln, PAD, y + 16); } y += 27; }
+            }
+          }
+        }
+        return y + 40;
+      };
+      const H = Math.ceil(layout(false));
+      canvas.width = W * dpr; canvas.height = H * dpr;
+      ctx.scale(dpr, dpr);
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H);
+      layout(true);
+      return canvas;
+    },
+    _canvasToBlob(canvas) { return new Promise(res => canvas.toBlob(res, 'image/png')); },
+    _downloadBlob(blob, name) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+    },
+    async copyPickupImage() {
+      try {
+        const canvas = this.renderPickupImageCanvas();
+        if (!canvas) return;
+        const blob = await this._canvasToBlob(canvas);
+        if (!blob) { this.showToast('이미지 생성 실패', 'error'); return; }
+        if (navigator.clipboard && window.ClipboardItem && window.isSecureContext) {
+          try {
+            await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+            this.showToast('픽업 목록 이미지 복사됨 — 카톡에 붙여넣기(Ctrl+V)');
+            return;
+          } catch (e) { /* 이미지 클립보드 미지원 → 저장 폴백 */ }
+        }
+        this._downloadBlob(blob, `픽업목록_${this.pickupDate}.png`);
+        this.showToast('클립보드가 막혀 이미지로 저장했어요');
+      } catch (e) { this.showToast('이미지 복사 실패: ' + e.message, 'error'); }
+    },
+    async savePickupImage() {
+      try {
+        const canvas = this.renderPickupImageCanvas();
+        if (!canvas) return;
+        const blob = await this._canvasToBlob(canvas);
+        if (!blob) { this.showToast('이미지 생성 실패', 'error'); return; }
+        this._downloadBlob(blob, `픽업목록_${this.pickupDate}.png`);
+        this.showToast('이미지로 저장했어요');
+      } catch (e) { this.showToast('저장 실패: ' + e.message, 'error'); }
+    },
     // 지도 길찾기 (네이버/카카오/T맵 웹 검색 — PC용 새 탭)
     openPickupMap(vendor, app) {
       if (!vendor) { this.showToast('업체 정보가 없습니다', 'error'); return; }
