@@ -7808,13 +7808,19 @@ function app() {
       return matched.slice(0, 8).map(v => ({ name: v.name || '', address: v.address || '' }));
     },
     onPickupHashInput(e) {
+      // ↑↓/Enter/Esc 의 keyup 은 토큰 재처리 안 함 — 이게 매번 pkHl=0 으로 만들어 하이라이트가 '처음으로 회귀'(↓ 눌러도 첫 항목으로 튕겨 엔터가 엉뚱한 선택)하던 버그.
+      if (e && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === 'Escape')) return;
       if (this.pkSuppress) { this.pkSuppress = false; this.pkMenuOpen = false; return; }
       const el = e.target;
       const caret = el.selectionStart;
       const before = (el.value || '').slice(0, caret);
       const m = before.match(/#([^#\n]*)$/);
-      if (m) { this.pkMenuOpen = true; this.pkQuery = m[1]; this.pkTokenStart = m.index; this.pkHl = 0; }
-      else { this.pkMenuOpen = false; }
+      if (m) {
+        this.pkMenuOpen = true;
+        this.pkTokenStart = m.index;
+        if (m[1] !== this.pkQuery) this.pkHl = 0;   // 검색어가 바뀔 때만 하이라이트 초기화(네비 중엔 유지)
+        this.pkQuery = m[1];
+      } else { this.pkMenuOpen = false; }
     },
     pkMove(d) {
       const n = this.pickupVendorSuggest.length;

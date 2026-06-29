@@ -43,8 +43,8 @@
               style="resize:vertical;font-size:14px;line-height:1.6;"
               placeholder="#치면 업체 자동완성 / 예) #라 → 라코스&#10;&#10;#라코스&#10;현수막 600x900 3개&#10;배너 2장&#10;#세원계측기&#10;압력계 1"></textarea>
             <div x-show="pkMenuOpen" x-cloak
-              class="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto"
-              style="top:100%;">
+              class="mt-1 bg-white border border-blue-300 rounded-xl shadow-md max-h-56 overflow-y-auto"
+              style="position:relative;">
               <template x-for="(v, vi) in pickupVendorSuggest" :key="'pkv'+vi">
                 <div @mousedown.prevent="pkPick(vi)" @mouseenter="pkHl = vi"
                   class="px-4 py-2.5 cursor-pointer text-sm text-gray-700 transition-colors"
