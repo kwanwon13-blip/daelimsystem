@@ -49,31 +49,41 @@
   .spin{width:18px;height:18px;border:3px solid #cbd5e1;border-top-color:#1d4ed8;border-radius:50%;animation:spin 1s linear infinite;}
   @keyframes spin{to{transform:rotate(360deg);}}
 
-  /* 글자크기 조절 */
-  .summary .fsctl{margin-left:auto;display:flex;gap:5px;}
-  .summary .fsctl button{border:1px solid #d7dbe3;background:#fff;color:#374151;border-radius:9px;padding:4px 11px;font-size:14px;font-weight:800;cursor:pointer;line-height:1;}
+  /* 글자크기·남음만보기 컨트롤 */
+  .summary .fsctl{margin-left:auto;display:flex;align-items:center;gap:5px;}
+  .summary .fsctl button{border:1px solid #d7dbe3;background:#fff;color:#374151;border-radius:9px;padding:4px 10px;font-size:14px;font-weight:800;cursor:pointer;line-height:1;}
+  .summary .fsctl button:disabled{opacity:.35;}
+  .summary .fsctl .pct{font-size:11px;color:#94a3b8;font-weight:700;min-width:30px;text-align:center;}
+  .summary .donetog{border:1px solid #d7dbe3;background:#fff;color:#475569;border-radius:9px;padding:4px 9px;font-size:12px;font-weight:800;cursor:pointer;line-height:1;}
+  .summary .donetog.on{background:#1d4ed8;color:#fff;border-color:#1d4ed8;}
+  .hint{margin:0 13px 6px;font-size:calc(11.5px * var(--fs));color:#9aa3b2;line-height:1.35;}
 
   /* 업체 목록 (복사 이미지처럼 — 흰 바탕·#업체 파랑·품목 한 줄·탭=형광펜 표시) */
-  .vcard{background:#fff;border-radius:10px;border:1px solid #eef1f6;margin-bottom:7px;overflow:hidden;}
-  .vcard.done{opacity:.72;}
-  .vc-row{display:flex;align-items:center;gap:6px;padding:calc(7px * var(--fs)) 11px calc(2px * var(--fs));}
-  .vc-name{flex:1;min-width:0;font-size:calc(16px * var(--fs));font-weight:800;letter-spacing:-.2px;color:#1d4ed8;word-break:break-all;line-height:1.25;}
-  .vc-left{flex:none;font-size:calc(11px * var(--fs));font-weight:700;color:#94a3b8;}
+  .vcard{background:#fff;border-radius:10px;border:1px solid #eef1f6;border-left:4px solid #fff;margin-bottom:7px;overflow:hidden;}
+  .vcard.done{opacity:.72;border-left-color:#16a34a;}
+  .vcard.late{border-left-color:#dc2626;}
+  .vc-row{display:flex;align-items:center;gap:6px;padding:calc(7px * var(--fs)) 9px calc(2px * var(--fs)) 11px;}
+  .vc-name{flex:1;min-width:0;font-size:calc(16px * var(--fs));font-weight:800;letter-spacing:-.2px;color:#1d4ed8;word-break:keep-all;overflow-wrap:anywhere;line-height:1.25;}
+  .vc-left{flex:none;font-size:calc(11px * var(--fs));font-weight:800;border-radius:999px;padding:2px 8px;}
+  .vc-left.b-req{background:#eef2ff;color:#3730a3;} .vc-left.b-partial{background:#fef9c3;color:#854d0e;} .vc-left.b-done{background:#dcfce7;color:#15803d;}
   .vc-ic{flex:none;width:calc(32px * var(--fs));height:calc(32px * var(--fs));border:1px solid #e2e6ee;background:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#475569;text-decoration:none;}
   .vc-ic.call{background:#ecfdf5;color:#15803d;border-color:#bbf7d0;}
   .vc-ic .material-symbols-outlined{font-size:calc(19px * var(--fs));}
   .vc-memo{margin:4px 11px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:5px 9px;font-size:calc(12.5px * var(--fs));color:#9a3412;line-height:1.35;}
 
-  .item{display:flex;align-items:center;gap:8px;padding:calc(5px * var(--fs)) 11px;cursor:pointer;}
-  .item-name{flex:1;min-width:0;font-size:calc(14.5px * var(--fs));font-weight:600;word-break:break-all;line-height:1.3;}
+  .item{display:flex;align-items:center;gap:6px;padding:calc(5px * var(--fs)) 7px calc(5px * var(--fs)) 11px;cursor:pointer;}
+  .item-name{flex:1;min-width:0;font-size:calc(14.5px * var(--fs));font-weight:600;word-break:keep-all;overflow-wrap:anywhere;line-height:1.3;}
   .item-site{color:#6b7280;font-weight:500;} .item-late{color:#dc2626;font-weight:800;} .item-fail{color:#b91c1c;font-weight:700;}
   .item.on{background:#dcfce7;}
   .item.on .item-name{text-decoration:line-through;text-decoration-color:#16a34a;color:#15803d;}
   .item.off{background:#fef2f2;}
-  .item-x{flex:none;width:calc(30px * var(--fs));height:calc(30px * var(--fs));display:flex;align-items:center;justify-content:center;color:#cdd3dd;font-size:calc(16px * var(--fs));font-weight:800;border-radius:8px;cursor:pointer;}
+  .item-x{flex:none;width:calc(40px * var(--fs));height:calc(40px * var(--fs));display:flex;align-items:center;justify-content:center;color:#8b94a3;font-size:calc(18px * var(--fs));font-weight:800;border-radius:9px;cursor:pointer;}
   .item-x.undo{color:#dc2626;}
-  .chip{flex:none;font-size:calc(12px * var(--fs));font-weight:800;border-radius:999px;padding:3px 9px;}
-  .chip.req{background:#eef2ff;color:#3730a3;} .chip.no{background:#fee2e2;color:#b91c1c;}
+
+  /* 되돌리기 토스트 */
+  .undobar{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#111827;color:#fff;font-size:14px;font-weight:700;padding:10px 12px 10px 16px;border-radius:14px;z-index:320;display:flex;align-items:center;gap:12px;max-width:92vw;box-shadow:0 8px 24px rgba(0,0,0,.25);}
+  .undobar b{font-weight:800;}
+  .undobar .ub-btn{flex:none;background:#374151;color:#fff;border:none;border-radius:10px;padding:8px 13px;font-size:13px;font-weight:800;cursor:pointer;}
 
   .empty{padding:54px 28px;text-align:center;color:#4b5563;}
   .empty .material-symbols-outlined{font-size:54px;color:#cbd5e1;}
@@ -151,10 +161,15 @@
         <span class="pill" :class="pendingCount()===0 ? 'zero' : ''"
               x-text="pendingCount()===0 ? '남은 픽업 없음' : ('남은 품목 ' + pendingCount())"></span>
         <span class="fsctl">
-          <button @click="setFs(fs - 0.1)" title="글자 작게">가﹣</button>
-          <button @click="setFs(fs + 0.1)" title="글자 크게">가＋</button>
+          <button class="donetog" :class="hideDone ? 'on' : ''" @click="hideDone = !hideDone" title="완료 품목 숨기기">남음만</button>
+          <button @click="setFs(fs - 0.1)" :disabled="fs <= 0.8" title="글자 작게">가﹣</button>
+          <span class="pct" x-text="Math.round(fs*100) + '%'"></span>
+          <button @click="setFs(fs + 0.1)" :disabled="fs >= 1.6" title="글자 크게">가＋</button>
         </span>
       </div>
+
+      <!-- 사용 힌트 -->
+      <div class="hint" x-show="canCheck && groups.length">품목을 누르면 <b style="color:#15803d;">✔ 수거완료</b> · 다시 누르면 해제 · <b style="color:#8b94a3;">✕</b> 미수거</div>
 
       <!-- 알림 켜기(납품팀·미구독·지원환경). 안드로이드는 한 번 탭으로 끝 -->
       <div class="pushbar" x-show="canCheck && pushState==='off'" x-cloak>
@@ -175,11 +190,11 @@
 
         <!-- 업체 카드 -->
         <template x-for="g in groups" :key="g.groupKey || g.vendorName">
-          <div class="vcard" :class="groupClass(g)">
-            <!-- 업체 한 줄: #이름(파랑) + 남은수 + 전화/길찾기 -->
+          <div class="vcard" :class="groupClass(g)" x-show="!(hideDone && groupClass(g)==='done')">
+            <!-- 업체 한 줄: #이름(파랑) + 남은수(상태색) + 전화/길찾기 -->
             <div class="vc-row">
               <span class="vc-name" x-text="'#' + (vendorOf(g).name || g.vendorName || '업체 미지정')"></span>
-              <span class="vc-left" x-text="rollupBadge(g).label"></span>
+              <span class="vc-left" :class="rollupBadge(g).cls" x-text="rollupBadge(g).label"></span>
               <a class="vc-ic call" x-show="vendorPhone(g)" :href="'tel:' + vendorPhone(g)" title="전화"><span class="material-symbols-outlined">call</span></a>
               <a class="vc-ic" :href="mapUrl(vendorOf(g),'naver')" target="_blank" rel="noopener" title="길찾기"><span class="material-symbols-outlined">map</span></a>
             </div>
@@ -189,17 +204,17 @@
             <template x-for="req in (g.requests||[])" :key="req.id">
               <div x-show="req.status!=='cancelled'">
                 <template x-for="it in (req.items||[])" :key="it.id">
-                  <div class="item" x-show="it.status!=='cancelled'"
+                  <div class="item" x-show="it.status!=='cancelled' && !(hideDone && it.status==='pickedUp')"
                        :class="it.status==='pickedUp' ? 'on' : (it.status==='notPicked' ? 'off' : '')"
-                       @click="canCheck && (it.status==='pickedUp' ? resetItem(it) : markPicked(it))">
+                       @click="canCheck && (it.status==='requested' ? markPicked(it) : resetItem(it))">
                     <span class="item-name">
                       <span x-text="it.itemName + (it.spec ? (' ' + it.spec) : '') + (it.qty ? ('  ' + it.qty + (it.unit||'개')) : '')"></span>
                       <span class="item-site" x-show="it.site" x-text="' (' + it.site + ')'"></span>
                       <span class="item-late" x-show="req.isLate && timeOf(req)" x-text="' ·추가 ' + timeOf(req)"></span>
                       <span class="item-fail" x-show="it.status==='notPicked'" x-text="' ·미수거' + (it.failReason ? ('(' + it.failReason + ')') : '')"></span>
                     </span>
-                    <span class="item-x" x-show="canCheck && it.status!=='notPicked'" @click.stop="markNot(it)" title="미수거">✕</span>
-                    <span class="item-x undo" x-show="canCheck && it.status==='notPicked'" @click.stop="resetItem(it)" title="되돌리기">↺</span>
+                    <span class="item-x" x-show="canCheck && it.status==='requested'" @click.stop="markNot(it)" title="미수거">✕</span>
+                    <span class="item-x undo" x-show="canCheck && it.status!=='requested'" @click.stop="resetItem(it)" title="되돌리기">↺</span>
                   </div>
                 </template>
               </div>
@@ -220,6 +235,12 @@
   </template>
 
   <div class="saving-bar" x-show="saving" x-cloak><span class="spin"></span>처리 중…</div>
+
+  <!-- 되돌리기 토스트 (오탭 회복) -->
+  <div class="undobar" x-show="undoItem" x-cloak>
+    <span><b x-text="(undoItem && undoItem.itemName) || ''"></b> 수거완료</span>
+    <button class="ub-btn" @click="undoLast()">되돌리기</button>
+  </div>
 </div>
 
 <script src="/m/pwa.js"></script>
@@ -231,8 +252,8 @@
       me: null, canView: false, canCheck: false,
       requests: [], groups: [],
       saving: false, sseOn: false, pushState: '',
-      fs: 1,
-      _es: null, _poll: null,
+      fs: 1, hideDone: false, undoItem: null,
+      _es: null, _poll: null, _inflight: 0, _undoTimer: null, _sseTimer: null,
 
       async init() {
         try { var f = parseFloat(localStorage.getItem('pk_fs')); if (f) this.fs = Math.min(1.6, Math.max(0.8, f)); } catch (_) {}
@@ -317,9 +338,11 @@
       vendorPhone(g) { var v = this.vendorOf(g); return v.contactPhone || v.phone || ''; },
       pendingCount() {
         var n = 0;
-        (this.requests || []).forEach(function (req) {
-          if (req.status === 'cancelled') return;
-          (req.items || []).forEach(function (it) { if (it.status === 'requested') n++; });
+        (this.groups || []).forEach(function (g) {
+          (g.requests || []).forEach(function (req) {
+            if (req.status === 'cancelled') return;
+            (req.items || []).forEach(function (it) { if (it.status === 'requested') n++; });
+          });
         });
         return n;
       },
@@ -353,10 +376,11 @@
 
       // ── 라인 체크(납품팀) ──
       async setItem(it, status, extra) {
-        if (!this.canCheck || this.saving) return;
-        var prev = it.status;
-        it.status = status;           // 낙관적 갱신
-        this.saving = true;
+        if (!this.canCheck || it._busy) return;        // 항목별 잠금 — 다른 품목 동시 체크 허용(빠른 연속 체크 무반응 해소)
+        var prev = it.status, prevReason = it.failReason;
+        it.status = status;                             // 낙관적 갱신
+        if (extra && extra.failReason !== undefined) it.failReason = extra.failReason;
+        it._busy = true; this._inflight++; this.saving = true;
         try {
           var body = Object.assign({ status: status }, extra || {});
           var r = await fetch('/api/pickup/items/' + encodeURIComponent(it.id) + '/status', {
@@ -364,13 +388,33 @@
             credentials: 'same-origin', body: JSON.stringify(body),
           });
           if (!r.ok) throw new Error('patch ' + r.status);
-          await this.load();          // 롤업/상태 재동기화
-        } catch (e) { it.status = prev; alert('상태 변경 실패. 다시 시도해주세요.'); }
-        this.saving = false;
+          // 성공 시 전체 load() 안 함: 낙관적 갱신+로컬 롤업으로 충분(깜빡임·망부하 ↓). 동료 변경은 SSE/폴링이 동기화.
+          if (status === 'pickedUp') this.showUndo(it);
+        } catch (e) {
+          it.status = prev; it.failReason = prevReason;   // 실패 롤백
+          alert('상태 변경 실패. 다시 시도해주세요.');
+        }
+        it._busy = false; this._inflight = Math.max(0, this._inflight - 1); this.saving = this._inflight > 0;
       },
       markPicked(it) { this.setItem(it, 'pickedUp'); },
-      markNot(it) { var reason = prompt('미수거 사유를 적어주세요', '부재중'); if (reason === null) return; this.setItem(it, 'notPicked', { failReason: reason }); },
+      markNot(it) {
+        var reason = prompt('미수거 사유 (예: 부재중 / 품절 / 문닫음)', '부재중');
+        if (reason === null) return;                    // 취소
+        reason = String(reason).trim() || '부재중';      // 빈 입력 정규화
+        this.setItem(it, 'notPicked', { failReason: reason });
+      },
       resetItem(it) { this.setItem(it, 'requested'); },
+      // 오탭 회복: 방금 수거완료한 항목 되돌리기 토스트(3.5초)
+      showUndo(it) {
+        this.undoItem = it;
+        if (this._undoTimer) clearTimeout(this._undoTimer);
+        this._undoTimer = setTimeout(() => { this.undoItem = null; }, 3500);
+      },
+      undoLast() {
+        var it = this.undoItem; this.undoItem = null;
+        if (this._undoTimer) clearTimeout(this._undoTimer);
+        if (it) this.resetItem(it);
+      },
 
       // ── 실시간 ──
       connectSSE() {
@@ -380,10 +424,14 @@
           es.onopen = () => { this.sseOn = true; };
           es.onmessage = (ev) => {
             try { var d = JSON.parse(ev.data); if (d && d.t === 'hello') return; } catch (_) {}
-            this.load();              // 알림(픽업 등) 신호 오면 즉시 새로고침
+            this._sseLoad();          // 픽업/알림 신호 → 디바운스 새로고침
           };
           es.onerror = () => { this.sseOn = false; };
         } catch (_) {}
+      },
+      _sseLoad() {
+        if (this._sseTimer) return;   // 1.2초 내 들어온 신호 합쳐 1회만 load (리로드 폭주 방지)
+        this._sseTimer = setTimeout(() => { this._sseTimer = null; this.load(); }, 1200);
       },
       startPoll() {
         var self = this;

@@ -4,7 +4,7 @@
 //  (b) 그 외 /api/*          -> 항상 네트워크 (geocode·card-scan·card-register 등 절대 캐시 금지)
 //  (c) 앱 셸/정적            -> cache-first
 // 토큰/개인정보는 셸 + all목록 외에는 캐시하지 않는다.
-const CACHE_VER = 'dcf-v3';
+const CACHE_VER = 'dcf-v4';
 const APP_SHELL = [
   '/contacts-mobile.html',
   '/manifest.webmanifest',
@@ -39,8 +39,22 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(req.url);
 
-  // (a) 거래처 목록: network-first
-  if (url.pathname.indexOf('/api/contacts/m/all') !== -1) {
+  // (0) 페이지(HTML/네비게이션): network-first + no-store → 설치형(PWA) 화면이 항상 최신.
+  //     iOS 홈설치 PWA가 옛 페이지를 캐시하던 문제 해결. 오프라인이면 마지막으로 본 페이지.
+  if (req.mode === 'navigate' || (req.headers.get('accept') || '').indexOf('text/html') !== -1) {
+    event.respondWith(
+      fetch(req, { cache: 'no-store' })
+        .then((res) => {
+          if (res && res.ok) { const c = res.clone(); caches.open(CACHE_VER).then((ca) => ca.put(req, c)).catch(() => {}); }
+          return res;
+        })
+        .catch(() => caches.match(req).then((m) => m || caches.match('/contacts-mobile.html')))
+    );
+    return;
+  }
+
+  // (a) 거래처 목록·픽업 목록: network-first (성공분 캐시 → 음영지역에서 마지막 목록이라도)
+  if (url.pathname.indexOf('/api/contacts/m/all') !== -1 || url.pathname.indexOf('/api/pickup/requests') !== -1) {
     event.respondWith(
       fetch(req)
         .then((res) => {

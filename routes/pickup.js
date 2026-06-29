@@ -12,6 +12,8 @@ const L = require('../lib/pickup-logic');
 
 let notify = () => {};
 try { notify = require('../utils/notify').notify || notify; } catch (e) {}
+let realtime = { send: () => {} };
+try { realtime = require('../utils/realtime') || realtime; } catch (e) {}
 
 // ── [일회용·관리] 매입처 일괄 등록 (requireAuth 위 — control-secret 게이트) ──
 // 사장님 로그인(세션) 없이 배포 자동화로 호출. git-pull/restart 와 동일 .env CONTROL_DAEMON_SECRET 사용.
@@ -177,6 +179,7 @@ router.post('/requests', requirePerm('pickup_register'), express.json(), (req, r
     // 알림은 마감(기본 13:00) 이후 '추가요청'에서만 — 영업지원팀에게. 매 등록/매 업체마다 X.
     // 한 번 등록에 업체가 여러 개여도(순차 POST) 등록자별로 묶어 알림 1건(queueLateNotify).
     if (isLate) queueLateNotify(getReqUser(req), vendorName, pickupDate);
+    notifyPickupViewers(pickupDate, getReqUser(req));   // 그 날짜 보는 사람 화면 실시간 새로고침
     res.json(created);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -208,6 +211,7 @@ router.put('/requests/:id', requirePerm('pickup_register'), express.json(), (req
     if (Array.isArray(b.items)) changes.items = b.items;
     const updated = P.update(req.params.id, changes);
     auditLog(getReqUser(req), '픽업요청 수정', updated.vendorName);
+    notifyPickupViewers((updated && updated.pickupDate) || cur.pickupDate, getReqUser(req));
     res.json(updated);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -223,6 +227,7 @@ router.post('/requests/:id/cancel', requirePerm('pickup_register'), express.json
       return res.status(403).json({ error: '본인 요청만 취소 가능' });
     const r = P.cancel(req.params.id, getReqUser(req), (req.body && req.body.reason) || '');
     auditLog(getReqUser(req), '픽업요청 취소', cur.vendorName);
+    notifyPickupViewers(cur.pickupDate, getReqUser(req));
     res.json(r);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -238,6 +243,7 @@ router.delete('/requests/:id', requirePerm('pickup_register'), (req, res) => {
       return res.status(403).json({ error: '본인 요청만 삭제 가능' });
     P.delete(req.params.id);
     auditLog(getReqUser(req), '픽업요청 삭제', cur.vendorName);
+    notifyPickupViewers(cur.pickupDate, getReqUser(req));
     res.json({ ok: true, id: req.params.id });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -254,6 +260,7 @@ router.patch('/items/:id/status', requirePerm('pickup_check'), express.json(), (
       status: b.status, pickedQty: b.pickedQty, failReason: b.failReason,
     }, getReqUser(req));
     if (!updated) return res.status(404).json({ error: 'item not found' });
+    notifyPickupViewers(updated && updated.pickupDate, getReqUser(req));   // 동료 화면에 체크 즉시 반영(중복 픽업 방지)
     res.json(updated);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -272,6 +279,22 @@ router.get('/requests/:date/share-text', requirePerm('pickup_view'), (req, res) 
     res.json({ text: L.buildShareText(req.params.date, groups) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// ── 실시간: 픽업 변경 시 그 날짜를 보는 사용자(pickup_view/check/admin)의 열린 화면에 새로고침 신호 ──
+// 등록/상태변경/취소/수정/삭제 직후 호출. 행위자(exceptUserId)는 본인 화면이 이미 반영돼 있어 제외(불필요 리로드 방지).
+// 클라(/m/pickup.html, 데스크톱 취합)는 SSE(/api/workflow/events)에서 이 신호를 받아 디바운스 후 load(). 동료 체크 즉시 반영 → 중복 픽업 방지.
+function notifyPickupViewers(date, exceptUserId) {
+  try {
+    const users = (db['조직관리'].load().users || []).filter(u =>
+      u && u.status === 'approved' && (u.role === 'admin'
+        || (u.permissions || []).includes('pickup_view') || (u.permissions || []).includes('pickup_check')));
+    for (const u of users) {
+      const uid = u.userId || u.id;
+      if (!uid || uid === exceptUserId) continue;
+      try { realtime.send(uid, { t: 'pickup', date: date || '' }); } catch (_) {}
+    }
+  } catch (_) { /* 실시간 신호 실패는 무시(폴링 백스톱 있음) */ }
+}
 
 // ── 알림: 영업지원팀(부서)에게만 — 13시 이후 '추가요청' 발생 시 (best-effort) ──
 // 매 등록마다가 아니라 마감 이후 추가요청에서만 호출(라우트 isLate 게이트). 수신자=영업지원팀 부서원(없으면 admin 폴백).

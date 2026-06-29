@@ -8191,7 +8191,7 @@ function app() {
           y += 28;
           ctx.font = '400 16px ' + FF;
           for (const it of g.items) {
-            const main = (it.itemName || '') + (it.spec ? (' ' + it.spec) : '') + (it.qty ? (' ' + it.qty + (it.unit || '')) : '');
+            const main = (it.itemName || '') + (it.spec ? (' ' + it.spec) : '') + (it.qty ? (' ' + it.qty + (it.unit || '개')) : '');
             const siteStr = it.site ? ('  (' + it.site + ')') : '';
             const lateStr = (it._late && it._time) ? ('  · 추가 ' + it._time) : '';   // 추가요청(마감 후 등록)이면 등록시각을 빨강으로
             const mainW = ctx.measureText(main).width;
