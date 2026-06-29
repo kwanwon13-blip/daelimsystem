@@ -8118,8 +8118,11 @@ function app() {
       const G = [];
       for (const g of (this.pickupGroups || [])) {
         const items = [];
-        for (const r of (g.requests || [])) for (const it of (r.items || [])) {
-          if (it && it.status !== 'cancelled') items.push(it);   // 취소 품목은 픽업목록에서 제외
+        for (const r of (g.requests || [])) {
+          const late = !!r.isLate, t = this.pkTime(r);   // 요청(등록) 단위 추가요청 여부 + 등록시각(복사 이미지에도 반영)
+          for (const it of (r.items || [])) {
+            if (it && it.status !== 'cancelled') items.push({ ...it, _late: late, _time: t });   // 취소 품목 제외
+          }
         }
         if (items.length) G.push({ vendorName: g.vendorName || '미지정', items });
       }
@@ -8159,16 +8162,21 @@ function app() {
           for (const it of g.items) {
             const main = (it.itemName || '') + (it.spec ? (' ' + it.spec) : '') + (it.qty ? (' ' + it.qty + (it.unit || '')) : '');
             const siteStr = it.site ? ('  (' + it.site + ')') : '';
+            const lateStr = (it._late && it._time) ? ('  · 추가 ' + it._time) : '';   // 추가요청(마감 후 등록)이면 등록시각을 빨강으로
             const mainW = ctx.measureText(main).width;
             const siteW = siteStr ? ctx.measureText(siteStr).width : 0;
-            if (mainW + siteW <= maxW) {
+            const lateW = lateStr ? ctx.measureText(lateStr).width : 0;
+            if (mainW + siteW + lateW <= maxW) {
               if (draw) {
-                ctx.textAlign = 'left'; ctx.fillStyle = '#1a1a1a'; ctx.fillText(main, PAD, y + 16);
-                if (siteStr) { ctx.fillStyle = '#777'; ctx.fillText(siteStr, PAD + mainW, y + 16); }
+                ctx.textAlign = 'left';
+                ctx.fillStyle = '#1a1a1a'; ctx.fillText(main, PAD, y + 16);
+                let xx = PAD + mainW;
+                if (siteStr) { ctx.fillStyle = '#777'; ctx.fillText(siteStr, xx, y + 16); xx += siteW; }
+                if (lateStr) { ctx.fillStyle = '#d12f2f'; ctx.fillText(lateStr, xx, y + 16); }
               }
               y += 27;
             } else {
-              const lines = this._wrapCanvasLines(ctx, main + siteStr, maxW);
+              const lines = this._wrapCanvasLines(ctx, main + siteStr + lateStr, maxW);
               for (const ln of lines) { if (draw) { ctx.textAlign = 'left'; ctx.fillStyle = '#1a1a1a'; ctx.fillText(ln, PAD, y + 16); } y += 27; }
             }
           }
