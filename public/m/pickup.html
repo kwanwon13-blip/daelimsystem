@@ -226,8 +226,11 @@
                       <span class="material-symbols-outlined" x-text="it.status==='pickedUp' ? 'check' : (it.status==='notPicked' ? 'close' : 'inventory_2')"></span>
                     </div>
                     <div class="item-main">
-                      <div class="item-name" :class="it.status==='pickedUp' ? 'struck' : ''"
-                           x-text="it.itemName + (it.spec ? (' ' + it.spec) : '') + (it.qty ? ('  ' + it.qty + (it.unit||'개')) : '')"></div>
+                      <div class="item-name" :class="it.status==='pickedUp' ? 'struck' : ''">
+                        <span x-text="it.itemName + (it.spec ? (' ' + it.spec) : '') + (it.qty ? ('  ' + it.qty + (it.unit||'개')) : '')"></span>
+                        <span x-show="it.site" style="color:#6b7280;font-weight:600;" x-text="' (' + it.site + ')'"></span>
+                        <span x-show="req.isLate && timeOf(req)" style="color:#dc2626;font-weight:800;" x-text="' · 추가 ' + timeOf(req)"></span>
+                      </div>
                       <div class="item-sub" x-show="it.status==='notPicked'">
                         <span class="fail" x-text="'미수거' + (it.failReason ? (' · ' + it.failReason) : '')"></span>
                       </div>
@@ -354,6 +357,15 @@
       },
 
       // ── 헬퍼 ──
+      timeOf(req) {
+        var s = (req && req.requestedAt) || '';
+        if (!s) return '';
+        var iso = String(s).replace(' ', 'T');
+        if (!/[zZ]|[+-]\d\d:?\d\d$/.test(iso)) iso += 'Z';   // SQLite UTC → 로컬(KST) 변환
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) return '';
+        return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+      },
       vendorOf(g) {
         var req = (g.requests || []).find(function (x) { return x && x.vendor; });
         return (req && req.vendor) || { name: g.vendorName };
