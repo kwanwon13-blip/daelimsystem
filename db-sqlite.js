@@ -702,7 +702,7 @@ const pickupRequests = {
         checkedAt=datetime('now'), checkedBy=@checkedBy WHERE id=@id`).run({
       id: itemId,
       status: patch.status || item.status,
-      pickedQty: (patch.pickedQty === undefined ? item.pickedQty : Number(patch.pickedQty)),
+      pickedQty: (patch.pickedQty == null ? null : Number(patch.pickedQty)),   // 미지정/null=전체수거(부분수량 초기화), 값=부분
       failReason: patch.failReason !== undefined ? patch.failReason : item.failReason,
       checkedBy: checkedBy || '',
     });

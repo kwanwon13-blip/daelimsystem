@@ -258,7 +258,7 @@ router.patch('/items/:id/status', requirePerm('pickup_check'), express.json(), (
     if (b.status && !VALID.includes(b.status)) return res.status(400).json({ error: '잘못된 상태' });
     const updated = P.setItemStatus(req.params.id, {
       status: b.status, pickedQty: b.pickedQty, failReason: b.failReason,
-    }, getReqUser(req));
+    }, (req.user && req.user.name) || getReqUser(req));   // checkedBy=이름(완료자 표시·동시작업 추적)
     if (!updated) return res.status(404).json({ error: 'item not found' });
     notifyPickupViewers(updated && updated.pickupDate, getReqUser(req));   // 동료 화면에 체크 즉시 반영(중복 픽업 방지)
     res.json(updated);
