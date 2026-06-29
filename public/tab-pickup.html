@@ -67,17 +67,20 @@
 
           <!-- 미리보기: 업체별 카드 -->
           <template x-for="(cand, ci) in pickupKakaoCandidates" :key="'cand'+ci">
-            <div class="card" style="padding:12px;border:1px solid #e5e7eb;">
-              <div class="flex items-center gap-2 flex-wrap">
-                <span class="material-symbols-outlined" style="font-size:16px;color:#6b7280;">store</span>
-                <input type="text" x-model="cand.vendorName" class="input-base" style="flex:1;min-width:160px;font-weight:600;" placeholder="업체명">
-                <span x-show="cand.vendorId" class="text-xs px-2 py-0.5 rounded-full" style="background:#dcfce7;color:#15803d;">✓ 등록됨</span>
-                <span x-show="cand._saveFailed" class="text-xs px-2 py-0.5 rounded-full" style="background:#fee2e2;color:#b91c1c;">저장 실패 · 다시 시도</span>
-                <button class="btn-ghost btn-sm" style="margin-left:auto;" @click="pickupKakaoCandidates.splice(ci,1)">제외</button>
+            <div class="card" style="padding:0;overflow:hidden;border:1px solid #bfdbfe;">
+              <!-- 업체(회사) 헤더 — 파란 바 + '업체' 칩으로 품목과 확실히 구분 -->
+              <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border-bottom:1px solid #bfdbfe;flex-wrap:wrap;">
+                <span class="text-xs" style="background:#2563eb;color:#fff;padding:3px 10px;border-radius:999px;font-weight:800;flex:none;letter-spacing:0.5px;">업체</span>
+                <input type="text" x-model="cand.vendorName" class="input-base" style="flex:1;min-width:150px;font-weight:800;font-size:15px;background:#fff;" placeholder="회사명 (#로 자동완성)">
+                <span x-show="cand.vendorId" class="text-xs px-2 py-0.5 rounded-full" style="background:#dcfce7;color:#15803d;flex:none;">✓ 등록됨</span>
+                <span x-show="cand._saveFailed" class="text-xs px-2 py-0.5 rounded-full" style="background:#fee2e2;color:#b91c1c;flex:none;">저장 실패 · 다시 시도</span>
+                <button class="btn-ghost btn-sm" style="margin-left:auto;flex:none;" @click="pickupKakaoCandidates.splice(ci,1)">제외</button>
               </div>
-              <div style="margin-top:10px;" class="space-y-1">
+              <!-- 픽업 품목 — 라벨 + 왼쪽 파란 줄로 '이 업체에 딸린 품목' 표현 -->
+              <div style="padding:8px 12px 10px;" class="space-y-1">
+                <div class="text-xs" style="color:#94a3b8;font-weight:700;margin-bottom:3px;letter-spacing:0.3px;">📦 픽업 품목</div>
                 <template x-for="(it, ii) in cand.items" :key="'ci'+ci+'it'+ii">
-                  <div class="flex gap-1 items-center" style="flex-wrap:wrap;">
+                  <div class="flex gap-1 items-center" style="flex-wrap:wrap;border-left:3px solid #dbeafe;padding-left:8px;">
                     <input x-model="it.itemName" class="input-base" style="flex:2;" placeholder="품목">
                     <input x-model="it.spec" class="input-base" style="flex:1;" placeholder="규격">
                     <input x-model="it.site" class="input-base" style="flex:1;" placeholder="현장">
