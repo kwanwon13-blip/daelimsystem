@@ -295,56 +295,53 @@
         해당 날짜에 픽업 요청이 없습니다.
       </div>
 
-      <!-- 업체 카드 -->
+      <!-- 업체 카드 (복사 이미지 느낌 — 깔끔/스캔 가능) -->
       <template x-for="g in pickupGroups" :key="g.groupKey || g.vendorId || g.vendorName">
-        <div class="card" style="padding:0;overflow:hidden;">
-          <!-- 카드 헤더 -->
-          <div style="padding:10px 14px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border-bottom:1px solid #bbf7d0;">
+        <div class="card" style="padding:0;overflow:hidden;border:1px solid #e5e7eb;">
+          <!-- 업체 헤더: 파란 굵은 업체명 + 상태 + 길찾기 컴팩트 -->
+          <div style="padding:9px 13px;border-bottom:1px solid #f1f5f9;">
             <div class="flex items-center gap-2 flex-wrap">
-              <span class="material-symbols-outlined" style="font-size:16px;color:#16a34a;">store</span>
-              <span class="font-bold text-sm" x-text="g.vendorName || '미지정'"></span>
-              <span class="text-xs px-2 py-0.5 rounded-full" :style="pickupStatusStyle(pickupGroupRollup(g).status)" x-text="pickupGroupRollup(g).label"></span>
-              <span class="text-xs" x-show="pickupGroupHasLate(g)" style="color:#dc2626;font-weight:600;">🔴 추가요청</span>
-              <span class="text-xs" x-show="pickupGroupHasWorkflow(g)" style="color:#7c3aed;font-weight:600;">🎨 시안</span>
+              <span style="font-size:16px;font-weight:800;color:#1565c0;" x-text="g.vendorName || '미지정'"></span>
+              <span class="text-xs" style="color:#94a3b8;" x-text="pickupGroupRollup(g).label"></span>
+              <span class="text-xs" x-show="pickupGroupHasLate(g)" style="color:#dc2626;font-weight:700;">🔴 추가요청</span>
+              <span class="text-xs" x-show="pickupGroupHasWorkflow(g)" style="color:#7c3aed;font-weight:700;">🎨 시안</span>
+              <div style="margin-left:auto;display:flex;gap:4px;" x-show="pickupGroupVendor(g)">
+                <button class="btn-ghost btn-sm" style="padding:2px 9px;font-weight:700;" @click="openPickupMap(pickupGroupVendor(g), 'naver')" title="네이버 지도">N</button>
+                <button class="btn-ghost btn-sm" style="padding:2px 9px;font-weight:700;" @click="openPickupMap(pickupGroupVendor(g), 'kakao')" title="카카오 지도">K</button>
+                <button class="btn-ghost btn-sm" style="padding:2px 9px;font-weight:700;" @click="openPickupMap(pickupGroupVendor(g), 'tmap')" title="T맵">T</button>
+              </div>
             </div>
-            <div class="text-xs text-gray-500" style="margin-top:3px;" x-show="pickupGroupVendor(g)">
-              <span x-show="pickupGroupVendor(g).address" x-text="pickupGroupVendor(g).address"></span>
-              <span x-show="pickupGroupVendor(g).phone || pickupGroupVendor(g).contactPhone"> · <span x-text="pickupGroupVendor(g).contactPhone || pickupGroupVendor(g).phone"></span></span>
-            </div>
-            <div x-show="pickupGroupVendor(g) && (pickupGroupVendor(g).pickupMemo || pickupGroupVendor(g).parkingAccessMemo)" class="text-xs" style="margin-top:3px;color:#b45309;">
+            <div class="text-xs text-gray-400" style="margin-top:2px;" x-show="pickupGroupVendor(g) && pickupGroupVendor(g).address" x-text="pickupGroupVendor(g).address"></div>
+            <div x-show="pickupGroupVendor(g) && (pickupGroupVendor(g).pickupMemo || pickupGroupVendor(g).parkingAccessMemo)" class="text-xs" style="margin-top:2px;color:#b45309;">
               <span x-show="pickupGroupVendor(g).pickupMemo" x-text="'📦 ' + pickupGroupVendor(g).pickupMemo"></span>
               <span x-show="pickupGroupVendor(g).parkingAccessMemo" x-text="' 🅿 ' + pickupGroupVendor(g).parkingAccessMemo"></span>
             </div>
-            <!-- 길찾기 3버튼 -->
-            <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
-              <button class="btn-ghost btn-sm" @click="openPickupMap(pickupGroupVendor(g), 'naver')">네이버</button>
-              <button class="btn-ghost btn-sm" @click="openPickupMap(pickupGroupVendor(g), 'kakao')">카카오</button>
-              <button class="btn-ghost btn-sm" @click="openPickupMap(pickupGroupVendor(g), 'tmap')">T맵</button>
-            </div>
           </div>
-          <!-- 카드 본문: 요청별 품목 체크리스트 -->
-          <div style="padding:8px 14px;" class="space-y-2">
+          <!-- 품목: 한 줄로 또렷 + 추가요청은 품목 옆에 시각 -->
+          <div style="padding:3px 13px 8px;">
             <template x-for="req in g.requests" :key="req.id">
               <div>
-                <div class="text-xs text-gray-400" style="margin-bottom:2px;">
-                  <span x-text="req.registrarName || '등록자'"></span>
-                  <span x-show="pkTime(req)" :style="req.isLate ? 'color:#dc2626;font-weight:600;' : ''"> · <span x-text="pkTime(req) + (req.isLate ? ' 추가요청' : ' 등록')"></span></span>
-                  <span x-show="req.memo"> · <span x-text="req.memo"></span></span>
-                  <a x-show="req.sourceType==='workflow' && req.sourceJobId" :href="'#workflow:' + encodeURIComponent(req.sourceJobId)" style="color:#7c3aed;margin-left:4px;">[워크플로 잡 보기]</a>
+                <div x-show="req.memo || (req.sourceType==='workflow' && req.sourceJobId)" class="text-xs text-gray-400" style="padding:3px 0 0 28px;">
+                  <span x-show="req.memo" x-text="'· ' + req.memo"></span>
+                  <a x-show="req.sourceType==='workflow' && req.sourceJobId" :href="'#workflow:' + encodeURIComponent(req.sourceJobId)" style="color:#7c3aed;margin-left:4px;">[시안]</a>
                 </div>
                 <template x-for="it in req.items" :key="it.id">
-                  <div style="padding:6px 0;border-bottom:1px dashed #f1f5f9;display:flex;flex-wrap:wrap;align-items:center;gap:6px;">
-                    <span class="text-sm" style="flex:1 1 100%;min-width:0;" :style="it.status==='cancelled' ? 'text-decoration:line-through;color:#9ca3af;' : ''">
+                  <div style="padding:7px 0;border-bottom:1px dashed #f1f5f9;display:flex;align-items:center;gap:9px;">
+                    <span class="material-symbols-outlined" style="font-size:20px;flex:none;"
+                      :style="it.status==='pickedUp' ? 'color:#16a34a;' : (it.status==='notPicked' ? 'color:#dc2626;' : 'color:#cbd5e1;')"
+                      x-text="it.status==='pickedUp' ? 'check_circle' : (it.status==='notPicked' ? 'cancel' : (it.status==='cancelled' ? 'remove_circle' : 'radio_button_unchecked'))"></span>
+                    <span style="flex:1;min-width:0;font-size:15px;line-height:1.45;"
+                      :style="(it.status==='pickedUp'||it.status==='cancelled') ? 'text-decoration:line-through;color:#9ca3af;' : 'color:#1a1a1a;'">
                       <span x-text="it.itemName + (it.spec?(' '+it.spec):'') + (it.qty?(' '+it.qty+(it.unit||'')):'')"></span>
-                      <span x-show="it.site" class="text-xs px-2 py-0.5 rounded-full" style="background:#eef2ff;color:#4f46e5;margin-left:4px;" x-text="'🏗 '+it.site"></span>
+                      <span x-show="it.site" style="color:#64748b;" x-text="' ('+it.site+')'"></span>
+                      <span x-show="req.isLate && pkTime(req)" style="color:#dc2626;font-weight:700;" x-text="' · 추가 '+pkTime(req)"></span>
                     </span>
-                    <span class="text-xs px-2 py-0.5 rounded-full" style="flex:0 0 auto;" :style="pickupItemStatusStyle(it.status)" x-text="pickupItemStatusLabel(it.status)"></span>
                     <template x-if="canCheckPickup">
-                      <div class="flex items-center" style="flex-wrap:wrap;gap:4px;margin-left:auto;">
-                        <input type="number" x-model.number="it._pickedQty" class="input-base" style="width:60px;" placeholder="수거수량" :value="it.pickedQty ?? ''">
-                        <button class="btn-ghost btn-sm" title="수거완료" @click="setPickupItem(it, 'pickedUp', (it._pickedQty != null && it._pickedQty !== '') ? { pickedQty: it._pickedQty } : undefined)">✅</button>
-                        <button class="btn-ghost btn-sm" title="미수거" @click="setPickupItemNotPicked(it)">❌</button>
-                        <button class="btn-ghost btn-sm" title="취소" @click="setPickupItem(it, 'cancelled')">🚫</button>
+                      <div class="flex items-center" style="flex:none;gap:3px;">
+                        <input type="number" x-model.number="it._pickedQty" class="input-base" style="width:48px;padding:3px 4px;text-align:center;" placeholder="수량" :value="it.pickedQty ?? ''">
+                        <button class="btn-ghost btn-sm" style="padding:2px 7px;" title="수거완료" @click="setPickupItem(it, 'pickedUp', (it._pickedQty != null && it._pickedQty !== '') ? { pickedQty: it._pickedQty } : undefined)">✅</button>
+                        <button class="btn-ghost btn-sm" style="padding:2px 7px;" title="미수거" @click="setPickupItemNotPicked(it)">❌</button>
+                        <button class="btn-ghost btn-sm" style="padding:2px 7px;" title="취소" @click="setPickupItem(it, 'cancelled')">🚫</button>
                       </div>
                     </template>
                   </div>
