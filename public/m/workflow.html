@@ -347,7 +347,7 @@
   <template x-if="detail && detail.job">
     <div class="detail">
       <div class="d-head">
-        <button type="button" class="d-back" @click="closeDetail()" aria-label="뒤로">
+        <button type="button" class="d-back" @click="mBack()" aria-label="뒤로">
           <span class="material-symbols-outlined">arrow_back</span>
         </button>
         <div class="d-title" x-text="detailHeaderTitle()"></div>
@@ -477,7 +477,7 @@
     <div class="lb-top">
       <div class="lb-site" x-text="(detail && detail.job) ? ([detail.job.companyName, detail.job.projectName].filter(Boolean).join(' · ') || '현장 미지정') : ''"></div>
       <span class="lb-count" x-show="mLbImages().length > 1" x-text="(mLbIndex()+1) + ' / ' + mLbImages().length"></span>
-      <button type="button" class="lb-x" @click="mLb.open=false" aria-label="닫기">
+      <button type="button" class="lb-x" @click="mBack()" aria-label="닫기">
         <span class="material-symbols-outlined">close</span>
       </button>
     </div>
@@ -563,6 +563,7 @@
       base.mOpenLightbox = function (file) {
         if (!file || !file.isImage || file.exists === false) return;
         this.mLb = { open: true, file: file };
+        if (!this._mPop) { try { history.pushState({ mv: 'lightbox' }, ''); } catch (e) {} }
       };
       // 현재 상세의 시안 타일(용접/출력 보기 mTeam 반영). 데스크톱 detailTiles는 boardTeam('')이라 전체 → 여기서 모바일 mTeam만 거른다.
       base.mTiles = function () {
@@ -594,9 +595,29 @@
         if (n < 0 || n >= imgs.length) return;
         this.mLb = { open: true, file: imgs[n] };
       };
+      // ── 인앱 뒤로가기(history) — 상세/라이트박스를 history 항목으로(데스크톱 패턴 이식) ──
+      base._mPop = false; // popstate 처리 중(이중 pop 방지)
+      var _cd0 = base.closeDetail;
+      var _sj0 = base.selectJob;
+      base._closeDetailRaw = function () { return _cd0.apply(this, arguments); };
+      base.mBack = function () { try { history.back(); } catch (e) { if (this.mLb) this.mLb = { open: false, file: null }; if (this.detail) this._closeDetailRaw(); } };
+      base.selectJob = function () { var r = _sj0.apply(this, arguments); if (!this._mPop) { try { history.pushState({ mv: 'detail' }, ''); } catch (e) {} } return r; };
+      base.closeDetail = function () { if (this._mPop) return _cd0.apply(this, arguments); try { if (history.state && history.state.mv === 'detail') { history.back(); return; } } catch (e) {} return _cd0.apply(this, arguments); };
       return base;
     };
     window.workflowApp.__mobileWrapped = true;
+    // 인앱 뒤로가기: OS/제스처 back으로 라이트박스→상세 순으로 한 칸씩 닫기(없으면 목록→홈은 브라우저가 처리)
+    window.addEventListener('popstate', function () {
+      var el = document.querySelector('[x-data*="workflowApp"]');
+      var app = (el && window.Alpine) ? Alpine.$data(el) : null;
+      if (!app) return;
+      app._mPop = true;
+      try {
+        if (app.mLb && app.mLb.open) { app.mLb = { open: false, file: null }; }
+        else if (app.detail) { app._closeDetailRaw(); }
+      } catch (e) {}
+      app._mPop = false;
+    });
   })();
 </script>
 

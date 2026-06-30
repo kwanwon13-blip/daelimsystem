@@ -221,6 +221,18 @@
   });
 
   function toast(msg){ var t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(function(){ t.classList.remove('show'); }, 2500); }
+  // 홈 종료 보호 — 뒤로가기 한 번은 '한 번 더 누르면 나가기' 안내로 흡수(실수 종료 방지)
+  (function () {
+    try { history.pushState({ mh: 1 }, ''); } catch (e) {}
+    var armed = false, _t = null;
+    window.addEventListener('popstate', function () {
+      if (armed) return; // 두 번째 back: 통과(나가기)
+      try { history.pushState({ mh: 1 }, ''); } catch (e) {} // 재-trap: 홈에 머무름
+      armed = true;
+      try { toast('한 번 더 누르면 나가기'); } catch (e) {}
+      clearTimeout(_t); _t = setTimeout(function () { armed = false; }, 2000);
+    });
+  })();
 
   function deptLabel(d){
     var map = { design:'디자인팀', factory:'공장', management:'경영관리팀', delivery:'납품팀', sales:'영업팀' };
