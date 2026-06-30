@@ -36,6 +36,10 @@
   .tab .material-symbols-outlined{font-size:18px;}
   .tab.on{background:#1d4ed8;border-color:#1d4ed8;color:#fff;}
   .tab .cnt{background:rgba(0,0,0,.12);border-radius:999px;font-size:12px;font-weight:800;min-width:20px;padding:1px 6px;text-align:center;}
+  .team-tabs{display:flex;gap:8px;padding:4px 12px 2px;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .team-tabs .tab{min-height:40px;font-size:14px;}
+  .tab.tteam.weld.on{background:#ea580c;border-color:#ea580c;color:#fff;}
+  .tab.tteam.out.on{background:#2563eb;border-color:#2563eb;color:#fff;}
   .tab.on .cnt{background:rgba(255,255,255,.28);}
 
   /* 검색 */
@@ -234,6 +238,15 @@
         </div>
       </div>
 
+      <!-- 컴퍼니(공장) 용접/출력 나눠보기 — factory 진행 탭에서만 -->
+      <template x-if="mStage==='factory' && statusFilter==='active'">
+        <div class="team-tabs">
+          <button type="button" class="tab" :class="mTeam===''?'on':''" @click="mTeam=''">전체</button>
+          <button type="button" class="tab tteam weld" :class="mTeam==='welding'?'on':''" @click="mTeam='welding'">용접팀</button>
+          <button type="button" class="tab tteam out" :class="mTeam==='output'?'on':''" @click="mTeam='output'">출력팀</button>
+        </div>
+      </template>
+
       <!-- 리스트 -->
       <div class="list">
         <div class="statebar">
@@ -407,14 +420,14 @@
           <span class="material-symbols-outlined">imagesmode</span>시안 · 파일
         </div>
 
-        <template x-if="!detailTiles().length">
+        <template x-if="!mTiles().length">
           <div class="empty" style="padding:30px 16px;">
             <span class="material-symbols-outlined">draft</span>
             <div class="empty-t">등록된 파일이 없습니다</div>
           </div>
         </template>
 
-        <template x-for="file in detailTiles()" :key="'m-'+file.id">
+        <template x-for="file in mTiles()" :key="'m-'+file.id">
           <div class="file" :class="isUnreadFile(file) ? 'unread' : ''">
             <!-- 이미지 -->
             <template x-if="file.isImage && file.exists!==false">
@@ -508,16 +521,19 @@
       // ── 모바일 전용 상태 ──
       base.mStage = 'design';                 // 현재 보는 단계(상단 탭)
       base.mLb = { open: false, file: null }; // 시안 라이트박스
+      base.mTeam = '';                        // 모바일 전용 용접/출력 보기(전체='') — 데스크톱 boardTeam 안 건드림
       // ── 모바일 전용 메서드 ──
       base.mSelectStage = function (id) {
         // 완료 탭에서 단계 탭으로 돌아오면 active 보드로 복귀(필요 시 재로딩)
         var needReload = (this.statusFilter !== 'active');
         this.mStage = id;
+        if (id !== 'factory') this.mTeam = ''; // 용접/출력 보기는 컴퍼니(공장) 전용
         if (needReload) { this.statusFilter = 'active'; this.loadJobs(); }
       };
       base.mShowDone = function () {
         if (this.statusFilter === 'done') return;
         this.statusFilter = 'done';
+        this.mTeam = '';
         this.loadJobs();
       };
       base.mCurrentLabel = function () {
@@ -538,16 +554,30 @@
           var js = groups[i].jobs || [];
           for (var k = 0; k < js.length; k++) out.push(js[k]);
         }
+        if (this.mStage === 'factory' && (this.mTeam === 'welding' || this.mTeam === 'output')) {
+          var _t = this.mTeam;
+          out = out.filter(function (j) { return _t === 'welding' ? (j.weldingFileCount > 0) : (j.outputFileCount > 0); });
+        }
         return out;
       };
       base.mOpenLightbox = function (file) {
         if (!file || !file.isImage || file.exists === false) return;
         this.mLb = { open: true, file: file };
       };
+      // 현재 상세의 시안 타일(용접/출력 보기 mTeam 반영). 데스크톱 detailTiles는 boardTeam('')이라 전체 → 여기서 모바일 mTeam만 거른다.
+      base.mTiles = function () {
+        var t = [];
+        try { t = this.detailTiles() || []; } catch (e) { t = []; }
+        if (this.mTeam === 'welding' || this.mTeam === 'output') {
+          var _t = this.mTeam;
+          return t.filter(function (f) { return f && f.team === _t; });
+        }
+        return t;
+      };
       // 현재 상세의 이미지 시안 목록(넘기기용)
       base.mLbImages = function () {
         try {
-          return (this.detailTiles() || []).filter(function (f) { return f && f.isImage && f.exists !== false; });
+          return (this.mTiles() || []).filter(function (f) { return f && f.isImage && f.exists !== false; });
         } catch (e) { return []; }
       };
       base.mLbIndex = function () {
