@@ -436,7 +436,11 @@ function approvalApp() {
 
     // ── 추가근무(컴퍼니) — 전실장 대신입력 + 월별 집계 ──────────────
     get canCompanyOvertime() {
-      return this.myRole === 'admin' || (this.myCompanyId === 'dalim-company' && this.myIsLeader);
+      if (this.myRole === 'admin') return true;
+      const me = (this.allUsers || []).find(u => u.userId === this.myUserId);
+      if (!me) return false;
+      const compDepts = (this.departments || []).filter(d => d.companyId === 'dalim-company' || (d.name || '').includes('컴퍼니'));
+      return compDepts.some(d => d.leaderId === me.id);
     },
     get companyEmployees() {
       return (this.allUsers || []).filter(u => u.companyId === 'dalim-company' && u.status === 'approved');

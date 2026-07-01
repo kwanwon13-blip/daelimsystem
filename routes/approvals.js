@@ -110,13 +110,19 @@ router.delete('/delegate/:id', requireAuth, (req, res) => {
 
 // ── 추가근무(컴퍼니) — 전실장이 직원별 대신 입력 + 월별 집계 ───────────
 // 컴퍼니 부서장(전실장) 또는 admin만. '결재형'(대기 → 사장님 승인). /:id 보다 먼저 등록.
+// 대림컴퍼니 판정: 회사구분(dalim-company)은 실데이터에 안 쓰이고 '대림컴퍼니'는 부서로 존재 → 부서명/회사구분 둘 다로 인식
+function isCompanyDept(dp) {
+  return !!dp && (dp.companyId === 'dalim-company' || (dp.name || '').includes('컴퍼니'));
+}
+function companyDeptIdSet(uData) {
+  return new Set((uData.departments || []).filter(isCompanyDept).map(d => d.id));
+}
 function isCompanyTeamLeader(user, uData) {
   try {
     const me = (uData.users || []).find(u => u.userId === user.userId);
-    if (!me) return false;
-    if ((me.companyId || 'dalim-sm') !== 'dalim-company') return false;
+    if (!me || !me.department) return false;
     const dept = (uData.departments || []).find(d => d.id === me.department);
-    return !!(dept && dept.leaderId === me.id);
+    return !!(dept && isCompanyDept(dept) && dept.leaderId === me.id);
   } catch (e) { return false; }
 }
 function canCompanyOvertime(user, uData) {
@@ -207,13 +213,11 @@ router.get('/overtime-summary', requireAuth, (req, res) => {
   if (!/^\d{4}-\d{2}$/.test(month)) {
     return res.status(400).json({ error: 'month=YYYY-MM 형식으로 요청해주세요' });
   }
-  // 컴퍼니 소속 판정(스토어드 companyId 누락 대비: 유저 현재 companyId 또는 소속부서 companyId)
-  const companyDeptIds = new Set((uData.departments || []).filter(dp => dp.companyId === 'dalim-company').map(dp => dp.id));
-  const userIsCompany = (userId, name) => {
+  // 대림컴퍼니 부서 소속 판정(회사구분 dalim-company가 실데이터에 없으므로 부서 기준)
+  const compDeptIds = companyDeptIdSet(uData);
+  const inCompanyDept = (userId, name) => {
     const u = (uData.users || []).find(x => (userId && x.userId === userId) || (!userId && name && x.name === name));
-    if (!u) return false;
-    if ((u.companyId || '') === 'dalim-company') return true;
-    return !!(u.department && companyDeptIds.has(u.department));
+    return !!(u && u.department && compDeptIds.has(u.department));
   };
   const overtimeHrs = (s, e) => {
     if (!s || !e) return 0;
@@ -221,9 +225,9 @@ router.get('/overtime-summary', requireAuth, (req, res) => {
     const diff = toMin(e) - toMin(s);
     return diff > 0 ? Math.round((diff / 60) * 10) / 10 : 0;
   };
-  // 컴퍼니 추가근무(대신입력·시간단위) + 시간외근무(자기기안·시작~종료) 둘 다 합산
+  // 대림컴퍼니 팀원의 시간외근무(시작~종료) + 추가근무(시간) 월별 합산
   const docs = (uData.approvals || []).filter(d =>
-    (d.type === '추가근무' || d.type === '시간외근무') &&
+    (d.type === '시간외근무' || d.type === '추가근무') &&
     d.status !== 'deleted' &&
     d.formData && typeof d.formData.date === 'string' &&
     d.formData.date.slice(0, 7) === month
@@ -233,15 +237,14 @@ router.get('/overtime-summary', requireAuth, (req, res) => {
     const fd = d.formData || {};
     let h, personId, personName, startTime = '', endTime = '';
     if (d.type === '추가근무') {
+      personId = fd.targetUserId || ''; personName = fd.targetName || '';
+      if (!inCompanyDept(personId, personName)) continue;
       h = Number(fd.hours) || 0;
-      personId = fd.targetUserId || '';
-      personName = fd.targetName || '';
-    } else { // 시간외근무 — 자기기안, 시작~종료로 시간 계산. 컴퍼니 소속만.
-      if (d.companyId !== 'dalim-company' && !userIsCompany(d.authorId, d.authorName)) continue;
+    } else { // 시간외근무 — 자기기안, 시작~종료로 시간 계산
+      personId = d.authorId || ''; personName = d.authorName || '';
+      if (!inCompanyDept(personId, personName)) continue;
       startTime = fd.startTime || ''; endTime = fd.endTime || '';
       h = overtimeHrs(startTime, endTime);
-      personId = d.authorId || '';
-      personName = d.authorName || '';
     }
     const key = personId || personName || '(미상)';
     if (!byEmp[key]) {
@@ -253,10 +256,7 @@ router.get('/overtime-summary', requireAuth, (req, res) => {
       status: d.status, kind: d.type, startTime, endTime, enteredBy: d.authorName
     });
     if (d.status === 'approved') byEmp[key].approvedHours += h;
-    else if (d.status === 'pending') {
-      byEmp[key].pendingHours += h;
-      if (d.type === '추가근무') byEmp[key].pendingIds.push(d.id); // 일괄승인은 추가근무만(시간외근무는 결재함서 승인)
-    }
+    else if (d.status === 'pending') byEmp[key].pendingHours += h;
   }
   const employees = Object.values(byEmp).map(e => {
     e.entries.sort((a, b) => String(a.date).localeCompare(String(b.date)));
