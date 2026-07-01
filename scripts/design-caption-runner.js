@@ -67,7 +67,7 @@ const FOLDER_TERMS = FOLDER_FILTER ? FOLDER_FILTER.split(',').map(s => s.trim().
 const YEAR_RAW = (arg('year', '') === true) ? '' : String(arg('year', ''));
 const YEAR_TERMS = YEAR_RAW ? YEAR_RAW.split(',').map(s => s.trim()).filter(Boolean) : [];
 const CONCURRENCY = Math.max(1, Math.min(6, parseInt(arg('concurrency', '3'), 10) || 3));
-const BATCH = Math.max(1, Math.min(20, parseInt(arg('batch', '12'), 10) || 12)); // 한 claude 호출당 이미지 수 — 고정비(시스템프롬프트 28k) 분산. 기본12=장당비용 batch5 대비 ~1.5배↓
+const BATCH = Math.max(1, Math.min(28, parseInt(arg('batch', '24'), 10) || 24)); // 한 claude 호출당 이미지 수 — 고정비 분산. 실측 장당: b5 $0.049·b12 $0.035·b24 $0.0256(24/24 온전). 28↑은 출력 16k근처=잘림위험
 const DRY = !!arg('dry', false);
 const COUNT_ONLY = !!arg('count', false); // 캡션 안 하고 필터 결과 장수만 세고 종료(무료 미리보기)
 const WORKFLOW = !!arg('workflow', false); // ★스캔 대신 workflow.json 의 워크플로 시안만 캡션(매일밤 신규 자동)
