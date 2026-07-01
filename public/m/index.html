@@ -53,6 +53,8 @@
   .tile.design .tile-ic{background:#0ea5e9;}
   .tile.contacts{border-left-color:#16a34a;}
   .tile.contacts .tile-ic{background:#16a34a;}
+  .tile.approval{border-left-color:#7c3aed;}
+  .tile.approval .tile-ic{background:#7c3aed;}
   .tile.soon{opacity:.62;}
   .tile.soon .badge{background:#fef3c7;color:#92400e;}
 
@@ -139,6 +141,15 @@
         <div class="tile-main">
           <div class="tile-t">워크플로우</div>
           <div class="tile-s">발주·시안·제작 진행 확인 및 처리</div>
+        </div>
+        <div class="tile-arrow"><span class="material-symbols-outlined">chevron_right</span></div>
+      </a>
+
+      <a class="tile approval" href="/m/approvals.html">
+        <div class="tile-ic"><span class="material-symbols-outlined">how_to_reg</span></div>
+        <div class="tile-main">
+          <div class="tile-t">결재 <span class="badge" id="apprBadge" style="display:none;background:#fee2e2;color:#b91c1c;"></span></div>
+          <div class="tile-s">승인 대기 결재 확인 · 폰에서 승인/반려</div>
         </div>
         <div class="tile-arrow"><span class="material-symbols-outlined">chevron_right</span></div>
       </a>
@@ -266,6 +277,11 @@
       wrap.style.display = 'block';
       setupInstall();
       setupPush();
+      // 결재 미처리 건수 배지
+      fetch('/api/approvals/?filter=pending', { credentials:'same-origin', cache:'no-store' })
+        .then(function(r){ return r.ok ? r.json() : []; })
+        .then(function(docs){ var n = (docs||[]).length; if (n > 0) { var b = document.getElementById('apprBadge'); if (b) { b.textContent = n; b.style.display = 'inline-block'; } } })
+        .catch(function(){});
     })
     .catch(function(){ location.replace('/m/login.html'); });
 

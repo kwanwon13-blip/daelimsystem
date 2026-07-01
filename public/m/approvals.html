@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta name="theme-color" content="#1d4ed8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="결재">
+<link rel="manifest" href="/manifest-m.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png">
+<link rel="stylesheet" href="/fonts/material-symbols.css" />
+<title>결재 — 대림에스엠</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{font-family:-apple-system,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;background:#eef1f6;color:#111827;-webkit-font-smoothing:antialiased;font-size:16px;padding-bottom:env(safe-area-inset-bottom);}
+  [x-cloak]{display:none!important;}
+  .material-symbols-outlined{font-variation-settings:'FILL' 0,'wght' 500,'GRAD' 0,'opsz' 24;display:inline-flex;align-items:center;justify-content:center;line-height:1;}
+  .wrap{max-width:560px;margin:0 auto;min-height:100vh;background:#eef1f6;}
+
+  .hd{background:#1d4ed8;color:#fff;padding:calc(env(safe-area-inset-top) + 14px) 14px 12px;position:sticky;top:0;z-index:60;}
+  .hd-row{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .hd-h1{font-size:21px;font-weight:800;letter-spacing:-.3px;}
+  .hd-sub{font-size:12px;opacity:.9;}
+  .hd-btns{display:flex;gap:7px;flex:none;}
+  .hd-btn{display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,.16);color:#fff;border:none;border-radius:11px;padding:8px 10px;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;}
+  .hd-btn .material-symbols-outlined{font-size:18px;}
+  .hd-btn .dot{width:8px;height:8px;border-radius:50%;background:#9ca3af;} .hd-btn .dot.on{background:#4ade80;}
+
+  .tabs{display:flex;gap:8px;padding:12px 14px 4px;position:sticky;top:calc(env(safe-area-inset-top) + 60px);z-index:55;background:#eef1f6;}
+  .tab{flex:1;min-height:44px;border:1.5px solid #d7dbe3;background:#fff;color:#475569;border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;}
+  .tab.on{background:#1d4ed8;color:#fff;border-color:#1d4ed8;}
+  .tab .cnt{font-size:11px;font-weight:800;background:#dc2626;color:#fff;border-radius:999px;padding:1px 7px;}
+  .tab.on .cnt{background:rgba(255,255,255,.25);}
+
+  .list{padding:6px 12px 110px;}
+  .statebar{display:flex;align-items:center;gap:8px;padding:6px 4px 10px;color:#6b7280;font-size:13px;}
+  .spin{width:18px;height:18px;border:3px solid #cbd5e1;border-top-color:#1d4ed8;border-radius:50%;animation:spin 1s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .card{background:#fff;border:1px solid #e8ebf1;border-radius:14px;padding:13px 14px;margin-bottom:10px;}
+  .c-top{display:flex;align-items:flex-start;gap:8px;}
+  .c-title{flex:1;min-width:0;font-size:16px;font-weight:800;letter-spacing:-.2px;line-height:1.3;word-break:keep-all;overflow-wrap:anywhere;}
+  .c-type{flex:none;font-size:11px;font-weight:800;background:#eef2ff;color:#3730a3;border-radius:999px;padding:3px 9px;}
+  .c-meta{font-size:13px;color:#6b7280;margin-top:5px;}
+  .c-sum{font-size:14px;color:#374151;margin-top:7px;background:#f8fafc;border:1px solid #eef1f6;border-radius:9px;padding:8px 10px;line-height:1.4;word-break:keep-all;overflow-wrap:anywhere;}
+  .c-cmt{font-size:12.5px;color:#9a3412;margin-top:6px;}
+  .st{flex:none;font-size:11px;font-weight:800;border-radius:999px;padding:3px 9px;}
+  .st-p{background:#fef9c3;color:#854d0e;} .st-a{background:#dcfce7;color:#15803d;} .st-r{background:#fee2e2;color:#b91c1c;} .st-c{background:#ffedd5;color:#9a3412;} .st-x{background:#f1f5f9;color:#64748b;}
+
+  .acts{display:flex;gap:9px;margin-top:11px;}
+  .ab{flex:1;min-height:46px;border:none;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;}
+  .ab .material-symbols-outlined{font-size:20px;}
+  .ab.ok{background:#16a34a;color:#fff;} .ab.no{background:#fff;color:#dc2626;border:1.5px solid #fca5a5;}
+  .ab:disabled{opacity:.5;}
+
+  .empty{padding:54px 28px;text-align:center;color:#6b7280;}
+  .empty .material-symbols-outlined{font-size:54px;color:#cbd5e1;}
+  .empty-t{font-size:17px;font-weight:700;margin-top:10px;} .empty-s{font-size:14px;color:#9aa3b2;margin-top:5px;line-height:1.5;}
+  .gate{padding:60px 26px;text-align:center;color:#4b5563;}
+  .gate .material-symbols-outlined{font-size:56px;color:#cbd5e1;} .gate a{color:#1d4ed8;text-decoration:none;font-weight:700;}
+  .saving-bar{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#111827;color:#fff;font-size:14px;font-weight:700;padding:11px 20px;border-radius:14px;z-index:300;display:flex;align-items:center;gap:9px;}
+  .saving-bar .spin{border-color:rgba(255,255,255,.35);border-top-color:#fff;}
+</style>
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+</head>
+<body>
+<div class="wrap" x-data="approvalsApp()" x-init="init()" x-cloak>
+
+  <div class="hd">
+    <div class="hd-row">
+      <div>
+        <div class="hd-sub">대림에스엠 · 모바일</div>
+        <div class="hd-h1">결재</div>
+      </div>
+      <div class="hd-btns">
+        <span class="hd-btn" title="실시간 연결"><span class="dot" :class="sseOn ? 'on' : ''"></span>실시간</span>
+        <a class="hd-btn" href="/m/" title="홈"><span class="material-symbols-outlined">home</span></a>
+      </div>
+    </div>
+  </div>
+
+  <template x-if="authChecked && !me">
+    <div class="gate"><span class="material-symbols-outlined">lock</span><div style="margin-top:10px;"><a href="/m/login.html">로그인 필요 →</a></div></div>
+  </template>
+
+  <template x-if="me">
+    <div>
+      <div class="tabs">
+        <button class="tab" :class="tab==='pending' ? 'on' : ''" @click="tab='pending'">
+          승인 대기 <span class="cnt" x-show="pending.length" x-text="pending.length"></span>
+        </button>
+        <button class="tab" :class="tab==='mine' ? 'on' : ''" @click="tab='mine'">내가 올린</button>
+      </div>
+
+      <div class="list">
+        <div class="statebar">
+          <template x-if="loading"><span class="spin"></span></template>
+          <span x-show="loading">불러오는 중…</span>
+          <span x-show="!loading && error" x-text="error" style="color:#b91c1c;"></span>
+        </div>
+
+        <!-- 승인 대기 -->
+        <template x-if="tab==='pending'">
+          <div>
+            <template x-for="doc in pending" :key="doc.id">
+              <div class="card">
+                <div class="c-top">
+                  <div class="c-title" x-text="doc.title"></div>
+                  <span class="c-type" x-text="typeLabel(doc.type)"></span>
+                </div>
+                <div class="c-meta">
+                  <span x-text="(doc.authorName||'') + (doc.authorDept ? (' · ' + doc.authorDept) : '')"></span>
+                  <span x-show="fmtDate(doc.createdAt)"> · <span x-text="fmtDate(doc.createdAt)"></span></span>
+                </div>
+                <div class="c-sum" x-show="summary(doc)" x-text="summary(doc)"></div>
+                <div class="acts">
+                  <button class="ab ok" @click="approve(doc)" :disabled="saving"><span class="material-symbols-outlined">check</span>승인</button>
+                  <button class="ab no" @click="reject(doc)" :disabled="saving"><span class="material-symbols-outlined">close</span>반려</button>
+                </div>
+              </div>
+            </template>
+            <template x-if="!loading && !pending.length">
+              <div class="empty"><span class="material-symbols-outlined">task_alt</span><div class="empty-t">승인할 결재가 없습니다</div><div class="empty-s">내가 결재해야 할 문서가 오면<br>여기 표시됩니다.</div></div>
+            </template>
+          </div>
+        </template>
+
+        <!-- 내가 올린 -->
+        <template x-if="tab==='mine'">
+          <div>
+            <template x-for="doc in mine" :key="doc.id">
+              <div class="card">
+                <div class="c-top">
+                  <div class="c-title" x-text="doc.title"></div>
+                  <span class="st" :class="statusCls(doc.status)" x-text="statusLabel(doc.status)"></span>
+                </div>
+                <div class="c-meta">
+                  <span x-text="typeLabel(doc.type) + ' · 승인자 ' + (doc.approverName||'')"></span>
+                  <span x-show="fmtDate(doc.createdAt)"> · <span x-text="fmtDate(doc.createdAt)"></span></span>
+                </div>
+                <div class="c-sum" x-show="summary(doc)" x-text="summary(doc)"></div>
+                <div class="c-cmt" x-show="doc.comment" x-text="'결재의견: ' + doc.comment"></div>
+              </div>
+            </template>
+            <template x-if="!loading && !mine.length">
+              <div class="empty"><span class="material-symbols-outlined">description</span><div class="empty-t">올린 결재가 없습니다</div><div class="empty-s">기안은 PC 결재 화면에서<br>작성할 수 있어요.</div></div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </div>
+  </template>
+
+  <div class="saving-bar" x-show="saving" x-cloak><span class="spin"></span>처리 중…</div>
+</div>
+
+<script src="/m/pwa.js"></script>
+<script>
+  function approvalsApp() {
+    return {
+      me: null, authChecked: false, loading: true, error: '',
+      tab: 'pending', pending: [], mine: [], saving: false, sseOn: false,
+      _es: null, _poll: null, _sseTimer: null,
+
+      async init() {
+        await this.loadMe();
+        if (!this.me) { this.authChecked = true; return; }
+        this.authChecked = true;
+        await this.load();
+        this.connectSSE();
+        this.startPoll();
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) this.load(); });
+      },
+      async loadMe() {
+        try {
+          var r = await fetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' });
+          var d = await r.json();
+          this.me = (d && d.loggedIn) ? d : null;
+        } catch (_) { this.me = null; }
+      },
+      async load() {
+        this.loading = true; this.error = '';
+        try {
+          var res = await Promise.all([
+            fetch('/api/approvals/?filter=pending', { credentials: 'same-origin', cache: 'no-store' }),
+            fetch('/api/approvals/?filter=mine', { credentials: 'same-origin', cache: 'no-store' }),
+          ]);
+          if (res[0].status === 401) { location.replace('/m/login.html'); return; }
+          this.pending = res[0].ok ? await res[0].json() : [];
+          this.mine = res[1].ok ? await res[1].json() : [];
+        } catch (e) { this.error = '목록을 불러오지 못했습니다.'; }
+        this.loading = false;
+      },
+
+      typeLabel(t) { return ({ '시간외근무': '시간외근무', overtime: '시간외근무', leave: '휴가', purchase: '발주', expense: '지출' })[t] || t || '결재'; },
+      statusLabel(s) { return ({ pending: '대기', approved: '승인', rejected: '반려', cancel_requested: '취소요청', cancelled: '취소' })[s] || s; },
+      statusCls(s) { return ({ pending: 'st-p', approved: 'st-a', rejected: 'st-r', cancel_requested: 'st-c', cancelled: 'st-x' })[s] || 'st-x'; },
+      summary(doc) {
+        var f = doc.formData || {};
+        if (doc.type === '시간외근무' || doc.type === 'overtime') {
+          return (f.date || '') + ' ' + (f.startTime || '') + '~' + (f.endTime || '') + (f.reason ? (' · ' + f.reason) : '');
+        }
+        if (doc.type === 'leave') {
+          var span = (f.startDate || '') + ((f.endDate && f.endDate !== f.startDate) ? ('~' + f.endDate) : '');
+          return (f.leaveType || '휴가') + ' ' + span + (f.reason ? (' · ' + f.reason) : '');
+        }
+        var parts = [];
+        for (var k in f) { if (f[k] != null && f[k] !== '' && typeof f[k] !== 'object') parts.push(String(f[k])); }
+        return parts.join(' · ').slice(0, 140);
+      },
+      fmtDate(s) {
+        if (!s) return '';
+        try { var d = new Date(s); if (isNaN(d.getTime())) return ''; return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
+        catch (_) { return ''; }
+      },
+
+      async process(doc, action) {
+        if (this.saving) return;
+        var comment = '';
+        if (action === 'rejected') { var c = prompt('반려 사유 (선택)', ''); if (c === null) return; comment = c || ''; }
+        else { if (!confirm('"' + doc.title + '"\n승인하시겠어요?')) return; }
+        this.saving = true;
+        try {
+          var r = await fetch('/api/approvals/' + encodeURIComponent(doc.id) + '/process', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin', body: JSON.stringify({ action: action, comment: comment }),
+          });
+          if (!r.ok) { var e = await r.json().catch(() => ({})); alert(e.error || '처리 실패'); }
+          else { await this.load(); }
+        } catch (e) { alert('처리 실패. 다시 시도해주세요.'); }
+        this.saving = false;
+      },
+      approve(doc) { this.process(doc, 'approved'); },
+      reject(doc) { this.process(doc, 'rejected'); },
+
+      connectSSE() {
+        try {
+          var es = new EventSource('/api/workflow/events'); this._es = es;
+          es.onopen = () => { this.sseOn = true; };
+          es.onmessage = (ev) => { try { var d = JSON.parse(ev.data); if (d && d.t === 'hello') return; } catch (_) {} this._sseLoad(); };
+          es.onerror = () => { this.sseOn = false; };
+        } catch (_) {}
+      },
+      _sseLoad() { if (this._sseTimer) return; this._sseTimer = setTimeout(() => { this._sseTimer = null; this.load(); }, 1200); },
+      startPoll() { var self = this; this._poll = setInterval(function () { if (!document.hidden && !self.sseOn) self.load(); }, 30000); },
+    };
+  }
+</script>
+</body>
+</html>
