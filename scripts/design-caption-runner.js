@@ -59,7 +59,7 @@ function arg(name, def) {
   const v = process.argv[i + 1];
   return (v && !v.startsWith('--')) ? v : true;
 }
-const LIMIT = parseInt(arg('limit', '0'), 10) || 0;
+const LIMIT_RAW = parseInt(arg('limit', '0'), 10) || 0;
 const FOLDER_FILTER = (arg('folder', '') === true) ? '' : String(arg('folder', ''));
 // --folder 는 쉼표로 여러 거래처(부분일치 OR). 예: --folder 포스코,DL,현대산업
 const FOLDER_TERMS = FOLDER_FILTER ? FOLDER_FILTER.split(',').map(s => s.trim().toLowerCase()).filter(Boolean) : [];
@@ -68,6 +68,9 @@ const YEAR_RAW = (arg('year', '') === true) ? '' : String(arg('year', ''));
 const YEAR_TERMS = YEAR_RAW ? YEAR_RAW.split(',').map(s => s.trim()).filter(Boolean) : [];
 const CONCURRENCY = Math.max(1, Math.min(6, parseInt(arg('concurrency', '3'), 10) || 3));
 const BATCH = Math.max(1, Math.min(28, parseInt(arg('batch', '24'), 10) || 24)); // 한 claude 호출당 이미지 수 — 고정비 분산. 실측 장당: b5 $0.049·b12 $0.035·b24 $0.0256(24/24 온전). 28↑은 출력 16k근처=잘림위험
+// --limit 을 배치 정배수로 스냅 → 마지막 배치도 24장 꽉 채워 고정비 낭비 0. (배치 미만 소량 요청은 미리보기용이라 그대로 존중)
+const LIMIT = LIMIT_RAW >= BATCH ? Math.round(LIMIT_RAW / BATCH) * BATCH : LIMIT_RAW;
+if (LIMIT !== LIMIT_RAW) console.log(`[runner] --limit ${LIMIT_RAW} → ${LIMIT}장 (배치 ${BATCH} 정배수로 맞춤 — 마지막 배치도 꽉 참)`);
 const DRY = !!arg('dry', false);
 const COUNT_ONLY = !!arg('count', false); // 캡션 안 하고 필터 결과 장수만 세고 종료(무료 미리보기)
 const WORKFLOW = !!arg('workflow', false); // ★스캔 대신 workflow.json 의 워크플로 시안만 캡션(매일밤 신규 자동)
