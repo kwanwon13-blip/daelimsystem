@@ -72,6 +72,9 @@ const DRY = !!arg('dry', false);
 const COUNT_ONLY = !!arg('count', false); // 캡션 안 하고 필터 결과 장수만 세고 종료(무료 미리보기)
 const WORKFLOW = !!arg('workflow', false); // ★스캔 대신 workflow.json 의 워크플로 시안만 캡션(매일밤 신규 자동)
 const PER_IMG_TIMEOUT_S = parseInt(arg('timeout', '40'), 10) || 40;            // 이미지 1장당 상한(초). 배치는 ×장수+여유
+// 5시간/주간 한도 도달 시: 종료하지 말고 대기 후 자동 재개(회복되면 이어서 돎).
+const WAIT_MIN = Math.max(1, parseInt(arg('wait', '20'), 10) || 20);          // 한도 걸리면 재시도 간 대기(분)
+const MAX_WAITS = Math.max(1, parseInt(arg('maxwaits', '72'), 10) || 72);     // 배치당 최대 대기횟수(20분×72=24시간)
 
 if (!SECRET) { console.error('[runner] CONTROL_DAEMON_SECRET 없음 — 로컬 .env 확인'); process.exit(1); }
 
@@ -171,6 +174,14 @@ function extractArray(text) {
   try { const v = JSON.parse(s.slice(a, b + 1)); return Array.isArray(v) ? v : null; } catch (_) { return null; }
 }
 
+function sleep(ms) { return new Promise(res => setTimeout(res, ms)); }
+
+// claude -p 실패 출력이 5시간/주간 한도(레이트리밋)로 보이는지 — 그러면 종료 대신 대기·재개.
+function looksRateLimited(text) {
+  const s = String(text || '').toLowerCase();
+  return /limit reached|usage limit|rate.?limit|5.?hour|five.?hour|too many request|\b429\b|quota|resets? (at|in|on)|reset your|try again (later|in|after)|exceeded|out of (usage|credit)|weekly limit|please wait|overloaded|capacity/.test(s);
+}
+
 // claude가 파일을 못 읽었을 때의 응답 감지 — 적재하면 garbage(기타/빈값)가 done으로 박힘.
 function looksUnreadable(d) {
   const blob = `${d.type || ''} ${d.client || ''} ${d.material || ''} ${d.usage || ''} ${d.text || ''} ${d.visual || ''} ${d.caption || ''}`.toLowerCase();
@@ -261,21 +272,36 @@ function buildItem(serverPath, folder, d) {
   const batches = [];
   for (let k = 0; k < todo.length; k += BATCH) batches.push(todo.slice(k, k + BATCH));
   console.log(`[runner] ${batches.length}개 배치(배치당 ≤${BATCH}장) × 동시 ${CONCURRENCY}`);
+  console.log(`[runner] 한도 걸리면 ${WAIT_MIN}분 쉬고 자동 재개(회복되면 이어서 돎). 멈추려면 Ctrl+C.`);
 
-  let okN = 0, failN = 0, consecFail = 0, bi = 0, aborted = false;
+  let okN = 0, failN = 0, bi = 0, aborted = false;
   const t0 = Date.now();
   async function worker() {
     while (bi < batches.length && !aborted) {
       const myIdx = bi++;
       const jobs = batches[myIdx];
-      const r = await captionBatch(jobs);
+      let r = await captionBatch(jobs);
+      // 한도(5시간/주간) 도달로 실패하면 종료하지 말고 회복까지 대기 후 자동 재개.
+      let rlWaits = 0, softRetried = false;
+      while (!r.ok && !aborted) {
+        if (looksRateLimited(r.raw)) {
+          if (rlWaits >= MAX_WAITS) break;
+          rlWaits++;
+          console.log(`  ⏳ 한도 도달 추정 — ${WAIT_MIN}분 쉬고 자동 재개 (배치#${myIdx + 1}, ${rlWaits}/${MAX_WAITS}회) :: ${String(r.raw || '').replace(/\s+/g, ' ').slice(0, 60)}`);
+          await sleep(WAIT_MIN * 60000);
+        } else {
+          if (softRetried) break;      // 한도 아닌 실패는 즉시 1회만 재시도 후 스킵(중단 안 함)
+          softRetried = true;
+          await sleep(2000);
+        }
+        if (aborted) break;
+        r = await captionBatch(jobs);
+      }
       if (!r.ok) {
-        failN += jobs.length; consecFail++;
-        console.log(`  ✗ 배치#${myIdx + 1}/${batches.length} ${r.reason} (${jobs.length}장 다음 실행 재시도)${r.raw ? ' | ' + r.raw : ''}`);
-        if (consecFail >= 5) { aborted = true; console.error('[runner] 연속 5배치 실패 — rate limit 추정. 종료(다음 실행이 이어감).'); }
+        failN += jobs.length;
+        console.log(`  ✗ 배치#${myIdx + 1}/${batches.length} ${r.reason} (${jobs.length}장 다음 실행 재시도)${r.raw ? ' | ' + String(r.raw).slice(0, 70) : ''}`);
         continue;
       }
-      consecFail = 0;
       const matched = matchResults(jobs, r.arr);
       const ok = [];
       for (let n = 0; n < jobs.length; n++) {
