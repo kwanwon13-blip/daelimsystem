@@ -182,7 +182,7 @@ function sleep(ms) { return new Promise(res => setTimeout(res, ms)); }
 // claude -p 실패 출력이 5시간/주간 한도(레이트리밋)로 보이는지 — 그러면 종료 대신 대기·재개.
 function looksRateLimited(text) {
   const s = String(text || '').toLowerCase();
-  return /limit reached|usage limit|rate.?limit|5.?hour|five.?hour|too many request|\b429\b|quota|resets? (at|in|on)|reset your|try again (later|in|after)|exceeded|out of (usage|credit)|weekly limit|please wait|overloaded|capacity/.test(s);
+  return /limit reached|usage limit|session limit|rate.?limit|hit your|5.?hour|five.?hour|too many request|\b429\b|quota|resets?\s+(at|in|on|\d)|reset your|try again (later|in|after)|exceeded|out of (usage|credit)|weekly limit|please wait|overloaded|capacity/.test(s);
 }
 
 // claude가 파일을 못 읽었을 때의 응답 감지 — 적재하면 garbage(기타/빈값)가 done으로 박힘.
