@@ -3041,6 +3041,9 @@ function workflowApp() {
         files = files.filter(f => f.team === this.boardTeam);
       }
       files = this.collapseFileVariants(files); // 같은 디자인 발주본·원본을 형식별 1개로(.jpg/.ai) — '2개씩' 표시상 중복 제거(파일은 보존)
+      // 공장(대림컴퍼니)·경영관리 단계에선 '발주된 시안'만 — 발주본 없이 원본만 있는 이미지는 숨김(디자인 단계는 작업중 원본 다 보임)
+      const _stg = (this.detail && this.detail.job && this.detail.job.currentStage) || '';
+      if (_stg && _stg !== 'design') files = files.filter(t => this.tileIsOrdered(t));
       return files.sort((a, b) =>
         (((b.isImage && b.exists !== false) ? 1 : 0) - ((a.isImage && a.exists !== false) ? 1 : 0))
         || String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
@@ -4105,7 +4108,9 @@ function workflowApp() {
     detailUnassignedCount() {
       // 접힌 타일(같은 디자인=1장) 기준 — 화면에 보이는 타일과 일치(발주본·원본 묶음을 2장으로 안 셈). 팀필터 영향 없게 collapseFileVariants 직접 사용.
       const files = (this.detail && this.detail.files) ? this.detail.files : [];
-      const tiles = (typeof this.collapseFileVariants === 'function') ? this.collapseFileVariants(files) : files;
+      let tiles = (typeof this.collapseFileVariants === 'function') ? this.collapseFileVariants(files) : files;
+      const _stg = (this.detail && this.detail.job && this.detail.job.currentStage) || '';
+      if (_stg && _stg !== 'design') tiles = tiles.filter(t => this.tileIsOrdered(t));
       return tiles.filter(f => f.isImage && f.exists !== false && f.team !== 'welding' && f.team !== 'output').length;
     },
     // 카드 팀 배지(미배정/용접/출력)를 디자인 단위로 — 발주본+원본을 1개로(시안접기 detailUnassignedCount와 일관). visualFilesBrief만 사용(상세호출 0).
@@ -4118,12 +4123,20 @@ function workflowApp() {
         if (!groups.has(k)) groups.set(k, []);
         groups.get(k).push(f);
       }
+      const _ordOnly = !!(job && job.currentStage && job.currentStage !== 'design');
       let welding = 0, output = 0, unassigned = 0;
       for (const fs of groups.values()) {
+        if (_ordOnly && !fs.some(f => /발주/.test((f.originalName || f.name) || ''))) continue; // 공장·경영관리: 발주된 시안만
         const t = fs.some(f => f.team === 'welding') ? 'welding' : fs.some(f => f.team === 'output') ? 'output' : '';
         if (t === 'welding') welding++; else if (t === 'output') output++; else unassigned++;
       }
       return { welding, output, unassigned };
+    },
+    // 시안 타일(접힌 그룹)이 '발주됨'인가 — 변형 중 발주본(파일명에 '발주')이 하나라도 있으면 발주된 것. 비이미지/없는 파일은 항상 표시.
+    tileIsOrdered(t) {
+      if (!t || !(t.isImage && t.exists !== false)) return true;
+      const vs = (t._variants && t._variants.length) ? t._variants : [t];
+      return vs.some(v => /발주/.test((v && (v.originalName || v.name)) || ''));
     },
 
     // 워크플로 잡 → 픽업 등록폼으로 전달 (app()이 별도 루트라 이벤트 브리지 사용)
