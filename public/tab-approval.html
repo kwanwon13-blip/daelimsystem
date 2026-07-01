@@ -541,7 +541,7 @@
               <div style="padding:14px 20px;background:linear-gradient(135deg,#c2410c,#ea7317);display:flex;align-items:center;justify-content:space-between;">
                 <div style="display:flex;align-items:center;gap:8px;">
                   <span class="material-symbols-outlined" style="font-size:18px;color:#ffedd5;">bar_chart</span>
-                  <span style="font-size:14px;font-weight:700;color:#fff;">월별 추가근무 집계 <span style="font-size:11px;font-weight:500;opacity:.85;">· 컴퍼니</span></span>
+                  <span style="font-size:14px;font-weight:700;color:#fff;">월별 시간외근무 집계 <span style="font-size:11px;font-weight:500;opacity:.85;">· 컴퍼니</span></span>
                 </div>
                 <div style="display:flex;gap:6px;">
                   <template x-if="canCompanyOvertime">
@@ -578,7 +578,7 @@
               <template x-if="!summaryLoading && summaryData && summaryData.employees.length === 0">
                 <div style="padding:50px;text-align:center;color:#94a3b8;">
                   <span class="material-symbols-outlined" style="font-size:40px;display:block;margin-bottom:8px;color:#cbd5e1;">event_busy</span>
-                  <div style="font-size:13px;font-weight:600;" x-text="fmtMonthKo(summaryMonth) + ' 추가근무 내역이 없습니다'"></div>
+                  <div style="font-size:13px;font-weight:600;" x-text="fmtMonthKo(summaryMonth) + ' 시간외근무 내역이 없습니다'"></div>
                 </div>
               </template>
 
@@ -617,6 +617,7 @@
                           <div style="display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid #f8fafc;font-size:12px;">
                             <span style="font-weight:700;color:#475569;width:92px;flex:0 0 auto;" x-text="en.date"></span>
                             <span style="font-weight:800;color:#c2410c;width:54px;flex:0 0 auto;"><span x-text="en.hours"></span>시간</span>
+                            <span x-show="en.kind==='시간외근무' && en.startTime" style="font-size:10px;color:#7c3aed;font-weight:600;flex:0 0 auto;" x-text="'('+en.startTime+'~'+en.endTime+')'"></span>
                             <span style="flex:1;color:#64748b;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" x-text="en.reason"></span>
                             <span class="ap-status" :class="en.status==='approved'?'ap-status-approved':(en.status==='rejected'?'ap-status-rejected':'ap-status-pending')" x-text="statusLabel(en.status)" style="flex:0 0 auto;"></span>
                           </div>
