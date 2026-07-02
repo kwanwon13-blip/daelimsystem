@@ -98,8 +98,12 @@ input,textarea,select{font:inherit}
 .tile{background:#fff;border:1px solid #e9ebef;border-radius:12px;overflow:hidden;cursor:pointer;transition:border-color .12s,box-shadow .12s,transform .08s;position:relative;display:flex;flex-direction:column}
 .tile:hover{border-color:#4f6ef7;box-shadow:0 4px 16px rgba(79,110,247,.12)}
 .tile.selected{border-color:#4f6ef7;box-shadow:0 0 0 2px #4f6ef7}
-.tile-thumb{position:relative;width:100%;aspect-ratio:1/1;background:#f3f4f6;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.tile-thumb{position:relative;width:100%;aspect-ratio:1/1;background:#f3f4f6;overflow:hidden;display:flex;align-items:center;justify-content:center;cursor:zoom-in}
 .tile-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.tile-zoom{position:absolute;right:8px;bottom:8px;width:28px;height:28px;border-radius:50%;background:rgba(15,23,42,.55);color:#fff;display:none;align-items:center;justify-content:center;pointer-events:none}
+.tile-zoom .material-symbols-outlined{font-size:16px}
+.tile:hover .tile-zoom{display:inline-flex}
+.tile-meta{cursor:pointer}
 .tile-thumb .ph{color:#cbd1da}
 .tile-thumb .ph .material-symbols-outlined{font-size:34px}
 .tile-fav{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.92);display:inline-flex;align-items:center;justify-content:center;color:#9ca3af;box-shadow:0 1px 4px rgba(0,0,0,.12);z-index:3}
@@ -202,6 +206,24 @@ textarea.field-input{resize:vertical;min-height:64px;line-height:1.5}
 .btn-ok{background:linear-gradient(135deg,#4f6ef7,#7c5cff);color:#fff}
 .btn-del{background:#fef2f2;color:#dc2626;border:1px solid #fecaca}
 .btn-del:hover{background:#fee2e2}
+
+/* ── 라이트박스 (사진 클릭 → 크게 · 시안검색 패턴 이식) ── */
+.lb-bg{position:fixed;inset:0;background:rgba(0,0,0,.88);display:none;z-index:1800}
+.lb-bg.visible{display:block}
+.lb-stage{position:absolute;inset:0 0 62px 0;display:flex;align-items:center;justify-content:center;padding:20px;cursor:zoom-out}
+.lb-img{max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;box-shadow:0 12px 44px rgba(0,0,0,.55)}
+.lb-nav{position:absolute;top:50%;transform:translateY(-50%);width:46px;height:46px;border-radius:50%;background:rgba(255,255,255,.13);color:#fff;display:inline-flex;align-items:center;justify-content:center;z-index:2}
+.lb-nav:hover{background:rgba(255,255,255,.26)}
+.lb-nav .material-symbols-outlined{font-size:26px}
+.lb-prev{left:16px}.lb-next{right:16px}
+.lb-close{position:absolute;top:14px;right:14px;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.13);color:#fff;display:inline-flex;align-items:center;justify-content:center;z-index:2}
+.lb-close:hover{background:rgba(255,255,255,.26)}
+.lb-info{position:absolute;left:0;right:0;bottom:0;height:62px;padding:0 18px;display:flex;align-items:center;gap:12px;color:#e5e7eb;font-size:12.5px;background:rgba(10,14,22,.72)}
+.lb-info .lb-title{font-weight:600;color:#fff;max-width:34vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lb-info .lb-dim{color:#9ca3af}
+.lb-act{display:inline-flex;align-items:center;gap:5px;padding:7px 13px;border-radius:8px;background:rgba(255,255,255,.13);color:#fff;font-size:12.5px;text-decoration:none;cursor:pointer}
+.lb-act:hover{background:rgba(255,255,255,.26)}
+.lb-act .material-symbols-outlined{font-size:16px}
 
 /* 토스트 */
 .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);background:#1f2937;color:#fff;padding:10px 18px;border-radius:10px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:2000}
@@ -329,6 +351,22 @@ textarea.field-input{resize:vertical;min-height:64px;line-height:1.5}
 <button class="btn-ok" id="modalOk">저장</button>
 </div>
 </div>
+</div>
+</div>
+
+<!-- 라이트박스 — 사진 클릭 시 원본 크게 (◀▶ 넘기기 · ESC/배경 닫기) -->
+<div class="lb-bg" id="lightbox">
+<div class="lb-stage" id="lbStage"><img class="lb-img" id="lbImg" alt=""></div>
+<button class="lb-nav lb-prev" id="lbPrev" title="이전"><span class="material-symbols-outlined">chevron_left</span></button>
+<button class="lb-nav lb-next" id="lbNext" title="다음"><span class="material-symbols-outlined">chevron_right</span></button>
+<button class="lb-close" id="lbClose" title="닫기 (ESC)"><span class="material-symbols-outlined">close</span></button>
+<div class="lb-info">
+<span class="lb-title" id="lbTitle"></span>
+<span class="lb-dim" id="lbCounter"></span>
+<span class="lb-dim" id="lbMeta"></span>
+<span style="flex:1"></span>
+<a class="lb-act" id="lbDownload"><span class="material-symbols-outlined">download</span>다운로드</a>
+<button class="lb-act" id="lbDetail"><span class="material-symbols-outlined">info</span>상세 보기</button>
 </div>
 </div>
 

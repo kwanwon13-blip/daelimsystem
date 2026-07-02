@@ -21,8 +21,10 @@ const state = {
   apiKeyAvailable: null,
   // 이미지 picker (이미지 모드 + 핸드오프 공용)
   imageAspect: 'square',   // 'square' | 'wide' | 'tall'
+  imageAspectTouched: false, // 사용자가 비율 버튼을 직접 눌렀는지 — 눌렀으면 자연어 감지보다 picker 우선
   imageTier: 'normal',     // 'normal' | 'large'
   imageQuality: 'medium',  // 'medium' | 'high'
+  handoffOrigin: '',       // 핸드오프 원본(한국어) 요청 — 저장소 user_input 에 영어 리라이트 대신 원문 보존용
   // 비슷한 이미지 도크 (입력 중 재사용 추천)
   simItems: [],            // 마지막으로 받은 후보 이미지 목록
   simSeq: 0,               // 최신 요청만 반영(경합 방지)
@@ -31,12 +33,35 @@ const state = {
   simManualHide: false,    // 사용자가 도크를 수동으로 닫았는지(같은 입력 동안 다시 안 띄움)
 };
 
-// 비율·크기 → gpt-image-2 size 문자열
-function sizeFor() {
-  const a = state.imageAspect, t = state.imageTier;
+// 비율·크기 → gpt-image-2 size 문자열 (aspectOverride 있으면 picker 상태 대신 사용)
+function sizeFor(aspectOverride) {
+  const a = aspectOverride || state.imageAspect, t = state.imageTier;
   if (a === 'square') return t === 'large' ? '2048x2048' : '1024x1024';
   if (a === 'wide')   return t === 'large' ? '2048x1152' : '1536x1024';
   /* tall */          return t === 'large' ? '1152x2048' : '1024x1536';
+}
+// 자연어 비율 감지 — "가로로/와이드/현수막" 같은 말을 size 파라미터로 연결.
+// gpt-image API 는 프롬프트 속 비율 문구를 무시하고 size 파라미터만 반영하므로 이 변환이 필수.
+function inferAspectFromText(text) {
+  // 오탐 어휘 선제 제거 — 비율 의도가 아닌 단어들 ('가로수길', '히스토리', '세로줄무늬' 등)
+  const s = String(text || '').replace(/가로수|가로등|가로막|가로줄|세로줄|히스토리|스토리보드|스토리텔링/gi, '');
+  // 명시 '정사각' 최우선, 비율 숫자는 앞뒤 경계 고정 ('2:30' 오탐 방지)
+  if (/(정사각|(^|\D)1\s*:\s*1(\D|$)|square)/i.test(s)) return 'square';
+  if (/(세로|(^|\D)9\s*:\s*16(\D|$)|(^|\D)2\s*:\s*3(\D|$)|포트레이트|portrait|릴스|스토리)/i.test(s)) return 'tall';
+  if (/(가로|와이드|(^|\D)16\s*:\s*9(\D|$)|(^|\D)3\s*:\s*2(\D|$)|현수막|배너|랜드스케이프|landscape|파노라마)/i.test(s)) return 'wide';
+  return null;
+}
+const ASPECT_LABEL = { square: '정사각', wide: '가로', tall: '세로' };
+// 생성 결과 밑에 실제 적용된 설정을 투명하게 표시 — "말한 대로 됐는지" 즉시 확인용.
+// 순수 텍스트 반환 (content 에 섞지 않고 msg.badge 로 별도 렌더 — 복사/문맥/재로드 오염 방지)
+function imageResultBadge(data, inferredAspect, refMissing) {
+  const parts = [];
+  if (data.size) parts.push((inferredAspect ? ASPECT_LABEL[inferredAspect] + ' ' : '') + data.size);
+  if (data.quality) parts.push(data.quality === 'high' ? '고화질' : data.quality === 'low' ? '저화질' : '보통화질');
+  if (data.model) parts.push(data.model);
+  if (data.fallback) parts.push('⚠️ 구모델 폴백');
+  if (refMissing) parts.push('⚠️ 참고 이미지 미적용(원본 없음)');
+  return parts.join(' · ');
 }
 // 이미지 의도 감지: 이미지 명사 + 생성 동사 둘다 && 문서/코드/질문 아님.
 //   '그림'은 명사 목록에만 둔다(동사 목록에 두면 '그림' 한 단어로 항상 매칭돼 일반 질문까지 가로챔).
@@ -224,7 +249,7 @@ document.addEventListener('click', (e) => {
     : seg.id === 'segTier' ? 'tier'
     : seg.id === 'segQuality' ? 'quality'
     : (seg.dataset.seg || '');
-  if (kind === 'aspect') state.imageAspect = btn.dataset.v;
+  if (kind === 'aspect') { state.imageAspect = btn.dataset.v; state.imageAspectTouched = true; }
   else if (kind === 'tier') state.imageTier = btn.dataset.v;
   else if (kind === 'quality') state.imageQuality = btn.dataset.v;
   else return;
@@ -543,7 +568,16 @@ function buildMessageEl(m) {
       img.className = 'artifact-img';
       img.src = m.image_url;
       img.alt = '생성된 이미지';
+      img.style.cursor = 'zoom-in';
+      img.title = '클릭하면 크게 보기';
       contentEl.appendChild(img);
+    }
+    // 생성 설정 배지 (비율·품질·모델·경고) — content 와 분리된 필드라 복사/재로드에 안 섞임
+    if (m.badge) {
+      const b = document.createElement('div');
+      b.style.cssText = 'margin-top:6px;font-size:11.5px;color:#9ca3af;';
+      b.textContent = m.badge;
+      contentEl.appendChild(b);
     }
     // 핸드오프 버튼: 완료된 텍스트 답변에만 (생성 중·이미지 결과 메시지 제외)
     if (!m.streaming && !m.image_url && (m.content || '').trim()) {
@@ -1346,13 +1380,13 @@ async function sendMessage() {
   // 중복 실행 가드: 같은 대화가 이미 생성 중이면 무시 (state.streaming 과 병행)
   if (state.streamingByThread && state.streamingByThread.has(ownerThreadId)) return;
 
-  // 의도 라우팅: 이미지 의도면 (이미지 모드 OFF여도) 바로 생성한다.
-  //   (예전엔 조용한 편집 박스만 떠서 '아무 반응 없음'으로 보였음 — 한 팀장 케이스.)
-  //   프롬프트를 다듬고 싶으면 AI 답변의 '🎨 이 내용으로 이미지' 버튼(openHandoff)을 쓰면 됨.
+  // 의도 라우팅: 이미지 의도면 (이미지 모드 OFF여도) 핸드오프 박스(비율/품질 picker + 프롬프트 확인 + 생성 버튼)로.
+  //   즉시 발사는 '지멋대로 생성 → 돈 낭비' 원인이라 발사 전 확인 게이트로 변경 (사장님 지시 2026-07-02).
+  //   비율은 자연어("가로로/현수막")에서 자동 감지해 picker 에 프리셋 — 확인하고 생성만 누르면 됨.
   if (!state.imageMode && isImageIntent(text)) {
     input.value = '';
     autoResize();
-    runImageGeneration(text);
+    openHandoff(text);
     return;
   }
 
@@ -1385,16 +1419,22 @@ async function sendMessage() {
 
   if (state.imageMode) {
     try {
+      // 자연어 비율("가로로/세로로/현수막") 감지 — 사용자가 비율 버튼을 직접 안 눌렀을 때만 적용
+      const inferredAspect = (!state.imageAspectTouched && inferAspectFromText(text)) || null;
+      if (inferredAspect) { state.imageAspect = inferredAspect; syncPickerUI(); } // 화면 picker 와 실제 생성값 일치
+      const useSize = sizeFor(inferredAspect || undefined);
       const r = await fetch('/api/ai/chat-image', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         signal: state.abortController.signal,
-        body: JSON.stringify({ prompt: text, threadId: state.activeThreadId || undefined, size: sizeFor(), quality: state.imageQuality, userInput: text }),
+        body: JSON.stringify({ prompt: text, threadId: state.activeThreadId || undefined, size: useSize, quality: state.imageQuality, userInput: text, attachmentIds: attachmentIds.length ? attachmentIds : undefined }),
       });
       if (r.status === 401) { window.location.href = '/'; return; }
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || ('chat-image ' + r.status));
       aiMsg.streaming = false;
       aiMsg.content = data.text || (data.message && data.message.content) || '이미지가 생성되었습니다.';
+      aiMsg.badge = imageResultBadge(data, inferredAspect, false);
+      state.imageAspectTouched = false; // 생성 1회 끝 — 다음 요청의 자연어 비율 감지 다시 허용
       aiMsg.image_url = data.url || data.image_url || data.imageUrl || (data.message && (data.message.image_url || data.message.imageUrl)) || null;
       aiMsg.artifacts = data.artifacts || [];
       console.log('[ai-chat] chat-image:', { url: data.url, image_url: aiMsg.image_url });
@@ -1596,17 +1636,27 @@ const handoffCancel = document.getElementById('handoffCancel');
 const handoffRef = document.getElementById('handoffRef');
 const handoffRefImg = document.getElementById('handoffRefImg');
 const handoffRefTitle = document.getElementById('handoffRefTitle');
+const handoffRefClear = document.getElementById('handoffRefClear');
+let _handoffSeq = 0;   // /image-prompt 응답 경합 가드 — 최신 openHandoff 의 응답만 반영
+if (handoffRefClear) handoffRefClear.addEventListener('click', clearHandoffRef);
 function clearHandoffRef() {
   state.simRefImage = null;
   if (handoffRef) handoffRef.classList.remove('visible');
   if (handoffRefImg) handoffRefImg.removeAttribute('src');
   if (handoffRefTitle) handoffRefTitle.textContent = '';
 }
-function closeHandoff() {
+function closeHandoff(o) {
   if (!handoffBox) return;
+  _handoffSeq++;   // 진행 중이던 /image-prompt 응답 무효화 (늦은 응답이 다음 핸드오프를 덮지 않게)
   handoffBox.style.display = 'none';
   handoffBox.classList.remove('visible');
   if (handoffInput) handoffInput.value = '';
+  // 취소로 닫힐 때는 사용자가 쳤던 원문을 입력창에 복원 (의도라우팅이 input 을 비워버렸으므로)
+  if (o && o.restoreInput && state.handoffOrigin && !input.value.trim()) {
+    input.value = state.handoffOrigin;
+    autoResize();
+  }
+  state.handoffOrigin = '';
   clearHandoffRef();
 }
 // userInput: 사용자가 원한 내용(또는 AI 메시지 텍스트). messageId: 출처 AI 메시지(있으면 전달).
@@ -1614,15 +1664,27 @@ function closeHandoff() {
 async function openHandoff(userInput, opts) {
   if (!handoffBox || !handoffInput) return;
   opts = opts || {};
-  // 참고 이미지(있으면) 썸네일 표시 + state 보관
+  const seq = ++_handoffSeq;   // 이 호출의 응답만 반영 (연속 오픈/취소 경합 방지)
+  // 원본(한국어) 요청 보관 — 저장소 user_input 에 영어 리라이트 대신 원문이 남도록
+  state.handoffOrigin = String(userInput || '').trim();
+  // 참고 이미지(있으면) 썸네일 표시 + state 보관 (id 는 생성 시 refImageId 로 서버 전송)
   if (opts.refImage && opts.refImage.url) {
-    state.simRefImage = { url: opts.refImage.url, title: opts.refImage.title || '' };
+    state.simRefImage = { id: opts.refImage.id || null, url: opts.refImage.url, title: opts.refImage.title || '' };
     if (handoffRefImg) handoffRefImg.src = opts.refImage.url;
     if (handoffRefTitle) handoffRefTitle.textContent = opts.refImage.title || '';
+    if (handoffRef) handoffRef.classList.add('visible');
+  } else if (state.simRefImage && state.simRefImage.url) {
+    // 이미 참고 이미지가 걸려 있으면 유지 — 재오픈이 참조 생성을 조용히 무참조로 바꾸지 않게.
+    // 해제는 참고 배너의 ✕ 버튼으로만.
+    if (handoffRefImg) handoffRefImg.src = state.simRefImage.url;
+    if (handoffRefTitle) handoffRefTitle.textContent = state.simRefImage.title || '';
     if (handoffRef) handoffRef.classList.add('visible');
   } else {
     clearHandoffRef();
   }
+  // 자연어 비율 감지 → picker 프리셋 (사용자가 직접 누른 값이 있으면 존중)
+  const inferred = !state.imageAspectTouched && inferAspectFromText(userInput);
+  if (inferred) state.imageAspect = inferred;
   // picker 마크업 주입 후 현재 state 로 동기화
   if (handoffPicker) { handoffPicker.innerHTML = handoffPickerHtml(); }
   syncPickerUI();
@@ -1632,31 +1694,50 @@ async function openHandoff(userInput, opts) {
   handoffInput.disabled = true;
   if (handoffGen) handoffGen.disabled = true;
   handoffInput.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  // /image-prompt 로 영어 프롬프트 한 문장으로 정리 (실패해도 입력 그대로 폴백)
+  // /image-prompt 로 영어 프롬프트로 정리 (실패해도 입력 그대로 폴백)
+  // 서버는 'context' 필드만 읽으므로 최근 대화 요약을 직접 담아 보낸다 (문맥 없는 창작 리라이트 방지)
   let prompt = String(userInput || '').trim();
-  try {
-    const r = await fetch('/api/ai/image-prompt', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-      body: JSON.stringify({ userInput: prompt, messageId: opts.messageId || undefined, threadId: state.activeThreadId || undefined }),
-    });
-    if (r.status === 401) { window.location.href = '/'; return; }
-    if (r.ok) { const d = await r.json(); if (d && d.prompt) prompt = d.prompt; }
-  } catch (_) {}
+  if (prompt) {
+    try {
+      const recentCtx = state.messages.slice(-6)
+        .filter(m => m && m.content && !m.streaming)
+        .map(m => (m.role === 'user' ? 'USER: ' : 'AI: ') + String(m.content).replace(/\s+/g, ' ').slice(0, 300))
+        .join('\n').slice(0, 1800);
+      const r = await fetch('/api/ai/image-prompt', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ userInput: prompt, context: recentCtx || undefined }),
+      });
+      if (r.status === 401) { window.location.href = '/'; return; }
+      if (r.ok) { const d = await r.json(); if (d && d.prompt) prompt = d.prompt; }
+    } catch (_) {}
+  }
+  if (seq !== _handoffSeq) return;   // 그새 닫혔거나 새 핸드오프가 열림 — 늦은 응답 폐기
   handoffInput.value = prompt;
   handoffInput.disabled = false;
   if (handoffGen) handoffGen.disabled = false;
   setTimeout(() => { try { handoffInput.focus(); handoffInput.setSelectionRange(prompt.length, prompt.length); } catch(_){} }, 30);
 }
-if (handoffCancel) handoffCancel.addEventListener('click', closeHandoff);
+if (handoffCancel) handoffCancel.addEventListener('click', () => closeHandoff({ restoreInput: true }));
 if (handoffGen) handoffGen.addEventListener('click', () => {
   const prompt = (handoffInput.value || '').trim();
   if (!prompt) { handoffInput.focus(); return; }
+  // closeHandoff() 가 simRefImage/원문을 비우므로 먼저 캡처해서 넘긴다.
+  // composer 에 걸려 있는 이미지 첨부도 참고로 같이 전송 (imageMode 경로와 대칭).
+  const readyAttIds = state.attachments.filter(a => !a.uploading && a.id).map(a => a.id);
+  const genOpts = {
+    refImageId: (state.simRefImage && state.simRefImage.id) || undefined,
+    origin: state.handoffOrigin || undefined,
+    attachmentIds: readyAttIds.length ? readyAttIds : undefined,
+  };
+  if (readyAttIds.length) { state.attachments = []; renderAttachments(); }
   closeHandoff();
-  runImageGeneration(prompt);
+  runImageGeneration(prompt, genOpts);
 });
 
 // 명시적 프롬프트로 이미지 생성 (핸드오프 전용). 메시지 말풍선 생성 + 렌더는 imageMode 분기와 동일.
-async function runImageGeneration(prompt) {
+// opts.refImageId: 갤러리 '참고' 이미지 id, opts.origin: 원본(한국어) 요청 — user_input 보존용
+async function runImageGeneration(prompt, opts) {
+  opts = opts || {};
   if (state.streaming) return;
   const ownerThreadId = state.activeThreadId ? String(state.activeThreadId) : 'new';
   if (state.streamingByThread && state.streamingByThread.has(ownerThreadId)) return;
@@ -1679,13 +1760,22 @@ async function runImageGeneration(prompt) {
     const r = await fetch('/api/ai/chat-image', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       signal: state.abortController.signal,
-      body: JSON.stringify({ prompt, threadId: state.activeThreadId || undefined, size: sizeFor(), quality: state.imageQuality, userInput: prompt }),
+      body: JSON.stringify({
+        prompt,
+        threadId: state.activeThreadId || undefined,
+        size: sizeFor(), quality: state.imageQuality,
+        userInput: opts.origin || prompt,           // 저장소엔 영어 리라이트 대신 원문 요청이 남도록
+        refImageId: opts.refImageId || undefined,   // 갤러리 '참고' 이미지 — 서버가 편집 모드로 반영
+        attachmentIds: opts.attachmentIds || undefined, // composer 첨부 이미지도 참고로
+      }),
     });
     if (r.status === 401) { window.location.href = '/'; return; }
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || ('chat-image ' + r.status));
     aiMsg.streaming = false;
     aiMsg.content = data.text || (data.message && data.message.content) || '이미지가 생성되었습니다.';
+    aiMsg.badge = imageResultBadge(data, null, !!(opts.refImageId && data.refApplied === false));
+    state.imageAspectTouched = false; // 생성 1회 끝 — 다음 요청의 자연어 비율 감지 다시 허용
     aiMsg.image_url = data.url || data.image_url || data.imageUrl || (data.message && (data.message.image_url || data.message.imageUrl)) || null;
     aiMsg.artifacts = data.artifacts || [];
     if (messagesEl.lastElementChild && messagesEl.lastElementChild.classList && messagesEl.lastElementChild.classList.contains('msg-ai')) messagesEl.removeChild(messagesEl.lastElementChild);
@@ -1709,6 +1799,39 @@ async function runImageGeneration(prompt) {
     renderThreadList();
   }
 }
+
+// ═══ 챗 이미지 라이트박스 — 생성 이미지 클릭 → 원본 크게 (기본 룰: 가볍게 떠 있고, 누르면 크게) ═══
+let chatLbEl = null;
+function openChatLightbox(src) {
+  if (!chatLbEl) {
+    chatLbEl = document.createElement('div');
+    chatLbEl.id = 'chatLightbox';
+    chatLbEl.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.86);z-index:3000;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;cursor:zoom-out;';
+    chatLbEl.innerHTML =
+      '<img style="max-width:92vw;max-height:84vh;object-fit:contain;border-radius:8px;box-shadow:0 12px 40px rgba(0,0,0,.5);" alt="생성 이미지">' +
+      '<div style="display:flex;gap:10px;cursor:default;">' +
+        '<a target="_blank" rel="noopener noreferrer" style="padding:8px 16px;border-radius:8px;background:rgba(255,255,255,.15);color:#fff;font-size:13px;text-decoration:none;">원본 새 탭</a>' +
+        '<a style="padding:8px 16px;border-radius:8px;background:rgba(255,255,255,.15);color:#fff;font-size:13px;text-decoration:none;">다운로드</a>' +
+      '</div>';
+    chatLbEl.addEventListener('click', (e) => { if (!e.target.closest('a')) closeChatLightbox(); });
+    document.body.appendChild(chatLbEl);
+  }
+  const img = chatLbEl.querySelector('img');
+  img.src = src;
+  const links = chatLbEl.querySelectorAll('a');
+  links[0].href = src;
+  links[1].href = src;
+  links[1].setAttribute('download', (src.split('/').pop() || 'image.png').split('?')[0]);
+  chatLbEl.style.display = 'flex';
+}
+function closeChatLightbox() { if (chatLbEl) chatLbEl.style.display = 'none'; }
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && chatLbEl && chatLbEl.style.display !== 'none') closeChatLightbox();
+});
+messagesEl.addEventListener('click', (e) => {
+  const img = e.target.closest('img.artifact-img');
+  if (img && img.src) openChatLightbox(img.src);
+});
 
 // ═══ 비슷한 이미지 도크 (입력 중 재사용 추천 — 비차단) ═══
 // 입력 2글자+ 디바운스 → GET /api/ai/images/similar → 타일(썸네일·NN% 비슷·만든이·날짜).
@@ -1812,7 +1935,7 @@ function referenceExistingImage(img) {
   hideSimDock();
   state.simManualHide = false;
   const seed = String(img.user_input || img.prompt || img.title || '').trim();
-  openHandoff(seed, { messageId: null, refImage: { url: img.url, title: img.title || img.user_input || '' } });
+  openHandoff(seed, { messageId: null, refImage: { id: img.id || null, url: img.url, title: img.title || img.user_input || '' } });
 }
 if (simDockList) simDockList.addEventListener('click', (e) => {
   const btn = e.target.closest('[data-sim-act]');
@@ -2540,6 +2663,39 @@ if (_isEmbedded) {
   input.value = pre;
   autoResize();
   setTimeout(() => { try { input.focus(); input.setSelectionRange(pre.length, pre.length); } catch(_){} }, 60);
+})();
+
+// 저장소 갤러리 → 부모(index.html) → 챗 iframe 릴레이 수신 ('이걸로 다시'/'참고로 사용')
+// iframe 리로드 없이 상태 그대로 프리필/참고 이미지를 받는다.
+window.addEventListener('message', (ev) => {
+  if (ev.origin !== window.location.origin) return;
+  const d = ev.data;
+  if (!d || d.type !== 'erp:chat-prefill') return;
+  if (d.refImage) {
+    openHandoff(d.prefill || '', {
+      refImage: { id: d.refImageId ? Number(d.refImageId) : null, url: String(d.refImage), title: d.refTitle || '' },
+    });
+    return;
+  }
+  if (d.prefill) {
+    if (!state.imageMode) imageModeBtn.click();   // picker 노출 + 이미지 모드 ON
+    input.value = String(d.prefill);
+    autoResize();
+    setTimeout(() => { try { input.focus(); } catch (_) {} }, 60);
+  }
+});
+
+// 참고 이미지: 저장소(ai-images) '참고로 사용'에서 넘어온 refImageId/refImage 를 핸드오프로 연결
+(function applyRefFromQuery() {
+  let refId = '', refUrl = '', refTitle = '';
+  try {
+    const p = new URLSearchParams(location.search);
+    refId = p.get('refImageId') || '';
+    refUrl = p.get('refImage') || '';
+    refTitle = p.get('refTitle') || '';
+  } catch (_) {}
+  if (!refUrl) return;
+  openHandoff('', { refImage: { id: refId ? Number(refId) : null, url: refUrl, title: refTitle } });
 })();
 
 // 초기화: 스레드 목록 로드 후 → 마지막 보던 대화 자동 복원 (F5/탭이동 복원)

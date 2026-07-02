@@ -2975,7 +2975,7 @@ router.get('/usage/summary', requireAdminInline, (req, res) => {
 // ──────────────────────────────────────────────────────────
 router.post('/chat-image', async (req, res) => {
   try {
-    const { threadId, projectId, prompt, sourcePageId, attachmentIds, quality, size, userInput } = req.body || {};
+    const { threadId, projectId, prompt, sourcePageId, attachmentIds, quality, size, userInput, refImageId } = req.body || {};
     if (!prompt || !String(prompt).trim()) return res.status(400).json({ error: 'prompt 필수' });
 
     // 이미지 일일 한도 체크 (텍스트는 무제한, 이미지만 제한)
@@ -3019,6 +3019,21 @@ router.post('/chat-image', async (req, res) => {
         const fp = path.join(ai.UPLOAD_DIR, a.stored_name);
         if (fs.existsSync(fp)) sourcePaths.push(fp);
       }
+    }
+    // 갤러리 '참고' 이미지 — ai_images.id 로 저장 파일을 resolve (공용 갤러리라 로그인 사용자면 참조 가능).
+    // basename 강제 → 경로 traversal 차단. 파일은 생성기가 저장하는 data/workspace-images 고정.
+    // 실패는 조용히 넘기지 않고 refApplied=false 로 응답에 실어 클라가 '참고 미적용' 경고를 띄운다.
+    let refApplied = null;   // null = 참고 요청 없음
+    if (refImageId && ai.images && ai.images.get) {
+      refApplied = false;
+      try {
+        const refImg = ai.images.get(parseInt(refImageId, 10));
+        if (refImg && refImg.stored_name) {
+          const rp = path.join(__dirname, '..', 'data', 'workspace-images', path.basename(String(refImg.stored_name)));
+          if (fs.existsSync(rp)) { sourcePaths.push(rp); refApplied = true; }
+        }
+      } catch (e) { console.warn('[ai/chat-image] refImageId resolve 실패:', e.message); }
+      if (!refApplied) console.warn('[ai/chat-image] 참고 이미지 미적용 — refImageId:', refImageId);
     }
 
     // 사용자 메시지
@@ -3147,6 +3162,7 @@ router.post('/chat-image', async (req, res) => {
       image: storedImage,
       fallback: result._fallback || false,
       fallbackHint: result._fallbackHint || null,
+      refApplied,   // true/false = 참고 이미지 적용 여부, null = 참고 요청 없음
     });
 
     // 비전 7축 캡션은 응답 후 백그라운드로 보강 — 생성 체감속도를 막지 않음(최대 90s 왕복).
@@ -3259,9 +3275,20 @@ router.post('/image-prompt', async (req, res) => {
     try {
       const ctx = String(context || '').trim();
       const result = await openaiClient.chat({
-        system: "You turn a user's request (and optional chat context) into ONE vivid English image-generation prompt for gpt-image-2. Output ONLY the prompt, no preamble.",
-        messages: [{ role: 'user', content: (ctx ? ctx + '\n\n' : '') + raw }],
-        isAdmin: isAdmin(req),
+        // 보존 우선 리라이트 — '지멋대로 창작'이 아니라 사용자의 지시를 이미지 모델용으로 구조화만 한다.
+        system: [
+          "You rewrite a user's image request into ONE English image-generation prompt for gpt-image-2.",
+          'STRICT RULES:',
+          '1. PRESERVE every explicit user instruction exactly: colors, objects, counts, composition, style, mood. Never drop or alter them.',
+          '2. Any text that must appear IN the image (labels, titles, slogans) must be kept VERBATIM in its original language (including Korean), wrapped in double quotes.',
+          '3. Do NOT invent subjects, styles, or details the user did not ask for. Only add neutral rendering hints (lighting, clarity) when the request is vague.',
+          '4. Structure: scene/background → main subject → key details → constraints/purpose (e.g. banner, poster, product shot).',
+          '5. Do NOT mention aspect ratio or canvas size (handled by API parameter).',
+          'Output ONLY the prompt, no preamble.',
+        ].join('\n'),
+        messages: [{ role: 'user', content: (ctx ? '[chat context]\n' + ctx + '\n\n[request]\n' : '') + raw }],
+        // 리라이트 품질이 생성 결과를 좌우 — 직원도 상위 모델 사용 (이미지 생성비 대비 미미한 비용)
+        model: openaiClient.DEFAULT_TEXT_MODEL_ADMIN,
         maxTokens: 400,
       });
       const prompt = (result && result.text) ? result.text : raw;

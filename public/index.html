@@ -13012,5 +13012,31 @@ function gpsLocationAdmin() {
 }
 </script>
 
+<script>
+// AI 이미지 저장소(iframe) → AI 챗 탭 크로스링크 수신자
+// '이걸로 다시'(prefill) / '참고로 사용'(refImage) 시 갤러리 iframe 이 스스로 챗으로 바뀌는 대신
+// 부모가 챗 iframe 에 파라미터를 싣고 AI 탭으로 전환한다. self origin + type 검증 필수.
+window.addEventListener('message', (ev) => {
+  if (ev.origin !== window.location.origin) return;
+  const d = ev.data;
+  if (!d || d.type !== 'erp:navtab' || d.tab !== 'ai') return;
+  try {
+    const chatFrame = document.querySelector('div[x-show="currentTab === \'ai\'"] iframe');
+    if (chatFrame && chatFrame.contentWindow) {
+      // iframe 리로드(src 교체) 금지 — 작성 중 초안/스트리밍 뷰가 날아감. postMessage 릴레이로 전달.
+      chatFrame.contentWindow.postMessage({
+        type: 'erp:chat-prefill',
+        prefill: d.prefill ? String(d.prefill).slice(0, 2000) : '',
+        refImage: d.refImage ? String(d.refImage) : '',
+        refImageId: d.refImageId || null,
+        refTitle: d.refTitle ? String(d.refTitle).slice(0, 100) : '',
+      }, window.location.origin);
+    }
+    const app = window.Alpine ? Alpine.$data(document.body) : null;
+    if (app && 'currentTab' in app) app.currentTab = 'ai';
+  } catch (e) { console.warn('erp:navtab 처리 실패:', e); }
+});
+</script>
+
 </body>
 </html>

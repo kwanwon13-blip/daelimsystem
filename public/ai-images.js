@@ -22,6 +22,7 @@ const state = {
   selected: new Set(),
   detailId: null,
   detailDirty: false,  // 상세 편집 변경 여부
+  lbIndex: -1,         // 라이트박스 현재 인덱스 (-1 = 닫힘)
 };
 
 const $ = (id) => document.getElementById(id);
@@ -245,6 +246,14 @@ function renderGrid() {
   $('loadMoreWrap').style.display = state.hasMore ? '' : 'none';
   updateSelCount();
 }
+// '1536x1024' → 'aspect-ratio:1536/1024' — 그리드에서 실제 생성 비율이 한눈에 보이게
+function aspectStyle(sizeStr) {
+  const m = /^(\d+)\s*x\s*(\d+)$/i.exec(String(sizeStr || '').trim());
+  if (!m) return '';
+  const w = parseInt(m[1], 10), h = parseInt(m[2], 10);
+  if (!w || !h) return '';
+  return ' style="aspect-ratio:' + w + '/' + h + '"';
+}
 function tileHtml(img) {
   const sel = state.selected.has(img.id);
   const fav = img.favorite ? ' on' : ' off';
@@ -262,11 +271,12 @@ function tileHtml(img) {
   const ownerS = img.owner_name ? '<span style="color:#7c3aed;font-weight:600;">' + escapeHtml(img.owner_name) + '</span>' : '';
   sub = [sub, costKrw, ownerS, dateS].filter(Boolean).join('<span class="dot"></span>');
   return '<div class="tile' + (sel ? ' selected' : '') + '" data-id="' + img.id + '">' +
-    '<div class="tile-thumb">' + thumb +
+    '<div class="tile-thumb" title="클릭하면 크게 보기"' + aspectStyle(img.size) + '>' + thumb +
       '<button class="tile-check' + (sel ? ' on' : '') + '" data-check="' + img.id + '" title="선택"><span class="material-symbols-outlined">check</span></button>' +
       '<button class="tile-fav' + fav + '" data-fav="' + img.id + '" title="즐겨찾기"><span class="material-symbols-outlined">star</span></button>' +
+      '<span class="tile-zoom"><span class="material-symbols-outlined">zoom_in</span></span>' +
     '</div>' +
-    '<div class="tile-meta">' +
+    '<div class="tile-meta" title="클릭하면 상세 정보">' +
       '<div class="tile-title">' + escapeHtml(title) + '</div>' +
       '<div class="tile-sub">' + sub + '</div>' +
     '</div>' +
@@ -327,6 +337,54 @@ async function toggleFavorite(id) {
   }
 }
 
+// ── 라이트박스 (사진 클릭 → 원본 크게, ◀▶ 순환) ──
+function openLightbox(id) {
+  id = Number(id);
+  const idx = state.images.findIndex(i => i.id === id);
+  if (idx < 0) return;
+  // url 없는 플레이스홀더 타일은 크게 볼 게 없음 — 상세로 대신
+  if (!state.images[idx].url) { openDetail(id); return; }
+  state.lbIndex = idx;
+  renderLightbox();
+  $('lightbox').classList.add('visible');
+}
+function closeLightbox() {
+  state.lbIndex = -1;
+  $('lightbox').classList.remove('visible');
+}
+function lbNav(dir) {
+  const n = state.images.length;
+  if (!n || state.lbIndex < 0) return;
+  // url 없는 항목(미리보기 불가)은 건너뛰고 순환 — 시안검색 뷰어와 같은 규칙
+  let i = state.lbIndex;
+  for (let step = 0; step < n; step++) {
+    i = (i + dir + n) % n;
+    if (state.images[i] && state.images[i].url) break;
+  }
+  state.lbIndex = i;
+  renderLightbox();
+}
+function renderLightbox() {
+  const img = state.images[state.lbIndex];
+  if (!img) { closeLightbox(); return; }
+  $('lbImg').src = img.url || '';
+  $('lbTitle').textContent = img.title || (img.prompt || '').slice(0, 40) || '제목 없음';
+  $('lbCounter').textContent = '(' + (state.lbIndex + 1) + '/' + state.images.length + ')';
+  const meta = [];
+  if (img.size) meta.push(img.size);
+  if (img.quality) meta.push(img.quality);
+  meta.push(krw(img.cost_usd));
+  $('lbMeta').textContent = meta.join(' · ');
+  const dl = $('lbDownload');
+  if (img.url) {
+    dl.style.display = '';
+    dl.setAttribute('href', img.url);
+    dl.setAttribute('download', img.stored_name || basename(img.url) || 'image.png');
+  } else {
+    dl.style.display = 'none';   // href '#' 다운로드(갤러리 HTML이 png 로 저장되는 사고) 방지
+  }
+}
+
 // ── 상세 슬라이드오버 ──
 async function openDetail(id) {
   id = Number(id);
@@ -384,14 +442,25 @@ function renderDetail(img) {
   if (img.owner_name) metaRows.push(['만든이', escapeHtml(img.owner_name)]);
   if (img.created_at) metaRows.push(['생성일', fmtDateTime(img.created_at)]);
   if (img.thread_id) metaRows.push(['출처', '대화 #' + img.thread_id]);
+  // 자동 분류(비전 캡션 엔진) — DB 에 이미 있는 값 표시만
+  if (img.type) metaRows.push(['종류', escapeHtml(img.type)]);
+  if (img.client) metaRows.push(['거래처', escapeHtml(img.client)]);
+  if (img.keywords) metaRows.push(['키워드', escapeHtml(img.keywords)]);
   const metaHtml = metaRows.map(r => '<dt>' + r[0] + '</dt><dd' + (r[2] ? ' class="' + r[2] + '"' : '') + '>' + r[1] + '</dd>').join('');
 
+  const captionHtml = img.caption
+    ? '<div class="detail-block">' +
+        '<div class="detail-block-label"><span class="material-symbols-outlined">visibility</span>AI 가 본 내용</div>' +
+        '<div class="doc-text">' + escapeHtml(img.caption) + '</div>' +
+      '</div>'
+    : '';
+
   const imgHtml = img.url
-    ? '<img src="' + escapeHtml(img.url) + '" alt="">'
+    ? '<img src="' + escapeHtml(img.url) + '" alt="" style="cursor:zoom-in;" title="클릭하면 크게 보기">'
     : '<span class="ph" style="color:#cbd1da;"><span class="material-symbols-outlined" style="font-size:48px;">image</span></span>';
 
   $('detailBody').innerHTML =
-    '<div class="detail-img">' + imgHtml + '</div>' +
+    '<div class="detail-img" data-lb-open="' + img.id + '">' + imgHtml + '</div>' +
 
     // 문서화 블록 — 원래 입력 + 최종 프롬프트
     '<div class="detail-block">' +
@@ -400,6 +469,7 @@ function renderDetail(img) {
       '<div class="detail-block-label" style="margin-top:12px;"><span class="material-symbols-outlined">auto_awesome</span>최종 프롬프트</div>' +
       '<div class="doc-prompt" id="detailPromptText">' + escapeHtml(img.prompt || '') + '</div>' +
     '</div>' +
+    captionHtml +
 
     // 메타
     '<div class="detail-block">' +
@@ -562,14 +632,15 @@ async function saveDetail(id) {
 
 // "이걸로 다시" — 프롬프트를 들고 AI 챗으로 이동(prefill)
 function regenerate(prompt) {
-  const url = '/ai-chat.html?embed=1&prefill=' + encodeURIComponent(prompt || '');
-  // embed(iframe) 상황이면 부모 탭 전환을 유도, 아니면 현재 창 이동
+  // embed(iframe) 상황이면 부모(index.html)가 AI 탭으로 전환 + 챗 iframe 에 prefill 전달.
+  // 여기서 self-navigate 하면 갤러리 iframe 자체가 챗으로 바뀌는 이상 동작이라 부모에게만 위임한다.
   if (window.parent !== window) {
     try {
-      window.parent.postMessage({ type: 'erp:navtab', tab: 'ai', prefill: prompt || '' }, '*');
+      window.parent.postMessage({ type: 'erp:navtab', tab: 'ai', prefill: prompt || '' }, window.location.origin);
+      return;
     } catch (_) {}
   }
-  window.location.href = url;
+  window.location.href = '/ai-chat.html?embed=1&prefill=' + encodeURIComponent(prompt || '');
 }
 
 // "참고로 사용" — 이 이미지를 참고 이미지로 AI 챗에 넘김(이미지 URL 전달).
@@ -577,12 +648,16 @@ function regenerate(prompt) {
 function useAsReference(img) {
   if (!img || !img.url) { toast('이미지 주소가 없어요'); return; }
   const ref = img.url;
+  const title = img.title || (img.prompt || '').slice(0, 40) || '';
   if (window.parent !== window) {
     try {
-      window.parent.postMessage({ type: 'erp:navtab', tab: 'ai', refImage: ref, prefill: '' }, '*');
+      window.parent.postMessage({ type: 'erp:navtab', tab: 'ai', refImage: ref, refImageId: img.id || null, refTitle: title, prefill: '' }, window.location.origin);
+      return;
     } catch (_) {}
   }
-  window.location.href = '/ai-chat.html?embed=1&refImage=' + encodeURIComponent(ref);
+  window.location.href = '/ai-chat.html?embed=1&refImage=' + encodeURIComponent(ref)
+    + (img.id ? '&refImageId=' + encodeURIComponent(img.id) : '')
+    + (title ? '&refTitle=' + encodeURIComponent(title) : '');
 }
 
 // ── 삭제 ──
@@ -795,6 +870,7 @@ function wire() {
   $('sortSelect').addEventListener('change', (e) => { state.sort = e.target.value; loadImages(false); });
 
   // 그리드 (위임): 즐겨찾기 / 체크 / 타일 클릭
+  // 기본 룰: 사진 클릭 = 크게 보기(라이트박스), 아래 내용 클릭 = 오른쪽 상세 패널
   $('imgGrid').addEventListener('click', (e) => {
     const favBtn = e.target.closest('[data-fav]');
     if (favBtn) { e.stopPropagation(); toggleFavorite(favBtn.getAttribute('data-fav')); return; }
@@ -804,9 +880,21 @@ function wire() {
     if (tile) {
       const id = tile.getAttribute('data-id');
       // 선택 모드(이미 선택된 게 있으면)에서는 클릭이 선택 토글
-      if (state.selected.size > 0) toggleSelect(id);
+      if (state.selected.size > 0) { toggleSelect(id); return; }
+      if (e.target.closest('.tile-thumb')) openLightbox(id);
       else openDetail(id);
     }
+  });
+
+  // 라이트박스
+  $('lbClose').addEventListener('click', closeLightbox);
+  $('lbPrev').addEventListener('click', () => lbNav(-1));
+  $('lbNext').addEventListener('click', () => lbNav(1));
+  $('lbStage').addEventListener('click', (e) => { if (e.target === $('lbStage')) closeLightbox(); });
+  $('lbDetail').addEventListener('click', () => {
+    const img = state.images[state.lbIndex];
+    closeLightbox();
+    if (img) openDetail(img.id);
   });
   $('loadMoreBtn').addEventListener('click', () => loadImages(true));
 
@@ -831,7 +919,20 @@ function wire() {
   $('detailClose').addEventListener('click', closeDetail);
   $('detailBg').addEventListener('click', closeDetail);
   // 비슷한 이미지 타일 클릭 → 그 이미지 상세로 전환 (위임: detailBody 는 정적 노드)
+  // 상세 이미지 클릭 → 라이트박스 (목록 밖 이미지면 새 탭 원본)
   $('detailBody').addEventListener('click', (e) => {
+    const lbTrig = e.target.closest('[data-lb-open]');
+    if (lbTrig) {
+      const id = Number(lbTrig.getAttribute('data-lb-open'));
+      const inList = state.images.some(i => i.id === id);
+      if (inList) openLightbox(id);
+      else {
+        const cur = state.images.find(i => i.id === state.detailId);
+        const url = (cur && cur.url) || (lbTrig.querySelector('img') || {}).src;
+        if (url) window.open(url, '_blank', 'noopener');
+      }
+      return;
+    }
     const simBtn = e.target.closest('[data-sim-id]');
     if (simBtn) { e.preventDefault(); openDetail(simBtn.getAttribute('data-sim-id')); }
   });
@@ -847,10 +948,14 @@ function wire() {
   $('hamburgerBtn').addEventListener('click', () => $('sidebar').classList.toggle('open'));
   $('sidebarBackdrop').addEventListener('click', closeSidebarMobile);
 
-  // ESC
+  // 키보드: 라이트박스 최우선 (ESC 닫기 + ◀▶ 넘기기)
   document.addEventListener('keydown', (e) => {
+    const lbOpen = $('lightbox').classList.contains('visible');
+    if (lbOpen && e.key === 'ArrowLeft') { e.preventDefault(); lbNav(-1); return; }
+    if (lbOpen && e.key === 'ArrowRight') { e.preventDefault(); lbNav(1); return; }
     if (e.key === 'Escape') {
-      if ($('modalBg').classList.contains('visible')) closeModal();
+      if (lbOpen) closeLightbox();
+      else if ($('modalBg').classList.contains('visible')) closeModal();
       else if ($('detail').classList.contains('visible')) closeDetail();
       else if (state.selected.size) clearSelection();
     }
