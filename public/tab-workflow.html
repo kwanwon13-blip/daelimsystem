@@ -261,7 +261,15 @@
   .wf-toast.urgent{background:#fef2f2;border-color:#fca5a5;border-left-color:#ef4444;box-shadow:0 8px 24px rgba(180,0,0,.22);}
   .wf-toast.urgent .wf-toast-title{color:#b91c1c;}
   .wf-toast.urgent .wf-toast-open{background:#dc2626;border-color:#dc2626;}
-  .wf-toast.urgent .wf-toast-open:hover{background:#b91c1c;}
+  .wf-toast.urgent .wf-toast-open:hover{background:#b91c1c;}  /* 일정 알림 색 구분 — 완료가능일==완료요청일(또는 빠름)=정시(녹색) / 늦음=빨강(urgent 미설정 시 폴백) */
+  .wf-toast.ontime{background:#f0fdf4;border-color:#86efac;border-left-color:#22c55e;box-shadow:0 8px 24px rgba(0,120,40,.18);}
+  .wf-toast.ontime .wf-toast-title{color:#166534;}
+  .wf-toast.ontime .wf-toast-open{background:#16a34a;border-color:#16a34a;}
+  .wf-toast.ontime .wf-toast-open:hover{background:#15803d;}
+  .wf-toast.late{background:#fef2f2;border-color:#fca5a5;border-left-color:#ef4444;box-shadow:0 8px 24px rgba(180,0,0,.22);}
+  .wf-toast.late .wf-toast-title{color:#b91c1c;}
+  .wf-toast.late .wf-toast-open{background:#dc2626;border-color:#dc2626;}
+  .wf-toast.late .wf-toast-open:hover{background:#b91c1c;}
   .wf-toast-badge{display:inline-block;background:#dc2626;color:#fff;font-size:10px;font-weight:900;padding:1px 6px;border-radius:5px;margin-right:5px;vertical-align:middle;}
   /* ===== 과거내역 = 컴퍼니매입 2분할(좌 날짜·코드표 / 우 코드클릭→시안) 구조 차용 · 워크플로우 톤 ===== */
   .wf-view-archive{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px;padding:8px 2px 2px;}
@@ -2399,7 +2407,7 @@
 <!-- 인앱 알림 토스트(우하단) — OS 알림이 막힌 HTTP에서도 작동. 자동으로 안 사라지고 [보기]/[확인] 눌러야 닫힘 -->
 <div class="wf-toast-wrap" x-show="toasts.length" x-cloak>
   <template x-for="t in toasts" :key="'wftoast-'+t.id">
-    <div class="wf-toast" :class="t.urgent ? 'urgent' : ''">
+    <div class="wf-toast" :class="t.urgent ? 'urgent' : (t.scheduleState === 'ontime' ? 'ontime' : (t.scheduleState === 'late' ? 'late' : ''))">
       <div class="wf-toast-body" role="button" tabindex="0" @click="openToast(t)" title="클릭하면 해당 작업 열기">
         <div class="wf-toast-title"><span class="wf-toast-badge" x-show="t.urgent">긴급</span><span x-text="t.title"></span></div>
         <div class="wf-toast-msg" x-text="t.body"></div>

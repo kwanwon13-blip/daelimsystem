@@ -682,6 +682,14 @@ function workflowApp() {
         body: String(item.message || '').slice(0, 200),
         actorName: item.actorName || '',
         urgent: !!(item.urgent || item.urgentFileCount || item.kind === 'urgent' || item.priority === 'urgent' || item.priority === 'high'),
+        // 일정 알림 색 구분: 서버가 만든 message 문구로 판정(무재시작). '지연'=늦음(빨강), '동일'/'빠름'=정시(녹색)
+        scheduleState: (() => {
+          const m = String(item.message || '');
+          if (!/완료가능일/.test(m)) return '';
+          if (/지연/.test(m)) return 'late';
+          if (/완료요청일과 동일|빠름/.test(m)) return 'ontime';
+          return '';
+        })(),
       });
       if (this.toasts.length > 20) this.toasts = this.toasts.slice(0, 20); // 확인 안 한 게 쌓여도 메모리 보호(최신 20개)
       this._persistToasts();
@@ -4532,6 +4540,20 @@ function workflowApp() {
       if (!jobId || !list.length) return null;
       const validationError = this.validateUploadFileList(list);
       if (validationError) throw new Error(validationError);
+      // 외부접속(erp.daelimsm.com=Cloudflare 경유)은 요청 body 100MB 하드리밋 → 서버 도달 전 에지에서 잘림.
+      // 총 배치 크기가 한도에 근접하면 업로드 전에 막고 어디서 올려야 하는지 안내(사내망은 무제한).
+      const CF_UPLOAD_LIMIT = 100 * 1024 * 1024; // Cloudflare Free 요청 body 한도
+      const CF_SAFE_LIMIT = 95 * 1024 * 1024;    // 안전 여유(폼필드/오버헤드 감안)
+      if (this.isExternalWorkflowHost()) {
+        const batchSize = this.fileListTotalSize(list);
+        if (batchSize > CF_SAFE_LIMIT) {
+          throw new Error(
+            `외부접속(erp.daelimsm.com)에서는 한 번에 100MB까지만 올릴 수 있어요. (지금 ${this.fileSizeLabel(batchSize)})\n` +
+            `· 사무실 네트워크에서 http://192.168.0.133:3000 으로 접속하면 용량 제한 없이 올라갑니다.\n` +
+            `· 큰 .ai 원본은 서버 저장 폴더에 직접 넣어주셔도 됩니다.`
+          );
+        }
+      }
       const storageCompanyName = String(options.companyName || '').trim();
       const storageProjectName = String(options.projectName || '').trim();
       if (!storageCompanyName) {
@@ -4581,6 +4603,16 @@ function workflowApp() {
             try { data = JSON.parse(xhr.responseText || '{}'); }
             catch (_) { data = {}; }
             if (xhr.status < 200 || xhr.status >= 300 || !data.ok) {
+              // Cloudflare 413(요청 body 100MB 초과)는 JSON이 아닌 HTML 에러페이지라 data.error가 없음.
+              // status===413(또는 외부접속에서 응답 파싱 실패)이면 원인·해결을 명확히 안내.
+              if (xhr.status === 413 || (!data.error && this.isExternalWorkflowHost())) {
+                reject(new Error(
+                  '외부접속(erp.daelimsm.com)에서는 한 번에 100MB까지만 올릴 수 있어요.\n' +
+                  '· 사무실 네트워크에서 http://192.168.0.133:3000 으로 접속하면 용량 제한 없이 올라갑니다.\n' +
+                  '· 큰 .ai 원본은 서버 저장 폴더에 직접 넣어주셔도 됩니다.'
+                ));
+                return;
+              }
               reject(new Error(data.error || '파일 업로드 실패'));
               return;
             }
