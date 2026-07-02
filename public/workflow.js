@@ -1247,7 +1247,9 @@ function workflowApp() {
     boardGroups(stageId) {
       // 긴급(>높음) 건은 칸 맨 위 고정. 그다음 칸별 날짜 기준: 디자인=완료요청일 / 공장=등록순서 / 경영관리=완료가능일
       const prioRank = j => (j && j.priority === 'urgent') ? 2 : ((j && j.priority === 'high') ? 1 : 0);      // 공장 칸: '오늘 완료예정' 켜진 카드를 긴급 바로 아래로 모음(나머지는 그대로 아래에 계속 노출)
-      const readyRank = j => (stageId === 'factory' && j && j.readySoon) ? 1 : 0;
+      // ★완료예정 '위로 모으기'는 타부서(관리팀·관리자) 화면에서만 — 컴퍼니 작업자 화면은 순서 그대로(초록 표시만, 눌러도 카드 안 튐)
+      const _viewerIsFactoryWorker = !!(this.currentUser && this.currentUser.role !== 'admin') && (this.jobs || []).some(j => j && j.viewerCanFactory);
+      const readyRank = j => (!_viewerIsFactoryWorker && stageId === 'factory' && j && j.readySoon) ? 1 : 0;
       const dateKey = j => {
         if (!j) return '9999-99-99';
         if (stageId === 'factory') { // 공장=선택 기준(드롭다운, 기본 등록순)
