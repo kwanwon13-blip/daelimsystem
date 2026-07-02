@@ -7759,6 +7759,10 @@ function app() {
       }
       return n || (this.pickupKakaoCandidates || []).length;
     },
+    // 등록업체와 연결 안 된(free-text로 저장될) 후보 — 저장 전 확인 알림용
+    get pickupUnlinkedCandidates() {
+      return (this.pickupKakaoCandidates || []).filter(c => (c.vendorName || '').trim() && !c.vendorId);
+    },
     pickupMine: [],
     pickupRequests: [],
     pickupGroups: [],
@@ -7831,7 +7835,14 @@ function app() {
     },
     // 카톡 파싱 (입력 즉시 자동 — 디바운스는 마크업 @input)
     // ── #업체 자동완성 (견적 catSearch 인라인 패턴 복제) ──
-    pkNorm(s) { return String(s || '').toLowerCase().replace(/\s+/g, ''); },
+    pkNorm(s) {
+      // lib/pickup-logic.js 의 normVendorName 과 동일 규칙(법인격/괄호/특수문자 제거) — 취합뷰 그룹핑·자동링크가 같은 norm 공유
+      return String(s || '').toLowerCase()
+        .replace(/㈜|\(주\)|주식회사|（주）|\(株\)|（株）|株式会社/g, '')
+        .replace(/[（）()【】「」『』\[\]<>{}]/g, '')
+        .replace(/[.,·・‧·:;/\\\-_~!@#$%^&*+='"`|?]/g, '')
+        .replace(/\s+/g, '');
+    },
     get pickupVendorSuggest() {
       const list = (this.activePickupVendors || []);
       const q = this.pkNorm(this.pkQuery);
@@ -7891,6 +7902,23 @@ function app() {
       });
       this.parsePickupKakao();
     },
+    // 업체 추정명(guess) → 등록업체 매칭 (정확일치 우선, 2자+ 유일 부분일치). 파싱·수동편집 공용
+    matchVendorByGuess(guess) {
+      const gn = this.pkNorm(guess || '');
+      if (!gn) return null;
+      const vs = (this.vendors || []);
+      let m = vs.find(v => v.name && this.pkNorm(v.name) === gn) || null;
+      if (!m && gn.length >= 2) {
+        const partial = vs.filter(v => v.name && this.pkNorm(v.name).includes(gn));
+        if (partial.length === 1) m = partial[0];
+      }
+      return m;
+    },
+    // 후보 회사명을 사람이 고치면 즉시 재연결(초록 배지 반영) — 미연결 확인 알림과 연동
+    relinkCandidate(cand) {
+      const m = this.matchVendorByGuess(cand.vendorName);
+      cand.vendorId = m ? m.id : '';
+    },
     async parsePickupKakao() {
       const text = (this.pickupKakaoText || '').trim();
       // 입력 비면 후보 비우고 조용히 종료
@@ -7907,18 +7935,7 @@ function app() {
         // 업체명 추정값을 vendorName 으로 prefill, 등록업체와 같으면 vendorId 채움(배지용)
         this.pickupKakaoCandidates = (d.groups || []).map(g => {
           const guess = (g.vendorGuess || '').trim();
-          const gn = this.pkNorm(guess);
-          let match = null;
-          if (gn) {
-            const vs = (this.vendors || []);
-            // 1) 정규화 정확일치 우선 (빈 이름은 norm 시 빈값 → gn 과 안 맞음)
-            match = vs.find(v => v.name && this.pkNorm(v.name) === gn) || null;
-            // 2) 부분일치는 guess 3자 이상 + 매칭 후보 유일할 때만
-            if (!match && gn.length >= 3) {
-              const partial = vs.filter(v => v.name && this.pkNorm(v.name).includes(gn));
-              if (partial.length === 1) match = partial[0];
-            }
-          }
+          const match = this.matchVendorByGuess(guess);
           return {
             vendorName: guess,
             vendorId: match ? match.id : '',
@@ -7935,6 +7952,9 @@ function app() {
         (c.vendorName || '').trim() && (c.items || []).some(it => (it.itemName || '').trim())
       );
       if (!ready.length) { this.showToast('업체명과 품목을 입력하세요', 'error'); return; }
+      // 미연결(등록업체 매칭 실패) 후보가 있으면 저장 전 한 번 확인 — 주소·취합 누락 방지
+      const unlinked = ready.filter(c => !c.vendorId);
+      if (unlinked.length && !confirm(unlinked.length + '곳이 등록업체와 연결 안 됐어요(주소·취합에서 누락될 수 있어요):\n· ' + unlinked.map(c => c.vendorName).join('\n· ') + '\n\n이대로 저장할까요? (취소 후 회사명을 고치면 자동 연결돼요)')) return;
       this.pickupSaving = true;
       let ok = 0;
       const failed = [];   // 실패한 후보(성공분만 목록에서 제거 → 재시도 시 중복 방지)
@@ -8770,6 +8790,10 @@ function app() {
         if (v === 'pickup') {
           if (this.pickupView === 'collect') this.loadPickupRequests();
           else this.loadPickupMine();
+          // 업체목록 자동 갱신 — 탭을 오래 열어둔 브라우저도 새 등록업체와 링크되게(stale 자가치유). 갱신 후 화면의 미연결 후보 재링크
+          this.loadVendors().then(() => {
+            (this.pickupKakaoCandidates || []).forEach(c => { if (!c.vendorId) this.relinkCandidate(c); });
+          }).catch(() => {});
         }
       });
 

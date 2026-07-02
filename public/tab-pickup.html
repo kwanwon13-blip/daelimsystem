@@ -65,14 +65,22 @@
             <button class="btn-ghost btn-sm" style="margin-left:auto;" @click="pickupKakaoCandidates=[]; pickupKakaoText=''">지우기</button>
           </div>
 
+          <!-- 미연결 경고 배너 — 등록업체와 연결 안 된 후보가 있으면 저장 전 확인 -->
+          <div x-show="pickupUnlinkedCandidates.length" x-cloak
+            style="display:flex;align-items:center;gap:8px;padding:9px 12px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;color:#92400e;font-size:13px;font-weight:600;line-height:1.4;">
+            <span class="material-symbols-outlined" style="font-size:19px;color:#d97706;flex:none;">warning</span>
+            <span><b x-text="pickupUnlinkedCandidates.length"></b>곳이 등록업체와 연결 안 됐어요 — 회사명을 확인/수정하면 자동 연결돼요. (미연결은 주소·취합에서 누락될 수 있어요)</span>
+          </div>
+
           <!-- 미리보기: 업체별 카드 -->
           <template x-for="(cand, ci) in pickupKakaoCandidates" :key="'cand'+ci">
-            <div class="card" style="padding:0;overflow:hidden;border:1px solid #bfdbfe;">
+            <div class="card" :style="'padding:0;overflow:hidden;border:1px solid ' + (cand.vendorId ? '#bfdbfe' : '#f59e0b')">
               <!-- 업체(회사) 헤더 — 파란 바 + '업체' 칩으로 품목과 확실히 구분 -->
               <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:linear-gradient(135deg,#eff6ff,#dbeafe);border-bottom:1px solid #bfdbfe;flex-wrap:wrap;">
                 <span class="text-xs" style="background:#2563eb;color:#fff;padding:3px 10px;border-radius:999px;font-weight:800;flex:none;letter-spacing:0.5px;">업체</span>
-                <input type="text" x-model="cand.vendorName" class="input-base" style="flex:1;min-width:150px;font-weight:800;font-size:15px;background:#fff;" placeholder="회사명 (#로 자동완성)">
+                <input type="text" x-model="cand.vendorName" @input.debounce.300ms="relinkCandidate(cand)" class="input-base" style="flex:1;min-width:150px;font-weight:800;font-size:15px;background:#fff;" placeholder="회사명 (#로 자동완성)">
                 <span x-show="cand.vendorId" class="text-xs px-2 py-0.5 rounded-full" style="background:#dcfce7;color:#15803d;flex:none;">✓ 등록됨</span>
+                <span x-show="!cand.vendorId" x-cloak class="text-xs px-2 py-0.5 rounded-full" style="background:#fef3c7;color:#b45309;flex:none;font-weight:800;">⚠ 미등록 · 확인</span>
                 <span x-show="cand._saveFailed" class="text-xs px-2 py-0.5 rounded-full" style="background:#fee2e2;color:#b91c1c;flex:none;">저장 실패 · 다시 시도</span>
                 <button class="btn-ghost btn-sm" style="margin-left:auto;flex:none;" @click="pickupKakaoCandidates.splice(ci,1)">제외</button>
               </div>
