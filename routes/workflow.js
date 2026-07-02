@@ -4520,6 +4520,7 @@ router.put('/jobs/:id', (req, res) => {
   if (previousStatus !== job.status && job.status === 'cancelled') {
     eventType = 'cancel';
     eventMessage = '작업 취소 표시 · 기록 보존';
+    clearFactoryReadySoon(job); // ★자동해제(지점 D): PUT으로 취소돼도 factory 이탈 → 완료예정 제거(모든 exit 불변식 완성)
   } else if (previousStatus === 'cancelled' && job.status !== 'cancelled') {
     eventType = 'restore';
     eventMessage = `${STATUS_LABELS[job.status] || job.status || '진행'} 상태로 취소 복구`;

@@ -996,7 +996,7 @@
                         <span class="wf-rc-team weld" x-show="jobTeamCounts(job).welding">용접 <span x-text="jobTeamCounts(job).welding"></span></span>
                         <span class="wf-rc-team out" x-show="jobTeamCounts(job).output">출력 <span x-text="jobTeamCounts(job).output"></span></span>                        <button type="button" class="wf-rc-readysoon" :class="job.readySoon ? 'on' : ''"
                           x-show="job.viewerCanFactory && job.status!=='done' && job.status!=='cancelled'"
-                          @click.stop="toggleReadySoon(job)" :disabled="saving"
+                          @click.stop="toggleReadySoon(job)"
                           :title="job.readySoon ? '오늘 완료예정 표시 켜짐 — 누르면 끔 (단계는 안 올라감)' : '오늘 안에 제작이 끝날 예정이면 켜세요 (관리팀이 내일 일정 잡을 때 참고, 단계는 안 올라감)'">
                           <span class="material-symbols-outlined" x-text="job.readySoon ? 'check_circle' : 'schedule'"></span>
                           <span x-text="job.readySoon ? '완료예정' : '완료예정?'"></span>

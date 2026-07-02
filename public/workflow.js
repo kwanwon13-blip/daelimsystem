@@ -3795,23 +3795,27 @@ function workflowApp() {
       finally { this.saving = false; }
     },
 
-    // 공장 카드 '오늘 완료예정' 토글 — 단계는 절대 안 올라감(요구1). 서버 저장 후 재조회로 표시·정렬 반영.
+    // 공장 카드 '오늘 완료예정' 토글 — 단계 절대 안 올라감(요구1). 카드별 in-flight(전역 saving과 분리)라 다른 카드·다른 작업이 막지 않음.
     async toggleReadySoon(job) {
-      if (!job || this.saving) return;
-      if (job.currentStage !== 'factory') return; // factory 아닌 카드에선 무시(요구4)
+      if (!job || job.currentStage !== 'factory') return; // factory 아닌 카드에선 무시(요구4)
+      this.readySoonBusy = this.readySoonBusy || {};
+      if (this.readySoonBusy[job.id]) return; // 같은 카드 연타만 방지(다른 카드·작업과 독립)
       const next = !job.readySoon;
-      this.saving = true;
+      this.readySoonBusy[job.id] = true;
       try {
         const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(job.id) + '/ready-soon', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ on: next }),
         });
         const d = await r.json().catch(() => ({}));
-        if (!r.ok || !d.ok) throw new Error(d.error || '저장 실패');
+        if (!r.ok || !d.ok) {
+          if (r.status === 400) { try { await this.loadJobs(); } catch (_) {} } // 이미 다른 단계로 옮겨진 stale 카드 → 보드 재조회로 유령카드 정리(요구2)
+          throw new Error(d.error || '저장 실패');
+        }
         await this.loadJobs();
         if (this.detail && this.detail.job && this.detail.job.id === job.id) await this.refreshDetail(false);
       } catch (e) { alert(e.message); }
-      finally { this.saving = false; }
+      finally { delete this.readySoonBusy[job.id]; }
     },
 
     // 파일 개별 삭제 — 작성자·관리자만(서버 게이트), 확인 후 목록에서 제거. 디스크 원본은 서버가 보존.
