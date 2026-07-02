@@ -952,7 +952,8 @@ function syncWorkflowStageFlow(job, at = nowIso()) {
       advanced = setStageReady(job, STAGES[i].id, at) || advanced;
     }
   }
-  job.currentStage = inferCurrentStage(job.stageChecks, job.currentStage || 'design');
+  job.currentStage = inferCurrentStage(job.stageChecks, job.currentStage || 'design');  // ★자동해제(지점 A): factory를 벗어난 순간(디자인으로 되돌리기·delivery로 전진 등) 완료예정 표시 제거
+  if (job.currentStage !== 'factory') clearFactoryReadySoon(job);
   return { parallelActivated: advanced, deliveryActivated: advanced };
 }
 
@@ -2860,7 +2861,9 @@ function decorateJob(data, job, viewerUser = null, options = {}) {
     lateScheduleCount: lateScheduleCount(scopedData, job),
     canComplete: blockers.length === 0,
     completionBlockers: blockers,
-    factoryAvailableDate: job.factoryAvailableDate || '',
+    factoryAvailableDate: job.factoryAvailableDate || '',    readySoon: job.currentStage === 'factory' && !!job.factoryReadySoon, // 카드 표시용 — factory에서만 유효
+    readySoonAt: job.factoryReadySoonAt || '',
+    readySoonByName: job.factoryReadySoonByName || '',
     scheduleLate: !!(job.currentStage === 'factory' && job.factoryAvailableDate && job.dueDate && job.factoryAvailableDate > job.dueDate),
     scheduleChanged: !!(job.currentStage === 'factory' && job.factoryAvailableDate && job.dueDate && job.factoryAvailableDate !== job.dueDate),
     completedAt: job.completedAt || '',
@@ -3456,7 +3459,7 @@ function completeWorkflowJob(data, req, job, at = nowIso()) {
   job.archiveUpdatedAt = at;
   job.archiveFileCount = files.length;
   job.archiveStorageBucket = job.storageBucket || '';
-  job.currentStage = 'delivery';
+  job.currentStage = 'delivery';  clearFactoryReadySoon(job); // ★자동해제(지점 B): 완료(done)로 factory 이탈 → 완료예정 표시 제거
   if (firstArchive) {
     addEvent(data, req, job.id, 'complete', '완료 보관함 저장', {
       archiveFileCount: files.length,
@@ -3466,7 +3469,17 @@ function completeWorkflowJob(data, req, job, at = nowIso()) {
   return files.length;
 }
 
-// 수령(done/archive) 취소 시 보관 메타만 초기화. 제작완료일/코드는 factory 동기화가 관리.
+// 수령(done/archive) 취소 시 보관 메타만 초기화. 제작완료일/코드는 factory 동기화가 관리.// '오늘 완료예정'(factoryReadySoon)은 factory 단계에 머무는 순수 표시 →
+// factory를 벗어나는 모든 지점(진행/되돌리기/완료/취소)에서 리셋(찌꺼기 방지). 한 곳에 모아 DRY.
+function clearFactoryReadySoon(job) {
+  if (!job) return false;
+  if (!job.factoryReadySoon && !job.factoryReadySoonAt && !job.factoryReadySoonByName) return false;
+  job.factoryReadySoon = false;
+  job.factoryReadySoonAt = '';
+  job.factoryReadySoonByName = '';
+  return true;
+}
+
 function clearWorkflowArchive(job) {
   job.archiveStatus = '';
   job.archiveUpdatedAt = '';
@@ -4339,7 +4352,7 @@ router.post('/jobs/:id/cancel', (req, res) => {
   if (job.status === 'cancelled') return res.status(400).json({ error: '이미 취소된 발주입니다.' });
   const at = nowIso();
   const prev = job.status || 'active';
-  job.status = 'cancelled';
+  job.status = 'cancelled';  clearFactoryReadySoon(job); // ★자동해제(지점 C): 취소(cancel)로 factory 이탈 → 완료예정 표시 제거
   job.cancelledAt = at;
   job.cancelledBy = req.user?.userId || '';
   job.cancelledByName = userName(req);
@@ -4766,7 +4779,39 @@ router.post('/jobs/:id/handoff-note/ack', (req, res) => {
   res.json({ ok: true, job: decorateJob(data, job, req.user) });
 });
 
-// 실수로 다음 단계로 넘긴 작업을 한 단계 뒤로 되돌림. 과거내역(완료/취소)이면 배송 단계로 복구.
+// 실수로 다음 단계로 넘긴 작업을 한 단계 뒤로 되돌림. 과거내역(완료/취소)이면 배송 단계로 복구.// '오늘 완료예정' 토글 — factory(대림컴퍼니) 단계 카드용. 단계 절대 안 올라감(순수 표시).
+// 게이트=admin OR 공장(factory) 담당. currentStage!=='factory'면 400(다른 단계에선 무의미).
+router.post('/jobs/:id/ready-soon', (req, res) => {
+  const data = loadStore();
+  const job = data.jobs.find(j => j.id === req.params.id);
+  if (!job) return res.status(404).json({ error: '작업을 찾을 수 없습니다.' });
+  if (job.status === 'done' || job.status === 'cancelled') {
+    return res.status(400).json({ error: '완료/취소된 작업은 변경할 수 없습니다.' });
+  }
+  // 게이트: 관리자 또는 공장(대림컴퍼니) 담당 부서만
+  if (!(isWorkflowAdmin(req) || canDeptActOnStage(req, 'factory'))) {
+    return res.status(403).json({ error: WF_NO_PERM });
+  }
+  // 현재 단계가 factory일 때만 의미 있음 — 다른 단계 카드/ stale 보드에서의 호출 차단
+  const curId = inferCurrentStage(job.stageChecks || {}, job.currentStage || 'design');
+  if (curId !== 'factory') {
+    return res.status(400).json({ error: '대림컴퍼니(제작) 단계에서만 완료예정을 표시할 수 있습니다.' });
+  }
+  const on = req.body && (req.body.on === true || req.body.on === 'true' || req.body.on === 1 || req.body.on === '1');
+  const at = nowIso();
+  if (on) {
+    job.factoryReadySoon = true;
+    job.factoryReadySoonAt = at;
+    job.factoryReadySoonByName = userName(req);
+  } else {
+    clearFactoryReadySoon(job);
+  }
+  job.updatedAt = at;
+  // ※ 이벤트/알림 없음 — 잦은 토글의 알림 소음 방지(공장 불편 0). saveStore로 공유·새로고침 생존.
+  saveStore(data);
+  res.json({ ok: true, job: decorateJob(data, job, req.user) });
+});
+
 router.post('/jobs/:id/stepback', (req, res) => {
   const data = loadStore();
   const job = data.jobs.find(j => j.id === req.params.id);

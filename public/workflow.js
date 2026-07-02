@@ -1246,7 +1246,8 @@ function workflowApp() {
     // 보드 한 칸을 정렬/그룹해서 반환. 날짜별=단일그룹(마감순), 사람별=사람별 그룹(소제목용)
     boardGroups(stageId) {
       // 긴급(>높음) 건은 칸 맨 위 고정. 그다음 칸별 날짜 기준: 디자인=완료요청일 / 공장=등록순서 / 경영관리=완료가능일
-      const prioRank = j => (j && j.priority === 'urgent') ? 2 : ((j && j.priority === 'high') ? 1 : 0);
+      const prioRank = j => (j && j.priority === 'urgent') ? 2 : ((j && j.priority === 'high') ? 1 : 0);      // 공장 칸: '오늘 완료예정' 켜진 카드를 긴급 바로 아래로 모음(나머지는 그대로 아래에 계속 노출)
+      const readyRank = j => (stageId === 'factory' && j && j.readySoon) ? 1 : 0;
       const dateKey = j => {
         if (!j) return '9999-99-99';
         if (stageId === 'factory') { // 공장=선택 기준(드롭다운, 기본 등록순)
@@ -1257,7 +1258,7 @@ function workflowApp() {
         if (stageId === 'delivery') return j.factoryAvailableDate || j.dueDate || '9999-99-99'; // 경영관리=완료가능일
         return j.dueDate || '9999-99-99'; // 디자인=완료요청일
       };
-      const byDate = (a, b) => (prioRank(b) - prioRank(a)) || String(dateKey(a)).localeCompare(String(dateKey(b))) || String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+      const byDate = (a, b) => (prioRank(b) - prioRank(a)) || (readyRank(b) - readyRank(a)) || String(dateKey(a)).localeCompare(String(dateKey(b))) || String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
       const jobs = (this.jobsForStage(stageId) || []).slice();
       if (this.boardSort !== 'person') {
         return [{ key: '__all', person: '', jobs: jobs.sort(byDate) }];
@@ -3788,6 +3789,25 @@ function workflowApp() {
         delete this.factoryDatePending[jobId]; // 확정 — 수정중 표시 해제
         await this.loadJobs();
         if (this.detail && this.detail.job && this.detail.job.id === jobId) await this.refreshDetail(false);
+      } catch (e) { alert(e.message); }
+      finally { this.saving = false; }
+    },
+
+    // 공장 카드 '오늘 완료예정' 토글 — 단계는 절대 안 올라감(요구1). 서버 저장 후 재조회로 표시·정렬 반영.
+    async toggleReadySoon(job) {
+      if (!job || this.saving) return;
+      if (job.currentStage !== 'factory') return; // factory 아닌 카드에선 무시(요구4)
+      const next = !job.readySoon;
+      this.saving = true;
+      try {
+        const r = await fetch('/api/workflow/jobs/' + encodeURIComponent(job.id) + '/ready-soon', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ on: next }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.ok) throw new Error(d.error || '저장 실패');
+        await this.loadJobs();
+        if (this.detail && this.detail.job && this.detail.job.id === job.id) await this.refreshDetail(false);
       } catch (e) { alert(e.message); }
       finally { this.saving = false; }
     },
