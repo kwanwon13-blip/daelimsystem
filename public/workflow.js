@@ -4173,6 +4173,23 @@ function workflowApp() {
       return vs.some(v => /발주/.test((v && (v.originalName || v.name)) || ''));
     },
 
+    // 발주 취소된 시안 — 이 시안을 담은 발주가 있고 '전부 취소'면 true(재발주가 하나라도 살아있으면 false). 공장 오출력 방지용 ✕ 표시.
+    tileOrderCancelled(t) {
+      if (!t) return false;
+      const orders = (this.detail && Array.isArray(this.detail.orders)) ? this.detail.orders : [];
+      if (!orders.length) return false;
+      const ids = new Set(((t._variants && t._variants.length) ? t._variants : [t]).map(v => v && v.id).filter(Boolean));
+      if (t.id) ids.add(t.id);
+      let covered = 0, live = 0;
+      for (const o of orders) {
+        const fids = Array.isArray(o && o.fileIds) ? o.fileIds : [];
+        if (!fids.some(id => ids.has(id))) continue;
+        covered += 1;
+        if ((o.status || '') !== 'cancelled') live += 1;
+      }
+      return covered > 0 && live === 0;
+    },
+
     // 워크플로 잡 → 픽업 등록폼으로 전달 (app()이 별도 루트라 이벤트 브리지 사용)
     addJobToPickup(job) {
       const j = job || (this.detail && this.detail.job);

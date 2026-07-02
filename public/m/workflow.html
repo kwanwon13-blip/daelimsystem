@@ -139,6 +139,10 @@
   .file.unread{border-color:#fca5a5;box-shadow:0 0 0 2px rgba(248,113,113,.18);}
   .file-img{width:100%;background:#f1f3f7;display:block;border:none;padding:0;cursor:pointer;position:relative;}
   .file-img img{width:100%;display:block;max-height:60vh;object-fit:contain;background:#f8fafc;}
+  /* 발주 취소된 시안 — 흐림 + 큰 빨간 ✕ (공장 오출력 방지) */
+  .tile-cancelled{position:absolute;inset:0;background:rgba(255,255,255,.62);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;pointer-events:none;z-index:2;}
+  .tile-cancelled .x{font-size:56px;line-height:1;font-weight:900;color:#dc2626;text-shadow:0 1px 6px rgba(255,255,255,.9);}
+  .tile-cancelled .t{font-size:12px;font-weight:900;color:#fff;background:#dc2626;padding:2px 9px;border-radius:999px;letter-spacing:1px;}
   .file-bar{display:flex;align-items:center;gap:10px;padding:11px 13px;}
   .file-ext{flex:none;min-width:42px;height:42px;border-radius:9px;background:#eef2ff;color:#3730a3;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 6px;}
   .file-ext.missing{background:#fee2e2;color:#b91c1c;}
@@ -440,6 +444,7 @@
                 <img :src="filePreviewUrl(file) || fileThumbUrl(file)" loading="lazy"
                      @load="handleWorkflowImageLoad($event)"
                      @error="handleWorkflowImageError($event, fileThumbUrl(file))">
+                <div class="tile-cancelled" x-show="tileOrderCancelled(file)" x-cloak><span class="x">✕</span><span class="t">발주취소</span></div>
               </button>
             </template>
 
@@ -513,7 +518,7 @@
      ⚠ 스크립트 순서 중요: workflow.js(정의)를 먼저 동기 로드 → 그 다음 래퍼(동기)가 정의본을 감싼다.
      래퍼가 먼저면 _orig=window.workflowApp가 undefined라 return되어 mStage/mVisibleJobs 등이 빠진다(콘솔 ReferenceError).
      Alpine은 <head>에서 defer로 로드되어 DOM 파싱 완료 후(=이 두 동기 스크립트 실행 후) x-data를 평가하므로 합쳐진 정의본이 보장된다. -->
-<script src="/workflow.js?v=20260702d"></script><!-- v= 캐시버스트: workflow.js 배포 때마다 올릴 것(옛 JS 캐시로 새 버튼이 죽는 사고 방지) -->
+<script src="/workflow.js?v=20260702e"></script><!-- v= 캐시버스트: workflow.js 배포 때마다 올릴 것(옛 JS 캐시로 새 버튼이 죽는 사고 방지) -->
 <script>
   // workflowApp()에 모바일 전용 보조 필드/메서드를 주입(원본 로직은 그대로 재사용).
   // 데스크톱 보드(jobsByStage)·상세(detail)·권한 플래그·파일 메서드를 그대로 쓰고,

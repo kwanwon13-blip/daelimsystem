@@ -382,6 +382,10 @@
   .wf-feed-zoom{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:7px;background:rgba(15,23,42,.55);color:#fff;display:inline-flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s ease;pointer-events:none;}
   .wf-feed-zoom .material-symbols-outlined{font-size:18px;}
   .wf-feed-imgbox:hover .wf-feed-zoom{opacity:1;}
+  /* 발주 취소된 시안 — 공장이 모르고 출력하는 사고 방지: 흐림 + 큰 빨간 ✕ + 딱지 */
+  .wf-tile-cancelled{position:absolute;inset:0;background:rgba(255,255,255,.62);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;pointer-events:none;z-index:2;}
+  .wf-tile-cancelled .x{font-size:64px;line-height:1;font-weight:900;color:#dc2626;text-shadow:0 1px 6px rgba(255,255,255,.9);}
+  .wf-tile-cancelled .t{font-size:13px;font-weight:900;color:#fff;background:#dc2626;padding:2px 10px;border-radius:999px;letter-spacing:1px;}
   .wf-feed-filebar{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;}
   .wf-feed-filebar.missing{opacity:.6;}
   .wf-feed-ext{flex:0 0 auto;font-size:11px;font-weight:900;color:#fff;background:#0f172a;border-radius:5px;padding:3px 7px;letter-spacing:.5px;}
@@ -1530,6 +1534,7 @@
                         <div class="wf-feed-imgbox" role="button" tabindex="0" @click="openFilePreview(file, detailTiles())" :title="(file.originalName || '시안') + ' — 클릭하면 크게 보기 · ◀▶로 넘기기'">
                           <img :src="filePreviewUrl(file) || fileThumbUrl(file)" loading="lazy" @load="handleWorkflowImageLoad($event)" @error="handleWorkflowImageError($event, fileThumbUrl(file))">
                           <span class="wf-feed-zoom"><span class="material-symbols-outlined">zoom_in</span></span>
+                          <div class="wf-tile-cancelled" x-show="tileOrderCancelled(file)" x-cloak title="이 시안의 발주가 취소됨 — 제작하지 마세요"><span class="x">✕</span><span class="t">발주취소</span></div>
                           <a class="wf-tile-dl" :href="smartFileUrl(file)" @click.stop title="이 파일 받기"><span class="material-symbols-outlined" style="font-size:14px;">download</span></a>
                           <button type="button" class="wf-tile-dl" x-show="detail.job.viewerCanManage" @click.stop="deleteWorkflowFile(file)" :disabled="saving" title="이 파일 삭제 — 실수로 올렸을 때(작성자·관리자, 원본은 보존)" style="top:8px;left:8px;right:auto;bottom:auto;color:#dc2626;"><span class="material-symbols-outlined" style="font-size:14px;">delete</span></button>
                           <button type="button" class="wf-tile-dl" x-show="detail.job.viewerCanManage && canUploadToCurrentJob()" @click.stop="replaceDesignFile(file)" :disabled="saving" title="이 시안을 새 파일로 교체(파일명 달라도 연결) — 이전 버전은 보존" style="top:8px;left:42px;right:auto;bottom:auto;color:#2563eb;"><span class="material-symbols-outlined" style="font-size:14px;">swap_horiz</span></button>
